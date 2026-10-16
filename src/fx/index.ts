@@ -1,5 +1,6 @@
 /**
- * The six effects inside every send, in panel order (one knob module each): WET (its
+ * FX 1 is the drum bus (DrumBus: tracks pass through it). FX 2 and FX 3 are sends.
+ * The six effects inside each send, in panel order (one knob module each): WET (its
  * return volume) on top, INTENSITY below. See SendBus for what intensity drives.
  */
 export const EFFECTS = [
@@ -13,19 +14,27 @@ export const EFFECTS = [
 
 export const NUM_SEND_BUSES = 3;
 
-/** Starting send settings: 1 = dub delay, 2 = reverb (+ chorus), 3 = dirt. [send][effect] */
+/** Send bus numbers (FX 2, FX 3) as indexes into the [3][6] send grids; row 0 is FX 1. */
+export const SEND_BUSES = [1, 2] as const;
+
+/**
+ * Starting send settings, [bus][effect]. Row 0 belongs to FX 1 (the drum bus, which has
+ * its own controls) and is unused. FX 2 (bass / lead) = dub delay, FX 3 (pad) = reverb + chorus.
+ */
 export function defaultSendWet(): number[][] {
   return [
+    [0, 0, 0, 0, 0, 0],
     [0.6, 0, 0, 0, 0.2, 0],
-    [0, 0, 0, 0.2, 0.7, 0],
-    [0, 0.5, 0.3, 0, 0, 0.5],
+    [0, 0, 0, 0.3, 0.7, 0],
   ];
 }
 
 export function defaultSendInt(): number[][] {
   return [
     [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
     [0.5, 0.5, 0.5, 0.4, 0.6, 0.5],
-    [0.5, 0.5, 0.6, 0.5, 0.5, 0.6],
   ];
 }
+
+export { DRUM_BUS_PARAMS, defaultDrumBus } from './DrumBus';

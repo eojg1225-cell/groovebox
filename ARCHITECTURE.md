@@ -3,7 +3,7 @@
 ```
 src/engine       Pure engine: project model, params, smoothing, protocol, Engine (sequencer, mixer, master). No DOM/Web Audio.
 src/instruments  Instrument interface, registry (6 track types), Drum (layered), Synth (6-voice), presets, shared DSP. No DOM/Web Audio.
-src/fx           Effects (Delay, Distortion, MidCut, Chorus, Reverb, Compressor), SendBus (six effects, one AMOUNT each), Tape (master lo-fi). No DOM/Web Audio.
+src/fx           Effects (Delay, Distortion, MidCut, Chorus, Reverb, Compressor), SendBus (FX 2/3: six effects, WET + INTENSITY each), DrumBus (FX 1: stutter, distort, low-pass; tracks pass through it), Tape (master lo-fi). No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
 src/controls     ControlSurface event interface (knob/fader/button/joystick, values normalised 0..1)
@@ -31,7 +31,9 @@ Main -> worklet:
 | `setStep` | `channel`, `pattern`, `index`, `step` | Write one step (incl. its locks) |
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's instrument (clears its locks) and set its full sound |
 | `setChord` | `channel`, `chord` | Chord mode index (0 = off) |
-| `setRouting` | `channel`, `send` | Route a track to send 1-3 (0 = none) |
+| `setRouting` | `channel`, `send` | Route a track to send FX 2 / FX 3 (0 = none) |
+| `setDrumBus` | `channel`, `on` | Put a track through FX 1, the drum bus |
+| `setDrumBusParam` | `id`, `value` | A drum bus parameter (`DRUM_BUS_PARAMS`, real units) |
 | `setSendFx` | `send`, `effect`, `control` (`wet`/`int`), `value` | WET or INTENSITY of one effect inside a send |
 | `setLfo` | `channel`, `id` (`rate`/`shape`/`vol`/`pitch`), `value` | Track LFO |
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
@@ -61,7 +63,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 ## Project model (`src/engine/project.ts`)
 
-`Project { version: 6, bpm, swing (50-75 %), master, lofi, sendWet[3][6], sendInt[3][6], channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|cutoff|send"), chord, volume, pan, cutoff, fxSend (0-3), sendLevel, lfo{rate, shape, vol, pitch}, mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent, ring?, rest?, locks? }`. Every save goes through `src/engine/projectFile.ts`: a compact stored format (only steps with notes) whose reader also accepts full project objects from any earlier version and keeps everything it recognises (notes and pattern lengths first, then mixer, sounds, FX), so format changes never lose notes. On claude.ai the working project is also mirrored to the artifact's `db` (`projects/current`).
+`Project { version: 7, bpm, swing (50-75 %), master, lofi, fx1 {drum bus param: value}, sendWet[3][6], sendInt[3][6] (rows 1-2 = FX 2/3; row 0 unused), channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|cutoff|send"), chord, volume, pan, cutoff, fx1 (on the drum bus), fxSend (0, 2 or 3), sendLevel, lfo{rate, shape, vol, pitch}, mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent, ring?, rest?, locks? }`. Every save goes through `src/engine/projectFile.ts`: a compact stored format (only steps with notes) whose reader also accepts full project objects from any earlier version and keeps everything it recognises (notes and pattern lengths first, then mixer, sounds, FX), so format changes never lose notes. On claude.ai the working project is also mirrored to the artifact's `db` (`projects/current`).
 
 ## Sequencer
 
@@ -82,7 +84,7 @@ A global 16th-note clock (swing lengthens even steps and shortens odd ones) driv
 
 BASS (mono), PAD (poly) and LEAD (mono) are the same Synth with different core parameters and fixed values for the rest.
 
-**Sends and master:** each track has a low-pass CUTOFF and feeds at most one of three send buses (post-fader, by its send level). A `SendBus` feeds all six effects in parallel; each has WET (return volume) and INTENSITY (delay feedback, distortion drive, mid-cut depth, chorus depth + rate, reverb size, compressor threshold + ratio). Delay time is fixed per send (3/16, 1/4, 1/8, tempo-synced). The master runs `Tape` (LO-FI: low bump, asymmetric tanh saturation, 12 dB/oct roll-off from 20 kHz to ~3.5 kHz) before the safety soft-clip. Effect classes: Delay (smoothed tempo-synced time, low-pass + tanh feedback), Distortion (tanh/hard-clip blend + tone), MidCut (RBJ peaking cut), Chorus (two modulated delays), Reverb (Freeverb with pre-delay), Compressor (stereo-linked peak, fast attack).
+**Drum bus, sends and master:** each track has a low-pass CUTOFF. Tracks on FX 1 are summed into the `DrumBus` instead of the mix; it runs stutter (captures one grid length on the song clock's next grid line into a preallocated buffer, then repeats it with per-repeat fade and cumulative pitch), distortion and a low-pass with envelope follower, and adds the result to the mix. A track also feeds at most one of the sends FX 2 / FX 3 (post-fader, before the drum bus, by its send level). A `SendBus` feeds all six effects in parallel; each has WET (return volume) and INTENSITY (delay feedback, distortion drive, mid-cut depth, chorus depth + rate, reverb size, compressor threshold + ratio). Delay time is fixed per send (FX 2 3/16, FX 3 1/4, tempo-synced). The master runs `Tape` (LO-FI: low bump, asymmetric tanh saturation, 12 dB/oct roll-off from 20 kHz to ~3.5 kHz) before the safety soft-clip. Effect classes: Delay (smoothed tempo-synced time, low-pass + tanh feedback), Distortion (tanh/hard-clip blend + tone), MidCut (RBJ peaking cut), Chorus (two modulated delays), Reverb (Freeverb with pre-delay), Compressor (stereo-linked peak, fast attack).
 
 **Track LFO** (`src/engine/lfo.ts`): the engine keeps an LFO clock in 16th steps (reset on PLAY, advancing with the tempo), so every LFO is phase-locked to the song. Each track reads it at its rate (4 bars … 1/32 incl. triplets) and shape; S+H picks a new random level each cycle. VOL MOD scales the track level per sample (tremolo); PITCH MOD calls `Instrument.setPitchMod(semitones)` once per 64-sample chunk.
 

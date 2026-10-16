@@ -42,30 +42,37 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 
 | | RECORD | PLAY | SOUND DESIGN |
 |---|---|---|---|
-| Knobs | Two live knobs per track (default VOLUME + CUTOFF); FX 1-3 show a send | Same | The selected track's page |
-| FX 1/2/3 | Open that send on the knobs; the channel buttons then light for the tracks feeding it — tap one to add / remove it | Same | Route the selected track to that send (again = no send) |
+| Knobs | Two live knobs per track (default VOLUME + CUTOFF); FX 1-3 show a bus | Same | The selected track's page |
+| FX 1/2/3 | Open that bus: its controls fill the knobs **and the screen** (the sequencer returns when it is closed); the channel buttons light for the tracks on it — tap one to add / remove it | Same | Put the selected track on / off that bus |
+| CLEAR (hold) | + step: clear that step (a note tied over it ends before it); + channel button: clear that track's current pattern. While held the strip shows steps | Same | — |
 | Drum strip | Toggle steps | Keyboard (chromatic drum) | Keyboard (audition) |
 | Pitched strip | Stopped: step entry (cursor; ◀ ▶ REST; hold + ▶ ties). Playing: live recording | Keyboard | Keyboard (audition) |
 | Recorded? | Yes | Never | No |
 
-**Sound design pages:** SOUND (per row: four sound knobs, then the track LFO in modules 5-6 — top RATE / SHAPE, bottom VOL MOD / PITCH MOD; drums: layer 1 ×3 + DRIVE, layer 2 ×3 + CRUSH; the PAD page has CHORD), TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Settings without a knob come from the presets, which keeps each sound's character.
+**Sound design pages:** SOUND — the same on every track, one column per module: 1 TIMBRE / INTENSITY, 2 ATTACK / DECAY, 3 FILTER / RESO, 4 LFO RATE / VOL MOD, 5 LFO SHAPE / PITCH MOD, 6 DRIVE / CRUSH. Press SOUND again for **DETAIL** (the type's layers: drums one layer per row; synths oscillators on top, glide or chord / filter envelope / sustain / release / level below). TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Drum ATTACK / DECAY / FILTER / RESO act on the whole drum (DECAY scales every layer's decay) and sit on top of the macros.
+
+**No safe limits:** ranges go well past sensible (drive to 200×, resonance to self-oscillation, pitch sweeps of 8 octaves, decays to 20 s, LFO pitch to 48 semitones, tempo 40-300). Only the master soft-clip stays, so the output can't hard-clip.
 
 **Sounds: TIMBRE and INTENSITY.** Every track has two macro knobs at the start of its sound page. TIMBRE travels through four designed sounds, blending every parameter between them; INTENSITY damps (left) or excites (right) the result, changing character rather than loudness. The detail knobs show what the macros set and can fine-tune it until a macro is turned again. Presets are the named TIMBRE points.
 
 | Track | TIMBRE: low → high | Detail knobs |
 |---|---|---|
-| KICK (tone + click) | VINTAGE → PUNCH → TECHNO → PSY DOOF | pitch, decay / click, sweep, DRIVE, CRUSH |
-| SNARE (tone + metal) | RIMSHOT → TIGHT → BREAK → INDUSTRIAL | pitch, decay / metal, metal decay, DRIVE, CRUSH |
-| HAT (click + metal) | RIDE → HAT → CRASH → CHINA | metal pitch, decay / click, metal tone, DRIVE, CRUSH |
-| BASS (mono) | SINE SUB → SOLID → GROWL → FM CLANG | glide, octave / filter, reso, decay, sub |
-| PAD (6 voices) | WARM → STRINGS → GLASS → DARK | chord, octave / filter, attack, release, detune |
-| LEAD (mono) | SINE → SQUARE → SCREAM → BELL | glide, octave / filter, reso, decay, detune |
+| KICK (tone + click) | VINTAGE → PUNCH → TECHNO → PSY DOOF (absurd: ~7-octave zap into a square-driven doof) | tone row / click row |
+| SNARE (tone + metal) | RIMSHOT → TIGHT → BREAK → INDUSTRIAL | tone row / metal row |
+| HAT (click + metal) | RIDE → HAT → CRASH → CHINA | click row / metal row |
+| BASS (mono) | SINE SUB → SOLID → GROWL → FM CLANG | oscillators / glide, envelopes, level |
+| PAD (6 voices) | WARM → STRINGS → GLASS → DARK | oscillators / chord, envelopes, level |
+| LEAD (mono) | SINE → SQUARE → SCREAM → BELL | oscillators / glide, envelopes, level |
 
 Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
 
-**Track LFO:** RATE tempo-synced (4 bars … 1/32, with triplets), SHAPE (sine, square, triangle, saw down, saw up, sample+hold), VOL MOD (tremolo depth) and PITCH MOD (up to ±12 semitones). Phase-locked to the song; restarts with PLAY. Rate and depths can be put on live knobs.
+**Track LFO:** RATE tempo-synced (4 bars … 1/64, with triplets), SHAPE (sine, square, triangle, saw down, saw up, sample+hold), VOL MOD (tremolo depth) and PITCH MOD (up to ±48 semitones). Phase-locked to the song; restarts with PLAY. Rate and depths can be put on live knobs.
 
-**FX sends:** three sends, each holding six effects with two knobs each: WET (return volume, top row) and INTENSITY (bottom row): DELAY (feedback; tempo-synced, send 1 = 3/16, 2 = 1/4, 3 = 1/8), DISTORT (drive), MID CUT (depth), CHORUS (depth + rate), REVERB (size), COMP (squash). Each track goes to one send with its own SEND LVL. Start: FX 1 dub delay, FX 2 reverb, FX 3 dirt.
+**FX 1 — drum bus:** tracks on it pass *through* it (100% wet), so it replaces rather than adds. Transparent at its defaults. Three effects, four knobs each (two modules per effect): **STUTTER** (amount — turning it up captures one GRID length on the next grid line and repeats it; GRID 1/2 … 1/64 with triplets, turning it while running rolls; FADE per repeat; PITCH per repeat, cumulative), **DISTORT** (DRIVE 0-60 dB, TONE, CRUSH, LEVEL), **LOW-PASS** (CUTOFF, RESO to self-oscillation, ENV follower ± up to 8 octaves, its REL). Chain: stutter → distort → low-pass.
+
+**FX 2 / FX 3 — sends:** six effects each, WET (labelled with the effect, top row) and INTENSITY (bottom row): DELAY (feedback; tempo-synced, FX 2 = 3/16 dub, FX 3 = 1/4), DISTORT, MID CUT, CHORUS, REVERB, COMP. A track goes to one send (own SEND LVL, taken before the drum bus), and can be on FX 1 at the same time.
+
+**Default routing** (a starting point, freely changed, no hidden rules): drums on FX 1, bass + lead to FX 2 (dub delay), pad to FX 3 (reverb + chorus). Older saves keep their routing (old delay send → FX 2, reverb send → FX 3; drum tracks join FX 1).
 
 **Master:** TEMPO; LO-FI (tape: low-end bump, progressive saturation, high roll-off), saved with the project.
 

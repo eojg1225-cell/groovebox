@@ -2,8 +2,8 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 6;
-/** Send buses (FX 1-3); each holds all six effects (see src/fx). */
+export const PROJECT_VERSION = 7;
+/** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
 export const NUM_CHANNELS = 6;
@@ -80,7 +80,9 @@ export interface ChannelState {
   pan: number; // -1..1
   /** Low-pass cutoff of the track (Hz; 20000 = open). */
   cutoff: number;
-  /** Which send the track feeds: 0 = none, 1-3 = FX send. */
+  /** The track passes through FX 1, the drum bus (independent of its send). */
+  fx1: boolean;
+  /** Which send the track feeds: 0 = none, 2 or 3 = FX 2 / FX 3. */
   fxSend: number;
   /** How much of the track goes to its send, 0..1. */
   sendLevel: number;
@@ -97,7 +99,12 @@ export interface Project {
   /** 50..75 (%): 50 = straight. */
   swing: number;
   master: number; // 0..1
-  /** Per send and effect (src/fx EFFECTS order), 0..1: WET = return volume ... */
+  /** FX 1, the drum bus: its parameter values (src/fx DRUM_BUS_PARAMS ids). */
+  fx1: Record<string, number>;
+  /**
+   * Per send bus and effect (src/fx EFFECTS order), 0..1: WET = return volume ...
+   * Rows 1 and 2 are FX 2 and FX 3; row 0 is unused (FX 1 has its own controls).
+   */
   sendWet: number[][];
   /** ... and INTENSITY = how hard the effect works (feedback, drive, depth, size ...). */
   sendInt: number[][];
@@ -124,6 +131,7 @@ export function emptyChannel(): ChannelState {
     volume: 0.8,
     pan: 0,
     cutoff: 20000,
+    fx1: false,
     fxSend: 0,
     sendLevel: 0.5,
     lfo: defaultLfo(),

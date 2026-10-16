@@ -11,13 +11,14 @@
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
  * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, savepatch,
- * saveproject, dpage0..2, fx1..fx3, play,
+ * saveproject, dpage0..2, fx1..fx3, play, clear (held: CLEAR + step / channel),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row, k7..k12
  * bottom row; module i holds k(i+1) and k(i+7)); master knobs mtempo, mlofi.
  */
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
 import { setRotated } from './orientation';
+import { BPM_MAX, BPM_MIN } from '../engine/mixParams';
 
 export const DESIGN_W = 1200;
 export const DESIGN_H = 760;
@@ -40,7 +41,7 @@ export const MODES = [
 /** Function row: groups of [id, label] (labels may contain <small> lines). */
 export const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
-  [['len', '16<small>STEPS</small>'], ['steppage', '1-16<small>VIEW</small>']],
+  [['len', '16<small>STEPS</small>'], ['steppage', '1-16<small>VIEW</small>'], ['clear', 'CLEAR<small>HOLD</small>']],
   [['oct-', 'OCT −'], ['oct+', 'OCT +']],
   [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],
 ];
@@ -141,8 +142,8 @@ export class Panel implements ControlSurface {
     }
     q('.play-area').prepend(this.makeButton('play', 'PLAY', 'btn play'));
     for (const m of MASTER_KNOBS) {
-      // TEMPO moves in 0.1 BPM steps (60-200 = 1400 steps); everything else is 0-127.
-      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, m.id === 'mtempo' ? 1400 : 127);
+      // TEMPO moves in 0.1 BPM steps; everything else is 0-127.
+      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, m.id === 'mtempo' ? (BPM_MAX - BPM_MIN) * 10 : 127);
       knob.el.classList.add('master');
       this.masterKnobs.set(m.id, knob);
       q('.master-knobs').appendChild(knob.el);

@@ -10,8 +10,9 @@ import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
 import { Noise, Svf } from '../instruments/dsp';
 import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { SendBus } from '../fx/SendBus';
+import { DrumBus } from '../fx/DrumBus';
 import { Tape } from '../fx/Tape';
-import { EFFECTS } from '../fx';
+import { EFFECTS, SEND_BUSES } from '../fx';
 import type { MixParam } from './protocol';
 import { NUM_SENDS } from './project';
 
@@ -117,8 +118,11 @@ export class Engine {
   private readonly cutR: Svf[] = [];
   private readonly cutApplied = new Float32Array(NUM_CHANNELS);
 
-  // Sends: each track feeds at most one of the three send buses.
-  private readonly sends: SendBus[] = [];
+  // FX 1, the drum bus: member tracks pass through it instead of going straight out.
+  private readonly drumBus: DrumBus;
+  private readonly inDrumBus = new Uint8Array(NUM_CHANNELS);
+  // Sends FX 2 / FX 3 (index 1 / 2; index 0 = FX 1 is not a send): each track feeds at most one.
+  private readonly sends: (SendBus | null)[] = [];
   private readonly route = new Int8Array(NUM_CHANNELS).fill(-1); // bus index or -1
   private readonly sendLevel: Smoother[] = [];
   private readonly busL: Float32Array[] = [];
@@ -140,8 +144,9 @@ export class Engine {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
     this.tape = new Tape(sampleRate);
+    this.drumBus = new DrumBus(sampleRate);
     for (let k = 0; k < NUM_SENDS; k++) {
-      this.sends.push(new SendBus(sampleRate, k));
+      this.sends.push(k === 0 ? null : new SendBus(sampleRate, k));
       this.busL.push(new Float32Array(CHUNK));
       this.busR.push(new Float32Array(CHUNK));
     }
@@ -190,12 +195,14 @@ export class Engine {
       case 'setSound': this.setSound(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setGlobal':
-        if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b.setTempo(msg.value); }
+        if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
         else if (msg.id === 'master') this.master.setTarget(msg.value);
         else if (msg.id === 'lofi') this.tape.setAmount(msg.value);
         break;
-      case 'setRouting': this.route[msg.channel] = msg.send >= 1 && msg.send <= NUM_SENDS ? msg.send - 1 : -1; break;
+      case 'setRouting': this.route[msg.channel] = this.busIndex(msg.send); break;
+      case 'setDrumBus': this.inDrumBus[msg.channel] = msg.on ? 1 : 0; break;
+      case 'setDrumBusParam': this.drumBus.setParam(msg.id, msg.value); break;
       case 'setSendFx':
         if (msg.control === 'wet') this.sends[msg.send]?.setWet(msg.effect, msg.value);
         else this.sends[msg.send]?.setIntensity(msg.effect, msg.value);
@@ -214,8 +221,11 @@ export class Engine {
 
   loadProject(p: Project): void {
     this.bpm = p.bpm;
-    for (let k = 0; k < NUM_SENDS; k++) {
+    for (const id in p.fx1) this.drumBus.setParam(id, p.fx1[id]);
+    this.drumBus.settle();
+    for (const k of SEND_BUSES) {
       const bus = this.sends[k];
+      if (!bus) continue;
       bus.setTempo(p.bpm);
       for (let e = 0; e < EFFECTS.length; e++) {
         bus.setWet(e, p.sendWet[k]?.[e] ?? 0);
@@ -234,7 +244,8 @@ export class Engine {
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
-      this.route[ch] = c.fxSend >= 1 && c.fxSend <= NUM_SENDS ? c.fxSend - 1 : -1;
+      this.route[ch] = this.busIndex(c.fxSend);
+      this.inDrumBus[ch] = c.fx1 ? 1 : 0;
       this.sendLevel[ch].setImmediate(c.sendLevel);
       this.cutoff[ch].setImmediate(c.cutoff);
       // A loaded project starts at its values instead of gliding to them.
@@ -298,6 +309,11 @@ export class Engine {
   resetPeaks(): void {
     this.peakL = 0;
     this.peakR = 0;
+  }
+
+  /** Send number (FX 2 / FX 3) -> bus index; anything else = no send. */
+  private busIndex(send: number): number {
+    return send >= 2 && send <= NUM_SENDS ? send - 1 : -1;
   }
 
   /** Length in frames of the 16th step that starts at global step k (with swing). */
@@ -479,6 +495,7 @@ export class Engine {
   private renderChunk(outL: Float32Array, outR: Float32Array, off: number, n: number): void {
     const sl = this.scratchL;
     const sr = this.scratchR;
+    // Bus 0 collects the drum bus input; buses 1-2 the sends.
     for (let k = 0; k < NUM_SENDS; k++) {
       this.busL[k].fill(0, 0, n);
       this.busR[k].fill(0, 0, n);
@@ -512,6 +529,10 @@ export class Engine {
       const bus = this.route[ch];
       const bL = bus >= 0 ? this.busL[bus] : null;
       const bR = bus >= 0 ? this.busR[bus] : null;
+      // Drum bus members go through FX 1 instead of straight to the mix.
+      const dL = this.inDrumBus[ch] ? this.busL[0] : outL;
+      const dR = this.inDrumBus[ch] ? this.busR[0] : outR;
+      const dOff = this.inDrumBus[ch] ? 0 : off;
       for (let i = 0; i < n; i++) {
         let v = vol.next();
         if (volDepth > 0) {
@@ -533,9 +554,9 @@ export class Engine {
         cr.process(tr.low);
         const l = cl.low * v * Math.cos(a);
         const r = cr.low * v * Math.sin(a);
-        outL[off + i] += l;
-        outR[off + i] += r;
-        // Post-fader send (a muted track sends nothing).
+        dL[dOff + i] += l;
+        dR[dOff + i] += r;
+        // Post-fader send, taken before the drum bus (a muted track sends nothing).
         const g = level.next();
         if (bL && bR) {
           bL[i] += l * g;
@@ -543,8 +564,10 @@ export class Engine {
         }
       }
     }
+    this.drumBus.setClock(this.lfoClock, this.lfoStepInc());
+    this.drumBus.process(this.busL[0], this.busR[0], outL, outR, off, n);
     // Each send bus runs its six effects back into the mix.
-    for (let k = 0; k < NUM_SENDS; k++) this.sends[k].process(this.busL[k], this.busR[k], outL, outR, off, n);
+    for (const k of SEND_BUSES) this.sends[k]?.process(this.busL[k], this.busR[k], outL, outR, off, n);
     this.lfoClock += n * this.lfoStepInc();
   }
 

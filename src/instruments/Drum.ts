@@ -11,7 +11,9 @@ import { MACROS } from './macros';
  *  CLICK  very short transient (impulse/noise blend) through a resonant band-pass
  *  METAL  six inharmonic oscillators (square bank, ring-mod pairs or FM) blended with
  *         noise (snare wires, hat sizzle), through a high-pass
- * Every drum has DRIVE (tanh) and CRUSH (bit + sample-rate reduction) for industrial sounds.
+ * Every drum then has ATTACK (fade-in), DECAY (scales every layer's decay), a resonant
+ * low-pass FILTER, DRIVE (tanh) and CRUSH (bit + sample-rate reduction). Ranges go far
+ * past "sensible" on purpose.
  * The played note tunes the pitched layers (36 = as designed), so drums play chromatically.
  */
 
@@ -22,26 +24,31 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   TIMBRE,
   INTENSITY,
   { id: 't_level', name: 'TONE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 't_pitch', name: 'PITCH', min: 20, max: 2000, defaultValue: 50, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 't_sweep', name: 'SWEEP', min: 0, max: 48, defaultValue: 24, unit: 'ST', curve: 'linear', decimals: 0 },
-  { id: 't_stime', name: 'SWP TIME', min: 0.003, max: 0.5, defaultValue: 0.04, unit: 'S', curve: 'exp' },
-  { id: 't_decay', name: 'DECAY', min: 0.01, max: 3, defaultValue: 0.45, unit: 'S', curve: 'exp' },
+  { id: 't_pitch', name: 'PITCH', min: 10, max: 5000, defaultValue: 50, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 't_sweep', name: 'SWEEP', min: 0, max: 96, defaultValue: 24, unit: 'ST', curve: 'linear', decimals: 0 },
+  { id: 't_stime', name: 'SWP TIME', min: 0.001, max: 2, defaultValue: 0.04, unit: 'S', curve: 'exp', decimals: 3 },
+  { id: 't_decay', name: 'T DECAY', min: 0.005, max: 20, defaultValue: 0.45, unit: 'S', curve: 'exp' },
   choice('t_wave', 'WAVE', T_WAVES),
   { id: 'c_level', name: 'CLICK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'c_tone', name: 'CLK TONE', min: 300, max: 16000, defaultValue: 4000, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'c_len', name: 'CLK LEN', min: 0.0005, max: 0.05, defaultValue: 0.004, unit: 'S', curve: 'exp', decimals: 3 },
-  { id: 'c_reso', name: 'CLK RESO', min: 0, max: 0.95, defaultValue: 0.3, unit: '', curve: 'linear' },
+  { id: 'c_tone', name: 'CLK TONE', min: 100, max: 20000, defaultValue: 4000, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'c_len', name: 'CLK LEN', min: 0.0002, max: 0.5, defaultValue: 0.004, unit: 'S', curve: 'exp', decimals: 4 },
+  { id: 'c_reso', name: 'CLK RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'c_noise', name: 'CLK NOISE', min: 0, max: 1, defaultValue: 0.6, unit: '', curve: 'linear' },
   { id: 'm_level', name: 'METAL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'm_pitch', name: 'M PITCH', min: 40, max: 4000, defaultValue: 400, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'm_spread', name: 'SPREAD', min: 0, max: 1, defaultValue: 1, unit: '', curve: 'linear' },
+  { id: 'm_pitch', name: 'M PITCH', min: 20, max: 12000, defaultValue: 400, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'm_spread', name: 'SPREAD', min: 0, max: 3, defaultValue: 1, unit: '', curve: 'linear' },
   { id: 'm_noise', name: 'NOISE', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
-  { id: 'm_tone', name: 'M TONE', min: 100, max: 14000, defaultValue: 6000, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'm_decay', name: 'M DECAY', min: 0.01, max: 3, defaultValue: 0.2, unit: 'S', curve: 'exp' },
+  { id: 'm_tone', name: 'M TONE', min: 30, max: 20000, defaultValue: 6000, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'm_decay', name: 'M DECAY', min: 0.005, max: 20, defaultValue: 0.2, unit: 'S', curve: 'exp' },
   // Continuous: 0 = square bank, 1 = ring-mod pairs, 2 = FM (blends in between).
   { id: 'm_mode', name: 'M MODE', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'm_fm', name: 'M FM', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
-  { id: 'drive', name: 'DRIVE', min: 1, max: 30, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
+  { id: 'm_fm', name: 'M FM', min: 0, max: 4, defaultValue: 0.5, unit: '', curve: 'linear' },
+  // Whole drum: these sit on top of TIMBRE / INTENSITY (the macros never move them).
+  { id: 'attack', name: 'ATTACK', min: 0.0005, max: 2, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 },
+  { id: 'decay', name: 'DECAY', min: 0.05, max: 20, defaultValue: 1, unit: 'X', curve: 'exp' },
+  { id: 'cutoff', name: 'FILTER', min: 20, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'drive', name: 'DRIVE', min: 1, max: 200, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
 ] as ParamSpec[]).map((p) => [p.id, p]));
 
@@ -50,28 +57,40 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
   return ids.map((id) => ({ ...ALL[id], defaultValue: defaults[id] ?? ALL[id].defaultValue }));
 }
 
+/** Controls every drum has (after its layer parameters). */
+const WHOLE = ['attack', 'decay', 'cutoff', 'reso', 'drive', 'crush'];
+
 /*
  * Each drum type: its parameters (all stored, set by TIMBRE / INTENSITY and presets)
- * and its sound page (4 sound knobs per row; the registry adds the LFO knobs):
- * TIMBRE and INTENSITY first, then the most useful details, ending in DRIVE / CRUSH.
+ * and its second sound page (12 slots, top row then bottom row: one layer per row).
+ * The first sound page is the same for every track type (see registry).
  */
 export const KICK_PARAMS = drumParams(
-  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_decay', 't_wave', 'c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', 'drive', 'crush'],
+  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_decay', 't_wave', 'c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', ...WHOLE],
   { t_level: 0.95, t_pitch: 48, t_sweep: 30, t_stime: 0.035, t_decay: 0.5, c_level: 0.25, c_tone: 3500, c_len: 0.003 },
 );
-export const KICK_LAYOUT = [['timbre', 'intensity', 't_pitch', 't_decay'], ['c_level', 't_sweep', 'drive', 'crush']];
+export const KICK_DETAIL = [
+  't_level', 't_pitch', 't_sweep', 't_stime', 't_decay', 't_wave',
+  'c_level', 'c_tone', 'c_len', 'c_reso', 'c_noise', null,
+];
 
 export const SNARE_PARAMS = drumParams(
-  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_decay', 'm_spread', 'm_mode', 'm_fm', 'drive', 'crush'],
+  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE],
   { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2 },
 );
-export const SNARE_LAYOUT = [['timbre', 'intensity', 't_pitch', 't_decay'], ['m_level', 'm_decay', 'drive', 'crush']];
+export const SNARE_DETAIL = [
+  't_level', 't_pitch', 't_sweep', 't_decay', 't_wave', 'm_spread',
+  'm_level', 'm_pitch', 'm_tone', 'm_decay', 'm_noise', 'm_mode',
+];
 
 export const HAT_PARAMS = drumParams(
-  ['timbre', 'intensity', 'c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_decay', 'm_mode', 'm_fm', 'drive', 'crush'],
+  ['timbre', 'intensity', 'c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_decay', 'm_mode', 'm_fm', ...WHOLE],
   { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.05 },
 );
-export const HAT_LAYOUT = [['timbre', 'intensity', 'm_pitch', 'm_decay'], ['c_level', 'm_tone', 'drive', 'crush']];
+export const HAT_DETAIL = [
+  'c_level', 'c_tone', 'c_len', 'c_noise', 'm_spread', 'm_fm',
+  'm_level', 'm_pitch', 'm_tone', 'm_decay', 'm_noise', 'm_mode',
+];
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'kick' | 'snare' | 'hat'): Preset[] {
@@ -95,11 +114,14 @@ export class Drum implements Instrument {
   private readonly noise = new Noise(0x5eed);
   private readonly mFilter = new Svf();
   private readonly cFilter = new Svf();
+  private readonly filter = new Svf();
 
   // Parameter values (all layers silent unless the drum type sets them)
   private tLevel = 0; private tPitch = 50; private tSweep = 24; private tWave = 0;
   private cLevel = 0; private cTone = 4000; private cReso = 0.3; private cNoise = 0.6;
   private drive = 1; private crush = 0;
+  private tDecay = 0.45; private mDecay = 0.2; private decayScale = 1;
+  private attackInc = 0; private cutoff = 20000; private reso = 0; private filterOn = false;
   private mLevel = 0; private mPitch = 400; private mSpread = 1; private mNoise = 0.3; private mMode = 0; private mFm = 0.5;
   private fmC = 0; private fmM = 0;
   private tDecayMul = 0; private sweepMul = 0; private mDecayMul = 0; private cDecayMul = 0;
@@ -116,6 +138,7 @@ export class Drum implements Instrument {
   private readonly mPhase = new Float64Array(6);
   private mEnv = 0; private cEnv = 0;
   private velocity = 1;
+  private amp = 1; // ATTACK ramp
   private holdCount = 0; private held = 0;
 
   constructor(sampleRate: number, readonly params: readonly ParamSpec[]) {
@@ -137,6 +160,7 @@ export class Drum implements Instrument {
     this.sweepEnv = 1;
     this.mEnv = 1;
     this.cEnv = 1;
+    this.amp = this.attackInc > 0 ? 0 : 1;
   }
 
   /** Only a ringing hit responds: it is choked (closed off quickly). */
@@ -158,7 +182,7 @@ export class Drum implements Instrument {
       case 't_pitch': this.tPitch = v; break;
       case 't_sweep': this.tSweep = v; break;
       case 't_stime': this.sweepMul = decayMul(v, sr); break;
-      case 't_decay': this.tDecayMul = decayMul(v, sr); this.tRingMul = decayMul(Math.min(6, v * RING_FACTOR), sr); break;
+      case 't_decay': this.tDecay = v; this.updateDecays(); break;
       case 't_wave': this.tWave = Math.round(v); break;
       case 'c_level': this.cLevel = v; break;
       case 'c_tone': this.cTone = v; this.cFilter.setup(this.cTone, this.cReso, sr); break;
@@ -172,10 +196,29 @@ export class Drum implements Instrument {
       case 'm_spread': this.mSpread = v; break;
       case 'm_noise': this.mNoise = v; break;
       case 'm_tone': this.mFilter.setup(v, 0.3, sr); break;
-      case 'm_decay': this.mDecayMul = decayMul(v, sr); this.mRingMul = decayMul(Math.min(6, v * RING_FACTOR), sr); break;
+      case 'm_decay': this.mDecay = v; this.updateDecays(); break;
+      case 'decay': this.decayScale = v; this.updateDecays(); break;
+      case 'attack': this.attackInc = v <= 0.0006 ? 0 : 1 / (v * sr); break;
+      case 'cutoff': this.cutoff = v; this.setupFilter(); break;
+      case 'reso': this.reso = v; this.setupFilter(); break;
       case 'm_mode': this.mMode = Math.min(2, Math.max(0, v)); break;
       case 'm_fm': this.mFm = v; break;
     }
+  }
+
+  /** Tone and metal decay times x DECAY; RING multiplies them again. */
+  private updateDecays(): void {
+    const t = this.tDecay * this.decayScale;
+    const m = this.mDecay * this.decayScale;
+    this.tDecayMul = decayMul(t, this.sr);
+    this.mDecayMul = decayMul(m, this.sr);
+    this.tRingMul = decayMul(Math.min(60, t * RING_FACTOR), this.sr);
+    this.mRingMul = decayMul(Math.min(60, m * RING_FACTOR), this.sr);
+  }
+
+  private setupFilter(): void {
+    this.filterOn = this.cutoff < 19990 || this.reso > 0;
+    this.filter.setup(this.cutoff, this.reso, this.sr);
   }
 
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
@@ -237,7 +280,7 @@ export class Drum implements Instrument {
           // FM: carrier at pitch, modulator at an inharmonic ratio; index = M FM x envelope.
           this.fmC += mPitch * dtBase; if (this.fmC >= 1) this.fmC -= 1;
           this.fmM += mPitch * (1 + (METAL_RATIOS[3] - 1) * spread) * dtBase; if (this.fmM >= 1) this.fmM -= 1;
-          const index = (0.5 + 9 * this.mFm) * (0.3 + 0.7 * this.mEnv);
+          const index = (0.5 + 9 * this.mFm) * (0.3 + 0.7 * this.mEnv); // M FM 4 = index ~37
           m += wFm * Math.sin(TWO_PI * this.fmC + index * Math.sin(TWO_PI * this.fmM));
         }
         m = m * (1 - this.mNoise) + this.noise.next() * this.mNoise;
@@ -256,8 +299,17 @@ export class Drum implements Instrument {
         if (this.cEnv < 1e-5) this.cEnv = 0;
       }
 
-      // DRIVE then CRUSH
+      // ATTACK, FILTER, DRIVE, CRUSH
       let out = sum * this.velocity;
+      if (this.amp < 1) {
+        this.amp += this.attackInc;
+        if (this.amp > 1) this.amp = 1;
+        out *= this.amp;
+      }
+      if (this.filterOn) {
+        this.filter.process(out);
+        out = this.filter.low;
+      }
       if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * 0.8;
       if (this.crush > 0) {
         if (this.holdCount <= 0) {

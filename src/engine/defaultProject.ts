@@ -1,7 +1,7 @@
 import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
 import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
-import { defaultSendInt, defaultSendWet } from '../fx';
+import { defaultDrumBus, defaultSendInt, defaultSendWet } from '../fx';
 import { fromStored } from './projectFile';
 import startProject from './startProject.json';
 
@@ -29,11 +29,18 @@ export function createDefaultProject(): Project {
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });
-  // The pad is ready for jungle chords into the reverb send; the lead into the dub delay.
+  // Intended routing (a starting point, freely changed): drums through FX 1 (the drum bus),
+  // bass and lead to FX 2 (dub delay), the pad - ready for jungle chords - to FX 3 (reverb).
   channels[4].chord = CHORD_NAMES.indexOf('MIN9');
-  channels[4].fxSend = 2;
-  channels[5].fxSend = 1;
-  return { version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8, sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels };
+  channels.forEach((c, i) => {
+    c.fx1 = i < 3;
+    c.fxSend = i === 4 ? 3 : i >= 3 ? 2 : 0;
+  });
+  channels[3].sendLevel = 0.25;
+  return {
+    version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
+    fx1: defaultDrumBus(), sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels,
+  };
 }
 
 /**

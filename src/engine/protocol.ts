@@ -25,9 +25,13 @@ export type MainToWorklet =
   | { type: 'setSound'; channel: number; id: string; value: number }
   | { type: 'setMix'; channel: number; id: MixParam; value: number }
   | { type: 'setGlobal'; id: GlobalParam; value: number }
-  /** Route a track to send 1-3 (0 = none). */
+  /** Route a track to send FX 2 or FX 3 (0 = none). */
   | { type: 'setRouting'; channel: number; send: number }
-  /** WET or INTENSITY 0..1 of effect `effect` (EFFECTS order) inside send `send` (0-2). */
+  /** Pass a track through FX 1, the drum bus, or not. */
+  | { type: 'setDrumBus'; channel: number; on: boolean }
+  /** A drum bus parameter in real units (DRUM_BUS_PARAMS). */
+  | { type: 'setDrumBusParam'; id: string; value: number }
+  /** WET or INTENSITY 0..1 of effect `effect` (EFFECTS order) inside send bus `send` (1-2). */
   | { type: 'setSendFx'; send: number; effect: number; control: 'wet' | 'int'; value: number }
   /** Track LFO setting (rate/shape as option indices, vol 0..1, pitch in semitones). */
   | { type: 'setLfo'; channel: number; id: LfoId; value: number }

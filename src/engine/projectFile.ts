@@ -13,8 +13,9 @@ import {
 } from './project';
 import { applyPreset, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, SOUND_KINDS, presetSound } from '../instruments/registry';
-import { EFFECTS } from '../fx';
+import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
+import { BPM_MAX, BPM_MIN } from './mixParams';
 import { LFO_RATES, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
@@ -48,6 +49,7 @@ export interface StoredChannel {
   volume: number;
   pan: number;
   cutoff: number;
+  fx1: boolean;
   fxSend: number;
   sendLevel: number;
   lfo: LfoState;
@@ -62,6 +64,7 @@ export interface StoredProject {
   bpm: number;
   swing: number;
   master: number;
+  fx1: Record<string, number>;
   sendWet: number[][];
   sendInt: number[][];
   lofi: number;
@@ -75,6 +78,7 @@ export function toStored(p: Project): StoredProject {
     bpm: p.bpm,
     swing: p.swing,
     master: p.master,
+    fx1: { ...p.fx1 },
     sendWet: p.sendWet.map((row) => [...row]),
     sendInt: p.sendInt.map((row) => [...row]),
     lofi: p.lofi,
@@ -87,6 +91,7 @@ export function toStored(p: Project): StoredProject {
       volume: c.volume,
       pan: c.pan,
       cutoff: c.cutoff,
+      fx1: c.fx1,
       fxSend: c.fxSend,
       sendLevel: c.sendLevel,
       lfo: { ...c.lfo },
@@ -189,23 +194,31 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     ch.lfo.rate = Math.round(num(src.lfo.rate, ch.lfo.rate, 0, LFO_RATES.length - 1));
     ch.lfo.shape = Math.round(num(src.lfo.shape, ch.lfo.shape, 0, LFO_SHAPES.length - 1));
     ch.lfo.vol = num(src.lfo.vol, ch.lfo.vol, 0, 1);
-    ch.lfo.pitch = num(src.lfo.pitch, ch.lfo.pitch, 0, 12);
+    ch.lfo.pitch = num(src.lfo.pitch, ch.lfo.pitch, 0, 48);
   }
   ch.volume = num(src.volume, ch.volume, 0, 1);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.mute = src.mute === true;
-  ch.cutoff = num(src.cutoff, ch.cutoff, 40, 20000);
+  ch.cutoff = num(src.cutoff, ch.cutoff, 20, 20000);
+  if (version >= 7) {
+    ch.fx1 = src.fx1 === true;
+  } else {
+    // FX 1 became the drum bus (transparent until used): drum tracks join it.
+    ch.fx1 = ch.instrument === 'kick' || ch.instrument === 'snare' || ch.instrument === 'hat';
+  }
   if (typeof src.fxSend === 'number') {
-    ch.fxSend = Math.round(num(src.fxSend, 0, 0, NUM_SENDS));
+    const send = Math.round(num(src.fxSend, 0, 0, NUM_SENDS));
+    // Before v7 the sends were 1 dub delay, 2 reverb, 3 dirt; now FX 2 = dub delay, FX 3 = reverb.
+    ch.fxSend = version >= 7 ? (send >= 2 ? send : 0) : send === 1 ? 2 : send === 2 ? 3 : 0;
     ch.sendLevel = num(src.sendLevel, ch.sendLevel, 0, 1);
   } else if (Array.isArray(src.sends)) {
     // Older format: one level per effect. Route to the send holding the strongest one:
-    // delay -> FX 1 (dub delay), reverb -> FX 2, anything else -> FX 3.
+    // delay -> FX 2 (dub delay), anything else -> FX 3 (reverb).
     const levels = src.sends.map((x) => num(x, 0, 0, 1));
     const max = Math.max(0, ...levels);
     if (max > 0) {
       const k = levels.indexOf(max);
-      ch.fxSend = k === 0 ? 1 : k === 4 ? 2 : 3;
+      ch.fxSend = k === 0 ? 2 : 3;
       ch.sendLevel = max;
     } else {
       ch.fxSend = 0;
@@ -244,23 +257,28 @@ export function fromStored(data: unknown): Project | null {
   if (!isObj(data) || !Array.isArray(data.channels) || data.channels.length === 0) return null;
   const p = createDefaultProject();
   // Start from empty patterns: only stored notes should appear.
-  p.bpm = num(data.bpm, p.bpm, 60, 200);
+  p.bpm = num(data.bpm, p.bpm, BPM_MIN, BPM_MAX);
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
   p.lofi = num(data.lofi, p.lofi, 0, 1);
+  const version = num(data.version, 0);
   // v5 had one AMOUNT per effect: it becomes WET, with INTENSITY at the default.
+  // Before v7 rows 0-1 (dub delay, reverb) are today's FX 2 and FX 3; the dirt send is gone.
   const readGrid = (grid: unknown, into: number[][]) => {
     if (!Array.isArray(grid)) return;
-    for (let k = 0; k < NUM_SENDS; k++) {
-      const row = grid[k];
+    for (let k = 1; k < NUM_SENDS; k++) {
+      const row = grid[version >= 7 ? k : k - 1];
       if (Array.isArray(row)) for (let e = 0; e < EFFECTS.length; e++) into[k][e] = num(row[e], into[k][e], 0, 1);
     }
   };
+  if (isObj(data.fx1)) {
+    for (const spec of DRUM_BUS_PARAMS) p.fx1[spec.id] = num(data.fx1[spec.id], p.fx1[spec.id], spec.min, spec.max);
+  }
   readGrid(data.sendWet ?? data.sendFx, p.sendWet);
   readGrid(data.sendInt, p.sendInt);
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
-    if (isObj(src)) readChannel(src, p.channels[i], num(data.version, 0));
+    if (isObj(src)) readChannel(src, p.channels[i], version);
   }
   return p;
 }

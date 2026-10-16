@@ -9,7 +9,7 @@ export const LFO_RATES = [
   { name: '4 BAR', steps: 64 }, { name: '2 BAR', steps: 32 }, { name: '1 BAR', steps: 16 },
   { name: '1/2', steps: 8 }, { name: '1/4', steps: 4 }, { name: '1/4T', steps: 8 / 3 },
   { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 }, { name: '1/16', steps: 1 },
-  { name: '1/16T', steps: 2 / 3 }, { name: '1/32', steps: 0.5 },
+  { name: '1/16T', steps: 2 / 3 }, { name: '1/32', steps: 0.5 }, { name: '1/64', steps: 0.25 },
 ] as const;
 
 export const LFO_SHAPES = ['SINE', 'SQUARE', 'TRI', 'SAW DN', 'SAW UP', 'S+H'] as const;
@@ -18,7 +18,7 @@ export interface LfoState {
   rate: number; // index into LFO_RATES
   shape: number; // index into LFO_SHAPES
   vol: number; // 0..1 volume modulation depth
-  pitch: number; // 0..12 semitones of pitch modulation
+  pitch: number; // 0..48 semitones of pitch modulation
 }
 
 export type LfoId = keyof LfoState;
@@ -28,7 +28,7 @@ export const LFO_PARAMS: Record<LfoId, ParamSpec> = {
   rate: { id: 'rate', name: 'LFO RATE', min: 0, max: LFO_RATES.length - 1, defaultValue: 4, unit: '', curve: 'linear', options: LFO_RATES.map((r) => r.name) },
   shape: choice('shape', 'LFO SHAPE', LFO_SHAPES),
   vol: { id: 'vol', name: 'VOL MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  pitch: { id: 'pitch', name: 'PITCH MOD', min: 0, max: 12, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 1 },
+  pitch: { id: 'pitch', name: 'PITCH MOD', min: 0, max: 48, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 1 },
 };
 
 export function defaultLfo(): LfoState {

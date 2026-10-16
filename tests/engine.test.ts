@@ -19,7 +19,8 @@ import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { lfoValue } from '../src/engine/lfo';
 import { MACROS, anchorPosition, macroSound } from '../src/instruments/macros';
-import { KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT } from '../src/instruments/Drum';
+import { SOUND_PAGE } from '../src/instruments/registry';
+import { DrumBus, STUTTER_GRIDS } from '../src/fx/DrumBus';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -121,7 +122,8 @@ describe('instruments', () => {
   it('each type has a 12-knob layout of its own params; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
       expect(entry.layout.length).toBeLessThanOrEqual(12);
-      for (const id of entry.layout) {
+      expect(entry.detail.length).toBeLessThanOrEqual(12);
+      for (const id of [...entry.layout, ...entry.detail]) {
         if (id && !id.includes(':')) expect(entry.params.some((p) => p.id === id)).toBe(true);
       }
       for (const p of entry.params) if (p.options) expect(p.coarse).toBe(true);
@@ -131,17 +133,18 @@ describe('instruments', () => {
     }
   });
 
-  it('sound pages: TIMBRE + INTENSITY first; drums end in DRIVE / CRUSH; then the LFO', () => {
-    for (const [row1, row2] of [KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT]) {
-      expect(row1).toHaveLength(4);
-      expect(row2.slice(2)).toEqual(['drive', 'crush']);
-    }
-    for (const entry of Object.values(INSTRUMENTS)) expect(entry.layout.slice(0, 2)).toEqual(['timbre', 'intensity']);
+  it('sound page columns: TIMBRE/INTENSITY, ATTACK/DECAY, FILTER/RESO, LFO, LFO, DRIVE/CRUSH', () => {
+    const column = (m: number) => [SOUND_PAGE[m], SOUND_PAGE[m + 6]];
+    expect(column(0)).toEqual(['timbre', 'intensity']);
+    expect(column(1)).toEqual(['attack', 'decay']);
+    expect(column(2)).toEqual(['cutoff', 'reso']);
+    expect([...column(3), ...column(4)].every((id) => id.startsWith('lfo:'))).toBe(true);
+    expect(column(5)).toEqual(['drive', 'crush']);
+    // Every type really has these parameters; the pad's chord is on its detail page.
     for (const entry of Object.values(INSTRUMENTS)) {
-      expect(entry.layout.slice(4, 6)).toEqual(['lfo:rate', 'lfo:shape']);
-      expect(entry.layout.slice(10, 12)).toEqual(['lfo:vol', 'lfo:pitch']);
+      for (const id of SOUND_PAGE) if (!id.includes(':')) expect(entry.params.some((p) => p.id === id)).toBe(true);
     }
-    expect(INSTRUMENTS.pad.layout).toContain('track:chord');
+    expect(INSTRUMENTS.pad.detail).toContain('track:chord');
   });
 
   it('drum crush and drive keep the output bounded', () => {
@@ -433,12 +436,12 @@ describe('send effects', () => {
     expect(energyAt(1000)).toBeLessThan(energyAt(100) * 0.1);
   });
 
-  it('a track routed to a send gets that send\'s effects (send 2 delay = 1/4 note)', () => {
+  it('a track routed to a send gets that send\'s effects (FX 3 delay = 1/4 note)', () => {
     const dry = kickProject([0], { bpm: 120 });
     const wet = kickProject([0], { bpm: 120 });
-    wet.channels[0].fxSend = 2;
+    wet.channels[0].fxSend = 3;
     wet.channels[0].sendLevel = 1;
-    wet.sendWet[1] = [1, 0, 0, 0, 0, 0]; // only the delay, full
+    wet.sendWet[2] = [1, 0, 0, 0, 0, 0]; // only the delay, full
     const tail = (p: Project) => {
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
@@ -450,14 +453,14 @@ describe('send effects', () => {
 
   it('routing can be changed and removed live', () => {
     const p = kickProject([0], { bpm: 120 });
-    p.sendWet[0] = [1, 0, 0, 0, 0, 0];
+    p.sendWet[1] = [1, 0, 0, 0, 0, 0];
     const e = engineWith(p);
-    e.handleMessage({ type: 'setRouting', channel: 0, send: 1 });
+    e.handleMessage({ type: 'setRouting', channel: 0, send: 2 });
     e.handleMessage({ type: 'setMix', channel: 0, id: 'send', value: 1 });
     e.handleMessage({ type: 'transport', playing: true });
     render(e, 0.05);
     e.handleMessage({ type: 'setRouting', channel: 0, send: 0 });
-    // Send 1's delay is 3/16 = 18000 frames: with the route removed right after the hit
+    // FX 2's delay is 3/16 = 18000 frames: with the route removed right after the hit
     // the echo still comes (it was already in the delay line), so check nothing new feeds it.
     expect(stats(render(e, 1).l).nan).toBe(false);
   });
@@ -732,10 +735,10 @@ describe('send intensity', () => {
   it('delay intensity sets the feedback (more repeats)', () => {
     const tail = (intensity: number) => {
       const p = kickProject([0], { bpm: 120 });
-      p.channels[0].fxSend = 2; // send 2: delay 1/4 = 24000 frames
+      p.channels[0].fxSend = 3; // FX 3: delay 1/4 = 24000 frames
       p.channels[0].sendLevel = 1;
-      p.sendWet[1] = [1, 0, 0, 0, 0, 0];
-      p.sendInt[1][0] = intensity;
+      p.sendWet[2] = [1, 0, 0, 0, 0, 0];
+      p.sendInt[2][0] = intensity;
       p.channels[0].patterns[0].steps.forEach((s) => (s.active = false));
       p.channels[0].patterns[0].steps[0].active = true;
       p.channels[0].patterns[0].length = 64; // only one kick in the window
@@ -762,7 +765,10 @@ describe('project', () => {
     p.channels[4].sendLevel = 0.7;
     p.lofi = 0.4;
     p.sendWet[2][5] = 0.9;
-    p.sendInt[0][0] = 0.8;
+    p.sendInt[1][0] = 0.8;
+    p.fx1.stt_grid = 2;
+    p.fx1.lp_cutoff = 800;
+    p.channels[3].fx1 = true;
     p.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 };
     p.channels[2].patterns[0].steps[6].active = true;
     p.channels[2].patterns[0].steps[6].ring = true;
@@ -805,11 +811,11 @@ describe('project', () => {
     old.sendFx = old.sendWet;
     delete old.sendWet;
     delete old.sendInt;
-    old.sendFx[0][0] = 0.33;
+    old.sendFx[0][0] = 0.33; // the old dub delay send is today's FX 2
     const p = fromStored(old)!;
     expect(CHORDS[p.channels[4].chord].name).toBe('MIN9');
-    expect(p.sendWet[0][0]).toBe(0.33);
-    expect(p.sendInt[0][0]).toBe(0.5);
+    expect(p.sendWet[1][0]).toBe(0.33);
+    expect(p.sendInt[1][0]).toBe(0.5);
   });
 
   it('maps the old per-effect sends onto the new routing', () => {
@@ -819,7 +825,7 @@ describe('project', () => {
     old.channels[5].sends[0] = 0.4; // delay
     old.channels[2].sends[1] = 0.6; // distortion
     const p = fromStored(old)!;
-    expect([p.channels[4].fxSend, p.channels[5].fxSend, p.channels[2].fxSend, p.channels[0].fxSend]).toEqual([2, 1, 3, 0]);
+    expect([p.channels[4].fxSend, p.channels[5].fxSend, p.channels[2].fxSend, p.channels[0].fxSend]).toEqual([3, 2, 3, 0]);
     expect(p.channels[5].sendLevel).toBe(0.4);
   });
 
@@ -866,5 +872,98 @@ describe('project', () => {
     expect(fromStored({ version: 99 })).toBeNull();
     expect(fromStored(null)).toBeNull();
     expect(fromStored('nonsense')).toBeNull();
+  });
+});
+
+describe('FX 1 drum bus', () => {
+  const withBus = (fx1: Record<string, number>, steps = [4]) => {
+    const p = kickProject(steps, { bpm: 120, length: 64 });
+    p.channels[0].fx1 = true;
+    Object.assign(p.fx1, fx1);
+    return p;
+  };
+
+  it('is transparent at its defaults (drums route through it)', () => {
+    const through = render((() => { const e = engineWith(withBus({})); e.handleMessage({ type: 'transport', playing: true }); return e; })(), 0.8).l;
+    const direct = withBus({});
+    direct.channels[0].fx1 = false;
+    const e = engineWith(direct);
+    e.handleMessage({ type: 'transport', playing: true });
+    const plain = render(e, 0.8).l;
+    let diff = 0;
+    for (let i = 0; i < plain.length; i++) diff = Math.max(diff, Math.abs(plain[i] - through[i]));
+    expect(stats(plain).peak).toBeGreaterThan(0.05);
+    expect(diff).toBeLessThan(1e-4);
+  });
+
+  it('STUTTER captures one grid length on the next grid line and repeats it', () => {
+    const grid = STUTTER_GRIDS.findIndex((g) => g.name === '1/4'); // 24000 frames at 120 BPM
+    const e = engineWith(withBus({ stt_mix: 1, stt_grid: grid }));
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 1.6).l, 0.01), [24000, 48000, 72000], 100);
+  });
+
+  it('STUTTER FADE lowers each repeat; back to 0 releases it', () => {
+    const grid = STUTTER_GRIDS.findIndex((g) => g.name === '1/4');
+    const e = engineWith(withBus({ stt_mix: 1, stt_grid: grid, stt_fade: 0.5 }));
+    e.handleMessage({ type: 'transport', playing: true });
+    const { l } = render(e, 1.6);
+    const first = stats(l.subarray(24000, 30000)).peak;
+    const second = stats(l.subarray(48000, 54000)).peak;
+    expect(second).toBeLessThan(first * 0.6);
+    expect(second).toBeGreaterThan(first * 0.4);
+    e.handleMessage({ type: 'setDrumBusParam', id: 'stt_mix', value: 0 });
+    expect(stats(render(e, 0.6).l.subarray(6000)).peak).toBeLessThan(1e-3); // no more repeats
+  });
+
+  it('the low-pass darkens what passes through; DRIVE stays bounded', () => {
+    const energy = (fx1: Record<string, number>) => {
+      const p = withBus(fx1, []);
+      p.channels[2].fx1 = true;
+      p.channels[2].patterns[0].steps[0].active = true; // hat
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const { l } = render(e, 0.3);
+      return { e: l.reduce((a, v) => a + v * v, 0), s: stats(l) };
+    };
+    expect(energy({ lp_cutoff: 300 }).e).toBeLessThan(energy({}).e * 0.2);
+    const loud = energy({ dst_drive: 60, dst_level: 2, lp_reso: 1, lp_cutoff: 2000 });
+    expect(loud.s.nan).toBe(false);
+    expect(loud.s.peak).toBeLessThanOrEqual(1);
+  });
+
+  it('a lone bus keeps working with odd input (no NaN at extreme settings)', () => {
+    const bus = new DrumBus(SR);
+    for (const [id, v] of Object.entries({ stt_mix: 1, stt_grid: 7, stt_pitch: 12, dst_drive: 60, dst_crush: 1, lp_env: 1, lp_reso: 1 })) bus.setParam(id, v);
+    const n = 4096;
+    const x = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.05) * 2);
+    const out = new Float32Array(n);
+    bus.setClock(0, 1 / 6000);
+    for (let k = 0; k < 30; k++) bus.process(x, x, out, out, 0, n);
+    expect(stats(out).nan).toBe(false);
+  });
+});
+
+describe('drum whole-voice controls', () => {
+  const hit = (sound: Record<string, number>) => {
+    const d = new Drum(SR, KICK_PARAMS);
+    const base = presetSound('kick', 1);
+    for (const id in base) d.setParam(id, base[id]);
+    for (const id in sound) d.setParam(id, sound[id]);
+    d.noteOn(36, 1, 36);
+    const l = new Float32Array(SR * 2);
+    d.render(l, new Float32Array(SR * 2), 0, l.length);
+    return l;
+  };
+  it('DECAY scales the decays, ATTACK fades the hit in', () => {
+    const tailOf = (l: Float32Array) => stats(l.subarray(SR * 0.6, SR * 0.7)).peak;
+    expect(tailOf(hit({ decay: 4 }))).toBeGreaterThan(tailOf(hit({})) * 10 + 1e-4);
+    expect(stats(hit({ attack: 0.2 }).subarray(0, 480)).peak).toBeLessThan(stats(hit({}).subarray(0, 480)).peak * 0.2);
+  });
+  it('the drum FILTER darkens it', () => {
+    const e = (l: Float32Array) => l.reduce((a, v) => a + v * v, 0);
+    const bright = hit({ c_level: 1, cutoff: 20000 });
+    const dark = hit({ c_level: 1, cutoff: 80 });
+    expect(e(dark)).toBeLessThan(e(bright));
   });
 });

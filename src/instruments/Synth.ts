@@ -9,7 +9,8 @@ import { MACROS } from './macros';
  * Per voice: two detunable oscillators with a continuous SHAPE (sine -> triangle -> saw
  * -> square), an FM pair (sine carrier, sine modulator at FM RATIO, index following the
  * filter envelope) blended in by FM, a sine sub -> resonant low-pass with its own decay
- * envelope -> amp ADSR -> drive. MONO uses one voice with glide.
+ * envelope -> amp ADSR -> drive, then CRUSH on the summed output. MONO uses one voice
+ * with glide. Ranges go far past "sensible" on purpose.
  */
 
 /** Legacy stepped wave (saves before SHAPE): SAW, SQR, TRI, SINE -> shape position. */
@@ -24,22 +25,23 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   INTENSITY,
   { id: 'shape', name: 'SHAPE', min: 0, max: 3, defaultValue: 2, unit: '', curve: 'linear' },
   { id: 'fm', name: 'FM', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'fmratio', name: 'FM RATIO', min: 0.5, max: 8, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
-  { id: 'detune', name: 'DETUNE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'sub', name: 'SUB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'fmratio', name: 'FM RATIO', min: 0.25, max: 16, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
+  { id: 'detune', name: 'DETUNE', min: 0, max: 4, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'sub', name: 'SUB', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   choice('octave', 'OCTAVE', OCTAVES, 2),
   choice('voice', 'VOICES', VOICE_MODES),
-  { id: 'glide', name: 'GLIDE', min: 0, max: 0.5, defaultValue: 0, unit: 'S', curve: 'linear' },
-  { id: 'cutoff', name: 'FILTER', min: 40, max: 12000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'reso', name: 'RESO', min: 0, max: 0.95, defaultValue: 0.3, unit: '', curve: 'linear' },
-  { id: 'fenv', name: 'FLT ENV', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
-  { id: 'fdecay', name: 'FLT DEC', min: 0.01, max: 3, defaultValue: 0.3, unit: 'S', curve: 'exp' },
-  { id: 'drive', name: 'DRIVE', min: 1, max: 10, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
-  { id: 'level', name: 'LEVEL', min: 0, max: 1, defaultValue: 0.7, unit: '', curve: 'linear' },
-  { id: 'attack', name: 'ATTACK', min: 0.001, max: 3, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 3 },
-  { id: 'decay', name: 'DECAY', min: 0.01, max: 4, defaultValue: 0.4, unit: 'S', curve: 'exp' },
+  { id: 'glide', name: 'GLIDE', min: 0, max: 3, defaultValue: 0, unit: 'S', curve: 'linear' },
+  { id: 'cutoff', name: 'FILTER', min: 20, max: 20000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
+  { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.4, unit: '', curve: 'linear' },
+  { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'exp' },
+  { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
+  { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
+  { id: 'attack', name: 'ATTACK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
+  { id: 'decay', name: 'DECAY', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
   { id: 'sustain', name: 'SUSTAIN', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
-  { id: 'release', name: 'RELEASE', min: 0.01, max: 4, defaultValue: 0.15, unit: 'S', curve: 'exp' },
+  { id: 'release', name: 'RELEASE', min: 0.005, max: 20, defaultValue: 0.15, unit: 'S', curve: 'exp' },
 ];
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
@@ -55,18 +57,22 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
  */
 const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'cutoff', 'reso', 'fenv', 'fdecay', 'drive'];
 
-export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', 'decay', 'sustain'], {});
-export const BASS_FIXED = { voice: 1, attack: 0.002, release: 0.06, level: 0.75 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', 'attack', 'decay', 'sustain', 'release'], { attack: 0.45, release: 1.2 });
-export const PAD_FIXED = { voice: 0, glide: 0, sub: 0, level: 0.5 };
-export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', 'attack', 'decay', 'sustain', 'release'], { octave: 3 });
-export const LEAD_FIXED = { voice: 1, sub: 0, level: 0.55 };
+const ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'crush', 'level'];
+export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, release: 0.06, level: 0.75 });
+export const BASS_FIXED = { voice: 1 };
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, release: 1.2, level: 0.5 });
+export const PAD_FIXED = { voice: 0, glide: 0, sub: 0 };
+export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE], { octave: 3, level: 0.55 });
+export const LEAD_FIXED = { voice: 1, sub: 0 };
 
-/** Sound pages: 4 sound knobs per row (the registry adds the LFO knobs). */
-export const BASS_LAYOUT = [['timbre', 'intensity', 'glide', 'octave'], ['cutoff', 'reso', 'decay', 'sub']];
-/** The pad's CHORD knob sits on its sound page ("track:chord" is a track setting). */
-export const PAD_LAYOUT = [['timbre', 'intensity', 'track:chord', 'octave'], ['cutoff', 'attack', 'release', 'detune']];
-export const LEAD_LAYOUT = [['timbre', 'intensity', 'glide', 'octave'], ['cutoff', 'reso', 'decay', 'detune']];
+/**
+ * Second sound pages (12 slots, top row then bottom row): oscillators on top, then glide /
+ * filter envelope / the rest of the amp envelope / level. The pad has CHORD instead of
+ * glide ("track:chord" is a track setting).
+ */
+export const BASS_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'sub', 'octave', 'glide', 'fenv', 'fdecay', 'sustain', 'release', 'level'];
+export const PAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'track:chord', 'fenv', 'fdecay', 'sustain', 'release', 'level'];
+export const LEAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'glide', 'fenv', 'fdecay', 'sustain', 'release', 'level'];
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'bass' | 'pad' | 'lead'): Preset[] {
@@ -100,7 +106,8 @@ export class Synth implements Instrument {
   private shape = 2; private fm = 0; private fmRatio = 2; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private glideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0;
-  private drive = 1; private level = 0.7;
+  private drive = 1; private crush = 0; private level = 0.7;
+  private holdCount = 0; private held = 0;
   private attackInc = 1; private decayMul = 0; private sustain = 0.5; private releaseMul = 0;
   private ageCounter = 0;
   private pitchMod = 1;
@@ -164,6 +171,7 @@ export class Synth implements Instrument {
       case 'fenv': this.fenvAmt = value; break;
       case 'fdecay': this.fdecayMul = decayMul(value, sr); break;
       case 'drive': this.drive = value; break;
+      case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
       case 'attack': this.attackInc = 1 / (value * sr); break;
       case 'decay': this.decayMul = decayMul(value, sr); break;
@@ -172,7 +180,27 @@ export class Synth implements Instrument {
     }
   }
 
+  /**
+   * Renders into outL/outR[start, end). The engine hands each instrument its own zeroed
+   * buffer, so CRUSH can work on the summed voices in place.
+   */
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
+    this.renderVoices(outL, outR, start, end);
+    if (this.crush <= 0) return;
+    const hold = 1 + Math.floor(this.crush * this.crush * 24);
+    const levels = Math.pow(2, 16 - this.crush * 12);
+    for (let i = start; i < end; i++) {
+      if (this.holdCount <= 0) {
+        this.held = Math.round(outL[i] * levels) / levels;
+        this.holdCount = hold;
+      }
+      this.holdCount--;
+      outL[i] = this.held;
+      outR[i] = this.held;
+    }
+  }
+
+  private renderVoices(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     const sr = this.sr;
     const det = Math.pow(2, (this.detune * 0.35) / 12); // up to ~35 cents apart
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;

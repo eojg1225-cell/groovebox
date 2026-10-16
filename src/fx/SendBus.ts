@@ -6,8 +6,8 @@ import { Reverb } from './Reverb';
 import { Compressor } from './Compressor';
 import { EFFECTS } from './index';
 
-/** Delay division (index into DELAY_DIVISIONS) per send: 3/16, 1/4, 1/8. */
-const SEND_DELAY_DIVISION = [2, 3, 1];
+/** Delay division (index into DELAY_DIVISIONS) per bus: FX 2 3/16 (dub), FX 3 1/4. */
+const SEND_DELAY_DIVISION = [2, 2, 3];
 
 /**
  * One send: a bus feeding six effects in parallel. Each effect has two controls:
@@ -63,7 +63,7 @@ export class SendBus {
   setIntensity(k: number, a: number): void {
     switch (EFFECTS[k].id) {
       case 'delay': this.delay.setParam('dly_fdbk', 0.1 + 0.95 * a); break; // up to dub runaway
-      case 'dist': this.dist.setParam('dst_drive', 1 + 40 * a * a); break;
+      case 'dist': this.dist.setParam('dst_drive', 1 + 150 * a * a); break;
       case 'midcut': this.mid.setParam('mid_depth', 30 * a); break;
       case 'chorus':
         this.chorus.setParam('cho_depth', a);

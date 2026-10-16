@@ -34,7 +34,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'VINTAGE', values: { t_level: 0.95, t_pitch: 44, t_sweep: 14, t_stime: 0.07, t_decay: 1, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.006, c_noise: 0.3, drive: 1.3, crush: 0 } },
       { name: 'PUNCH', values: { t_level: 0.95, t_pitch: 52, t_sweep: 30, t_stime: 0.03, t_decay: 0.45, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 } },
       { name: 'TECHNO', values: { t_level: 0.95, t_pitch: 49, t_sweep: 36, t_stime: 0.022, t_decay: 0.38, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 } },
-      { name: 'PSY DOOF', values: { t_level: 0.95, t_pitch: 56, t_sweep: 44, t_stime: 0.011, t_decay: 0.22, c_level: 0.75, c_tone: 7000, c_reso: 0.6, c_len: 0.002, c_noise: 0.2, drive: 7, crush: 0 } },
+      // Over the top on purpose: a 6-7 octave laser zap down into a square-driven doof.
+      { name: 'PSY DOOF', values: { t_level: 1, t_pitch: 58, t_sweep: 80, t_stime: 0.028, t_decay: 0.32, c_level: 1, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 45, crush: 0 } },
     ],
     excite: [
       { id: 'drive', low: 0.6, high: 2 }, { id: 'c_level', low: 0.6, high: 1.5 }, { id: 't_sweep', low: 0.8, high: 1.15 },

@@ -15,6 +15,9 @@
  *          The strip is an audition keyboard.
  * In RECORD and PLAY the 12 knobs are the live knobs: one module per track, two each,
  * assigned on the TRACK page. Only non-coarse parameters can be assigned.
+ * FX 1-3 (RECORD / PLAY): the knobs and the screen switch to that bus's controls (FX 1 =
+ * the drum bus, FX 2 / 3 = sends); the channel buttons then add / remove tracks.
+ * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
  * MOTION REC (RECORD mode, while playing): live-knob moves on instrument parameters
  * become per-step locks on that track, and keyboard notes are written to the nearest step.
  */
@@ -22,7 +25,7 @@ import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { EFFECTS } from '../fx';
+import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
   MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
@@ -103,6 +106,11 @@ export class App {
   private readonly heldNotes = new Map<number, number>();
   /** Send shown on the knobs in RECORD/PLAY (1-3), 0 = the tracks' live knobs. */
   private fxView = 0;
+  /** SOUND page: 0 = the shared sound page, 1 = the type's detail page. */
+  private soundSub = 0;
+  /** CLEAR held, and whether anything was cleared while it was. */
+  private clearHeld = false;
+  private clearUsed = false;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   private entry: { button: number; index: number } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
@@ -160,9 +168,37 @@ export class App {
     return this.channel.patterns[this.channel.activePattern];
   }
 
-  /** Pitched tracks always get a keyboard; drums only show steps while recording. */
+  /**
+   * Pitched tracks always get a keyboard; drums only show steps while recording.
+   * Holding CLEAR turns the strip into steps (to clear) in RECORD and PLAY.
+   */
   private get keyboard(): boolean {
+    if (this.clearHeld && this.mode !== 'design') return false;
     return !isDrum(this.channel.instrument) || this.mode !== 'record';
+  }
+
+  /** RECORD / PLAY with a bus open: knobs and screen show that bus. */
+  get sendOpen(): boolean {
+    return this.mode !== 'design' && this.fxView > 0;
+  }
+
+  /** Whether a track is on bus n (1 = the drum bus, 2-3 = its send). */
+  private onBus(c: ChannelState, n: number): boolean {
+    return n === 1 ? c.fx1 : c.fxSend === n;
+  }
+
+  /** Put a track on / take it off bus n. */
+  private toggleBus(ch: number, n: number): void {
+    const c = this.project.channels[ch];
+    if (n === 1) {
+      c.fx1 = !c.fx1;
+      this.send({ type: 'setDrumBus', channel: ch, on: c.fx1 });
+    } else {
+      c.fxSend = c.fxSend === n ? 0 : n;
+      this.send({ type: 'setRouting', channel: ch, send: c.fxSend });
+    }
+    this.flash(`${this.kindName(c)} ${this.onBus(c, n) ? '->' : 'OFF'} FX ${n}`);
+    this.save();
   }
 
   /** Live recording: RECORD mode while the sequencer runs (stopped = step entry). */
@@ -247,7 +283,7 @@ export class App {
     const list: { id: string; spec: ParamSpec }[] = [];
     if (c.instrument !== 'none') {
       const entry = INSTRUMENTS[c.instrument];
-      for (const id of entry.layout) {
+      for (const id of new Set([...entry.layout, ...entry.detail])) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
         if (spec && !spec.coarse) list.push({ id: spec.id, spec });
       }
@@ -318,8 +354,10 @@ export class App {
     const c = this.channel;
     const pages: { name: string; targets: () => (KnobTarget | null)[] }[] = [];
     if (c.instrument !== 'none') {
-      const layout = INSTRUMENTS[c.instrument].layout;
-      pages.push({ name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) });
+      // SOUND again flips between the shared sound page and the type's detail page.
+      const entry = INSTRUMENTS[c.instrument];
+      const layout = this.soundSub ? entry.detail : entry.layout;
+      pages.push({ name: this.soundSub ? 'DETAIL' : 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) });
     }
     pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
     pages.push({
@@ -343,14 +381,23 @@ export class App {
   }
 
   /**
-   * A send's knobs (FX 1-3 in RECORD/PLAY). Six modules = six effects: WET (return
-   * volume) on top, INTENSITY (how hard it works) below.
+   * A bus's knobs (FX 1-3 in RECORD/PLAY). FX 1, the drum bus: two modules each for
+   * STUTTER, DISTORT and LOW-PASS. FX 2 / 3: six modules = six effects, WET (return volume,
+   * labelled with the effect) on top, INTENSITY (how hard it works) below.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
+    if (k === 0) {
+      const fx1 = this.project.fx1;
+      return DRUM_BUS_PARAMS.map((spec): KnobTarget => ({
+        label: spec.name, spec, channel: this.selected,
+        get: () => fx1[spec.id] ?? spec.defaultValue,
+        set: (v: number) => { fx1[spec.id] = v; this.send({ type: 'setDrumBusParam', id: spec.id, value: v }); },
+      }));
+    }
     const control = (control: 'wet' | 'int') => EFFECTS.map((fx, e): KnobTarget => {
       const grid = control === 'wet' ? this.project.sendWet : this.project.sendInt;
       return {
-        label: `${fx.name} ${control === 'wet' ? 'WET' : 'INT'}`,
+        label: control === 'wet' ? fx.name : 'INTENSITY',
         spec: control === 'wet' ? EFFECT_WET : EFFECT_INTENSITY,
         channel: this.selected,
         get: () => grid[k][e],
@@ -457,6 +504,22 @@ export class App {
     let m: RegExpExecArray | null;
     if (!e.pressed) {
       if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
+      if (id === 'clear') {
+        this.clearHeld = false;
+        if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK');
+        this.refreshPanel();
+      }
+      return;
+    }
+    if (id === 'clear') {
+      this.clearHeld = true;
+      this.clearUsed = false;
+      this.refreshPanel();
+      return;
+    }
+    if (this.clearHeld && (m = /^ch(\d)$/.exec(id))) {
+      this.clearTrack(Number(m[1]) - 1);
+      this.refreshPanel();
       return;
     }
     if (id === 'play') {
@@ -465,14 +528,9 @@ export class App {
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
       this.touchedKnob = -1;
-    } else if ((m = /^ch(\d)$/.exec(id)) && this.mode !== 'design' && this.fxView > 0) {
-      // A send is open: the channel buttons add / remove tracks from it.
-      const ch = Number(m[1]) - 1;
-      const c = this.project.channels[ch];
-      c.fxSend = c.fxSend === this.fxView ? 0 : this.fxView;
-      this.send({ type: 'setRouting', channel: ch, send: c.fxSend });
-      this.flash(c.fxSend ? `${this.kindName(c)} -> FX ${this.fxView}` : `${this.kindName(c)} OFF FX ${this.fxView}`);
-      this.save();
+    } else if ((m = /^ch(\d)$/.exec(id)) && this.sendOpen) {
+      // A bus is open: the channel buttons add / remove tracks from it.
+      this.toggleBus(Number(m[1]) - 1, this.fxView);
     } else if ((m = /^ch(\d)$/.exec(id))) {
       this.selected = Number(m[1]) - 1;
       this.designPage = 0;
@@ -489,17 +547,17 @@ export class App {
       this.send({ type: 'selectPattern', channel: this.selected, pattern, immediate: this.immediateSwitch });
       this.save();
     } else if ((m = /^dpage(\d)$/.exec(id))) {
-      this.designPage = Number(m[1]);
+      const page = Number(m[1]);
+      const hasSound = this.channel.instrument !== 'none';
+      if (page === 0 && hasSound && this.designPage === 0) this.soundSub = 1 - this.soundSub;
+      else if (page === 0) this.soundSub = 0;
+      this.designPage = page;
       this.touchedKnob = -1;
     } else if ((m = /^fx([1-3])$/.exec(id))) {
       const n = Number(m[1]);
       if (this.mode === 'design') {
-        // Sound design: route the selected track to this send (again = no send).
-        const c = this.channel;
-        c.fxSend = c.fxSend === n ? 0 : n;
-        this.send({ type: 'setRouting', channel: this.selected, send: c.fxSend });
-        this.flash(c.fxSend ? `${this.kindName(c)} -> FX ${n}` : `${this.kindName(c)} NO SEND`);
-        this.save();
+        // Sound design: put the selected track on / off this bus.
+        this.toggleBus(this.selected, n);
       } else {
         // RECORD / PLAY: show this send's controls on the knobs (again = back to tracks).
         this.fxView = this.fxView === n ? 0 : n;
@@ -564,6 +622,11 @@ export class App {
 
   private onStrip(button: number): void {
     const ch = this.selected;
+    if (this.clearHeld && this.mode !== 'design') {
+      const index = this.visiblePage(ch) * 16 + button;
+      if (index < this.pattern.length) this.clearStep(index);
+      return;
+    }
     if (this.keyboard) {
       const note = this.octave[ch] + button;
       const vel = this.velocity();
@@ -619,6 +682,45 @@ export class App {
       delete step.locks;
     }
     this.sendStep(index, step);
+    this.save();
+  }
+
+  /** CLEAR + step: empty it; a note tied over it now ends just before it. */
+  private clearStep(index: number): void {
+    const steps = this.pattern.steps;
+    for (let j = index - 1; j >= 0; j--) {
+      if (!steps[j].active) continue;
+      if (j + steps[j].gate > index) {
+        steps[j].gate = index - j;
+        this.sendStep(j, steps[j]);
+      }
+      break;
+    }
+    const step = steps[index];
+    step.active = false;
+    step.ring = false;
+    step.rest = false;
+    step.gate = 1;
+    delete step.locks;
+    this.sendStep(index, step);
+    this.clearUsed = true;
+    this.save();
+  }
+
+  /** CLEAR + channel: empty that track's current pattern (its sound stays). */
+  private clearTrack(ch: number): void {
+    const c = this.project.channels[ch];
+    c.patterns[c.activePattern].steps.forEach((step, i) => {
+      if (!step.active && !step.rest && !step.locks) return;
+      step.active = false;
+      step.ring = false;
+      step.rest = false;
+      step.gate = 1;
+      delete step.locks;
+      this.sendStep(i, step, ch);
+    });
+    this.clearUsed = true;
+    this.flash(`CLEARED ${ch + 1} ${this.kindName(c)} ${PATTERN_NAMES[c.activePattern]}`);
     this.save();
   }
 
@@ -753,28 +855,30 @@ export class App {
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const c = this.project.channels[ch];
-      // While a send is open (RECORD/PLAY), channel buttons show which tracks feed it.
-      const sendView = this.mode !== 'design' && this.fxView > 0;
-      this.panel.setButtonLit(`ch${ch + 1}`, sendView ? c.fxSend === this.fxView : ch === this.selected);
+      // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
+      const sendView = this.sendOpen;
+      this.panel.setButtonLit(`ch${ch + 1}`, sendView ? this.onBus(c, this.fxView) : ch === this.selected);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
-      this.panel.setBadge(ch, this.mode === 'design' ? 'dim' : ch === this.selected ? 'lit' : '');
+      this.panel.setBadge(ch, this.mode === 'design' || sendView ? 'dim' : ch === this.selected ? 'lit' : '');
     }
     for (const [id, gid] of [['mtempo', 'bpm'], ['mlofi', 'lofi']] as const) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, spec.defaultValue));
     }
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
-      this.panel.setButtonLit(`fx${n}`, this.mode === 'design' ? this.channel.fxSend === n : this.fxView === n);
+      this.panel.setButtonLit(`fx${n}`, this.mode === 'design' ? this.onBus(this.channel, n) : this.fxView === n);
     }
     const pages = this.mode === 'design' ? this.designPages() : [];
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
       const page = pages[i];
-      this.panel.setButtonText(`dpage${i}`, page ? page.name : '');
+      this.panel.setButtonText(`dpage${i}`, !page ? '' : i === 0 && this.channel.instrument !== 'none' ? `${page.name}<small>${this.soundSub + 1}/2</small>` : page.name);
       this.panel.setButtonEnabled(`dpage${i}`, !!page);
       this.panel.setButtonLit(`dpage${i}`, !!page && i === this.designPage);
     }
+    this.panel.setButtonLit('clear', this.clearHeld);
+    this.panel.setButtonEnabled('clear', this.mode !== 'design');
     this.panel.setButtonLit('play', this.playing);
     this.panel.setButtonText('play', this.playing ? 'STOP' : 'PLAY');
 
@@ -937,7 +1041,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.fxView > 0 ? `KNOBS: FX ${this.fxView}` : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
+      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
@@ -945,6 +1049,29 @@ export class App {
       dynamicLabel: this.dynamic === 'normal' ? '' : this.dynamic.toUpperCase(),
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
+      peak: audio.peak,
+      footerRight: f.text,
+      footerAlert: f.alert,
+      blink: Math.floor(now / 400) % 2 === 0,
+    };
+  }
+
+  /** RECORD / PLAY with a bus open: the bus's knobs on screen, like a design page. */
+  sendView(now: number, audio: AudioInfo): DesignView {
+    const n = this.fxView;
+    const f = this.footer(audio);
+    const members = this.project.channels.flatMap((c, i) => (this.onBus(c, n) ? [String(i + 1)] : []));
+    return {
+      ...this.header(),
+      channelLabel: n === 1 ? 'FX 1 DRUM BUS' : `FX ${n} SEND`,
+      patternLabel: '',
+      kindLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
+      pages: ['FX 1', 'FX 2', 'FX 3'],
+      page: n - 1,
+      slots: this.slots(),
+      touchedSlot: this.touchedKnob,
+      liveLabel: members.length ? `TRACKS ${members.join(' ')}` : 'NO TRACKS',
+      chordLabel: 'TAP 1-6',
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,
@@ -969,7 +1096,7 @@ export class App {
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
       liveLabel: `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
-      chordLabel: [c.fxSend ? `FX${c.fxSend}` : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
+      chordLabel: [c.fx1 ? 'FX1' : '', c.fxSend ? `FX${c.fxSend}` : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,
