@@ -18,18 +18,18 @@ export interface InstrumentEntry {
   presets: readonly Preset[];
   /** Drum voices use the step strip when recording; pitched types get a keyboard. */
   drum: boolean;
-  /** Lowest note on the keyboard. */
+  /** Lowest note on the keyboard (an A, so the strip starts on A). */
   baseNote: number;
   create: (sampleRate: number) => Instrument;
 }
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
-  kick: { name: 'KICK', params: KICK_PARAMS, presets: KICK_PRESETS, drum: true, baseNote: 36, create: (sr) => new Drum(sr, KICK_PARAMS) },
-  snare: { name: 'SNARE', params: SNARE_PARAMS, presets: SNARE_PRESETS, drum: true, baseNote: 36, create: (sr) => new Drum(sr, SNARE_PARAMS) },
-  hat: { name: 'HAT', params: HAT_PARAMS, presets: HAT_PRESETS, drum: true, baseNote: 36, create: (sr) => new Drum(sr, HAT_PARAMS) },
-  bass: { name: 'BASS', params: BASS_PARAMS, presets: BASS_PRESETS, drum: false, baseNote: 36, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
-  pad: { name: 'PAD', params: PAD_PARAMS, presets: PAD_PRESETS, drum: false, baseNote: 48, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
-  lead: { name: 'LEAD', params: LEAD_PARAMS, presets: LEAD_PRESETS, drum: false, baseNote: 48, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
+  kick: { name: 'KICK', params: KICK_PARAMS, presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
+  snare: { name: 'SNARE', params: SNARE_PARAMS, presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
+  hat: { name: 'HAT', params: HAT_PARAMS, presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
+  bass: { name: 'BASS', params: BASS_PARAMS, presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
+  pad: { name: 'PAD', params: PAD_PARAMS, presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
+  lead: { name: 'LEAD', params: LEAD_PARAMS, presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
 };
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];

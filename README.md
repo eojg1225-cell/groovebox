@@ -54,9 +54,11 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 
 **FX sends (six):** DELAY (tempo-synced 1/16 to 1 bar, feedback up to 1.1 that runs away gracefully, tone in the feedback path), DISTORT (drive, tone, soft/hard character), MID CUT (frequency, width, depth), CHORUS (rate, depth, width), REVERB (size, damping, pre-delay, width) and FLANGER (rate, depth, manual, feedback). Each track has a send to each; sends can also go on live knobs.
 
+**Strip:** the keyboard starts on A (A1 for bass and drums, A2 for pad and lead); divider lines split the strip and LEDs into groups of four.
+
 **Sequencing:** a note lasts one step by default. In step entry, hold the key and press ▶ to extend it over more steps (◀ shortens); release the key and the cursor moves past it. Live-recorded notes keep the length they were held. While live recording (RECORD + MOTION REC + playing), the strip and screen follow the 16-step block that is playing, so taps land in that block.
 
-**Saving:** SAVE PATCH stores the selected track's sound as USER 1, USER 2… for that track type (they appear after the factory presets). SAVE PROJECT stores everything; the saved project opens at the next launch. Both live in the browser's local storage on this device. The working session also survives reloads.
+**Saving:** SAVE PATCH stores the selected track's sound as USER 1, USER 2… for that track type (they appear after the factory presets). SAVE PROJECT stores everything; the saved project opens at the next launch. Both live in the browser's local storage on this device. The working session also survives reloads. Saves use a forgiving format: notes and pattern lengths carry over even when the rest of the project format changes. On claude.ai the working project is also mirrored to the artifact's store.
 
 **Function row:** MOTION REC (RECORD mode only), ACCENT / GHOST, STEPS 16-64, VIEW, OCT − / +, ◀ ▶ REST, CLEAR MOTION. **Step lights** show the playing step (red while recording) and the step-entry cursor (orange).
 

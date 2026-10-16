@@ -2,7 +2,8 @@
  * Saved patches and project, kept in localStorage so they survive closing the browser.
  * (The working session also lives in sessionStorage; see session.ts.)
  */
-import { normalizeProject, type Project, type SoundKind } from '../engine/project';
+import type { Project, SoundKind } from '../engine/project';
+import { fromStored, toStored } from '../engine/projectFile';
 
 const PATCHES_KEY = 'groovebox.patches';
 const PROJECT_KEY = 'groovebox.project';
@@ -53,9 +54,9 @@ export function savePatch(kind: SoundKind, values: Record<string, number>, live:
 }
 
 export function saveProject(project: Project): boolean {
-  return write(PROJECT_KEY, project);
+  return write(PROJECT_KEY, toStored(project));
 }
 
 export function loadSavedProject(): Project | null {
-  return normalizeProject(read<unknown>(PROJECT_KEY));
+  return fromStored(read<unknown>(PROJECT_KEY));
 }

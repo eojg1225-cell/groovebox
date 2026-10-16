@@ -109,17 +109,3 @@ export function emptyChannel(): ChannelState {
     activePattern: 0,
   };
 }
-
-/** Best-effort validation of loaded JSON; returns null if it is not a usable project. */
-export function normalizeProject(data: unknown): Project | null {
-  const p = data as Project;
-  if (!p || typeof p !== 'object' || p.version !== PROJECT_VERSION) return null;
-  if (!Array.isArray(p.channels) || p.channels.length !== NUM_CHANNELS || !p.fx) return null;
-  for (const ch of p.channels) {
-    if (!ch.sounds || !Array.isArray(ch.live) || !Array.isArray(ch.sends) || !Array.isArray(ch.patterns) || ch.patterns.length !== NUM_PATTERNS) return null;
-    for (const pat of ch.patterns) {
-      if (!Array.isArray(pat.steps) || pat.steps.length !== MAX_STEPS) return null;
-    }
-  }
-  return p;
-}

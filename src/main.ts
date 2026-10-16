@@ -12,6 +12,7 @@ import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
 import { loadSession } from './storage/session';
 import { loadSavedProject } from './storage/saved';
+import { mirrorToCloud } from './storage/cloud';
 import { textWidth } from './ui/font';
 
 const TITLE_HOLD_MS = 1400;
@@ -28,6 +29,8 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 
 // Working session first (survives reloads), then the saved project, else a fresh one.
 const project = loadSession() ?? loadSavedProject() ?? createDefaultProject();
+// Keep the cloud copy (claude.ai only) in step with what was loaded.
+mirrorToCloud(project);
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
   channels: NUM_CHANNELS,
   patterns: PATTERN_NAMES,

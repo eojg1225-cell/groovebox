@@ -20,7 +20,8 @@ export function createDefaultProject(): Project {
   const channels = Array.from({ length: NUM_CHANNELS }, (_, i) => {
     const c = emptyChannel();
     applyPreset(c, kinds[i], 0);
-    const base = INSTRUMENTS[kinds[i]].baseNote;
+    // Drum steps play at the designed pitch (note 36); pitched steps start on the keyboard's A.
+    const base = INSTRUMENTS[kinds[i]].drum ? 36 : INSTRUMENTS[kinds[i]].baseNote;
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });

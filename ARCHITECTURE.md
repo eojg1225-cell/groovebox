@@ -8,7 +8,7 @@ src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio threa
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
 src/controls     ControlSurface event interface (knob/fader/button/joystick, values normalised 0..1)
 src/ui           Pixel screen (256x128 canvas + 3x5 font), views, Knob, Panel (on-screen ControlSurface), App controller
-src/storage      session.ts (working session, sessionStorage), saved.ts (patches + project, localStorage)
+src/storage      session.ts (working session, sessionStorage), saved.ts (patches + project, localStorage), cloud.ts (claude.ai artifact db mirror)
 tests            Vitest, runs the engine offline in Node
 ```
 
@@ -59,7 +59,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 ## Project model (`src/engine/project.ts`)
 
-`Project { version: 4, bpm, swing (50-75 %), master, fx{id: value}, channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|send0..5"), chord, volume, pan, sends[6], mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Kept in `sessionStorage` for now (`src/storage/session.ts`).
+`Project { version: 4, bpm, swing (50-75 %), master, fx{id: value}, channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|send0..5"), chord, volume, pan, sends[6], mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Every save goes through `src/engine/projectFile.ts`: a compact stored format (only steps with notes) whose reader also accepts full project objects from any earlier version and keeps everything it recognises (notes and pattern lengths first, then mixer, sounds, FX), so format changes never lose notes. On claude.ai the working project is also mirrored to the artifact's `db` (`projects/current`).
 
 ## Sequencer
 

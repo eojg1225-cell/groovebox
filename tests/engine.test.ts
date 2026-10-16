@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
 import { toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
-import { emptyPattern, normalizeProject, type Project } from '../src/engine/project';
+import { emptyPattern, type Project } from '../src/engine/project';
+import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, presetSound } from '../src/instruments/registry';
@@ -512,13 +513,73 @@ describe('more send effects', () => {
 });
 
 describe('project', () => {
-  it('survives a JSON round trip', () => {
+  const busy = () => {
     const p = createDefaultProject();
-    expect(normalizeProject(JSON.parse(JSON.stringify(p)))).toEqual(p);
+    p.bpm = 172.5;
+    p.channels[0].patterns[0].steps[0].active = true;
+    p.channels[0].patterns[0].steps[4].active = true;
+    p.channels[0].patterns[0].steps[4].accent = true;
+    p.channels[0].patterns[0].steps[4].velocity = 1;
+    p.channels[3].patterns[1].length = 32;
+    const s = p.channels[3].patterns[1].steps[20];
+    Object.assign(s, { active: true, note: 41, gate: 3, velocity: 0.45, locks: { cutoff: 900 } });
+    p.channels[4].sends[4] = 0.7;
+    p.channels[1].mute = true;
+    return p;
+  };
+
+  it('survives a round trip through the stored format', () => {
+    const p = busy();
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))).toEqual(p);
   });
 
-  it('rejects malformed data', () => {
-    expect(normalizeProject({ version: 99 })).toBeNull();
-    expect(normalizeProject(null)).toBeNull();
+  it('stores only steps with notes (compact)', () => {
+    const stored = toStored(busy());
+    const total = stored.channels.reduce((n, c) => n + c.patterns.reduce((m, pat) => m + pat.steps.length, 0), 0);
+    expect(total).toBe(3);
+    expect(JSON.stringify(stored).length).toBeLessThan(20000);
+  });
+
+  it('starts with every pattern empty', () => {
+    const p = createDefaultProject();
+    expect(p.channels.every((c) => c.patterns.every((pat) => pat.steps.every((st) => !st.active)))).toBe(true);
+  });
+
+  it('loads notes from an old full-format project (v4 object)', () => {
+    const p = busy();
+    const old = JSON.parse(JSON.stringify(p)); // the pre-compact format: full step arrays
+    const loaded = fromStored(old)!;
+    expect(loaded.channels[3].patterns[1].steps[20]).toMatchObject({ active: true, note: 41, gate: 3 });
+    expect(loaded.channels[3].patterns[1].length).toBe(32);
+    expect(loaded.channels[1].mute).toBe(true);
+  });
+
+  it('keeps the notes even from an older, different format', () => {
+    // A version-1 style project: other instrument kinds, a "sound" field, no sends or fx.
+    const steps = Array.from({ length: 64 }, (_, i) => ({ active: i % 4 === 0, note: 36 + i, velocity: 0.8, gate: 1, slide: false, accent: false }));
+    const v1 = {
+      version: 1, bpm: 140, swing: 54, master: 0.8,
+      channels: [
+        { instrument: 'kick', sound: { tune: 50 }, volume: 0.9, pan: 0, mute: false, activePattern: 1, patterns: [{ length: 16, steps }, { length: 12, steps }, { length: 16, steps }] },
+        { instrument: 'bass', sound: {}, volume: 0.7, pan: 0.2, mute: false, activePattern: 0, patterns: [{ length: 16, steps }] },
+      ],
+    };
+    const p = fromStored(v1)!;
+    expect(p.bpm).toBe(140);
+    expect(p.channels[0].activePattern).toBe(1);
+    expect(p.channels[0].patterns[1].length).toBe(12);
+    expect(p.channels[0].patterns[0].steps.filter((s) => s.active).length).toBe(16);
+    expect(p.channels[1].instrument).toBe('bass');
+    expect(p.channels[1].patterns[0].steps[8]).toMatchObject({ active: true, note: 44 });
+    expect(p.channels[1].pan).toBe(0.2);
+    // Unknown things fall back to defaults.
+    expect(p.channels[1].sends).toHaveLength(6);
+    expect(p.fx.dly_time).toBeDefined();
+  });
+
+  it('rejects data with no channels', () => {
+    expect(fromStored({ version: 99 })).toBeNull();
+    expect(fromStored(null)).toBeNull();
+    expect(fromStored('nonsense')).toBeNull();
   });
 });
