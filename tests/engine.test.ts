@@ -18,6 +18,7 @@ import { Reverb } from '../src/fx/Reverb';
 import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { lfoValue } from '../src/engine/lfo';
+import { MACROS, anchorPosition, macroSound } from '../src/instruments/macros';
 import { KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT } from '../src/instruments/Drum';
 
 const SR = 48000;
@@ -130,15 +131,12 @@ describe('instruments', () => {
     }
   });
 
-  it('drum layouts: one row per layer ending in its master (DRIVE, CRUSH), then the LFO', () => {
-    const layerOf = (id: string) => id.split('_')[0];
+  it('sound pages: TIMBRE + INTENSITY first; drums end in DRIVE / CRUSH; then the LFO', () => {
     for (const [row1, row2] of [KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT]) {
       expect(row1).toHaveLength(4);
-      expect(row1[3]).toBe('drive');
-      expect(row2[3]).toBe('crush');
-      expect(new Set(row1.slice(0, 3).map(layerOf)).size).toBe(1);
-      expect(new Set(row2.slice(0, 3).map(layerOf)).size).toBe(1);
+      expect(row2.slice(2)).toEqual(['drive', 'crush']);
     }
+    for (const entry of Object.values(INSTRUMENTS)) expect(entry.layout.slice(0, 2)).toEqual(['timbre', 'intensity']);
     for (const entry of Object.values(INSTRUMENTS)) {
       expect(entry.layout.slice(4, 6)).toEqual(['lfo:rate', 'lfo:shape']);
       expect(entry.layout.slice(10, 12)).toEqual(['lfo:vol', 'lfo:pitch']);
@@ -148,7 +146,7 @@ describe('instruments', () => {
 
   it('drum crush and drive keep the output bounded', () => {
     const d = new Drum(SR, SNARE_PARAMS);
-    const sound = presetSound('snare', INSTRUMENTS.snare.presets.findIndex((p) => p.name === 'IND'));
+    const sound = presetSound('snare', INSTRUMENTS.snare.presets.findIndex((p) => p.name === 'INDUSTRIAL'));
     for (const id in sound) d.setParam(id, sound[id]);
     d.setParam('drive', 30);
     d.setParam('crush', 1);
@@ -323,8 +321,9 @@ describe('dynamics, locks and motion recording', () => {
 describe('chords and gates', () => {
   it('chord mode plays the chord and sequenced notes release after their gate', () => {
     const p = kickProject([]);
-    applyPreset(p.channels[4], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'STAB'));
+    applyPreset(p.channels[4], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'WARM'));
     p.channels[4].sounds.pad!.release = 0.02;
+    p.channels[4].sounds.pad!.attack = 0.002;
     p.channels[4].fxSend = 0;
     p.channels[4].chord = 0;
     p.channels[4].patterns[0].steps[0].active = true;
@@ -618,6 +617,73 @@ describe('track LFO', () => {
         expect(Math.abs(v)).toBeLessThanOrEqual(1);
       }
     }
+  });
+});
+
+describe('TIMBRE and INTENSITY macros', () => {
+  const kinds = Object.keys(MACROS) as (keyof typeof MACROS)[];
+
+  it('every anchor and excite parameter belongs to its track type', () => {
+    for (const kind of kinds) {
+      const ids = new Set(INSTRUMENTS[kind].params.map((p) => p.id));
+      for (const a of MACROS[kind].anchors) for (const id in a.values) expect(ids.has(id), `${kind} ${a.name} ${id}`).toBe(true);
+      for (const e of MACROS[kind].excite) expect(ids.has(e.id), `${kind} ${e.id}`).toBe(true);
+    }
+  });
+
+  it('TIMBRE lands exactly on each named sound (intensity neutral)', () => {
+    for (const kind of kinds) {
+      const specs = INSTRUMENTS[kind].params;
+      MACROS[kind].anchors.forEach((a, i) => {
+        const out = macroSound(kind, anchorPosition(kind, i), 0.5, specs);
+        for (const id in a.values) expect(out[id]).toBeCloseTo(a.values[id], 3);
+      });
+    }
+  });
+
+  it('every TIMBRE / INTENSITY position plays, finite and bounded', () => {
+    for (const kind of kinds) {
+      const entry = INSTRUMENTS[kind];
+      for (const t of [0, 0.2, 0.5, 0.8, 1]) {
+        for (const x of [0, 0.5, 1]) {
+          const inst = entry.create(SR);
+          const sound = macroSound(kind, t, x, entry.params);
+          for (const id in sound) inst.setParam(id, sound[id]);
+          const l = new Float32Array(SR / 2);
+          inst.noteOn(entry.drum ? 36 : 45, 1, 45, false);
+          inst.render(l, new Float32Array(l.length), 0, l.length);
+          const st = stats(l);
+          expect(st.nan, `${kind} t=${t} i=${x}`).toBe(false);
+          expect(st.peak, `${kind} t=${t} i=${x}`).toBeGreaterThan(0.02);
+          expect(st.peak, `${kind} t=${t} i=${x}`).toBeLessThan(2);
+        }
+      }
+    }
+  });
+
+  it('turning INTENSITY down softens without making a hit weak', () => {
+    for (const kind of kinds) {
+      for (const t of [0, 0.5, 1]) {
+        const level = (x: number) => {
+          const entry = INSTRUMENTS[kind];
+          const inst = entry.create(SR);
+          const sound = macroSound(kind, t, x, entry.params);
+          for (const id in sound) inst.setParam(id, sound[id]);
+          const l = new Float32Array(SR / 10);
+          inst.noteOn(entry.drum ? 36 : 45, 1, 45, false);
+          inst.render(l, new Float32Array(l.length), 0, l.length);
+          return stats(l).peak;
+        };
+        expect(level(0), `${kind} t=${t}`).toBeGreaterThan(level(0.5) * 0.4);
+      }
+    }
+  });
+
+  it('the snare starts as a short, high rimshot', () => {
+    const rim = macroSound('snare', 0, 0.5, INSTRUMENTS.snare.params);
+    const brk = macroSound('snare', anchorPosition('snare', 2), 0.5, INSTRUMENTS.snare.params);
+    expect(rim.t_pitch).toBeGreaterThan(brk.t_pitch);
+    expect(rim.m_decay).toBeLessThan(brk.m_decay);
   });
 });
 

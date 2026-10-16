@@ -32,6 +32,7 @@ import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound } from '../instruments/registry';
 import { saveSession } from '../storage/session';
+import { macroSound, timbreName } from '../instruments/macros';
 import { savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView } from './views';
@@ -296,8 +297,17 @@ export class App {
       label: label ?? spec.name, spec, channel: ch, highlight,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
       set: (v) => {
-        (c.sounds[kind] ??= {})[id] = v;
+        const sound = (c.sounds[kind] ??= {});
+        sound[id] = v;
         this.send({ type: 'setSound', channel: ch, id, value: v });
+        if (id === 'timbre' || id === 'intensity') {
+          // Macro: TIMBRE / INTENSITY set the underlying sound parameters.
+          const macro = macroSound(kind, sound.timbre ?? 0.33, sound.intensity ?? 0.5, INSTRUMENTS[kind].params);
+          for (const pid in macro) {
+            sound[pid] = macro[pid];
+            this.send({ type: 'setSound', channel: ch, id: pid, value: macro[pid] });
+          }
+        }
       },
     };
   }
@@ -859,10 +869,17 @@ export class App {
     return { text: Number.isFinite(audio.latencyMs) ? `OUT ${audio.latencyMs.toFixed(0)}MS` : 'AUDIO ON', alert: false };
   }
 
+  /** Knob value for the screen; TIMBRE shows the nearest named sound (e.g. CRASH). */
+  private valueText(t: KnobTarget): string {
+    const kind = this.project.channels[t.channel]?.instrument;
+    if (t.spec.id === 'timbre' && kind && kind !== 'none') return timbreName(kind, t.get());
+    return formatValue(t.spec, t.get());
+  }
+
   private slots() {
     return this.targets.map((t) => (t ? {
       name: t.label,
-      valueText: formatValue(t.spec, t.get()),
+      valueText: this.valueText(t),
       norm: toNorm(t.spec, t.get()),
       highlight: !!t.highlight,
     } : null));
@@ -944,7 +961,9 @@ export class App {
       : paramSpec(c.instrument, id)?.name) ?? '-';
     return {
       ...this.header(),
-      kindLabel: this.presetName(c),
+      kindLabel: c.instrument !== 'none' && c.sounds[c.instrument]?.timbre !== undefined
+        ? timbreName(c.instrument, c.sounds[c.instrument]!.timbre)
+        : this.presetName(c),
       pages: pages.map((p) => p.name),
       page: this.designPage,
       slots: this.slots(),

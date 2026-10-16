@@ -1,21 +1,30 @@
 import type { Instrument, Preset } from './Instrument';
 import { choice, type ParamSpec } from '../engine/params';
 import { decayMul, midiToHz, polyBlep, Svf } from './dsp';
+import { INTENSITY, TIMBRE } from './macroParams';
+import { MACROS } from './macros';
 
 /**
- * Polyphonic virtual-analog synth (6 voices) for basses, reeses, stabs, pads and chords.
- * Per voice: two detunable oscillators + sine sub -> resonant low-pass with its own decay
- * envelope -> amp ADSR -> drive. MONO mode uses one voice with glide.
+ * Polyphonic synth (6 voices) for basses, pads and leads.
+ * Per voice: two detunable oscillators with a continuous SHAPE (sine -> triangle -> saw
+ * -> square), an FM pair (sine carrier, sine modulator at FM RATIO, index following the
+ * filter envelope) blended in by FM, a sine sub -> resonant low-pass with its own decay
+ * envelope -> amp ADSR -> drive. MONO uses one voice with glide.
  */
 
-const WAVES = ['SAW', 'SQR', 'TRI', 'SINE'] as const;
+/** Legacy stepped wave (saves before SHAPE): SAW, SQR, TRI, SINE -> shape position. */
+const LEGACY_WAVE_TO_SHAPE = [2, 3, 1, 0];
 const VOICE_MODES = ['POLY', 'MONO'] as const;
 const OCTAVES = ['-2', '-1', '0', '+1', '+2'] as const;
 const MAX_VOICES = 6;
 const FILTER_UPDATE = 16;
 
 export const SYNTH_PARAMS: readonly ParamSpec[] = [
-  choice('wave', 'WAVE', WAVES),
+  TIMBRE,
+  INTENSITY,
+  { id: 'shape', name: 'SHAPE', min: 0, max: 3, defaultValue: 2, unit: '', curve: 'linear' },
+  { id: 'fm', name: 'FM', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'fmratio', name: 'FM RATIO', min: 0.5, max: 8, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
   { id: 'detune', name: 'DETUNE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'sub', name: 'SUB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   choice('octave', 'OCTAVE', OCTAVES, 2),
@@ -40,52 +49,33 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
 }
 
 /**
- * Three synth tracks share the engine with different core controls:
- *  BASS mono with glide and an AD-ish envelope, PAD polyphonic (chords), LEAD mono.
- * Settings a track type doesn't expose are fixed (see *_FIXED).
+ * Three synth tracks share the engine with different controls: BASS (mono, glide),
+ * PAD (polyphonic, chords) and LEAD (mono, glide). Each type's parameters are all set by
+ * TIMBRE / INTENSITY; settings outside the list are fixed (*_FIXED).
  */
-export const BASS_PARAMS = synthParams(
-  ['wave', 'detune', 'sub', 'octave', 'glide', 'drive', 'cutoff', 'reso', 'fenv', 'fdecay', 'decay', 'sustain'],
-  { sub: 0.35, cutoff: 380, reso: 0.55, fenv: 0.5, fdecay: 0.25, decay: 0.3, sustain: 0.2 },
-);
+const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'cutoff', 'reso', 'fenv', 'fdecay', 'drive'];
+
+export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', 'decay', 'sustain'], {});
 export const BASS_FIXED = { voice: 1, attack: 0.002, release: 0.06, level: 0.75 };
-
-export const PAD_PARAMS = synthParams(
-  ['wave', 'detune', 'octave', 'cutoff', 'reso', 'fenv', 'attack', 'decay', 'sustain', 'release', 'fdecay', 'drive'],
-  { detune: 0.5, cutoff: 1100, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.45, decay: 1.2, sustain: 0.8, release: 1.2 },
-);
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', 'attack', 'decay', 'sustain', 'release'], { attack: 0.45, release: 1.2 });
 export const PAD_FIXED = { voice: 0, glide: 0, sub: 0, level: 0.5 };
+export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', 'attack', 'decay', 'sustain', 'release'], { octave: 3 });
+export const LEAD_FIXED = { voice: 1, sub: 0, level: 0.55 };
 
-export const LEAD_PARAMS = synthParams(
-  ['wave', 'detune', 'octave', 'glide', 'cutoff', 'reso', 'fenv', 'fdecay', 'attack', 'decay', 'sustain', 'release'],
-  { wave: 1, detune: 0.15, octave: 3, glide: 0.05, cutoff: 2200, reso: 0.3, fenv: 0.3, fdecay: 0.3, attack: 0.005, decay: 0.3, sustain: 0.6, release: 0.15 },
-);
-export const LEAD_FIXED = { voice: 1, sub: 0, drive: 1.5, level: 0.55 };
-
-/** Sound design layout: 4 sound knobs per row (the registry adds the LFO knobs). */
-export const BASS_LAYOUT = [['wave', 'detune', 'sub', 'glide'], ['cutoff', 'reso', 'fenv', 'decay']];
+/** Sound pages: 4 sound knobs per row (the registry adds the LFO knobs). */
+export const BASS_LAYOUT = [['timbre', 'intensity', 'glide', 'octave'], ['cutoff', 'reso', 'decay', 'sub']];
 /** The pad's CHORD knob sits on its sound page ("track:chord" is a track setting). */
-export const PAD_LAYOUT = [['wave', 'detune', 'cutoff', 'reso'], ['track:chord', 'attack', 'release', 'octave']];
-export const LEAD_LAYOUT = [['wave', 'detune', 'glide', 'octave'], ['cutoff', 'reso', 'fenv', 'decay']];
+export const PAD_LAYOUT = [['timbre', 'intensity', 'track:chord', 'octave'], ['cutoff', 'attack', 'release', 'detune']];
+export const LEAD_LAYOUT = [['timbre', 'intensity', 'glide', 'octave'], ['cutoff', 'reso', 'decay', 'detune']];
 
-export const BASS_PRESETS: readonly Preset[] = [
-  { name: 'BASS', values: {} },
-  { name: 'REESE', values: { detune: 0.7, sub: 0.5, glide: 0.04, cutoff: 650, reso: 0.2, fenv: 0.1, fdecay: 0.5, decay: 1, sustain: 1, drive: 2 } },
-  { name: 'SUB', values: { wave: 3, sub: 0, cutoff: 2000, reso: 0, fenv: 0, decay: 0.6, sustain: 0.8 } },
-  { name: 'ACID', values: { wave: 0, sub: 0, glide: 0.06, cutoff: 300, reso: 0.85, fenv: 0.7, fdecay: 0.18, decay: 0.25, sustain: 0.3, drive: 3 } },
-];
-export const PAD_PRESETS: readonly Preset[] = [
-  { name: 'WARM', values: {} },
-  { name: 'STAB', values: { detune: 0.3, cutoff: 1500, reso: 0.3, fenv: 0.45, fdecay: 0.18, attack: 0.002, decay: 0.35, sustain: 0.15, release: 0.25 } },
-  { name: 'GLASS', values: { wave: 2, detune: 0.2, octave: 3, cutoff: 5000, attack: 0.02, decay: 0.8, sustain: 0.4, release: 1.5 } },
-  { name: 'DARK', values: { wave: 1, detune: 0.6, octave: 1, cutoff: 500, reso: 0.4, attack: 0.8, release: 2 } },
-];
-export const LEAD_PRESETS: readonly Preset[] = [
-  { name: 'SQUARE', values: {} },
-  { name: 'SAW', values: { wave: 0, detune: 0.3, cutoff: 1800, fenv: 0.5 } },
-  { name: 'SINE', values: { wave: 3, detune: 0, cutoff: 6000, fenv: 0, sustain: 0.8 } },
-  { name: 'SCREAM', values: { wave: 0, detune: 0.5, cutoff: 900, reso: 0.8, fenv: 0.6, fdecay: 0.4 } },
-];
+/** Presets = the named TIMBRE points (intensity in the middle). */
+function anchorPresets(kind: 'bass' | 'pad' | 'lead'): Preset[] {
+  const anchors = MACROS[kind].anchors;
+  return anchors.map((a, i) => ({ name: a.name, values: { timbre: i / (anchors.length - 1), intensity: 0.5 } }));
+}
+export const BASS_PRESETS: readonly Preset[] = anchorPresets('bass');
+export const PAD_PRESETS: readonly Preset[] = anchorPresets('pad');
+export const LEAD_PRESETS: readonly Preset[] = anchorPresets('lead');
 
 const STAGE_OFF = 0, STAGE_ATTACK = 1, STAGE_DECAY = 2, STAGE_SUSTAIN = 3, STAGE_RELEASE = 4;
 
@@ -95,7 +85,7 @@ class Voice {
   freq = 110;
   targetFreq = 110;
   velocity = 1;
-  p1 = 0; p2 = 0; p3 = 0;
+  p1 = 0; p2 = 0; p3 = 0; p4 = 0;
   stage = STAGE_OFF;
   amp = 0;
   fenv = 0;
@@ -107,7 +97,7 @@ class Voice {
 export class Synth implements Instrument {
   private readonly sr: number;
   private readonly voices: Voice[] = [];
-  private wave = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
+  private shape = 2; private fm = 0; private fmRatio = 2; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private glideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0;
   private drive = 1; private level = 0.7;
@@ -157,7 +147,10 @@ export class Synth implements Instrument {
   setParam(id: string, value: number): void {
     const sr = this.sr;
     switch (id) {
-      case 'wave': this.wave = Math.round(value); break;
+      case 'shape': this.shape = Math.min(3, Math.max(0, value)); break;
+      case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
+      case 'fm': this.fm = value; break;
+      case 'fmratio': this.fmRatio = value; break;
       case 'detune': this.detune = value; break;
       case 'sub': this.sub = value; break;
       case 'octave': this.octave = Math.round(value) - 2; break;
@@ -196,6 +189,13 @@ export class Synth implements Instrument {
         v.p3 += dt1 * 0.5; if (v.p3 >= 1) v.p3 -= 1;
         let osc = this.osc(v.p1, dt1);
         if (this.detune > 0) osc = (osc + this.osc(v.p2, dt2)) * 0.6;
+        if (this.fm > 0) {
+          // FM pair: the index rises with FM and with the filter envelope (a struck clang).
+          v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
+          const index = this.fm * (0.5 + 4.5 * v.fenv);
+          const fmOut = Math.sin(2 * Math.PI * v.p1 + index * Math.sin(2 * Math.PI * v.p4));
+          osc = osc * (1 - this.fm) + fmOut * this.fm;
+        }
         osc += Math.sin(2 * Math.PI * v.p3) * this.sub;
 
         if (v.counter-- <= 0) {
@@ -236,15 +236,25 @@ export class Synth implements Instrument {
     }
   }
 
+  /** Continuous shape: crossfade between the two neighbouring waves. */
   private osc(phase: number, dt: number): number {
-    switch (this.wave) {
-      case 1: {
+    const s = this.shape;
+    const i = Math.min(2, Math.floor(s));
+    const f = s - i;
+    const a = this.wave(i, phase, dt);
+    return f > 0 ? a + (this.wave(i + 1, phase, dt) - a) * f : a;
+  }
+
+  /** 0 sine, 1 triangle, 2 saw, 3 square (band-limited saw/square). */
+  private wave(w: number, phase: number, dt: number): number {
+    switch (w) {
+      case 0: return Math.sin(2 * Math.PI * phase);
+      case 1: return 4 * Math.abs(phase - 0.5) - 1;
+      case 2: return 2 * phase - 1 - polyBlep(phase, dt);
+      default: {
         let p2 = phase + 0.5; if (p2 >= 1) p2 -= 1;
         return (phase < 0.5 ? 1 : -1) + polyBlep(phase, dt) - polyBlep(p2, dt);
       }
-      case 2: return 4 * Math.abs(phase - 0.5) - 1;
-      case 3: return Math.sin(2 * Math.PI * phase);
-      default: return 2 * phase - 1 - polyBlep(phase, dt);
     }
   }
 

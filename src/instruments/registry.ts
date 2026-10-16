@@ -5,6 +5,7 @@
 import type { Instrument, Preset } from './Instrument';
 import type { InstrumentKind, SoundKind } from '../engine/project';
 import type { ParamSpec } from '../engine/params';
+import { macroSound } from './macros';
 import {
   Drum, HAT_LAYOUT, HAT_PARAMS, HAT_PRESETS, KICK_LAYOUT, KICK_PARAMS, KICK_PRESETS,
   SNARE_LAYOUT, SNARE_PARAMS, SNARE_PRESETS,
@@ -62,9 +63,15 @@ export function paramSpec(kind: InstrumentKind, id: string): ParamSpec | undefin
   return instrumentParams(kind).find((p) => p.id === id);
 }
 
-/** Full sound for a preset: defaults overlaid with the preset's values. */
+/**
+ * Full sound for a preset: defaults, then (when the preset names a TIMBRE position) the
+ * sound TIMBRE / INTENSITY produce there, then the preset's own values.
+ */
 export function presetSound(kind: SoundKind, index: number): Record<string, number> {
   const sound: Record<string, number> = {};
-  for (const p of INSTRUMENTS[kind].params) sound[p.id] = p.defaultValue;
-  return { ...sound, ...INSTRUMENTS[kind].presets[index].values };
+  const params = INSTRUMENTS[kind].params;
+  for (const p of params) sound[p.id] = p.defaultValue;
+  const values = INSTRUMENTS[kind].presets[index].values;
+  const macro = values.timbre !== undefined ? macroSound(kind, values.timbre, values.intensity ?? 0.5, params) : {};
+  return { ...sound, ...macro, ...values };
 }

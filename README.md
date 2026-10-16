@@ -50,7 +50,18 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 
 **Sound design pages:** SOUND (per row: four sound knobs, then the track LFO in modules 5-6 — top RATE / SHAPE, bottom VOL MOD / PITCH MOD; drums: layer 1 ×3 + DRIVE, layer 2 ×3 + CRUSH; the PAD page has CHORD), TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Settings without a knob come from the presets, which keeps each sound's character.
 
-**Sounds:** KICK = TONE + CLICK (pitch, sweep, decay / click level, tone, length), SNARE = TONE + METAL (level, pitch, decay / level, tone, decay), HAT = METAL + CLICK (pitch, tone, decay / level, tone, length); every drum has DRIVE and CRUSH. BASS (wave, detune, sub, glide / filter, reso, env, decay), PAD (wave, detune, filter, reso / chord, attack, release, octave), LEAD (wave, detune, glide, octave / filter, reso, env, decay). Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
+**Sounds: TIMBRE and INTENSITY.** Every track has two macro knobs at the start of its sound page. TIMBRE travels through four designed sounds, blending every parameter between them; INTENSITY damps (left) or excites (right) the result, changing character rather than loudness. The detail knobs show what the macros set and can fine-tune it until a macro is turned again. Presets are the named TIMBRE points.
+
+| Track | TIMBRE: low → high | Detail knobs |
+|---|---|---|
+| KICK (tone + click) | VINTAGE → PUNCH → TECHNO → PSY DOOF | pitch, decay / click, sweep, DRIVE, CRUSH |
+| SNARE (tone + metal) | RIMSHOT → TIGHT → BREAK → INDUSTRIAL | pitch, decay / metal, metal decay, DRIVE, CRUSH |
+| HAT (click + metal) | RIDE → HAT → CRASH → CHINA | metal pitch, decay / click, metal tone, DRIVE, CRUSH |
+| BASS (mono) | SINE SUB → SOLID → GROWL → FM CLANG | glide, octave / filter, reso, decay, sub |
+| PAD (6 voices) | WARM → STRINGS → GLASS → DARK | chord, octave / filter, attack, release, detune |
+| LEAD (mono) | SINE → SQUARE → SCREAM → BELL | glide, octave / filter, reso, decay, detune |
+
+Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
 
 **Track LFO:** RATE tempo-synced (4 bars … 1/32, with triplets), SHAPE (sine, square, triangle, saw down, saw up, sample+hold), VOL MOD (tremolo depth) and PITCH MOD (up to ±12 semitones). Phase-locked to the song; restarts with PLAY. Rate and depths can be put on live knobs.
 

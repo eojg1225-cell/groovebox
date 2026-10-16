@@ -166,6 +166,10 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     for (const k of SOUND_KINDS) {
       const values = numbers(src.sounds[k]);
       const known = new Set(INSTRUMENTS[k].params.map((p) => p.id));
+      // Synths before the continuous SHAPE stored a stepped wave (SAW, SQR, TRI, SINE).
+      if (values.wave !== undefined && values.shape === undefined && known.has('shape')) {
+        values.shape = [2, 3, 1, 0][Math.round(values.wave)] ?? 2;
+      }
       const kept = Object.fromEntries(Object.entries(values).filter(([id]) => known.has(id)));
       if (Object.keys(kept).length) ch.sounds[k] = { ...(ch.sounds[k] ?? presetSound(k, 0)), ...kept };
     }
