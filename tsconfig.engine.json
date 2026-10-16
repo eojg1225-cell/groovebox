@@ -1,0 +1,10 @@
+{
+  // Type-checks the portable DSP code with NO DOM / Web Audio types.
+  // Any use of window, document, AudioContext, etc. in these folders fails the build.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2020"],
+    "types": []
+  },
+  "include": ["src/engine", "src/instruments", "src/fx"]
+}
