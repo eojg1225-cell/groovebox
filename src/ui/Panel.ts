@@ -62,6 +62,8 @@ export class Panel implements ControlSurface {
   private readonly leds: HTMLElement[] = [];
   private readonly badges: HTMLElement[] = [];
   private readonly masterKnobs = new Map<string, Knob>();
+  private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
+  private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
 
   constructor(host: HTMLElement, cfg: PanelConfig) {
     const root = document.createElement('div');
@@ -107,7 +109,7 @@ export class Panel implements ControlSurface {
     // Knob modules, one per track, separated by grooves like a hardware front panel.
     const grid = q('.knob-grid');
     for (let i = 1; i <= KNOB_COUNT; i++) {
-      this.knobs.push(new Knob(`k${i}`, '', 0.5, (id, value) => this.emitter.emit({ type: 'knob', id, value })));
+      this.knobs.push(new Knob(`k${i}`, '', 0.5, this.knobEmit, this.encoderEmit));
     }
     for (let m = 0; m < KNOBS_PER_ROW; m++) {
       const module = document.createElement('div');
@@ -141,7 +143,8 @@ export class Panel implements ControlSurface {
     }
     q('.play-area').prepend(this.makeButton('play', 'PLAY', 'btn play'));
     for (const m of MASTER_KNOBS) {
-      const knob = new Knob(m.id, m.label, 0.5, (id, value) => this.emitter.emit({ type: 'knob', id, value }));
+      // TEMPO moves in 0.1 BPM steps (60-200 = 1400 steps); everything else is 0-127.
+      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, m.id === 'mtempo' ? 1400 : 127);
       knob.el.classList.add('master');
       this.masterKnobs.set(m.id, knob);
       q('.master-knobs').appendChild(knob.el);

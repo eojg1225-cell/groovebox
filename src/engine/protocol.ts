@@ -3,6 +3,7 @@
  * Plain data only, so it survives structured cloning and can be documented / ported.
  */
 import type { InstrumentKind, Project, Step } from './project';
+import type { LfoId } from './lfo';
 
 export type MixParam = 'volume' | 'pan' | 'mute' | 'cutoff' | 'send';
 export type GlobalParam = 'bpm' | 'swing' | 'master' | 'lofi';
@@ -26,8 +27,10 @@ export type MainToWorklet =
   | { type: 'setGlobal'; id: GlobalParam; value: number }
   /** Route a track to send 1-3 (0 = none). */
   | { type: 'setRouting'; channel: number; send: number }
-  /** Amount 0..1 of effect `effect` (EFFECTS order) inside send `send` (0-2). */
-  | { type: 'setSendFx'; send: number; effect: number; value: number }
+  /** WET or INTENSITY 0..1 of effect `effect` (EFFECTS order) inside send `send` (0-2). */
+  | { type: 'setSendFx'; send: number; effect: number; control: 'wet' | 'int'; value: number }
+  /** Track LFO setting (rate/shape as option indices, vol 0..1, pitch in semitones). */
+  | { type: 'setLfo'; channel: number; id: LfoId; value: number }
   | { type: 'transport'; playing: boolean }
   /** Audition / play a note on a channel now. */
   | { type: 'trigger'; channel: number; note: number; velocity: number }

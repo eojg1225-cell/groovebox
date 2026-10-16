@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 5;
+export const PROJECT_VERSION = 6;
 /** Send buses (FX 1-3); each holds all six effects (see src/fx). */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -12,6 +12,8 @@ export const MAX_STEPS = 64;
 export const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
+
+import { defaultLfo, type LfoState } from './lfo';
 
 export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'bass' | 'pad' | 'lead';
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
@@ -75,6 +77,8 @@ export interface ChannelState {
   fxSend: number;
   /** How much of the track goes to its send, 0..1. */
   sendLevel: number;
+  /** Track LFO (rate, shape, volume and pitch modulation). */
+  lfo: LfoState;
   mute: boolean;
   patterns: Pattern[];
   activePattern: number;
@@ -86,8 +90,10 @@ export interface Project {
   /** 50..75 (%): 50 = straight. */
   swing: number;
   master: number; // 0..1
-  /** Effect amounts per send: sendFx[send][effect], 0..1 (effects in src/fx EFFECTS order). */
-  sendFx: number[][];
+  /** Per send and effect (src/fx EFFECTS order), 0..1: WET = return volume ... */
+  sendWet: number[][];
+  /** ... and INTENSITY = how hard the effect works (feedback, drive, depth, size ...). */
+  sendInt: number[][];
   /** Master LO-FI (tape saturation + EQ), 0..1. */
   lofi: number;
   channels: ChannelState[];
@@ -113,6 +119,7 @@ export function emptyChannel(): ChannelState {
     cutoff: 20000,
     fxSend: 0,
     sendLevel: 0.5,
+    lfo: defaultLfo(),
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
     activePattern: 0,

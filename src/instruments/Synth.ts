@@ -62,6 +62,12 @@ export const LEAD_PARAMS = synthParams(
 );
 export const LEAD_FIXED = { voice: 1, sub: 0, drive: 1.5, level: 0.55 };
 
+/** Sound design layout: 4 sound knobs per row (the registry adds the LFO knobs). */
+export const BASS_LAYOUT = [['wave', 'detune', 'sub', 'glide'], ['cutoff', 'reso', 'fenv', 'decay']];
+/** The pad's CHORD knob sits on its sound page ("track:chord" is a track setting). */
+export const PAD_LAYOUT = [['wave', 'detune', 'cutoff', 'reso'], ['track:chord', 'attack', 'release', 'octave']];
+export const LEAD_LAYOUT = [['wave', 'detune', 'glide', 'octave'], ['cutoff', 'reso', 'fenv', 'decay']];
+
 export const BASS_PRESETS: readonly Preset[] = [
   { name: 'BASS', values: {} },
   { name: 'REESE', values: { detune: 0.7, sub: 0.5, glide: 0.04, cutoff: 650, reso: 0.2, fenv: 0.1, fdecay: 0.5, decay: 1, sustain: 1, drive: 2 } },
@@ -107,6 +113,7 @@ export class Synth implements Instrument {
   private drive = 1; private level = 0.7;
   private attackInc = 1; private decayMul = 0; private sustain = 0.5; private releaseMul = 0;
   private ageCounter = 0;
+  private pitchMod = 1;
 
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>) {
     this.sr = sampleRate;
@@ -135,6 +142,10 @@ export class Synth implements Instrument {
     v.fenv = 1;
     v.age = ++this.ageCounter;
     v.counter = 0;
+  }
+
+  setPitchMod(semitones: number): void {
+    this.pitchMod = semitones === 0 ? 1 : Math.pow(2, semitones / 12);
   }
 
   noteOff(group: number): void {
@@ -178,7 +189,7 @@ export class Synth implements Instrument {
       if (v.stage === STAGE_OFF) continue;
       for (let i = start; i < end; i++) {
         if (v.freq !== v.targetFreq) v.freq += (v.targetFreq - v.freq) * this.glideCoeff;
-        const dt1 = v.freq / sr;
+        const dt1 = (v.freq * this.pitchMod) / sr;
         const dt2 = dt1 * det;
         v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;
         v.p2 += dt2; if (v.p2 >= 1) v.p2 -= 1;

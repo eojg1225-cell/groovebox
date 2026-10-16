@@ -17,6 +17,7 @@ import { Chorus } from '../src/fx/Chorus';
 import { Reverb } from '../src/fx/Reverb';
 import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
+import { lfoValue } from '../src/engine/lfo';
 import { KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT } from '../src/instruments/Drum';
 
 const SR = 48000;
@@ -119,7 +120,9 @@ describe('instruments', () => {
   it('each type has a 12-knob layout of its own params; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
       expect(entry.layout.length).toBeLessThanOrEqual(12);
-      for (const id of entry.layout) if (id) expect(entry.params.some((p) => p.id === id)).toBe(true);
+      for (const id of entry.layout) {
+        if (id && !id.includes(':')) expect(entry.params.some((p) => p.id === id)).toBe(true);
+      }
       for (const p of entry.params) if (p.options) expect(p.coarse).toBe(true);
       for (const preset of entry.presets) {
         for (const id in preset.values) expect(entry.params.some((p) => p.id === id)).toBe(true);
@@ -127,15 +130,20 @@ describe('instruments', () => {
     }
   });
 
-  it('drum layouts: one row per layer, each row ending in a master (DRIVE, CRUSH)', () => {
-    const layerOf = (id: string | null) => id?.split('_')[0];
-    for (const layout of [KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT]) {
-      expect(layout).toHaveLength(12);
-      expect(layout[5]).toBe('drive');
-      expect(layout[11]).toBe('crush');
-      expect(new Set(layout.slice(0, 5).map(layerOf)).size).toBe(1);
-      expect(new Set(layout.slice(6, 11).map(layerOf)).size).toBe(1);
+  it('drum layouts: one row per layer ending in its master (DRIVE, CRUSH), then the LFO', () => {
+    const layerOf = (id: string) => id.split('_')[0];
+    for (const [row1, row2] of [KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT]) {
+      expect(row1).toHaveLength(4);
+      expect(row1[3]).toBe('drive');
+      expect(row2[3]).toBe('crush');
+      expect(new Set(row1.slice(0, 3).map(layerOf)).size).toBe(1);
+      expect(new Set(row2.slice(0, 3).map(layerOf)).size).toBe(1);
     }
+    for (const entry of Object.values(INSTRUMENTS)) {
+      expect(entry.layout.slice(4, 6)).toEqual(['lfo:rate', 'lfo:shape']);
+      expect(entry.layout.slice(10, 12)).toEqual(['lfo:vol', 'lfo:pitch']);
+    }
+    expect(INSTRUMENTS.pad.layout).toContain('track:chord');
   });
 
   it('drum crush and drive keep the output bounded', () => {
@@ -431,7 +439,7 @@ describe('send effects', () => {
     const wet = kickProject([0], { bpm: 120 });
     wet.channels[0].fxSend = 2;
     wet.channels[0].sendLevel = 1;
-    wet.sendFx[1] = [1, 0, 0, 0, 0, 0]; // only the delay, full
+    wet.sendWet[1] = [1, 0, 0, 0, 0, 0]; // only the delay, full
     const tail = (p: Project) => {
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
@@ -443,7 +451,7 @@ describe('send effects', () => {
 
   it('routing can be changed and removed live', () => {
     const p = kickProject([0], { bpm: 120 });
-    p.sendFx[0] = [1, 0, 0, 0, 0, 0];
+    p.sendWet[0] = [1, 0, 0, 0, 0, 0];
     const e = engineWith(p);
     e.handleMessage({ type: 'setRouting', channel: 0, send: 1 });
     e.handleMessage({ type: 'setMix', channel: 0, id: 'send', value: 1 });
@@ -566,6 +574,72 @@ describe('more send effects', () => {
   });
 });
 
+describe('track LFO', () => {
+  /** Pad holding a long note, LFO set as given; returns the output. */
+  const padWithLfo = (lfo: { rate: number; shape: number; vol: number; pitch: number }, seconds: number) => {
+    const p = kickProject([], { bpm: 120 });
+    const pad = p.channels[4];
+    pad.fxSend = 0;
+    pad.chord = 0;
+    pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, sustain: 1, release: 0.01 };
+    pad.patterns[0].steps[0].active = true;
+    pad.patterns[0].steps[0].gate = 16;
+    pad.lfo = lfo;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    return render(e, seconds).l;
+  };
+
+  it('volume modulation follows the tempo-synced rate (square, 1/4 = 24000 frames at 120 BPM)', () => {
+    const l = padWithLfo({ rate: 4, shape: 1, vol: 1, pitch: 0 }, 1);
+    const peak = (a: number, b: number) => stats(l.subarray(a, b)).peak;
+    // Square starts high: first half-cycle (0-12000) loud, second (12000-24000) silent,
+    // allowing ~1 ms for the track filters to ring out after the edge.
+    expect(peak(6000, 12000)).toBeGreaterThan(0.05);
+    expect(peak(13000, 24000)).toBeLessThan(1e-3);
+    expect(peak(24000, 30000)).toBeGreaterThan(0.05); // next cycle
+  });
+
+  it('pitch modulation moves the pitch up and down', () => {
+    const l = padWithLfo({ rate: 4, shape: 1, vol: 0, pitch: 12 }, 0.5);
+    const zc = (a: number, b: number) => {
+      let n = 0;
+      for (let i = a + 1; i < b; i++) if (l[i - 1] < 0 && l[i] >= 0) n++;
+      return n;
+    };
+    // High half (+12) vs low half (-12): about 4x the crossings.
+    expect(zc(2000, 10000) / zc(14000, 22000)).toBeGreaterThan(3);
+  });
+
+  it('every shape stays within -1..1', () => {
+    for (let shape = 0; shape < 6; shape++) {
+      for (let k = 0; k <= 100; k++) {
+        const v = lfoValue(shape, k / 100, 0.3);
+        expect(Math.abs(v)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});
+
+describe('send intensity', () => {
+  it('delay intensity sets the feedback (more repeats)', () => {
+    const tail = (intensity: number) => {
+      const p = kickProject([0], { bpm: 120 });
+      p.channels[0].fxSend = 2; // send 2: delay 1/4 = 24000 frames
+      p.channels[0].sendLevel = 1;
+      p.sendWet[1] = [1, 0, 0, 0, 0, 0];
+      p.sendInt[1][0] = intensity;
+      p.channels[0].patterns[0].steps.forEach((s) => (s.active = false));
+      p.channels[0].patterns[0].steps[0].active = true;
+      p.channels[0].patterns[0].length = 64; // only one kick in the window
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 2.2).l.subarray(95000, 98000)).peak; // 4th repeat
+    };
+    expect(tail(0.9)).toBeGreaterThan(tail(0.1) * 5);
+  });
+});
+
 describe('project', () => {
   const busy = () => {
     const p = createDefaultProject();
@@ -580,7 +654,10 @@ describe('project', () => {
     p.channels[4].fxSend = 3;
     p.channels[4].sendLevel = 0.7;
     p.lofi = 0.4;
-    p.sendFx[2][5] = 0.9;
+    p.sendWet[2][5] = 0.9;
+    p.sendInt[0][0] = 0.8;
+    p.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 };
+    p.channels[4].chord = 6;
     p.channels[1].mute = true;
     return p;
   };
@@ -609,6 +686,20 @@ describe('project', () => {
     expect(loaded.channels[3].patterns[1].steps[20]).toMatchObject({ active: true, note: 41, gate: 3 });
     expect(loaded.channels[3].patterns[1].length).toBe(32);
     expect(loaded.channels[1].mute).toBe(true);
+  });
+
+  it('maps old chord numbers and send amounts into the v6 model', () => {
+    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    old.version = 5;
+    old.channels[4].chord = 4; // MIN9 in the v5 list
+    old.sendFx = old.sendWet;
+    delete old.sendWet;
+    delete old.sendInt;
+    old.sendFx[0][0] = 0.33;
+    const p = fromStored(old)!;
+    expect(CHORDS[p.channels[4].chord].name).toBe('MIN9');
+    expect(p.sendWet[0][0]).toBe(0.33);
+    expect(p.sendInt[0][0]).toBe(0.5);
   });
 
   it('maps the old per-effect sends onto the new routing', () => {
@@ -658,7 +749,7 @@ describe('project', () => {
     expect(p.channels[1].pan).toBe(0.2);
     // Unknown things fall back to defaults.
     expect(p.channels[1].fxSend).toBe(0);
-    expect(p.sendFx).toHaveLength(3);
+    expect(p.sendWet).toHaveLength(3);
   });
 
   it('rejects data with no channels', () => {

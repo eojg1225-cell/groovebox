@@ -13,6 +13,8 @@ export interface Instrument {
   noteOn(note: number, velocity: number, group: number): void;
   /** Release voices of a group; -1 releases everything. Percussive voices may ignore it. */
   noteOff(group: number): void;
+  /** Pitch modulation in semitones (track LFO), applied to sounding voices. Block rate. */
+  setPitchMod(semitones: number): void;
   /** Value in real units (see ParamSpec). Unknown ids are ignored. */
   setParam(id: string, value: number): void;
   /** ADD output into outL/outR for frames [start, end). */

@@ -10,15 +10,26 @@ import {
   SNARE_LAYOUT, SNARE_PARAMS, SNARE_PRESETS,
 } from './Drum';
 import {
-  BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS,
-  PAD_FIXED, PAD_PARAMS, PAD_PRESETS, Synth,
+  BASS_FIXED, BASS_LAYOUT, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_LAYOUT, LEAD_PARAMS, LEAD_PRESETS,
+  PAD_FIXED, PAD_LAYOUT, PAD_PARAMS, PAD_PRESETS, Synth,
 } from './Synth';
+
+/**
+ * Sound page: 4 sound knobs then the LFO per row (modules 5-6):
+ * top row LFO RATE / SHAPE, bottom row VOL MOD / PITCH MOD.
+ */
+function soundPage(rows: string[][]): string[] {
+  return [...rows[0], 'lfo:rate', 'lfo:shape', ...rows[1], 'lfo:vol', 'lfo:pitch'];
+}
 
 export interface InstrumentEntry {
   name: string;
   /** All of the type's parameters (stored, set by presets, lockable). */
   params: readonly ParamSpec[];
-  /** Sound design page: 12 knob slots (2 rows of 6) by param id, null = empty. */
+  /**
+   * Sound design page: 12 knob slots (2 rows of 6). Ids are the type's params, or
+   * "lfo:*" / "track:chord" for track settings; null = empty.
+   */
   layout: readonly (string | null)[];
   presets: readonly Preset[];
   /** Drum voices use the step strip when recording; pitched types get a keyboard. */
@@ -29,12 +40,12 @@ export interface InstrumentEntry {
 }
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
-  kick: { name: 'KICK', params: KICK_PARAMS, layout: KICK_LAYOUT, presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
-  snare: { name: 'SNARE', params: SNARE_PARAMS, layout: SNARE_LAYOUT, presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
-  hat: { name: 'HAT', params: HAT_PARAMS, layout: HAT_LAYOUT, presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
-  bass: { name: 'BASS', params: BASS_PARAMS, layout: BASS_PARAMS.map((p) => p.id), presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
-  pad: { name: 'PAD', params: PAD_PARAMS, layout: PAD_PARAMS.map((p) => p.id), presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
-  lead: { name: 'LEAD', params: LEAD_PARAMS, layout: LEAD_PARAMS.map((p) => p.id), presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
+  kick: { name: 'KICK', params: KICK_PARAMS, layout: soundPage(KICK_LAYOUT), presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
+  snare: { name: 'SNARE', params: SNARE_PARAMS, layout: soundPage(SNARE_LAYOUT), presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
+  hat: { name: 'HAT', params: HAT_PARAMS, layout: soundPage(HAT_LAYOUT), presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
+  bass: { name: 'BASS', params: BASS_PARAMS, layout: soundPage(BASS_LAYOUT), presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
+  pad: { name: 'PAD', params: PAD_PARAMS, layout: soundPage(PAD_LAYOUT), presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
+  lead: { name: 'LEAD', params: LEAD_PARAMS, layout: soundPage(LEAD_LAYOUT), presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
 };
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];

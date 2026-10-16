@@ -34,7 +34,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 
 **Layout (like a hardware front panel):** screen top left; top right MODE (RECORD / PLAY / SOUND DESIGN), channels 1-6 with MUTE, pattern A/B/C with SAVE PATCH / SAVE PROJECT, the sound design pages (SOUND / TRACK / GLOBAL) and the small **FX 1 2 3** buttons. Below: six recessed track modules (two knobs each, track number between), the function row, step lights, the 16-button strip, and bottom right PLAY with the **TEMPO** and **LO-FI** master knobs.
 
-**Knobs are endless encoders** (as on the planned hardware): they turn without end stops and change values relatively; values are shown on the screen. Drag vertically (400 px = full range, Shift = fine), mouse wheel, double-tap resets.
+**Knobs** are absolute 0-127 controls with fixed limits and a 270° sweep (TEMPO moves in 0.1 BPM steps). Drag vertically (400 px = full range, Shift = fine), double-tap resets. The control layer also accepts relative **encoder** turns (one detent = one step), as physical rotary encoders on the hardware will send; on screen the mouse wheel uses that path.
 
 **Tracks:** 1 KICK, 2 SNARE, 3 HAT, 4 BASS, 5 PAD (chords), 6 LEAD.
 
@@ -48,11 +48,13 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | Pitched strip | Step entry (cursor; ◀ ▶ REST; hold + ▶ ties); MOTION REC records live | Keyboard | Keyboard (audition) |
 | Recorded? | Yes | Never | No |
 
-**Sound design pages:** SOUND (12 knobs; drums: row 1 = first layer + DRIVE, row 2 = second layer + CRUSH), TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2 = what the two live knobs control, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Coarse settings only live here.
+**Sound design pages:** SOUND (per row: four sound knobs, then the track LFO in modules 5-6 — top RATE / SHAPE, bottom VOL MOD / PITCH MOD; drums: layer 1 ×3 + DRIVE, layer 2 ×3 + CRUSH; the PAD page has CHORD), TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Settings without a knob come from the presets, which keeps each sound's character.
 
-**Sounds:** KICK = TONE + CLICK, SNARE = TONE + METAL, HAT = CLICK + METAL. TONE: level, pitch, sweep, sweep time, decay (+ wave on the snare). CLICK: level, tone, resonance, length, noise. METAL: level, pitch, spread/noise, tone, decay. Every drum: DRIVE and CRUSH. BASS (mono, glide), PAD (6-voice, chords MIN7 … MIN11, SUS4), LEAD (mono, glide).
+**Sounds:** KICK = TONE + CLICK (pitch, sweep, decay / click level, tone, length), SNARE = TONE + METAL (level, pitch, decay / level, tone, decay), HAT = METAL + CLICK (pitch, tone, decay / level, tone, length); every drum has DRIVE and CRUSH. BASS (wave, detune, sub, glide / filter, reso, env, decay), PAD (wave, detune, filter, reso / chord, attack, release, octave), LEAD (wave, detune, glide, octave / filter, reso, env, decay). Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
 
-**FX sends:** three sends, each holding six effects with one AMOUNT knob each: DELAY (tempo-synced: send 1 = 3/16, 2 = 1/4, 3 = 1/8; more amount = more feedback), DISTORT, MID CUT (carves the signal feeding the send's other effects), CHORUS, REVERB, COMP (parallel compression). Each track goes to one send with its own SEND LVL. Start: FX 1 dub delay, FX 2 reverb, FX 3 dirt.
+**Track LFO:** RATE tempo-synced (4 bars … 1/32, with triplets), SHAPE (sine, square, triangle, saw down, saw up, sample+hold), VOL MOD (tremolo depth) and PITCH MOD (up to ±12 semitones). Phase-locked to the song; restarts with PLAY. Rate and depths can be put on live knobs.
+
+**FX sends:** three sends, each holding six effects with two knobs each: WET (return volume, top row) and INTENSITY (bottom row): DELAY (feedback; tempo-synced, send 1 = 3/16, 2 = 1/4, 3 = 1/8), DISTORT (drive), MID CUT (depth), CHORUS (depth + rate), REVERB (size), COMP (squash). Each track goes to one send with its own SEND LVL. Start: FX 1 dub delay, FX 2 reverb, FX 3 dirt.
 
 **Master:** TEMPO; LO-FI (tape: low-end bump, progressive saturation, high roll-off), saved with the project.
 

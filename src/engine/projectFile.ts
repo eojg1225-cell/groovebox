@@ -14,6 +14,8 @@ import {
 import { applyPreset, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, SOUND_KINDS, presetSound } from '../instruments/registry';
 import { EFFECTS } from '../fx';
+import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
+import { LFO_RATES, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
 
@@ -43,6 +45,7 @@ export interface StoredChannel {
   cutoff: number;
   fxSend: number;
   sendLevel: number;
+  lfo: LfoState;
   mute: boolean;
   activePattern: number;
   patterns: StoredPattern[];
@@ -54,7 +57,8 @@ export interface StoredProject {
   bpm: number;
   swing: number;
   master: number;
-  sendFx: number[][];
+  sendWet: number[][];
+  sendInt: number[][];
   lofi: number;
   channels: StoredChannel[];
 }
@@ -66,7 +70,8 @@ export function toStored(p: Project): StoredProject {
     bpm: p.bpm,
     swing: p.swing,
     master: p.master,
-    sendFx: p.sendFx.map((row) => [...row]),
+    sendWet: p.sendWet.map((row) => [...row]),
+    sendInt: p.sendInt.map((row) => [...row]),
     lofi: p.lofi,
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
@@ -79,6 +84,7 @@ export function toStored(p: Project): StoredProject {
       cutoff: c.cutoff,
       fxSend: c.fxSend,
       sendLevel: c.sendLevel,
+      lfo: { ...c.lfo },
       mute: c.mute,
       activePattern: c.activePattern,
       patterns: c.patterns.map((pat) => ({
@@ -155,7 +161,15 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (version >= 5 && Array.isArray(src.live) && src.live.length === 2 && src.live.every((x) => typeof x === 'string')) {
     ch.live = [src.live[0] as string, src.live[1] as string];
   }
-  ch.chord = Math.round(num(src.chord, ch.chord, 0, 64));
+  // Chords are stored by index; before v6 the list had no MAJOR/MINOR, so map by name.
+  const chord = Math.round(num(src.chord, ch.chord, 0, 64));
+  ch.chord = version < 6 ? Math.max(0, CHORD_NAMES.indexOf(CHORD_NAMES_V5[chord] ?? 'OFF')) : Math.min(chord, CHORD_NAMES.length - 1);
+  if (isObj(src.lfo)) {
+    ch.lfo.rate = Math.round(num(src.lfo.rate, ch.lfo.rate, 0, LFO_RATES.length - 1));
+    ch.lfo.shape = Math.round(num(src.lfo.shape, ch.lfo.shape, 0, LFO_SHAPES.length - 1));
+    ch.lfo.vol = num(src.lfo.vol, ch.lfo.vol, 0, 1);
+    ch.lfo.pitch = num(src.lfo.pitch, ch.lfo.pitch, 0, 12);
+  }
   ch.volume = num(src.volume, ch.volume, 0, 1);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.mute = src.mute === true;
@@ -208,12 +222,16 @@ export function fromStored(data: unknown): Project | null {
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
   p.lofi = num(data.lofi, p.lofi, 0, 1);
-  if (Array.isArray(data.sendFx)) {
+  // v5 had one AMOUNT per effect: it becomes WET, with INTENSITY at the default.
+  const readGrid = (grid: unknown, into: number[][]) => {
+    if (!Array.isArray(grid)) return;
     for (let k = 0; k < NUM_SENDS; k++) {
-      const row = data.sendFx[k];
-      if (Array.isArray(row)) for (let e = 0; e < EFFECTS.length; e++) p.sendFx[k][e] = num(row[e], p.sendFx[k][e], 0, 1);
+      const row = grid[k];
+      if (Array.isArray(row)) for (let e = 0; e < EFFECTS.length; e++) into[k][e] = num(row[e], into[k][e], 0, 1);
     }
-  }
+  };
+  readGrid(data.sendWet ?? data.sendFx, p.sendWet);
+  readGrid(data.sendInt, p.sendInt);
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
     if (isObj(src)) readChannel(src, p.channels[i], num(data.version, 0));

@@ -7,7 +7,8 @@ import {
 import { CHORDS } from './chords';
 import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
-import { Svf } from '../instruments/dsp';
+import { Noise, Svf } from '../instruments/dsp';
+import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { SendBus } from '../fx/SendBus';
 import { Tape } from '../fx/Tape';
 import { EFFECTS } from '../fx';
@@ -15,7 +16,8 @@ import type { MixParam } from './protocol';
 import { NUM_SENDS } from './project';
 
 /** Largest chunk rendered at once; blocks are split at step boundaries anyway. */
-const CHUNK = 256;
+/** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
+const CHUNK = 64;
 /** Max sound parameters per instrument that can be locked per step. */
 export const LOCK_SLOTS = 32;
 
@@ -119,6 +121,17 @@ export class Engine {
   private readonly busR: Float32Array[] = [];
   private readonly tape: Tape;
 
+  // Track LFOs, phase-locked to the song position (lfoClock counts 16th steps).
+  private lfoClock = 0;
+  private readonly lfoSteps = new Float32Array(NUM_CHANNELS).fill(4);
+  private readonly lfoShape = new Uint8Array(NUM_CHANNELS);
+  private readonly lfoVol = new Float32Array(NUM_CHANNELS);
+  private readonly lfoPitch = new Float32Array(NUM_CHANNELS);
+  private readonly lfoHeld = new Float32Array(NUM_CHANNELS);
+  private readonly lfoCycle = new Float64Array(NUM_CHANNELS).fill(-1);
+  private readonly pitchModOn = new Uint8Array(NUM_CHANNELS);
+  private readonly lfoNoise = new Noise(0x1f0);
+
   constructor(sampleRate: number) {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
@@ -179,7 +192,11 @@ export class Engine {
         else if (msg.id === 'lofi') this.tape.setAmount(msg.value);
         break;
       case 'setRouting': this.route[msg.channel] = msg.send >= 1 && msg.send <= NUM_SENDS ? msg.send - 1 : -1; break;
-      case 'setSendFx': this.sends[msg.send]?.setAmount(msg.effect, msg.value); break;
+      case 'setSendFx':
+        if (msg.control === 'wet') this.sends[msg.send]?.setWet(msg.effect, msg.value);
+        else this.sends[msg.send]?.setIntensity(msg.effect, msg.value);
+        break;
+      case 'setLfo': this.setLfo(msg.channel, msg.id, msg.value); break;
       case 'transport': this.setPlaying(msg.playing); break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity); break;
       case 'release': this.release(msg.channel, msg.note); break;
@@ -196,7 +213,10 @@ export class Engine {
     for (let k = 0; k < NUM_SENDS; k++) {
       const bus = this.sends[k];
       bus.setTempo(p.bpm);
-      for (let e = 0; e < EFFECTS.length; e++) bus.setAmount(e, p.sendFx[k]?.[e] ?? 0);
+      for (let e = 0; e < EFFECTS.length; e++) {
+        bus.setWet(e, p.sendWet[k]?.[e] ?? 0);
+        bus.setIntensity(e, p.sendInt[k]?.[e] ?? 0.5);
+      }
       bus.settle();
     }
     this.tape.setImmediate(p.lofi);
@@ -206,6 +226,7 @@ export class Engine {
       const c = p.channels[ch];
       this.setInstrument(ch, c.instrument, c.instrument === 'none' ? {} : (c.sounds[c.instrument] ?? {}));
       this.chord[ch] = c.chord;
+      for (const id of ['rate', 'shape', 'vol', 'pitch'] as const) this.setLfo(ch, id, c.lfo[id]);
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
@@ -229,6 +250,7 @@ export class Engine {
     this.playing = playing;
     this.globalStep = 0;
     this.framesToStep = 0; // first step fires at the next sample
+    this.lfoClock = 0; // LFOs restart with the song
     this.position.fill(0);
     this.currentStep.fill(-1);
     this.skipStep.fill(-1);
@@ -450,7 +472,19 @@ export class Engine {
       if (!inst) continue;
       sl.fill(0, 0, n);
       sr.fill(0, 0, n);
+      // LFO pitch: one value per chunk; volume: per sample below.
+      const lfoOn = this.lfoVol[ch] > 0 || this.lfoPitch[ch] > 0;
+      if (lfoOn) this.updateHeld(ch);
+      if (this.lfoPitch[ch] > 0) {
+        inst.setPitchMod(this.lfoPitch[ch] * this.lfoAt(ch, this.lfoClock));
+        this.pitchModOn[ch] = 1;
+      } else if (this.pitchModOn[ch]) {
+        inst.setPitchMod(0);
+        this.pitchModOn[ch] = 0;
+      }
       inst.render(sl, sr, 0, n);
+      const volDepth = this.lfoVol[ch];
+      const stepInc = this.lfoStepInc();
       const vol = this.volume[ch];
       const pan = this.pan[ch];
       const tl = this.toneL[ch];
@@ -463,7 +497,12 @@ export class Engine {
       const bL = bus >= 0 ? this.busL[bus] : null;
       const bR = bus >= 0 ? this.busR[bus] : null;
       for (let i = 0; i < n; i++) {
-        const v = vol.next();
+        let v = vol.next();
+        if (volDepth > 0) {
+          // Tremolo: the LFO dips the level by up to VOL MOD (full depth = silent at the bottom).
+          const u = 0.5 + 0.5 * this.lfoAt(ch, this.lfoClock + i * stepInc);
+          v *= 1 - volDepth * (1 - u);
+        }
         // Equal-power pan, -1..1 -> 0..pi/2
         const a = (pan.next() + 1) * 0.25 * Math.PI;
         const fc = cut.next();
@@ -490,6 +529,36 @@ export class Engine {
     }
     // Each send bus runs its six effects back into the mix.
     for (let k = 0; k < NUM_SENDS; k++) this.sends[k].process(this.busL[k], this.busR[k], outL, outR, off, n);
+    this.lfoClock += n * this.lfoStepInc();
+  }
+
+  /** LFO clock advance per sample, in 16th steps (straight, ignoring swing). */
+  private lfoStepInc(): number {
+    return (this.bpm * 4) / (60 * this.sampleRate);
+  }
+
+  /** LFO value -1..1 of a channel at clock position `clock` (in steps). */
+  private lfoAt(ch: number, clock: number): number {
+    const cycle = clock / this.lfoSteps[ch];
+    return lfoValue(this.lfoShape[ch], cycle - Math.floor(cycle), this.lfoHeld[ch]);
+  }
+
+  /** Sample-and-hold: a new random level each LFO cycle. */
+  private updateHeld(ch: number): void {
+    const cycle = Math.floor(this.lfoClock / this.lfoSteps[ch]);
+    if (cycle !== this.lfoCycle[ch]) {
+      this.lfoCycle[ch] = cycle;
+      this.lfoHeld[ch] = this.lfoNoise.next();
+    }
+  }
+
+  private setLfo(ch: number, id: LfoId, value: number): void {
+    switch (id) {
+      case 'rate': this.lfoSteps[ch] = LFO_RATES[Math.round(value)]?.steps ?? 4; this.lfoCycle[ch] = -1; break;
+      case 'shape': this.lfoShape[ch] = Math.round(value); break;
+      case 'vol': this.lfoVol[ch] = value; break;
+      case 'pitch': this.lfoPitch[ch] = value; break;
+    }
   }
 
   private finishBlock(outL: Float32Array, outR: Float32Array, frames: number): void {

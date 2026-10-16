@@ -20,7 +20,8 @@
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { EFFECT_AMOUNT, GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
@@ -234,17 +235,42 @@ export class App {
 
   // ---------------------------------------------------------------- knob targets
 
-  /** Specs a track's live knobs may use: its non-coarse sound params plus volume/pan. */
+  /**
+   * What a track's live knobs may control: the non-coarse sound parameters on its sound
+   * page, the mixer (volume, pan, cutoff, send level) and the LFO rate and depths.
+   */
   private liveCandidates(c: ChannelState): { id: string; spec: ParamSpec }[] {
-    const list = c.instrument === 'none' ? [] : INSTRUMENTS[c.instrument].params
-      .filter((p) => !p.coarse)
-      .map((spec) => ({ id: spec.id, spec }));
+    const list: { id: string; spec: ParamSpec }[] = [];
+    if (c.instrument !== 'none') {
+      const entry = INSTRUMENTS[c.instrument];
+      for (const id of entry.layout) {
+        const spec = id ? entry.params.find((p) => p.id === id) : undefined;
+        if (spec && !spec.coarse) list.push({ id: spec.id, spec });
+      }
+    }
     for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
+    for (const id of ['rate', 'vol', 'pitch'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
     return list;
   }
 
   private paramTarget(ch: number, id: string, label?: string, highlight?: boolean): KnobTarget | null {
     const c = this.project.channels[ch];
+    if (id.startsWith('lfo:')) {
+      const lfoId = id.slice(4) as LfoId;
+      const spec = LFO_PARAMS[lfoId];
+      return {
+        label: label ?? spec.name, spec, channel: ch, highlight,
+        get: () => c.lfo[lfoId],
+        set: (v) => { c.lfo[lfoId] = v; this.send({ type: 'setLfo', channel: ch, id: lfoId, value: v }); },
+      };
+    }
+    if (id === 'track:chord') {
+      return {
+        label: label ?? 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch, highlight,
+        get: () => c.chord,
+        set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
+      };
+    }
     if (id.startsWith(MIX_PREFIX)) {
       const mixId = id.slice(MIX_PREFIX.length) as MixId;
       const spec = MIX_PARAMS.find((p) => p.id === mixId);
@@ -309,21 +335,21 @@ export class App {
   }
 
   /**
-   * A send's knobs (FX 1-3 in RECORD/PLAY). Six modules = six effects: the top knob is
-   * the effect's single AMOUNT; the bottom knob is the send level of the track in that
-   * module, if it is routed to this send.
+   * A send's knobs (FX 1-3 in RECORD/PLAY). Six modules = six effects: WET (return
+   * volume) on top, INTENSITY (how hard it works) below.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
-    const targets: (KnobTarget | null)[] = EFFECTS.map((fx, e) => ({
-      label: fx.name, spec: EFFECT_AMOUNT, channel: this.selected,
-      get: () => this.project.sendFx[k][e],
-      set: (v: number) => { this.project.sendFx[k][e] = v; this.send({ type: 'setSendFx', send: k, effect: e, value: v }); },
-    }));
-    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-      const c = this.project.channels[ch];
-      targets.push(c.fxSend === k + 1 ? this.paramTarget(ch, 'mix:send', `${this.kindName(c)} SEND`, ch === this.selected) : null);
-    }
-    return targets;
+    const control = (control: 'wet' | 'int') => EFFECTS.map((fx, e): KnobTarget => {
+      const grid = control === 'wet' ? this.project.sendWet : this.project.sendInt;
+      return {
+        label: `${fx.name} ${control === 'wet' ? 'WET' : 'INT'}`,
+        spec: control === 'wet' ? EFFECT_WET : EFFECT_INTENSITY,
+        channel: this.selected,
+        get: () => grid[k][e],
+        set: (v: number) => { grid[k][e] = v; this.send({ type: 'setSendFx', send: k, effect: e, control, value: v }); },
+      };
+    });
+    return [...control('wet'), ...control('int')];
   }
 
   /**
@@ -415,6 +441,7 @@ export class App {
   // ---------------------------------------------------------------- controls
 
   private onControl(e: ControlEvent): void {
+    if (e.type === 'encoder') return this.onEncoder(e.id, e.delta);
     if (e.type === 'knob' && e.id.startsWith('m')) return this.onMasterKnob(e.id, e.value);
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
     if (e.type !== 'button') return;
@@ -630,10 +657,40 @@ export class App {
     this.save();
   }
 
+  /**
+   * Relative encoder turn (hardware encoders; the mouse wheel on screen): one detent =
+   * one 0-127 step, one option for discrete choices, 0.1 BPM for TEMPO.
+   */
+  private onEncoder(id: string, delta: number): void {
+    if (id === 'mtempo' || id === 'mlofi') {
+      const gid: GlobalId = id === 'mtempo' ? 'bpm' : 'lofi';
+      const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
+      const step = gid === 'bpm' ? 0.1 : 1 / 127;
+      const value = Math.min(spec.max, Math.max(spec.min, Math.round((this.project[gid] + delta * step) * 1000) / 1000));
+      this.setGlobal(gid, value);
+      this.flash(`${spec.name} ${formatValue(spec, value)}`);
+      this.save();
+      this.refreshPanel();
+      return;
+    }
+    const slot = Number(id.slice(1)) - 1;
+    const t = this.targets[slot];
+    if (!t) return;
+    const value = t.spec.options
+      ? Math.min(t.spec.options.length - 1, Math.max(0, t.get() + delta))
+      : toValue(t.spec, Math.min(1, Math.max(0, Math.round(toNorm(t.spec, t.get()) * 127 + delta) / 127)));
+    this.applyKnob(slot, t, value);
+    this.refreshPanel();
+  }
+
   private onKnob(slot: number, norm: number): void {
     const t = this.targets[slot];
     if (!t) return;
-    let value = toValue(t.spec, norm);
+    this.applyKnob(slot, t, toValue(t.spec, norm));
+  }
+
+  private applyKnob(slot: number, t: KnobTarget, raw: number): void {
+    let value = raw;
     if (t.spec.decimals !== undefined && !t.spec.options) {
       const f = Math.pow(10, t.spec.decimals);
       value = Math.round(value * f) / f;

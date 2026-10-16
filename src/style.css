@@ -165,26 +165,22 @@ html, body {
 .knob { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; }
 .knob.highlight .knob-label { color: var(--ink); }
 .knob-body { position: relative; width: 72px; height: 72px; touch-action: none; cursor: ns-resize; }
-/* Endless encoder: a fixed tick ring (no position arc) around a knurled cap that turns. */
-.knob-ticks {
-  position: absolute; inset: 0; border-radius: 50%;
-  background: repeating-conic-gradient(from 0deg, #3b454f 0deg 2deg, transparent 2deg 15deg);
-  -webkit-mask: radial-gradient(circle, transparent 60%, #000 61%, #000 70%, transparent 71%);
-  mask: radial-gradient(circle, transparent 60%, #000 61%, #000 70%, transparent 71%);
-}
+/* Absolute knob: 270-degree track with a value arc (0-127, fixed limits). */
+.knob-ring { position: absolute; inset: 0; transform: rotate(135deg); }
+.knob-track, .knob-arc { fill: none; stroke-width: 7; }
+.knob-track { stroke: #2f3740; stroke-dasharray: 270 360; }
+.knob-arc { stroke: var(--accent); stroke-linecap: butt; }
 .knob-cap {
   position: absolute; inset: 11px;
   border-radius: 50%;
-  background:
-    repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.06) 0deg 6deg, rgba(0, 0, 0, 0.12) 6deg 12deg),
-    radial-gradient(circle at 40% 35%, #48535e, #262d34);
+  background: radial-gradient(circle at 40% 35%, #48535e, #262d34);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
 }
 .knob-indicator {
   position: absolute; left: 50%; top: 4px;
-  width: 6px; height: 6px; margin-left: -3px;
-  border-radius: 50%;
-  background: var(--accent);
+  width: 5px; height: 17px; margin-left: -2.5px;
+  border-radius: 3px;
+  background: var(--ink);
 }
 .knob.active .knob-cap { box-shadow: 0 0 0 3px var(--accent); }
 .knob-label {
@@ -254,4 +250,5 @@ html, body {
 .knob.master { width: auto; }
 .knob.master .knob-body { width: 54px; height: 54px; }
 .knob.master .knob-cap { inset: 8px; }
+.knob.master .knob-indicator { height: 12px; top: 3px; }
 .knob.master .knob-label { font-size: 10px; }

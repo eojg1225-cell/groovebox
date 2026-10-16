@@ -1,46 +1,59 @@
 /**
- * On-screen rotary ENCODER (continuous rotation, no end stops), as on the planned
- * hardware: turning changes the value relatively; the value itself is shown on the pixel
- * screen. Vertical drag (multi-touch safe via pointer capture), mouse wheel, double-tap /
- * double-click resets to default. Value is normalised 0..1.
+ * On-screen knob: an absolute control with fixed limits, 0-127 (or finer, e.g. TEMPO),
+ * drawn with a 270-degree sweep and value arc. Vertical drag (multi-touch safe via
+ * pointer capture) sets it; double-tap / double-click resets to default.
+ *
+ * The mouse wheel instead sends relative ENCODER steps (+1/-1), the same message a
+ * physical rotary encoder will send on the hardware, so that path is exercised too.
  */
 import { localY } from './orientation';
 
-// Pixels of vertical drag for the full range (larger = less sensitive).
+/** Pixels of vertical drag for the full range (larger = less sensitive). */
 const DRAG_PIXELS_FULL_RANGE = 400;
-/** Visual rotation per pixel of drag; the cap keeps turning past the value's limits. */
-const DEGREES_PER_PIXEL = 0.9;
 const DOUBLE_TAP_MS = 300;
+const SWEEP_DEG = 270;
 
 export class Knob {
   readonly el: HTMLElement;
   private readonly cap: HTMLElement;
+  private readonly arc: SVGCircleElement;
   private readonly labelEl: HTMLElement;
   private enabled = true;
-  private value: number;
-  private angle = 0;
+  /** Current position in steps, 0..steps. */
+  private pos: number;
   private dragPointer: number | null = null;
-  private lastY = 0;
+  private dragStartY = 0;
+  private dragStartPos = 0;
   private lastTap = -Infinity;
 
+  /**
+   * @param steps resolution: 127 = MIDI-style 0-127 (default).
+   * onChange receives the normalised value (pos / steps); onTurn receives encoder deltas.
+   */
   constructor(
     readonly id: string,
     label: string,
     public defaultValue: number,
     private readonly onChange: (id: string, value: number) => void,
+    private readonly onTurn: (id: string, delta: number) => void,
+    readonly steps = 127,
   ) {
-    this.value = defaultValue;
+    this.pos = Math.round(defaultValue * steps);
     const el = document.createElement('div');
     el.className = 'knob';
     el.innerHTML = `
       <div class="knob-body">
-        <div class="knob-ticks"></div>
+        <svg class="knob-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="knob-track" cx="50" cy="50" r="44" pathLength="360"/>
+          <circle class="knob-arc" cx="50" cy="50" r="44" pathLength="360"/>
+        </svg>
         <div class="knob-cap"><div class="knob-indicator"></div></div>
       </div>
       <div class="knob-label"></div>`;
     this.labelEl = el.querySelector('.knob-label') as HTMLElement;
     this.labelEl.textContent = label;
     this.cap = el.querySelector('.knob-cap') as HTMLElement;
+    this.arc = el.querySelector('.knob-arc') as SVGCircleElement;
     this.el = el;
 
     const body = el.querySelector('.knob-body') as HTMLElement;
@@ -49,6 +62,7 @@ export class Knob {
     body.addEventListener('pointerup', (e) => this.onUp(e));
     body.addEventListener('pointercancel', (e) => this.onUp(e));
     body.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+    this.render();
   }
 
   setLabel(label: string): void {
@@ -63,22 +77,23 @@ export class Knob {
   }
 
   get(): number {
-    return this.value;
+    return this.pos / this.steps;
   }
 
-  /** Set the value without emitting. An encoder has no position, so nothing moves. */
+  /** Set (normalised 0..1) without emitting. */
   set(value: number): void {
-    this.value = Math.min(1, Math.max(0, value));
+    const pos = Math.round(Math.min(1, Math.max(0, value)) * this.steps);
+    if (pos === this.pos) return;
+    this.pos = pos;
+    this.render();
   }
 
-  /** Turn by a number of pixels of drag (positive = clockwise / up). */
-  private turn(pixels: number, fine: boolean): void {
-    this.angle += pixels * DEGREES_PER_PIXEL * (fine ? 0.2 : 1);
-    this.cap.style.transform = `rotate(${this.angle}deg)`;
-    const v = Math.min(1, Math.max(0, this.value + (pixels / DRAG_PIXELS_FULL_RANGE) * (fine ? 0.2 : 1)));
-    if (v === this.value) return;
-    this.value = v;
-    this.onChange(this.id, v);
+  private moveTo(pos: number): void {
+    const p = Math.round(Math.min(this.steps, Math.max(0, pos)));
+    if (p === this.pos) return;
+    this.pos = p;
+    this.render();
+    this.onChange(this.id, p / this.steps);
   }
 
   private onDown(e: PointerEvent, body: HTMLElement): void {
@@ -87,15 +102,13 @@ export class Knob {
     const now = performance.now();
     if (now - this.lastTap < DOUBLE_TAP_MS) {
       this.lastTap = -Infinity;
-      if (this.value !== this.defaultValue) {
-        this.value = this.defaultValue;
-        this.onChange(this.id, this.value);
-      }
+      this.moveTo(this.defaultValue * this.steps);
       return;
     }
     this.lastTap = now;
     this.dragPointer = e.pointerId;
-    this.lastY = localY(e);
+    this.dragStartY = localY(e);
+    this.dragStartPos = this.pos;
     body.setPointerCapture(e.pointerId);
     this.el.classList.add('active');
   }
@@ -103,9 +116,9 @@ export class Knob {
   private onMove(e: PointerEvent): void {
     if (e.pointerId !== this.dragPointer) return;
     e.preventDefault();
-    const y = localY(e);
-    this.turn(this.lastY - y, e.shiftKey);
-    this.lastY = y;
+    const fine = e.shiftKey ? 0.25 : 1;
+    const travel = ((this.dragStartY - localY(e)) / DRAG_PIXELS_FULL_RANGE) * fine;
+    this.moveTo(this.dragStartPos + travel * this.steps);
   }
 
   private onUp(e: PointerEvent): void {
@@ -117,6 +130,12 @@ export class Knob {
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
     if (!this.enabled) return;
-    this.turn(-Math.sign(e.deltaY) * 4, e.shiftKey);
+    this.onTurn(this.id, e.deltaY < 0 ? 1 : -1);
+  }
+
+  private render(): void {
+    const v = this.pos / this.steps;
+    this.cap.style.transform = `rotate(${-SWEEP_DEG / 2 + v * SWEEP_DEG}deg)`;
+    this.arc.style.strokeDasharray = `${v * SWEEP_DEG} 360`;
   }
 }

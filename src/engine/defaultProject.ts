@@ -1,7 +1,7 @@
 import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
 import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
-import { defaultSendFx } from '../fx';
+import { defaultSendInt, defaultSendWet } from '../fx';
 import { fromStored } from './projectFile';
 import startProject from './startProject.json';
 
@@ -30,7 +30,7 @@ export function createDefaultProject(): Project {
   channels[4].chord = CHORD_NAMES.indexOf('MIN9');
   channels[4].fxSend = 2;
   channels[5].fxSend = 1;
-  return { version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8, sendFx: defaultSendFx(), lofi: 0, channels };
+  return { version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8, sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels };
 }
 
 /**

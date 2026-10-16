@@ -3,7 +3,13 @@
  * physical knobs/faders/buttons will emit the same events later.
  */
 export type ControlEvent =
-  | { type: 'knob'; id: string; value: number } // value normalised 0..1
+  /** Absolute knob/pot position, normalised 0..1 (on-screen knobs: 0-127 steps). */
+  | { type: 'knob'; id: string; value: number }
+  /**
+   * Relative rotary-encoder turn in detents (+ = clockwise). Hardware with endless
+   * encoders sends these; one detent = one 0-127 step (finer for TEMPO).
+   */
+  | { type: 'encoder'; id: string; delta: number }
   | { type: 'fader'; id: string; value: number } // value normalised 0..1
   | { type: 'button'; id: string; pressed: boolean }
   | { type: 'joystick'; id: string; x: number; y: number }; // -1..1

@@ -18,5 +18,6 @@ export const GLOBAL_PARAMS: readonly ParamSpec[] = [
   { id: 'lofi', name: 'LO-FI', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
 ];
 
-/** The single AMOUNT knob of each effect inside a send. */
-export const EFFECT_AMOUNT: ParamSpec = { id: 'amount', name: 'AMOUNT', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' };
+/** The two controls of each effect inside a send. */
+export const EFFECT_WET: ParamSpec = { id: 'wet', name: 'WET', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' };
+export const EFFECT_INTENSITY: ParamSpec = { id: 'int', name: 'INTENSITY', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' };

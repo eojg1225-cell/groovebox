@@ -4,6 +4,8 @@
  */
 export const CHORDS: readonly { name: string; intervals: readonly number[] }[] = [
   { name: 'OFF', intervals: [0] },
+  { name: 'MAJOR', intervals: [0, 4, 7] },
+  { name: 'MINOR', intervals: [0, 3, 7] },
   { name: 'MIN7', intervals: [0, 3, 7, 10] },
   { name: 'MAJ7', intervals: [0, 4, 7, 11] },
   { name: 'DOM7', intervals: [0, 4, 7, 10] },
@@ -15,3 +17,6 @@ export const CHORDS: readonly { name: string; intervals: readonly number[] }[] =
 ];
 
 export const CHORD_NAMES = CHORDS.map((c) => c.name);
+
+/** Chord list before MAJOR/MINOR were added (project format < 6), for migrating saves. */
+export const CHORD_NAMES_V5 = ['OFF', 'MIN7', 'MAJ7', 'DOM7', 'MIN9', 'MAJ9', 'DOM9', 'MIN11', 'SUS4'];

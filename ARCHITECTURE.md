@@ -32,7 +32,8 @@ Main -> worklet:
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's instrument (clears its locks) and set its full sound |
 | `setChord` | `channel`, `chord` | Chord mode index (0 = off) |
 | `setRouting` | `channel`, `send` | Route a track to send 1-3 (0 = none) |
-| `setSendFx` | `send`, `effect`, `value` | AMOUNT of one effect inside a send |
+| `setSendFx` | `send`, `effect`, `control` (`wet`/`int`), `value` | WET or INTENSITY of one effect inside a send |
+| `setLfo` | `channel`, `id` (`rate`/`shape`/`vol`/`pitch`), `value` | Track LFO |
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-64 steps |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern; quantised to the channel's loop end unless `immediate` or stopped |
@@ -60,7 +61,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 ## Project model (`src/engine/project.ts`)
 
-`Project { version: 5, bpm, swing (50-75 %), master, lofi, sendFx[3][6], channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|cutoff|send"), chord, volume, pan, cutoff, fxSend (0-3), sendLevel, mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Every save goes through `src/engine/projectFile.ts`: a compact stored format (only steps with notes) whose reader also accepts full project objects from any earlier version and keeps everything it recognises (notes and pattern lengths first, then mixer, sounds, FX), so format changes never lose notes. On claude.ai the working project is also mirrored to the artifact's `db` (`projects/current`).
+`Project { version: 6, bpm, swing (50-75 %), master, lofi, sendWet[3][6], sendInt[3][6], channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|cutoff|send"), chord, volume, pan, cutoff, fxSend (0-3), sendLevel, lfo{rate, shape, vol, pitch}, mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Every save goes through `src/engine/projectFile.ts`: a compact stored format (only steps with notes) whose reader also accepts full project objects from any earlier version and keeps everything it recognises (notes and pattern lengths first, then mixer, sounds, FX), so format changes never lose notes. On claude.ai the working project is also mirrored to the artifact's `db` (`projects/current`).
 
 ## Sequencer
 
@@ -79,13 +80,15 @@ A global 16th-note clock (swing lengthens even steps and shortens odd ones) driv
 
 BASS (mono), PAD (poly) and LEAD (mono) are the same Synth with different core parameters and fixed values for the rest.
 
-**Sends and master:** each track has a low-pass CUTOFF and feeds at most one of three send buses (post-fader, by its send level). A `SendBus` holds all six effects, each driven by one AMOUNT (0 = off) that also scales its character: MID CUT is an insert on the bus (it carves what the others receive); DISTORT, CHORUS, DELAY, REVERB and COMP (parallel compression) add their output to the mix. Delay time is fixed per send (3/16, 1/4, 1/8, tempo-synced). The master runs `Tape` (LO-FI: low bump, asymmetric tanh saturation, 12 dB/oct roll-off from 20 kHz to ~3.5 kHz) before the safety soft-clip. Effect classes: Delay (smoothed tempo-synced time, low-pass + tanh feedback), Distortion (tanh/hard-clip blend + tone), MidCut (RBJ peaking cut), Chorus (two modulated delays), Reverb (Freeverb with pre-delay), Compressor (stereo-linked peak, fast attack).
+**Sends and master:** each track has a low-pass CUTOFF and feeds at most one of three send buses (post-fader, by its send level). A `SendBus` feeds all six effects in parallel; each has WET (return volume) and INTENSITY (delay feedback, distortion drive, mid-cut depth, chorus depth + rate, reverb size, compressor threshold + ratio). Delay time is fixed per send (3/16, 1/4, 1/8, tempo-synced). The master runs `Tape` (LO-FI: low bump, asymmetric tanh saturation, 12 dB/oct roll-off from 20 kHz to ~3.5 kHz) before the safety soft-clip. Effect classes: Delay (smoothed tempo-synced time, low-pass + tanh feedback), Distortion (tanh/hard-clip blend + tone), MidCut (RBJ peaking cut), Chorus (two modulated delays), Reverb (Freeverb with pre-delay), Compressor (stereo-linked peak, fast attack).
+
+**Track LFO** (`src/engine/lfo.ts`): the engine keeps an LFO clock in 16th steps (reset on PLAY, advancing with the tempo), so every LFO is phase-locked to the song. Each track reads it at its rate (4 bars … 1/32 incl. triplets) and shape; S+H picks a new random level each cycle. VOL MOD scales the track level per sample (tremolo); PITCH MOD calls `Instrument.setPitchMod(semitones)` once per 64-sample chunk.
 
 **Chords and gates:** the engine expands each note through the channel's chord (`src/engine/chords.ts`), tagging voices with the root so they release together. A sequenced note releases exactly when the step `gate` steps later starts (counted per channel at each step; 1 = one step); live notes release on the `release` message. A live-recorded note's start is quantised like its step and its end to the nearest step boundary; the difference becomes its gate.
 
 ## UI
 
-`Panel` (ControlSurface) emits `mode:record|play|design`, `ch1..6`, `mute1..6`, `patA..C`, `dpage0..3`, `step1..16`, function-row ids, `play`, knobs `k1..k12` (k1-k6 top row, k7-k12 bottom; the panel groups them into six track modules: k(n) above k(n+6), with the track number between), `fx1..3`, master knobs `mtempo`, `mlofi`. Knobs are endless encoders: relative changes, no position shown on the control. `App` maps them onto the project and the engine (each knob resolves to a `KnobTarget` for the current mode) and builds the pixel-screen view-models (`views.ts`: live view and design view). On portrait screens `Panel.fit` rotates the panel 90° and `orientation.ts` keeps knob drags in panel coordinates. Audio starts on the first touch/click/key anywhere (browsers require a gesture); until then the screen footer says TOUCH FOR SOUND.
+`Panel` (ControlSurface) emits `mode:record|play|design`, `ch1..6`, `mute1..6`, `patA..C`, `dpage0..3`, `step1..16`, function-row ids, `play`, knobs `k1..k12` (k1-k6 top row, k7-k12 bottom; the panel groups them into six track modules: k(n) above k(n+6), with the track number between), `fx1..3`, master knobs `mtempo`, `mlofi`. Knobs are absolute (0-127, fixed limits, 270°); `ControlEvent` also has `encoder` (relative detents) for hardware encoders, which the mouse wheel uses on screen. `App` maps them onto the project and the engine (each knob resolves to a `KnobTarget` for the current mode) and builds the pixel-screen view-models (`views.ts`: live view and design view). On portrait screens `Panel.fit` rotates the panel 90° and `orientation.ts` keeps knob drags in panel coordinates. Audio starts on the first touch/click/key anywhere (browsers require a gesture); until then the screen footer says TOUCH FOR SOUND.
 
 ## Parameters
 

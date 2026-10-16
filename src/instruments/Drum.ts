@@ -46,27 +46,28 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /*
- * Sound design layout: one row per layer, each row ending in a track master that helps
- * the two layers sit together (DRIVE on row 1, CRUSH on row 2). Parameters a type has
- * but doesn't show (e.g. the snare's METAL mode) are set by its presets.
+ * Sound design layout (4 sound knobs per row; the registry adds the LFO knobs):
+ * one row per layer, ending in a track master that helps the two layers sit together
+ * (DRIVE on row 1, CRUSH on row 2). Parameters without a knob are set by the presets,
+ * which keeps each drum's character.
  */
 export const KICK_PARAMS = drumParams(
   ['t_level', 't_pitch', 't_sweep', 't_stime', 't_decay', 't_wave', 'c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', 'drive', 'crush'],
   { t_level: 0.95, t_pitch: 48, t_sweep: 30, t_stime: 0.035, t_decay: 0.5, c_level: 0.25, c_tone: 3500, c_len: 0.003 },
 );
-export const KICK_LAYOUT = ['t_level', 't_pitch', 't_sweep', 't_stime', 't_decay', 'drive', 'c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', 'crush'];
+export const KICK_LAYOUT = [['t_pitch', 't_sweep', 't_decay', 'drive'], ['c_level', 'c_tone', 'c_len', 'crush']];
 
 export const SNARE_PARAMS = drumParams(
   ['t_level', 't_pitch', 't_sweep', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_decay', 'm_spread', 'm_mode', 'drive', 'crush'],
   { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2 },
 );
-export const SNARE_LAYOUT = ['t_level', 't_pitch', 't_sweep', 't_decay', 't_wave', 'drive', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_decay', 'crush'];
+export const SNARE_LAYOUT = [['t_level', 't_pitch', 't_decay', 'drive'], ['m_level', 'm_tone', 'm_decay', 'crush']];
 
 export const HAT_PARAMS = drumParams(
   ['c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_decay', 'm_mode', 'drive', 'crush'],
   { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.05 },
 );
-export const HAT_LAYOUT = ['c_level', 'c_tone', 'c_reso', 'c_len', 'c_noise', 'drive', 'm_level', 'm_pitch', 'm_spread', 'm_tone', 'm_decay', 'crush'];
+export const HAT_LAYOUT = [['m_pitch', 'm_tone', 'm_decay', 'drive'], ['c_level', 'c_tone', 'c_len', 'crush']];
 
 export const KICK_PRESETS: readonly Preset[] = [
   { name: 'DEEP', values: {} },
@@ -106,6 +107,7 @@ export class Drum implements Instrument {
 
   // Voice state
   private tune = 1;
+  private pitchMod = 1;
   private tPhase = 0; private tEnv = 0; private sweepEnv = 0;
   private readonly mPhase = new Float64Array(6);
   private mEnv = 0; private cEnv = 0;
@@ -130,6 +132,10 @@ export class Drum implements Instrument {
   }
 
   noteOff(_group: number): void {}
+
+  setPitchMod(semitones: number): void {
+    this.pitchMod = semitones === 0 ? 1 : Math.pow(2, semitones / 12);
+  }
 
   setParam(id: string, v: number): void {
     const sr = this.sr;
@@ -163,8 +169,8 @@ export class Drum implements Instrument {
     const hold = 1 + Math.floor(this.crush * this.crush * 24);
     const levels = Math.pow(2, 16 - this.crush * 12);
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
-    const tPitch = this.tPitch * this.tune;
-    const mPitch = this.mPitch * this.tune;
+    const tPitch = this.tPitch * this.tune * this.pitchMod;
+    const mPitch = this.mPitch * this.tune * this.pitchMod;
 
     for (let i = start; i < end; i++) {
       let sum = 0;
