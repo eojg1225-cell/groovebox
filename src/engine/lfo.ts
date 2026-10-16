@@ -1,5 +1,6 @@
 /**
- * Per-track LFO: tempo-synced rate, six shapes, modulating volume and pitch.
+ * The LFO: one, shared by the tracks put on it (the LFO button after FX 1-3).
+ * Tempo-synced rate, six shapes, modulating volume, pitch, filter cutoff and pan.
  * Pure helpers shared by the engine (DSP) and the UI (parameter specs).
  */
 import { choice, type ParamSpec } from './params';
@@ -19,6 +20,8 @@ export interface LfoState {
   shape: number; // index into LFO_SHAPES
   vol: number; // 0..1 volume modulation depth
   pitch: number; // 0..48 semitones of pitch modulation
+  filter: number; // 0..8 octaves of filter cutoff modulation
+  pan: number; // 0..1 pan modulation depth
 }
 
 export type LfoId = keyof LfoState;
@@ -29,10 +32,18 @@ export const LFO_PARAMS: Record<LfoId, ParamSpec> = {
   shape: choice('shape', 'LFO SHAPE', LFO_SHAPES),
   vol: { id: 'vol', name: 'VOL MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   pitch: { id: 'pitch', name: 'PITCH MOD', min: 0, max: 48, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 1 },
+  filter: { id: 'filter', name: 'FILTER MOD', min: 0, max: 8, defaultValue: 0, unit: 'OCT', curve: 'linear', decimals: 1 },
+  pan: { id: 'pan', name: 'PAN MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
 };
 
+/** LFO view knobs (12 slots, top row then bottom row; null = empty). */
+export const LFO_LAYOUT: readonly (LfoId | null)[] = [
+  'rate', 'vol', 'filter', null, null, null,
+  'shape', 'pitch', 'pan', null, null, null,
+];
+
 export function defaultLfo(): LfoState {
-  return { rate: 4, shape: 0, vol: 0, pitch: 0 };
+  return { rate: 4, shape: 0, vol: 0, pitch: 0, filter: 0, pan: 0 };
 }
 
 /** LFO value -1..1 at cycle phase 0..1 (S+H uses `held`, chosen per cycle). */

@@ -6,11 +6,13 @@ import { MACROS } from './macros';
 
 /**
  * Polyphonic synth (6 voices) for basses, pads and leads.
- * Per voice: two detunable oscillators with a continuous SHAPE (sine -> triangle -> saw
- * -> square), an FM pair (sine carrier, sine modulator at FM RATIO, index following the
- * filter envelope) blended in by FM, a sine sub -> resonant low-pass with its own decay
- * envelope -> amp ADSR -> drive, then CRUSH on the summed output. MONO uses one voice
- * with glide. Ranges go far past "sensible" on purpose.
+ * Per voice two elements, OSC 1 and OSC 2 (OSC 2 detuned by DETUNE), each with a
+ * continuous SHAPE (sine -> triangle -> saw -> square) blended by FM with an FM pair (sine
+ * carrier, sine modulator at FM RATIO, index following the filter envelope), and each
+ * with its own ATTACK / DECAY (shared SUSTAIN / RELEASE); a sine sub joins OSC 1. Then a
+ * resonant low-pass with its own envelope (ATTACK, DECAY, ENV amount) -> drive, then CRUSH
+ * on the summed output. MONO uses one voice with glide. Ranges go far past "sensible" on
+ * purpose.
  */
 
 /** Legacy stepped wave (saves before SHAPE): SAW, SQR, TRI, SINE -> shape position. */
@@ -36,12 +38,15 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'cutoff', name: 'FILTER', min: 20, max: 20000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.4, unit: '', curve: 'linear' },
+  { id: 'fattack', name: 'FLT ATK', min: 0.0005, max: 10, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'exp' },
   { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
-  { id: 'attack', name: 'ATTACK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
-  { id: 'decay', name: 'DECAY', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
+  { id: 'attack', name: 'OSC1 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
+  { id: 'decay', name: 'OSC1 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
+  { id: 'attack2', name: 'OSC2 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
+  { id: 'decay2', name: 'OSC2 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
   { id: 'sustain', name: 'SUSTAIN', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'release', name: 'RELEASE', min: 0.005, max: 20, defaultValue: 0.15, unit: 'S', curve: 'exp' },
 ];
@@ -57,24 +62,27 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
  * PAD (polyphonic, chords) and LEAD (mono, glide). Each type's parameters are all set by
  * TIMBRE / INTENSITY; settings outside the list are fixed (*_FIXED).
  */
-const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'cutoff', 'reso', 'fenv', 'fdecay', 'drive'];
+const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
 
-const ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'crush', 'level'];
-export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, release: 0.06, level: 0.75 });
+const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level'];
+export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, release: 0.06, level: 0.75 });
 export const BASS_FIXED = { voice: 1 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, release: 1.2, level: 0.5 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, release: 1.2, level: 0.5 });
 export const PAD_FIXED = { voice: 0, glide: 0, sub: 0 };
 export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE], { octave: 3, level: 0.55 });
 export const LEAD_FIXED = { voice: 1, sub: 0 };
 
+/** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */
+export const SYNTH_ELEMENTS = ['attack', 'decay', 'attack2', 'decay2'];
+
 /**
- * Second sound pages (12 slots, top row then bottom row): oscillators on top, then glide /
- * filter envelope / the rest of the amp envelope / level. The pad has CHORD instead of
+ * DETAIL pages (12 slots, top row then bottom row): oscillators on top, then glide / filter
+ * envelope amount / the rest of the amp envelope / level. The pad has CHORD instead of
  * glide ("track:chord" is a track setting).
  */
-export const BASS_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'sub', 'octave', 'glide', 'fenv', 'fdecay', 'sustain', 'release', 'level'];
-export const PAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'track:chord', 'fenv', 'fdecay', 'sustain', 'release', 'level'];
-export const LEAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'glide', 'fenv', 'fdecay', 'sustain', 'release', 'level'];
+export const BASS_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'sub', 'octave', 'glide', 'fenv', null, 'sustain', 'release', 'level'];
+export const PAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'track:chord', 'fenv', null, 'sustain', 'release', 'level'];
+export const LEAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'glide', 'fenv', null, 'sustain', 'release', 'level'];
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'bass' | 'pad' | 'lead'): Preset[] {
@@ -87,6 +95,17 @@ export const LEAD_PRESETS: readonly Preset[] = anchorPresets('lead');
 
 const STAGE_OFF = 0, STAGE_ATTACK = 1, STAGE_DECAY = 2, STAGE_SUSTAIN = 3, STAGE_RELEASE = 4;
 
+/** Any element still sounding. */
+function sounding(v: Voice): boolean {
+  return v.stage[0] !== STAGE_OFF || v.stage[1] !== STAGE_OFF;
+}
+
+/** Key still down (some element not yet released). */
+function held(v: Voice): boolean {
+  const a = v.stage[0], b = v.stage[1];
+  return (a !== STAGE_OFF && a !== STAGE_RELEASE) || (b !== STAGE_OFF && b !== STAGE_RELEASE);
+}
+
 class Voice {
   note = 0;
   group = -1;
@@ -96,9 +115,11 @@ class Voice {
   /** Pitch glide coefficient in use (GLIDE for mono notes, the slide time for slides). */
   glide = 1;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
-  stage = STAGE_OFF;
-  amp = 0;
+  /** Envelope stage and level per element (OSC 1, OSC 2). */
+  readonly stage = new Uint8Array(2);
+  readonly amp = new Float64Array(2);
   fenv = 0;
+  fattacking = false;
   age = 0;
   counter = 0;
   readonly filter = new Svf();
@@ -110,10 +131,14 @@ export class Synth implements Instrument {
   private shape = 2; private fm = 0; private fmRatio = 2; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private glideCoeff = 1;
   private slideCoeff = 1;
-  private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0;
+  private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
+  private filterMod = 0;
   private drive = 1; private crush = 0; private level = 0.7;
   private holdCount = 0; private held = 0;
-  private attackInc = 1; private decayMul = 0; private sustain = 0.5; private releaseMul = 0;
+  /** Per element (OSC 1, OSC 2). */
+  private readonly attackInc = new Float64Array([1, 1]);
+  private readonly decayMul = new Float64Array(2);
+  private sustain = 0.5; private releaseMul = 0;
   private ageCounter = 0;
   private pitchMod = 1;
 
@@ -134,7 +159,7 @@ export class Synth implements Instrument {
       const count = this.mono ? 1 : MAX_VOICES;
       for (let i = 0; i < count; i++) {
         const c = this.voices[i];
-        if (c.group === slideFrom && c.stage !== STAGE_OFF && c.stage !== STAGE_RELEASE && (!s || c.age < s.age)) s = c;
+        if (c.group === slideFrom && held(c) && (!s || c.age < s.age)) s = c;
       }
       if (s) {
         s.note = note;
@@ -148,7 +173,7 @@ export class Synth implements Instrument {
     let v: Voice;
     if (this.mono) {
       v = this.voices[0];
-      if (v.stage === STAGE_OFF) v.freq = freq;
+      if (!sounding(v)) v.freq = freq;
     } else {
       v = this.allocate();
       v.freq = freq;
@@ -158,8 +183,10 @@ export class Synth implements Instrument {
     v.targetFreq = freq;
     v.glide = this.glideCoeff;
     v.velocity = velocity;
-    v.stage = STAGE_ATTACK;
-    v.fenv = 1;
+    v.stage[0] = STAGE_ATTACK;
+    v.stage[1] = STAGE_ATTACK;
+    v.fattacking = this.fattackInc > 0;
+    v.fenv = v.fattacking ? 0 : 1;
     v.age = ++this.ageCounter;
     v.counter = 0;
   }
@@ -168,9 +195,14 @@ export class Synth implements Instrument {
     this.pitchMod = semitones === 0 ? 1 : Math.pow(2, semitones / 12);
   }
 
+  setFilterMod(octaves: number): void {
+    this.filterMod = octaves;
+  }
+
   noteOff(group: number): void {
     for (const v of this.voices) {
-      if (v.stage !== STAGE_OFF && v.stage !== STAGE_RELEASE && (group < 0 || v.group === group)) v.stage = STAGE_RELEASE;
+      if (!held(v) || (group >= 0 && v.group !== group)) continue;
+      for (let k = 0; k < 2; k++) if (v.stage[k] !== STAGE_OFF) v.stage[k] = STAGE_RELEASE;
     }
   }
 
@@ -186,7 +218,7 @@ export class Synth implements Instrument {
       case 'octave': this.octave = Math.round(value) - 2; break;
       case 'voice':
         this.mono = Math.round(value) === 1;
-        if (this.mono) for (let i = 1; i < MAX_VOICES; i++) this.voices[i].stage = STAGE_OFF;
+        if (this.mono) for (let i = 1; i < MAX_VOICES; i++) this.voices[i].stage.fill(STAGE_OFF);
         break;
       case 'glide':
         this.glideCoeff = value <= 0.001 ? 1 : 1 - Math.exp(-1 / (value * sr));
@@ -196,11 +228,14 @@ export class Synth implements Instrument {
       case 'reso': this.reso = value; break;
       case 'fenv': this.fenvAmt = value; break;
       case 'fdecay': this.fdecayMul = decayMul(value, sr); break;
+      case 'fattack': this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
       case 'drive': this.drive = value; break;
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
-      case 'attack': this.attackInc = 1 / (value * sr); break;
-      case 'decay': this.decayMul = decayMul(value, sr); break;
+      case 'attack': this.attackInc[0] = 1 / (value * sr); break;
+      case 'decay': this.decayMul[0] = decayMul(value, sr); break;
+      case 'attack2': this.attackInc[1] = 1 / (value * sr); break;
+      case 'decay2': this.decayMul[1] = decayMul(value, sr); break;
       case 'sustain': this.sustain = value; break;
       case 'release': this.releaseMul = decayMul(value, sr); break;
     }
@@ -231,9 +266,10 @@ export class Synth implements Instrument {
     const det = Math.pow(2, (this.detune * 0.35) / 12); // up to ~35 cents apart
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const count = this.mono ? 1 : MAX_VOICES;
+    const fmod = this.filterMod === 0 ? 1 : Math.pow(2, this.filterMod);
     for (let vi = 0; vi < count; vi++) {
       const v = this.voices[vi];
-      if (v.stage === STAGE_OFF) continue;
+      if (!sounding(v)) continue;
       for (let i = start; i < end; i++) {
         if (v.freq !== v.targetFreq) {
           v.freq += (v.targetFreq - v.freq) * v.glide;
@@ -244,50 +280,64 @@ export class Synth implements Instrument {
         v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;
         v.p2 += dt2; if (v.p2 >= 1) v.p2 -= 1;
         v.p3 += dt1 * 0.5; if (v.p3 >= 1) v.p3 -= 1;
-        let osc = this.osc(v.p1, dt1);
-        if (this.detune > 0) osc = (osc + this.osc(v.p2, dt2)) * 0.6;
+        let o1 = this.osc(v.p1, dt1);
+        let o2 = this.osc(v.p2, dt2);
         if (this.fm > 0) {
           // FM pair: the index rises with FM and with the filter envelope (a struck clang).
           v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
           const index = this.fm * (0.5 + 4.5 * v.fenv);
           const fmOut = Math.sin(2 * Math.PI * v.p1 + index * Math.sin(2 * Math.PI * v.p4));
-          osc = osc * (1 - this.fm) + fmOut * this.fm;
+          o1 = o1 * (1 - this.fm) + fmOut * this.fm;
+          o2 = o2 * (1 - this.fm) + fmOut * this.fm;
         }
-        osc += Math.sin(2 * Math.PI * v.p3) * this.sub;
+        o1 += Math.sin(2 * Math.PI * v.p3) * this.sub * 2; // x2: the element mix halves it
 
+        // Each element through its own envelope (ADSR with shared sustain / release).
+        let mix = 0;
+        for (let k = 0; k < 2; k++) {
+          let a = v.amp[k];
+          switch (v.stage[k]) {
+            case STAGE_ATTACK:
+              a += this.attackInc[k];
+              if (a >= 1) { a = 1; v.stage[k] = STAGE_DECAY; }
+              break;
+            case STAGE_DECAY:
+              a = this.sustain + (a - this.sustain) * this.decayMul[k];
+              if (a - this.sustain < 1e-4) v.stage[k] = STAGE_SUSTAIN;
+              break;
+            case STAGE_SUSTAIN:
+              a = this.sustain;
+              break;
+            case STAGE_RELEASE:
+              a *= this.releaseMul;
+              if (a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
+              break;
+          }
+          if (v.stage[k] === STAGE_SUSTAIN && this.sustain === 0 && a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
+          v.amp[k] = a;
+          mix += (k === 0 ? o1 : o2) * a;
+        }
+
+        // Filter envelope: attack up, then decay.
+        if (v.fattacking) {
+          v.fenv += this.fattackInc;
+          if (v.fenv >= 1) { v.fenv = 1; v.fattacking = false; }
+        } else {
+          v.fenv *= this.fdecayMul;
+        }
         if (v.counter-- <= 0) {
           v.counter = FILTER_UPDATE;
-          v.filter.setup(this.cutoff * Math.pow(2, this.fenvAmt * 6 * v.fenv), this.reso, sr);
+          v.filter.setup(this.cutoff * fmod * Math.pow(2, this.fenvAmt * 6 * v.fenv), this.reso, sr);
         }
-        v.filter.process(osc);
+        v.filter.process(mix * 0.5);
 
-        // Amp ADSR
-        switch (v.stage) {
-          case STAGE_ATTACK:
-            v.amp += this.attackInc;
-            if (v.amp >= 1) { v.amp = 1; v.stage = STAGE_DECAY; }
-            break;
-          case STAGE_DECAY:
-            v.amp = this.sustain + (v.amp - this.sustain) * this.decayMul;
-            if (v.amp - this.sustain < 1e-4) v.stage = STAGE_SUSTAIN;
-            break;
-          case STAGE_SUSTAIN:
-            v.amp = this.sustain;
-            break;
-          case STAGE_RELEASE:
-            v.amp *= this.releaseMul;
-            break;
-        }
-        v.fenv *= this.fdecayMul;
-
-        let out = v.filter.low * v.amp * v.velocity * this.level;
+        let out = v.filter.low * v.velocity * this.level;
         if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm;
         outL[i] += out;
         outR[i] += out;
       }
-      if ((v.stage === STAGE_RELEASE || (v.stage === STAGE_SUSTAIN && this.sustain === 0)) && v.amp < 1e-5) {
-        v.stage = STAGE_OFF;
-        v.amp = 0;
+      if (!sounding(v)) {
+        v.amp.fill(0);
         v.filter.reset();
       }
     }
@@ -319,7 +369,7 @@ export class Synth implements Instrument {
   private allocate(): Voice {
     let oldest = this.voices[0];
     for (const v of this.voices) {
-      if (v.stage === STAGE_OFF) return v;
+      if (!sounding(v)) return v;
       if (v.age < oldest.age) oldest = v;
     }
     return oldest;

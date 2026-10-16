@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 7;
+export const PROJECT_VERSION = 8;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -15,7 +15,7 @@ export const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 
-import { defaultLfo, type LfoState } from './lfo';
+import type { LfoState } from './lfo';
 
 export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'bass' | 'pad' | 'lead';
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
@@ -94,8 +94,8 @@ export interface ChannelState {
   fxSend: number;
   /** How much of the track goes to its send, 0..1. */
   sendLevel: number;
-  /** Track LFO (rate, shape, volume and pitch modulation). */
-  lfo: LfoState;
+  /** The track is modulated by the (shared) LFO. */
+  lfoOn: boolean;
   mute: boolean;
   patterns: Pattern[];
   activePattern: number;
@@ -116,6 +116,8 @@ export interface Project {
   sendWet: number[][];
   /** ... and INTENSITY = how hard the effect works (feedback, drive, depth, size ...). */
   sendInt: number[][];
+  /** The LFO shared by the tracks with lfoOn. */
+  lfo: LfoState;
   /** Master LO-FI (tape saturation + EQ), 0..1. */
   lofi: number;
   channels: ChannelState[];
@@ -142,7 +144,7 @@ export function emptyChannel(): ChannelState {
     fx1: false,
     fxSend: 0,
     sendLevel: 0.5,
-    lfo: defaultLfo(),
+    lfoOn: false,
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
     activePattern: 0,

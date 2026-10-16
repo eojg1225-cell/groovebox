@@ -33,8 +33,10 @@ export type MainToWorklet =
   | { type: 'setDrumBusParam'; id: string; value: number }
   /** WET or INTENSITY 0..1 of effect `effect` (EFFECTS order) inside send bus `send` (1-2). */
   | { type: 'setSendFx'; send: number; effect: number; control: 'wet' | 'int'; value: number }
-  /** Track LFO setting (rate/shape as option indices, vol 0..1, pitch in semitones). */
-  | { type: 'setLfo'; channel: number; id: LfoId; value: number }
+  /** LFO setting (rate/shape as option indices, vol / pan 0..1, pitch in semitones, filter in octaves). */
+  | { type: 'setLfo'; id: LfoId; value: number }
+  /** Put a track on / off the LFO. */
+  | { type: 'setLfoTrack'; channel: number; on: boolean }
   | { type: 'transport'; playing: boolean }
   /** Audition / play a note on a channel now. */
   /** slideFrom: a held note this one glides from (legato), -1 / absent = a new note. */

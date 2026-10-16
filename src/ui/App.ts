@@ -15,8 +15,9 @@
  *          The strip is an audition keyboard.
  * In RECORD and PLAY the 12 knobs are the live knobs: one module per track, two each,
  * assigned on the TRACK page. Only non-coarse parameters can be assigned.
- * FX 1-3 (RECORD / PLAY): the knobs and the screen switch to that bus's controls (FX 1 =
- * the drum bus, FX 2 / 3 = sends); the channel buttons then add / remove tracks.
+ * FX 1-3 and LFO (RECORD / PLAY): the knobs and the screen switch to that bus's controls
+ * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
+ * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
  * SLIDE: in step entry, holding a key and pressing another enters the new note on the step
  * after the held one, sliding into it (legato). Bass / lead also slide when played legato.
@@ -28,7 +29,7 @@
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
-import { LFO_PARAMS, type LfoId } from '../engine/lfo';
+import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
@@ -193,9 +194,13 @@ export class App {
     return this.mode !== 'design' && this.fxView > 0;
   }
 
-  /** Whether a track is on bus n (1 = the drum bus, 2-3 = its send). */
+  /** Whether a track is on bus n (1 = the drum bus, 2-3 = its send, 4 = the LFO). */
   private onBus(c: ChannelState, n: number): boolean {
-    return n === 1 ? c.fx1 : c.fxSend === n;
+    return n === 1 ? c.fx1 : n === 4 ? c.lfoOn : c.fxSend === n;
+  }
+
+  private busName(n: number): string {
+    return n === 4 ? 'LFO' : `FX ${n}`;
   }
 
   /** Put a track on / take it off bus n. */
@@ -204,11 +209,14 @@ export class App {
     if (n === 1) {
       c.fx1 = !c.fx1;
       this.send({ type: 'setDrumBus', channel: ch, on: c.fx1 });
+    } else if (n === 4) {
+      c.lfoOn = !c.lfoOn;
+      this.send({ type: 'setLfoTrack', channel: ch, on: c.lfoOn });
     } else {
       c.fxSend = c.fxSend === n ? 0 : n;
       this.send({ type: 'setRouting', channel: ch, send: c.fxSend });
     }
-    this.flash(`${this.kindName(c)} ${this.onBus(c, n) ? '->' : 'OFF'} FX ${n}`);
+    this.flash(`${this.kindName(c)} ${this.onBus(c, n) ? '->' : 'OFF'} ${this.busName(n)}`);
     this.save();
   }
 
@@ -300,7 +308,7 @@ export class App {
       }
     }
     for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
-    for (const id of ['rate', 'vol', 'pitch'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
+    for (const id of ['rate', 'vol', 'pitch', 'filter', 'pan'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
     return list;
   }
 
@@ -311,8 +319,8 @@ export class App {
       const spec = LFO_PARAMS[lfoId];
       return {
         label: label ?? spec.name, spec, channel: ch, highlight,
-        get: () => c.lfo[lfoId],
-        set: (v) => { c.lfo[lfoId] = v; this.send({ type: 'setLfo', channel: ch, id: lfoId, value: v }); },
+        get: () => this.project.lfo[lfoId],
+        set: (v) => { this.project.lfo[lfoId] = v; this.send({ type: 'setLfo', id: lfoId, value: v }); },
       };
     }
     if (id === 'track:chord') {
@@ -397,6 +405,7 @@ export class App {
    * labelled with the effect) on top, INTENSITY (how hard it works) below.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
+    if (k === 3) return LFO_LAYOUT.map((id) => (id ? this.paramTarget(this.selected, `lfo:${id}`) : null));
     if (k === 0) {
       const fx1 = this.project.fx1;
       return DRUM_BUS_PARAMS.map((spec): KnobTarget => ({
@@ -564,7 +573,7 @@ export class App {
       else if (page === 0) this.soundSub = 0;
       this.designPage = page;
       this.touchedKnob = -1;
-    } else if ((m = /^fx([1-3])$/.exec(id))) {
+    } else if ((m = /^fx([1-4])$/.exec(id))) {
       const n = Number(m[1]);
       if (this.mode === 'design') {
         // Sound design: put the selected track on / off this bus.
@@ -1177,10 +1186,10 @@ export class App {
     const members = this.project.channels.flatMap((c, i) => (this.onBus(c, n) ? [String(i + 1)] : []));
     return {
       ...this.header(),
-      channelLabel: n === 1 ? 'FX 1 DRUM BUS' : `FX ${n} SEND`,
+      channelLabel: n === 1 ? 'FX 1 DRUM BUS' : n === 4 ? 'LFO' : `FX ${n} SEND`,
       patternLabel: '',
       kindLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
-      pages: ['FX 1', 'FX 2', 'FX 3'],
+      pages: ['FX 1', 'FX 2', 'FX 3', 'LFO'],
       page: n - 1,
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
@@ -1210,7 +1219,7 @@ export class App {
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
       liveLabel: `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
-      chordLabel: [c.fx1 ? 'FX1' : '', c.fxSend ? `FX${c.fxSend}` : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
+      chordLabel: [c.fx1 ? 'FX1' : '', c.fxSend ? `FX${c.fxSend}` : '', c.lfoOn ? 'LFO' : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,

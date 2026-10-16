@@ -105,6 +105,14 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
 };
 
+// Synth anchors design one envelope; OSC 2 starts with the same ATTACK / DECAY as OSC 1.
+for (const kind of ['bass', 'pad', 'lead'] as const) {
+  for (const a of MACROS[kind].anchors) {
+    if (a.values.attack !== undefined) a.values.attack2 ??= a.values.attack;
+    if (a.values.decay !== undefined) a.values.decay2 ??= a.values.decay;
+  }
+}
+
 /** Name of the anchor nearest a TIMBRE position (for the screen). */
 export function timbreName(kind: SoundKind, timbre: number): string {
   const a = MACROS[kind].anchors;

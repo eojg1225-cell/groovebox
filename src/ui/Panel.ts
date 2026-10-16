@@ -11,7 +11,7 @@
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
  * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, savepatch,
- * saveproject, dpage0..2, fx1..fx3, play, clear (held: CLEAR + step / channel),
+ * saveproject, dpage0..2, fx1..fx3 + fx4 (LFO), play, clear (held: CLEAR + step / channel),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row, k7..k12
  * bottom row; module i holds k(i+1) and k(i+7)); master knobs mtempo, mlofi.
  */
@@ -26,7 +26,8 @@ export const KNOB_COUNT = 12;
 export const KNOBS_PER_ROW = 6;
 export const STEP_BUTTONS = 16;
 export const DESIGN_PAGE_BUTTONS = 3;
-export const FX_SEND_BUTTONS = 3;
+/** FX 1-3 then the LFO (fx4): buses the tracks are put on. */
+export const FX_SEND_BUTTONS = 4;
 export const MASTER_KNOBS = [
   { id: 'mtempo', label: 'TEMPO' },
   { id: 'mlofi', label: 'LO-FI' },
@@ -103,7 +104,7 @@ export class Panel implements ControlSurface {
     q('.patterns').appendChild(this.makeButton('savepatch', 'SAVE<small>PATCH</small>', 'btn save'));
     q('.patterns').appendChild(this.makeButton('saveproject', 'SAVE<small>PROJECT</small>', 'btn save'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
-    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, String(i), 'btn fxsend'));
+    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel.
     const grid = q('.knob-grid');

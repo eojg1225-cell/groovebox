@@ -3,6 +3,7 @@ import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
 import { defaultDrumBus, defaultSendInt, defaultSendWet } from '../fx';
 import { fromStored } from './projectFile';
+import { defaultLfo } from './lfo';
 import startProject from './startProject.json';
 
 /** Give a channel an instrument kind with one of its presets. */
@@ -39,7 +40,7 @@ export function createDefaultProject(): Project {
   channels[3].sendLevel = 0.25;
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
-    fx1: defaultDrumBus(), sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels,
+    fx1: defaultDrumBus(), lfo: defaultLfo(), sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels,
   };
 }
 

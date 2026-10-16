@@ -54,7 +54,7 @@ export interface StoredChannel {
   fx1: boolean;
   fxSend: number;
   sendLevel: number;
-  lfo: LfoState;
+  lfoOn: boolean;
   mute: boolean;
   activePattern: number;
   patterns: StoredPattern[];
@@ -67,6 +67,7 @@ export interface StoredProject {
   swing: number;
   master: number;
   fx1: Record<string, number>;
+  lfo: LfoState;
   sendWet: number[][];
   sendInt: number[][];
   lofi: number;
@@ -81,6 +82,7 @@ export function toStored(p: Project): StoredProject {
     swing: p.swing,
     master: p.master,
     fx1: { ...p.fx1 },
+    lfo: { ...p.lfo },
     sendWet: p.sendWet.map((row) => [...row]),
     sendInt: p.sendInt.map((row) => [...row]),
     lofi: p.lofi,
@@ -96,7 +98,7 @@ export function toStored(p: Project): StoredProject {
       fx1: c.fx1,
       fxSend: c.fxSend,
       sendLevel: c.sendLevel,
-      lfo: { ...c.lfo },
+      lfoOn: c.lfoOn,
       mute: c.mute,
       activePattern: c.activePattern,
       patterns: c.patterns.map((pat) => ({
@@ -197,12 +199,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   // Chords are stored by index; before v6 the list had no MAJOR/MINOR, so map by name.
   const chord = Math.round(num(src.chord, ch.chord, 0, 64));
   ch.chord = version < 6 ? Math.max(0, CHORD_NAMES.indexOf(CHORD_NAMES_V5[chord] ?? 'OFF')) : Math.min(chord, CHORD_NAMES.length - 1);
-  if (isObj(src.lfo)) {
-    ch.lfo.rate = Math.round(num(src.lfo.rate, ch.lfo.rate, 0, LFO_RATES.length - 1));
-    ch.lfo.shape = Math.round(num(src.lfo.shape, ch.lfo.shape, 0, LFO_SHAPES.length - 1));
-    ch.lfo.vol = num(src.lfo.vol, ch.lfo.vol, 0, 1);
-    ch.lfo.pitch = num(src.lfo.pitch, ch.lfo.pitch, 0, 48);
-  }
+  ch.lfoOn = src.lfoOn === true;
   ch.volume = num(src.volume, ch.volume, 0, 1);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.mute = src.mute === true;
@@ -258,6 +255,16 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   }
 }
 
+function readLfo(src: unknown, lfo: LfoState): void {
+  if (!isObj(src)) return;
+  lfo.rate = Math.round(num(src.rate, lfo.rate, 0, LFO_RATES.length - 1));
+  lfo.shape = Math.round(num(src.shape, lfo.shape, 0, LFO_SHAPES.length - 1));
+  lfo.vol = num(src.vol, lfo.vol, 0, 1);
+  lfo.pitch = num(src.pitch, lfo.pitch, 0, 48);
+  lfo.filter = num(src.filter, lfo.filter, 0, 8);
+  lfo.pan = num(src.pan, lfo.pan, 0, 1);
+}
+
 /**
  * Read a stored project (any version, compact or full). Returns null only when the data
  * has no channels at all.
@@ -285,9 +292,22 @@ export function fromStored(data: unknown): Project | null {
   }
   readGrid(data.sendWet ?? data.sendFx, p.sendWet);
   readGrid(data.sendInt, p.sendInt);
+  readLfo(data.lfo, p.lfo);
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
     if (isObj(src)) readChannel(src, p.channels[i], version);
+  }
+  // Before v8 every track had its own LFO: tracks that used theirs join the shared one,
+  // which takes the first such track's settings.
+  if (version < 8) {
+    let first = true;
+    data.channels.forEach((src, i) => {
+      if (i >= NUM_CHANNELS || !isObj(src) || !isObj(src.lfo)) return;
+      if (num(src.lfo.vol, 0) <= 0 && num(src.lfo.pitch, 0) <= 0) return;
+      p.channels[i].lfoOn = true;
+      if (first) readLfo(src.lfo, p.lfo);
+      first = false;
+    });
   }
   return p;
 }

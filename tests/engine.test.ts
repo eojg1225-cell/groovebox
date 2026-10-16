@@ -19,7 +19,7 @@ import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { lfoValue } from '../src/engine/lfo';
 import { MACROS, anchorPosition, macroSound } from '../src/instruments/macros';
-import { SOUND_PAGE } from '../src/instruments/registry';
+import { soundPage } from '../src/instruments/registry';
 import { DrumBus, STUTTER_GRIDS } from '../src/fx/DrumBus';
 
 const SR = 48000;
@@ -133,16 +133,17 @@ describe('instruments', () => {
     }
   });
 
-  it('sound page columns: TIMBRE/INTENSITY, ATTACK/DECAY, FILTER/RESO, LFO, LFO, DRIVE/CRUSH', () => {
-    const column = (m: number) => [SOUND_PAGE[m], SOUND_PAGE[m + 6]];
-    expect(column(0)).toEqual(['timbre', 'intensity']);
-    expect(column(1)).toEqual(['attack', 'decay']);
-    expect(column(2)).toEqual(['cutoff', 'reso']);
-    expect([...column(3), ...column(4)].every((id) => id.startsWith('lfo:'))).toBe(true);
-    expect(column(5)).toEqual(['drive', 'crush']);
+  it('sound page columns: TIMBRE/INTENSITY, two element ATTACK/DECAYs, FILTER/RESO, FILTER ATTACK/DECAY, DRIVE/CRUSH', () => {
+    expect(soundPage(['a1', 'd1', 'a2', 'd2'])).toEqual([
+      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive',
+      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush',
+    ]);
+    expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
+    expect(INSTRUMENTS.hat.layout.slice(7, 9)).toEqual(['c_len', 'm_decay']);
+    expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
     // Every type really has these parameters; the pad's chord is on its detail page.
     for (const entry of Object.values(INSTRUMENTS)) {
-      for (const id of SOUND_PAGE) if (!id.includes(':')) expect(entry.params.some((p) => p.id === id)).toBe(true);
+      for (const id of entry.layout) if (id) expect(entry.params.some((p) => p.id === id), id).toBe(true);
     }
     expect(INSTRUMENTS.pad.detail).toContain('track:chord');
   });
@@ -576,9 +577,9 @@ describe('more send effects', () => {
   });
 });
 
-describe('track LFO', () => {
-  /** Pad holding a long note, LFO set as given; returns the output. */
-  const padWithLfo = (lfo: { rate: number; shape: number; vol: number; pitch: number }, seconds: number) => {
+describe('LFO', () => {
+  /** Pad holding a long note, on the LFO set as given; returns the output. */
+  const padWithLfo = (lfo: { rate: number; shape: number; vol: number; pitch: number }, seconds: number, on = true) => {
     const p = kickProject([], { bpm: 120 });
     const pad = p.channels[4];
     pad.fxSend = 0;
@@ -586,7 +587,8 @@ describe('track LFO', () => {
     pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, sustain: 1, release: 0.01 };
     pad.patterns[0].steps[0].active = true;
     pad.patterns[0].steps[0].gate = 16;
-    pad.lfo = lfo;
+    p.lfo = { ...p.lfo, ...lfo };
+    pad.lfoOn = on;
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
     return render(e, seconds).l;
@@ -611,6 +613,22 @@ describe('track LFO', () => {
     };
     // High half (+12) vs low half (-12): about 4x the crossings.
     expect(zc(2000, 10000) / zc(14000, 22000)).toBeGreaterThan(3);
+  });
+
+  it('only tracks put on the LFO are modulated', () => {
+    const l = padWithLfo({ rate: 4, shape: 1, vol: 1, pitch: 0 }, 1, false);
+    expect(stats(l.subarray(13000, 24000)).peak).toBeGreaterThan(0.05);
+  });
+
+  it('old per-track LFOs become the shared LFO with those tracks on it', () => {
+    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    old.version = 7;
+    delete old.lfo;
+    for (const c of old.channels) { delete c.lfoOn; c.lfo = { rate: 4, shape: 0, vol: 0, pitch: 0 }; }
+    old.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 };
+    const p = fromStored(old)!;
+    expect(p.channels.map((c) => c.lfoOn)).toEqual([false, false, false, false, false, true]);
+    expect(p.lfo).toMatchObject({ rate: 7, shape: 5, vol: 0.4, pitch: 3 });
   });
 
   it('every shape stays within -1..1', () => {
@@ -769,7 +787,8 @@ describe('project', () => {
     p.fx1.stt_grid = 2;
     p.fx1.lp_cutoff = 800;
     p.channels[3].fx1 = true;
-    p.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 };
+    p.lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3, filter: 2, pan: 0.5 };
+    p.channels[5].lfoOn = true;
     p.channels[2].patterns[0].steps[6].active = true;
     p.channels[2].patterns[0].steps[6].ring = true;
     p.channels[2].patterns[0].steps[9].rest = true;
@@ -944,7 +963,7 @@ describe('FX 1 drum bus', () => {
   });
 });
 
-describe('drum whole-voice controls', () => {
+describe('drum element and filter envelopes', () => {
   const hit = (sound: Record<string, number>) => {
     const d = new Drum(SR, KICK_PARAMS);
     const base = presetSound('kick', 1);
@@ -955,10 +974,21 @@ describe('drum whole-voice controls', () => {
     d.render(l, new Float32Array(SR * 2), 0, l.length);
     return l;
   };
-  it('DECAY scales the decays, ATTACK fades the hit in', () => {
+  it('each element has its own ATTACK and DECAY', () => {
     const tailOf = (l: Float32Array) => stats(l.subarray(SR * 0.6, SR * 0.7)).peak;
-    expect(tailOf(hit({ decay: 4 }))).toBeGreaterThan(tailOf(hit({})) * 10 + 1e-4);
-    expect(stats(hit({ attack: 0.2 }).subarray(0, 480)).peak).toBeLessThan(stats(hit({}).subarray(0, 480)).peak * 0.2);
+    expect(tailOf(hit({ t_decay: 4 }))).toBeGreaterThan(tailOf(hit({})) * 10 + 1e-4);
+    const start = (l: Float32Array) => stats(l.subarray(0, 480)).peak;
+    expect(start(hit({ t_attack: 0.2, c_attack: 0.2 }))).toBeLessThan(start(hit({})) * 0.2);
+    // A slow tone attack still peaks later (the attack rises, then the decay starts).
+    expect(stats(hit({ t_attack: 0.2, c_level: 0 }).subarray(SR * 0.18, SR * 0.22)).peak).toBeGreaterThan(0.3);
+  });
+
+  it('the filter envelope opens a closed filter on each hit', () => {
+    // High-frequency content (sample-to-sample differences) over the first 50 ms.
+    const hf = (l: Float32Array) => { let e = 0; for (let i = 1; i < SR * 0.05; i++) e += (l[i] - l[i - 1]) ** 2; return e; };
+    const closed = hit({ c_level: 1, cutoff: 100, fenv: 0 });
+    const opened = hit({ c_level: 1, cutoff: 100, fenv: 1.5, fdecay: 0.2 });
+    expect(hf(opened)).toBeGreaterThan(hf(closed) * 10);
   });
   it('the drum FILTER darkens it', () => {
     const e = (l: Float32Array) => l.reduce((a, v) => a + v * v, 0);
@@ -1031,5 +1061,20 @@ describe('slides and rolls', () => {
     Object.assign(p.channels[3].patterns[0].steps[2], { active: true, note: 50, slide: true });
     Object.assign(p.channels[1].patterns[0].steps[5], { active: true, roll: 4 });
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))).toEqual(p);
+  });
+});
+
+describe('synth elements', () => {
+  it('OSC 1 and OSC 2 have their own ATTACK (a slow OSC 2 swells in under OSC 1)', () => {
+    const level = (attack2: number, at: number) => {
+      const s = new Synth(SR, INSTRUMENTS.bass.params, { voice: 1 });
+      for (const [id, v] of Object.entries({ shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, drive: 1, attack: 0.001, attack2 })) s.setParam(id, v);
+      s.noteOn(57, 1, 57);
+      const l = new Float32Array(SR);
+      s.render(l, new Float32Array(SR), 0, SR);
+      return stats(l.subarray(at, at + 2000)).peak;
+    };
+    expect(level(1, 2000)).toBeLessThan(level(0.001, 2000) * 0.7); // OSC 2 still rising
+    expect(level(1, 46000)).toBeGreaterThan(level(0.001, 46000) * 0.9); // both in
   });
 });
