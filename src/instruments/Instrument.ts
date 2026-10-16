@@ -9,8 +9,9 @@ export interface Instrument {
   /**
    * note is a MIDI-style note number; velocity 0..1. `group` tags the voices started
    * together (e.g. all notes of a chord) so noteOff can release them as one.
+   * `ring` = a RING step: drums use their long, chokeable decay.
    */
-  noteOn(note: number, velocity: number, group: number): void;
+  noteOn(note: number, velocity: number, group: number, ring: boolean): void;
   /** Release voices of a group; -1 releases everything. Percussive voices may ignore it. */
   noteOff(group: number): void;
   /** Pitch modulation in semitones (track LFO), applied to sounding voices. Block rate. */

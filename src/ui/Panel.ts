@@ -39,12 +39,10 @@ export const MODES = [
 
 /** Function row: groups of [id, label] (labels may contain <small> lines). */
 export const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
-  [['motion', 'MOTION<small>REC</small>']],
-  [['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
+  [['ring', 'RING'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', '1-16<small>VIEW</small>']],
   [['oct-', 'OCT −'], ['oct+', 'OCT +']],
   [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],
-  [['clearmotion', 'CLEAR<small>MOTION</small>']],
 ];
 
 export interface PanelConfig {

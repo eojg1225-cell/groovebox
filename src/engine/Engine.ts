@@ -65,6 +65,8 @@ export class Engine {
   private readonly stepNote = new Float32Array(STEP_SLOTS);
   private readonly stepVel = new Float32Array(STEP_SLOTS);
   private readonly stepAccent = new Uint8Array(STEP_SLOTS);
+  private readonly stepRing = new Uint8Array(STEP_SLOTS);
+  private readonly stepRest = new Uint8Array(STEP_SLOTS);
   /** Note length in steps (1 = until the next step starts). */
   private readonly stepGate = new Uint8Array(STEP_SLOTS).fill(1);
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
@@ -96,6 +98,8 @@ export class Engine {
   /** Steps until the sequenced note on a channel is released (0 = none held). */
   private readonly gateSteps = new Int16Array(NUM_CHANNELS);
   private readonly gateGroup = new Int16Array(NUM_CHANNELS);
+  /** The held note is a RING note: it ends at the next hit or rest, not by count. */
+  private readonly ringing = new Uint8Array(NUM_CHANNELS);
   /** Live recording: the held note per channel (-1 = none) and where it started. */
   private readonly recNote = new Int16Array(NUM_CHANNELS).fill(-1);
   private readonly recStart = new Float64Array(NUM_CHANNELS);
@@ -317,13 +321,22 @@ export class Engine {
       const len = this.patternLength[pat];
       const idx = this.position[ch] % len;
       const s = pat * MAX_STEPS + idx;
-      // A held note ends where its gate says: exactly at the start of a later step.
-      if (this.gateSteps[ch] > 0 && --this.gateSteps[ch] === 0) this.releaseGate(ch);
+      if (this.gateSteps[ch] > 0) {
+        if (this.ringing[ch]) {
+          // A RING note ends at the next hit or rest on this track.
+          if (this.stepActive[s] || this.stepRest[s]) this.releaseGate(ch);
+        } else if (--this.gateSteps[ch] === 0) {
+          // A held note ends where its gate says: exactly at the start of a later step.
+          this.releaseGate(ch);
+        }
+      }
       this.applyLocks(ch, s);
       if (this.stepActive[s] && this.skipStep[ch] !== idx) {
-        this.noteOn(ch, this.stepNote[s], this.stepVel[s]);
+        const ring = this.stepRing[s] === 1;
+        this.noteOn(ch, this.stepNote[s], this.stepVel[s], ring);
         this.gateGroup[ch] = this.stepNote[s];
-        this.gateSteps[ch] = this.stepGate[s];
+        this.gateSteps[ch] = ring ? 1 : this.stepGate[s];
+        this.ringing[ch] = ring ? 1 : 0;
       }
       this.skipStep[ch] = -1;
       this.currentStep[ch] = idx;
@@ -335,7 +348,7 @@ export class Engine {
   }
 
   /** Play a note (as a chord when chord mode is on); voices are grouped by the root note. */
-  private noteOn(ch: number, note: number, velocity: number): void {
+  private noteOn(ch: number, note: number, velocity: number, ring = false): void {
     const inst = this.current[ch];
     if (!inst) return;
     if (this.gateSteps[ch] > 0) this.releaseGate(ch);
@@ -343,12 +356,13 @@ export class Engine {
     this.toneL[ch].setup(fc, 0, this.sampleRate);
     this.toneR[ch].setup(fc, 0, this.sampleRate);
     const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
-    for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note);
+    for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note, ring);
   }
 
   private releaseGate(ch: number): void {
     this.current[ch]?.noteOff(this.gateGroup[ch]);
     this.gateSteps[ch] = 0;
+    this.ringing[ch] = 0;
   }
 
   /** Live note released. If it was being recorded, its length becomes the step's gate. */
@@ -430,6 +444,8 @@ export class Engine {
     this.stepNote[s] = note;
     this.stepVel[s] = velocity;
     this.stepAccent[s] = accent ? 1 : 0;
+    this.stepRing[s] = 0;
+    this.stepRest[s] = 0;
     this.stepGate[s] = 1;
     // The note already sounded now; don't play it again when that step comes round.
     if (isNext) this.skipStep[ch] = index;
@@ -605,6 +621,8 @@ export class Engine {
     this.stepNote[s] = step.note;
     this.stepVel[s] = step.velocity;
     this.stepAccent[s] = step.accent ? 1 : 0;
+    this.stepRing[s] = step.ring ? 1 : 0;
+    this.stepRest[s] = step.rest && !step.active ? 1 : 0;
     this.stepGate[s] = Math.max(1, Math.min(MAX_STEPS, Math.round(step.gate || 1)));
     const base = s * LOCK_SLOTS;
     this.locks.fill(NaN, base, base + LOCK_SLOTS);

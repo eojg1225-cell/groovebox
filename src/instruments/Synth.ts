@@ -123,7 +123,7 @@ export class Synth implements Instrument {
     for (const p of params) this.setParam(p.id, p.defaultValue);
   }
 
-  noteOn(note: number, velocity: number, group: number): void {
+  noteOn(note: number, velocity: number, group: number, _ring = false): void {
     const n = note + this.octave * 12;
     const freq = midiToHz(n);
     let v: Voice;

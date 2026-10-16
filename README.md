@@ -43,9 +43,9 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | | RECORD | PLAY | SOUND DESIGN |
 |---|---|---|---|
 | Knobs | Two live knobs per track (default VOLUME + CUTOFF); FX 1-3 show a send | Same | The selected track's page |
-| FX 1/2/3 | Open that send on the knobs | Same | Route the selected track to that send (again = no send) |
+| FX 1/2/3 | Open that send on the knobs; the channel buttons then light for the tracks feeding it — tap one to add / remove it | Same | Route the selected track to that send (again = no send) |
 | Drum strip | Toggle steps | Keyboard (chromatic drum) | Keyboard (audition) |
-| Pitched strip | Step entry (cursor; ◀ ▶ REST; hold + ▶ ties); MOTION REC records live | Keyboard | Keyboard (audition) |
+| Pitched strip | Stopped: step entry (cursor; ◀ ▶ REST; hold + ▶ ties). Playing: live recording | Keyboard | Keyboard (audition) |
 | Recorded? | Yes | Never | No |
 
 **Sound design pages:** SOUND (per row: four sound knobs, then the track LFO in modules 5-6 — top RATE / SHAPE, bottom VOL MOD / PITCH MOD; drums: layer 1 ×3 + DRIVE, layer 2 ×3 + CRUSH; the PAD page has CHORD), TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Settings without a knob come from the presets, which keeps each sound's character.
@@ -58,7 +58,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 
 **Master:** TEMPO; LO-FI (tape: low-end bump, progressive saturation, high roll-off), saved with the project.
 
-**Sequencing:** notes last one step by default; hold a key + ▶ to tie in step entry; live-recorded notes keep their held length; while live recording the strip follows the playing 16-step block. Keyboard starts on A; dividers mark groups of four.
+**Sequencing:** notes last one step by default; hold a key + ▶ to tie in step entry; live-recorded notes keep their held length; while recording the strip follows the playing 16-step block. **RING** (armed like ACCENT): the hit rings until the next hit or rest on its track — pitched notes are held, drums get a long decay that the next hit chokes (a closed hat becomes an open hat). **REST** places a stop marker (drums: arm REST, tap steps; step entry: at the cursor). Keyboard starts on A; dividers mark groups of four.
 
 **Saving:** SAVE PATCH (USER n per track type), SAVE PROJECT (opens next launch), both in this browser's local storage; the working session survives reloads; on claude.ai the project is also mirrored to the artifact's store. The save format is forgiving: notes carry over across format changes.
 

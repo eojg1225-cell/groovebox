@@ -91,6 +91,10 @@ export const HAT_PRESETS: readonly Preset[] = [
 /** 808 cymbal oscillator ratios (relative to the lowest). */
 const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];
 const TWO_PI = Math.PI * 2;
+/** RING multiplies the tone and metal decay times (closed hat 0.05 s -> open ~0.4 s). */
+const RING_FACTOR = 8;
+/** A ringing drum is choked (by the next hit or a rest) with this fade. */
+const CHOKE_SECONDS = 0.012;
 
 export class Drum implements Instrument {
   private readonly sr: number;
@@ -104,6 +108,11 @@ export class Drum implements Instrument {
   private drive = 1; private crush = 0;
   private mLevel = 0; private mPitch = 400; private mSpread = 1; private mNoise = 0.3; private mMode = 0;
   private tDecayMul = 0; private sweepMul = 0; private mDecayMul = 0; private cDecayMul = 0;
+  private tRingMul = 0; private mRingMul = 0;
+  private readonly chokeMul: number;
+  /** Decay multipliers in use for the current hit (normal, ring or choke). */
+  private tMul = 0; private mMul = 0;
+  private ringing = false;
 
   // Voice state
   private tune = 1;
@@ -116,12 +125,16 @@ export class Drum implements Instrument {
 
   constructor(sampleRate: number, readonly params: readonly ParamSpec[]) {
     this.sr = sampleRate;
+    this.chokeMul = decayMul(CHOKE_SECONDS, sampleRate);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
     for (const p of params) this.setParam(p.id, p.defaultValue);
   }
 
-  noteOn(note: number, velocity: number, _group: number): void {
+  noteOn(note: number, velocity: number, _group: number, ring = false): void {
+    this.ringing = ring;
+    this.tMul = ring ? this.tRingMul : this.tDecayMul;
+    this.mMul = ring ? this.mRingMul : this.mDecayMul;
     this.tune = Math.pow(2, (note - 36) / 12);
     this.velocity = velocity;
     this.tPhase = 0;
@@ -131,7 +144,13 @@ export class Drum implements Instrument {
     this.cEnv = 1;
   }
 
-  noteOff(_group: number): void {}
+  /** Only a ringing hit responds: it is choked (closed off quickly). */
+  noteOff(_group: number): void {
+    if (!this.ringing) return;
+    this.ringing = false;
+    this.tMul = this.chokeMul;
+    this.mMul = this.chokeMul;
+  }
 
   setPitchMod(semitones: number): void {
     this.pitchMod = semitones === 0 ? 1 : Math.pow(2, semitones / 12);
@@ -144,7 +163,7 @@ export class Drum implements Instrument {
       case 't_pitch': this.tPitch = v; break;
       case 't_sweep': this.tSweep = v; break;
       case 't_stime': this.sweepMul = decayMul(v, sr); break;
-      case 't_decay': this.tDecayMul = decayMul(v, sr); break;
+      case 't_decay': this.tDecayMul = decayMul(v, sr); this.tRingMul = decayMul(Math.min(6, v * RING_FACTOR), sr); break;
       case 't_wave': this.tWave = Math.round(v); break;
       case 'c_level': this.cLevel = v; break;
       case 'c_tone': this.cTone = v; this.cFilter.setup(this.cTone, this.cReso, sr); break;
@@ -158,7 +177,7 @@ export class Drum implements Instrument {
       case 'm_spread': this.mSpread = v; break;
       case 'm_noise': this.mNoise = v; break;
       case 'm_tone': this.mFilter.setup(v, 0.3, sr); break;
-      case 'm_decay': this.mDecayMul = decayMul(v, sr); break;
+      case 'm_decay': this.mDecayMul = decayMul(v, sr); this.mRingMul = decayMul(Math.min(6, v * RING_FACTOR), sr); break;
       case 'm_mode': this.mMode = Math.round(v); break;
     }
   }
@@ -194,7 +213,7 @@ export class Drum implements Instrument {
           default: osc = Math.sin(TWO_PI * ph);
         }
         sum += osc * this.tEnv * this.tLevel;
-        this.tEnv *= this.tDecayMul;
+        this.tEnv *= this.tMul;
         this.sweepEnv *= this.sweepMul;
         if (this.tEnv < 1e-5) this.tEnv = 0;
       }
@@ -221,7 +240,7 @@ export class Drum implements Instrument {
         m = m * (1 - this.mNoise) + this.noise.next() * this.mNoise;
         this.mFilter.process(m);
         sum += this.mFilter.high * this.mEnv * this.mLevel;
-        this.mEnv *= this.mDecayMul;
+        this.mEnv *= this.mMul;
         if (this.mEnv < 1e-5) this.mEnv = 0;
       }
 

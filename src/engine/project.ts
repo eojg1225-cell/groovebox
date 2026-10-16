@@ -32,6 +32,13 @@ export interface Step {
   slide: boolean;
   accent: boolean;
   /**
+   * RING: the note rings until the next hit or rest on its track (pitched: held; drums:
+   * long decay, choked by the next hit, e.g. closed hat -> open hat).
+   */
+  ring?: boolean;
+  /** REST: an explicit stop marker (no note); ends a ringing note. */
+  rest?: boolean;
+  /**
    * Optional per-step parameter locks (sound param id -> value), written by motion
    * recording. Absent = the channel's own value.
    */

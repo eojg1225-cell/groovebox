@@ -103,7 +103,7 @@ describe('instruments', () => {
         for (const id in sound) inst.setParam(id, sound[id]);
         const l = new Float32Array(SR * 5);
         const r = new Float32Array(SR * 5);
-        inst.noteOn(48, 1, 48);
+        inst.noteOn(48, 1, 48, false);
         inst.render(l, r, 0, SR / 4);
         inst.noteOff(48);
         inst.render(l, r, SR / 4, l.length);
@@ -621,6 +621,47 @@ describe('track LFO', () => {
   });
 });
 
+describe('RING and REST', () => {
+  const level = (l: Float32Array, a: number, b: number) => stats(l.subarray(a, b)).peak;
+
+  it('a RING hat rings long (open hat) and is choked by the next hit', () => {
+    const run = (ring: boolean, nextHitAt: number) => {
+      const p = kickProject([], { bpm: 120 });
+      const hat = p.channels[2];
+      hat.fxSend = 0;
+      hat.patterns[0].steps[0].active = true;
+      hat.patterns[0].steps[0].ring = ring;
+      if (nextHitAt >= 0) hat.patterns[0].steps[nextHitAt].active = true;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return render(e, 0.5).l;
+    };
+    // Closed hat (0.05 s) has died by ~0.15 s; the ringing one (~0.4 s) is still sounding.
+    const closed = run(false, -1);
+    const open = run(true, -1);
+    expect(level(closed, 6000, 8000)).toBeLessThan(level(closed, 0, 1000) * 0.01);
+    expect(level(open, 6000, 8000)).toBeGreaterThan(level(open, 0, 1000) * 0.03);
+    // A closed hit at step 1 (6000) chokes the open hat: once that short hit has died
+    // away, nothing of the open hat is left, unlike when it rings on uninterrupted.
+    expect(level(run(true, 1), 9500, 11500)).toBeLessThan(level(run(true, -1), 9500, 11500) * 0.2);
+  });
+
+  it('a RING synth note holds over empty steps until a rest', () => {
+    const p = kickProject([], { bpm: 120 });
+    p.channels.forEach((c) => (c.fxSend = 0));
+    const lead = p.channels[5];
+    lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, release: 0.005 };
+    lead.patterns[0].steps[0].active = true;
+    lead.patterns[0].steps[0].ring = true;
+    lead.patterns[0].steps[5].rest = true;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const { l } = render(e, 0.8);
+    expect(level(l, 26000, 29900)).toBeGreaterThan(0.05); // still ringing in step 4
+    expect(level(l, 31000, 40000)).toBeLessThan(0.002); // stopped by the rest at step 5
+  });
+});
+
 describe('send intensity', () => {
   it('delay intensity sets the feedback (more repeats)', () => {
     const tail = (intensity: number) => {
@@ -657,6 +698,9 @@ describe('project', () => {
     p.sendWet[2][5] = 0.9;
     p.sendInt[0][0] = 0.8;
     p.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 };
+    p.channels[2].patterns[0].steps[6].active = true;
+    p.channels[2].patterns[0].steps[6].ring = true;
+    p.channels[2].patterns[0].steps[9].rest = true;
     p.channels[4].chord = 6;
     p.channels[1].mute = true;
     return p;
@@ -670,7 +714,7 @@ describe('project', () => {
   it('stores only steps with notes (compact)', () => {
     const stored = toStored(busy());
     const total = stored.channels.reduce((n, c) => n + c.patterns.reduce((m, pat) => m + pat.steps.length, 0), 0);
-    expect(total).toBe(3);
+    expect(total).toBe(3 + 2); // + the ring hit and the rest marker
     expect(JSON.stringify(stored).length).toBeLessThan(20000);
   });
 

@@ -89,7 +89,10 @@ export class App {
   selected = 0;
   mode: Mode = 'record';
   designPage = 0;
-  motion = false;
+  /** RING armed: new hits ring until the next hit or rest. */
+  ring = false;
+  /** REST armed (drum tracks): tapping a step places / removes a rest marker. */
+  restArm = false;
   dynamic: Dynamic = 'normal';
   playing = false;
   private readonly viewPage: number[] = new Array(NUM_CHANNELS).fill(0);
@@ -161,9 +164,9 @@ export class App {
     return !isDrum(this.channel.instrument) || this.mode !== 'record';
   }
 
-  /** Motion recording only happens in RECORD mode, while playing. */
+  /** Live recording: RECORD mode while the sequencer runs (stopped = step entry). */
   private get recording(): boolean {
-    return this.mode === 'record' && this.motion && this.playing;
+    return this.mode === 'record' && this.playing;
   }
 
   private kindName(c: ChannelState): string {
@@ -293,13 +296,8 @@ export class App {
       label: label ?? spec.name, spec, channel: ch, highlight,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
       set: (v) => {
-        if (this.recording) {
-          // Recorded as a lock on the step playing now; the track's own value is untouched.
-          this.send({ type: 'recordLock', channel: ch, id, value: v });
-        } else {
-          (c.sounds[kind] ??= {})[id] = v;
-          this.send({ type: 'setSound', channel: ch, id, value: v });
-        }
+        (c.sounds[kind] ??= {})[id] = v;
+        this.send({ type: 'setSound', channel: ch, id, value: v });
       },
     };
   }
@@ -457,6 +455,14 @@ export class App {
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
       this.touchedKnob = -1;
+    } else if ((m = /^ch(\d)$/.exec(id)) && this.mode !== 'design' && this.fxView > 0) {
+      // A send is open: the channel buttons add / remove tracks from it.
+      const ch = Number(m[1]) - 1;
+      const c = this.project.channels[ch];
+      c.fxSend = c.fxSend === this.fxView ? 0 : this.fxView;
+      this.send({ type: 'setRouting', channel: ch, send: c.fxSend });
+      this.flash(c.fxSend ? `${this.kindName(c)} -> FX ${this.fxView}` : `${this.kindName(c)} OFF FX ${this.fxView}`);
+      this.save();
     } else if ((m = /^ch(\d)$/.exec(id))) {
       this.selected = Number(m[1]) - 1;
       this.designPage = 0;
@@ -506,8 +512,8 @@ export class App {
       }
     } else if (id === 'saveproject') {
       this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
-    } else if (id === 'motion') {
-      this.motion = !this.motion;
+    } else if (id === 'ring') {
+      this.ring = !this.ring;
     } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
       this.dynamic = this.dynamic === d ? 'normal' : d;
@@ -523,17 +529,18 @@ export class App {
       this.tie(id === 'cur+' ? 1 : -1);
     } else if (id === 'cur-' || id === 'cur+') {
       this.moveCursor(id === 'cur+' ? 1 : -1);
+    } else if (id === 'rest' && !this.keyboard) {
+      // Drum steps: arm REST, then tap steps to place / remove rest markers.
+      this.restArm = !this.restArm;
     } else if (id === 'rest') {
+      // Step entry: a rest marker at the cursor (ends a ringing note), then advance.
       const step = this.pattern.steps[this.cursor[this.selected]];
       step.active = false;
+      step.ring = false;
+      step.rest = true;
       delete step.locks;
       this.sendStep(this.cursor[this.selected], step);
       this.moveCursor(1);
-      this.save();
-    } else if (id === 'clearmotion') {
-      this.pattern.steps.forEach((step, i) => {
-        if (step.locks) { delete step.locks; this.sendStep(i, step); }
-      });
       this.save();
     } else if ((m = /^step(\d+)$/.exec(id))) {
       this.onStrip(Number(m[1]) - 1);
@@ -562,6 +569,8 @@ export class App {
         step.active = true;
         step.note = note;
         step.gate = 1;
+        step.ring = this.ring;
+        step.rest = false;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
@@ -574,18 +583,29 @@ export class App {
       return;
     }
 
-    // Drum lane: toggle, or re-paint an existing hit with the armed dynamic.
+    // Drum lane. REST armed: toggle a rest marker. Otherwise: place a hit with the armed
+    // dynamic / RING, re-paint a hit that differs from what's armed, or remove it.
     const index = this.visiblePage(ch) * 16 + button;
     if (index >= this.pattern.length) return;
     const step = this.pattern.steps[index];
-    if (!step.active) {
+    const armed = this.dynamic !== 'normal' || this.ring;
+    if (this.restArm) {
+      step.rest = !step.rest;
+      step.active = false;
+      step.ring = false;
+      delete step.locks;
+    } else if (!step.active) {
       step.active = true;
+      step.rest = false;
+      step.ring = this.ring;
       setStepDynamic(step, this.dynamic);
       if (!this.playing) this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
-    } else if (this.dynamic !== 'normal' && stepDynamic(step) !== this.dynamic) {
+    } else if (armed && (stepDynamic(step) !== this.dynamic || !!step.ring !== this.ring)) {
       setStepDynamic(step, this.dynamic);
+      step.ring = this.ring;
     } else {
       step.active = false;
+      step.ring = false;
       delete step.locks;
     }
     this.sendStep(index, step);
@@ -723,7 +743,10 @@ export class App {
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const c = this.project.channels[ch];
-      this.panel.setButtonLit(`ch${ch + 1}`, ch === this.selected);
+      // While a send is open (RECORD/PLAY), channel buttons show which tracks feed it.
+      const sendView = this.mode !== 'design' && this.fxView > 0;
+      this.panel.setButtonLit(`ch${ch + 1}`, sendView ? c.fxSend === this.fxView : ch === this.selected);
+      this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
       this.panel.setBadge(ch, this.mode === 'design' ? 'dim' : ch === this.selected ? 'lit' : '');
@@ -747,15 +770,17 @@ export class App {
 
     const rec = this.mode === 'record';
     const kb = this.keyboard;
-    this.panel.setButtonFlag('motion', 'armed', this.motion);
-    this.panel.setButtonEnabled('motion', this.mode === 'record');
+    this.panel.setButtonLit('ring', this.ring);
+    this.panel.setButtonEnabled('ring', rec);
     this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent');
     this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost');
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
-    for (const id of ['cur-', 'cur+', 'rest']) this.panel.setButtonEnabled(id, kb && rec);
-    this.panel.setButtonEnabled('clearmotion', this.pattern.steps.some((s) => s.locks));
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, kb && rec);
+    this.panel.setButtonEnabled('rest', rec);
+    if (kb || !rec) this.restArm = false;
+    this.panel.setButtonLit('rest', this.restArm);
     this.panel.root.classList.toggle('keyboard', kb);
   }
 
@@ -793,7 +818,7 @@ export class App {
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding);
         this.panel.setButtonFlag(id, 'cursor', note === cursorNote);
-        for (const f of ['accent', 'ghost', 'head', 'off']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
       }
     } else {
       for (let i = 0; i < STEP_BUTTONS; i++) {
@@ -808,6 +833,8 @@ export class App {
         this.panel.setButtonFlag(id, 'accent', d === 'accent');
         this.panel.setButtonFlag(id, 'ghost', d === 'ghost');
         this.panel.setButtonFlag(id, 'head', head === index);
+        this.panel.setButtonFlag(id, 'ring', d !== null && !!step.ring);
+        this.panel.setButtonFlag(id, 'rest', !off && !step.active && !!step.rest);
         for (const f of ['black', 'cursor']) this.panel.setButtonFlag(id, f, false);
       }
     }
@@ -875,6 +902,8 @@ export class App {
           tie: !!tied?.[idx],
           note: pitched && i === ch && step.active ? NOTE_NAMES[step.note % 12] : '',
           locked: !!step.locks && Object.keys(step.locks).length > 0,
+          ring: step.active && !!step.ring,
+          rest: !step.active && !!step.rest,
         });
       }
       return {
@@ -892,7 +921,7 @@ export class App {
     return {
       ...this.header(),
       stepsLabel: this.fxView > 0 ? `KNOBS: FX ${this.fxView}` : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
-      motion: this.motion && this.mode === 'record',
+      motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
       keyboardLabel: this.keyboard ? `KEYS ${noteName(this.octave[ch])}` : '',

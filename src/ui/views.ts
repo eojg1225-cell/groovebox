@@ -15,6 +15,10 @@ export interface LaneCell {
   locked: boolean;
   /** Empty step covered by an earlier note's length (tie). */
   tie: boolean;
+  /** RING hit (rings until the next hit or rest). */
+  ring: boolean;
+  /** Rest marker. */
+  rest: boolean;
 }
 
 export interface LaneView {
@@ -117,8 +121,8 @@ function drawFooter(s: PixelScreen, v: FooterView, left: string, extra: string):
 
 export function drawLiveView(s: PixelScreen, v: LiveView): void {
   s.clear();
-  const showMotion = v.motion && (v.blink || !v.playing);
-  drawHeader(s, v, showMotion ? 'MOTION' : v.stepsLabel, showMotion ? INK.warn : INK.mid);
+  const showRec = v.motion && v.blink;
+  drawHeader(s, v, showRec ? 'REC' : v.stepsLabel, showRec ? INK.warn : INK.mid);
 
   // Step lanes
   v.lanes.forEach((lane, li) => {
@@ -129,6 +133,11 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
       const x = GRID_X + i * (CELL + CELL_GAP) + Math.floor(i / 4) * GROUP_GAP;
       if (cell.state === 'none') return;
       const head = lane.playhead === i;
+      if (cell.rest) {
+        // Rest marker: a small square at the bottom.
+        s.rect(x + 4, y + LANE_H - 3, 4, 3, head ? INK.warn : INK.mid);
+        return;
+      }
       if (cell.state === 'off' && cell.tie) {
         // Note held over from an earlier step: a bar joining it to the note.
         s.rect(x - CELL_GAP - (i % 4 === 0 ? GROUP_GAP : 0), y + 1, CELL + CELL_GAP + (i % 4 === 0 ? GROUP_GAP : 0), 3, head ? INK.warn : INK.mid);
@@ -143,6 +152,8 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
         s.rect(x, y + LANE_H - h, CELL, h, head ? INK.warn : lane.muted ? INK.mid : INK.hi);
       }
       if (cell.locked) s.rect(x + CELL - 2, y - 1, 2, 1, INK.warn);
+      // RING: a tail running to the right edge of the cell.
+      if (cell.ring) s.rect(x + CELL - 1, y + 1, 2, LANE_H - 2, INK.warn);
     });
     if (lane.cursor >= 0) {
       const x = GRID_X + lane.cursor * (CELL + CELL_GAP) + Math.floor(lane.cursor / 4) * GROUP_GAP;

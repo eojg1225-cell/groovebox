@@ -19,13 +19,18 @@ import { LFO_RATES, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
 
-/** One step with a note: index, note, velocity; gate/accent/locks only when set. */
+/**
+ * One step with a note: index, note, velocity; gate/accent/ring/locks only when set.
+ * A rest marker is stored as { i, x: 1 } (no note).
+ */
 export interface StoredStep {
   i: number;
-  n: number;
-  v: number;
+  n?: number;
+  v?: number;
   g?: number;
   a?: 1;
+  r?: 1;
+  x?: 1;
   l?: Record<string, number>;
 }
 
@@ -90,10 +95,11 @@ export function toStored(p: Project): StoredProject {
       patterns: c.patterns.map((pat) => ({
         len: pat.length,
         steps: pat.steps.flatMap((s, i): StoredStep[] => {
-          if (!s.active) return [];
+          if (!s.active) return s.rest ? [{ i, x: 1 }] : [];
           const out: StoredStep = { i, n: s.note, v: s.velocity };
           if (s.gate > 1) out.g = s.gate;
           if (s.accent) out.a = 1;
+          if (s.ring) out.r = 1;
           if (s.locks && Object.keys(s.locks).length) out.l = { ...s.locks };
           return [out];
         }),
@@ -116,16 +122,25 @@ function numbers(x: unknown): Record<string, number> {
 }
 
 /** Steps of a stored pattern in either shape: compact `steps: StoredStep[]` or full `steps: Step[64]`. */
-function readSteps(pattern: Obj): { i: number; note: number; vel: number; gate: number; accent: boolean; locks?: Record<string, number> }[] {
+interface ReadStep {
+  i: number; note: number; vel: number; gate: number; accent: boolean; ring: boolean; rest: boolean;
+  locks?: Record<string, number>;
+}
+
+function readSteps(pattern: Obj): ReadStep[] {
   const steps = Array.isArray(pattern.steps) ? pattern.steps : [];
-  const out = [];
+  const out: ReadStep[] = [];
   for (let k = 0; k < steps.length; k++) {
     const s = steps[k];
     if (!isObj(s)) continue;
     const compact = typeof s.i === 'number';
-    if (!compact && s.active !== true) continue;
     const i = compact ? s.i as number : k;
     if (!Number.isInteger(i) || i < 0 || i >= MAX_STEPS) continue;
+    if (compact ? s.x === 1 : s.active !== true && s.rest === true) {
+      out.push({ i, rest: true, note: 36, vel: 0.8, gate: 1, accent: false, ring: false });
+      continue;
+    }
+    if (!compact && s.active !== true) continue;
     const locks = numbers(compact ? s.l : s.locks);
     out.push({
       i,
@@ -133,6 +148,8 @@ function readSteps(pattern: Obj): { i: number; note: number; vel: number; gate: 
       vel: num(compact ? s.v : s.velocity, 0.8, 0, 1),
       gate: Math.round(num(compact ? s.g : s.gate, 1, 1, MAX_STEPS)),
       accent: compact ? s.a === 1 : s.accent === true,
+      ring: compact ? s.r === 1 : s.ring === true,
+      rest: false,
       locks: Object.keys(locks).length ? locks : undefined,
     });
   }
@@ -200,7 +217,12 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     pat.length = Math.round(num(sp.len ?? sp.length, pat.length, 1, MAX_STEPS));
     for (const s of readSteps(sp)) {
       const step = pat.steps[s.i];
+      if (s.rest) {
+        step.rest = true;
+        continue;
+      }
       step.active = true;
+      if (s.ring) step.ring = true;
       step.note = s.note;
       step.velocity = s.vel;
       step.gate = s.gate;
