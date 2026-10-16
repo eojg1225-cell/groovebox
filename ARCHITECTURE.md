@@ -3,12 +3,12 @@
 ```
 src/engine       Pure engine: project model, params, smoothing, protocol, Engine (sequencer, mixer, master). No DOM/Web Audio.
 src/instruments  Instrument interface, registry (6 track types), Drum (layered), Synth (6-voice), presets, shared DSP. No DOM/Web Audio.
-src/fx           Send effects: Delay, Distortion, MidCut (Effect interface). No DOM/Web Audio.
+src/fx           Six send effects (Delay, Distortion, MidCut, Chorus, Reverb, Flanger), EFFECTS table. No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
 src/controls     ControlSurface event interface (knob/fader/button/joystick, values normalised 0..1)
 src/ui           Pixel screen (256x128 canvas + 3x5 font), views, Knob, Panel (on-screen ControlSurface), App controller
-src/storage      Session persistence (sessionStorage); real storage in M8
+src/storage      session.ts (working session, sessionStorage), saved.ts (patches + project, localStorage)
 tests            Vitest, runs the engine offline in Node
 ```
 
@@ -31,12 +31,12 @@ Main -> worklet:
 | `setStep` | `channel`, `pattern`, `index`, `step` | Write one step (incl. its locks) |
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's instrument (clears its locks) and set its full sound |
 | `setChord` | `channel`, `chord` | Chord mode index (0 = off) |
-| `setFx` | `id`, `value` | Send effect parameter (`dly_*`, `dst_*`, `mid_*`) |
-| `release` | `channel`, `note` | Release a live note (the played root) |
+| `setFx` | `id`, `value` | Send effect parameter (`dly_*`, `dst_*`, `mid_*`, `cho_*`, `rev_*`, `flg_*`) |
+| `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-64 steps |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern; quantised to the channel's loop end unless `immediate` or stopped |
 | `setSound` | `channel`, `id`, `value` | Instrument parameter (real units) |
-| `setMix` | `channel`, `id` (`volume`/`pan`/`mute`/`send0..2`), `value` | Channel mixer and send levels |
+| `setMix` | `channel`, `id` (`volume`/`pan`/`mute`/`send0..5`), `value` | Channel mixer and send levels |
 | `setGlobal` | `id` (`bpm`/`swing`/`master`), `value` | Project-wide settings |
 | `transport` | `playing` | Start (from step 1) / stop |
 | `trigger` | `channel`, `note`, `velocity` | Play a note now |
@@ -50,7 +50,7 @@ Worklet -> main:
 | `ready` | `sampleRate` | Processor constructed |
 | `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[6]`, `patterns[6]` | ~30 Hz: meters, playhead and playing pattern per channel |
 | `pong` | `id` | Answer to `ping` |
-| `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent` | A motion-recorded note was written |
+| `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate` | A live-recorded note was written (sent again with its length on release) |
 | `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A motion-recorded lock was written |
 
 The worklet decides where recorded events land because only it knows the exact play position. A note recorded just before a step is written to that step and its trigger there is skipped once, so it doesn't sound twice.
@@ -59,7 +59,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 ## Project model (`src/engine/project.ts`)
 
-`Project { version: 3, bpm, swing (50-75 %), master, fx{id: value}, channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|send0..2"), chord, volume, pan, sends[3], mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Kept in `sessionStorage` for now (`src/storage/session.ts`).
+`Project { version: 4, bpm, swing (50-75 %), master, fx{id: value}, channels[6] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|send0..5"), chord, volume, pan, sends[6], mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Kept in `sessionStorage` for now (`src/storage/session.ts`).
 
 ## Sequencer
 
@@ -78,9 +78,9 @@ A global 16th-note clock (swing lengthens even steps and shortens odd ones) driv
 
 BASS (mono), PAD (poly) and LEAD (mono) are the same Synth with different core parameters and fixed values for the rest.
 
-**Send effects:** each channel's post-fader signal feeds three buses by its send levels; each bus runs one effect whose wet output (times its return) is added to the mix. No routing between effects yet. Delay: time from tempo and division, smoothed (glides, never clicks), low-pass + tanh in the feedback path. Distortion: tanh/hard-clip blend and a one-pole tone filter. Mid-cut: RBJ peaking biquad with negative gain, coefficients refreshed every 32 samples from smoothed parameters.
+**Send effects:** each channel's post-fader signal feeds six buses by its send levels; each bus runs one effect whose wet output (times its return) is added to the mix. No routing between effects. Chorus: two modulated delays with LFOs offset by WIDTH. Reverb: Freeverb (8 combs + 4 allpasses per side, tunings scaled to the sample rate) with pre-delay. Flanger: 0.3-8 ms modulated delay with tanh-limited feedback, mixed with the dry send. Delay: time from tempo and division, smoothed (glides, never clicks), low-pass + tanh in the feedback path. Distortion: tanh/hard-clip blend and a one-pole tone filter. Mid-cut: RBJ peaking biquad with negative gain, coefficients refreshed every 32 samples from smoothed parameters.
 
-**Chords and gates:** the engine expands each note through the channel's chord (`src/engine/chords.ts`), tagging voices with the root so they release together. Sequenced notes release after `gate` steps × 0.8; live notes release on the `release` message.
+**Chords and gates:** the engine expands each note through the channel's chord (`src/engine/chords.ts`), tagging voices with the root so they release together. A sequenced note releases exactly when the step `gate` steps later starts (counted per channel at each step; 1 = one step); live notes release on the `release` message. A live-recorded note's start is quantised like its step and its end to the nearest step boundary; the difference becomes its gate.
 
 ## UI
 

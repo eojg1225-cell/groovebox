@@ -115,6 +115,9 @@ html, body {
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.pat { height: 40px; font-size: 18px; }
 .btn.pat.playing { border-color: var(--accent); }
+.btn.save { height: 40px; font-size: 12px; line-height: 1; flex: 0.9; }
+.btn.save small { font-size: 9px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
+.btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
 .btn.page { height: 40px; font-size: 12px; }
 .btn.page.disabled { opacity: 0.12; }
 

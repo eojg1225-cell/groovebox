@@ -4,7 +4,7 @@
  */
 import type { InstrumentKind, Project, Step } from './project';
 
-export type MixParam = 'volume' | 'pan' | 'mute' | 'send0' | 'send1' | 'send2';
+export type MixParam = 'volume' | 'pan' | 'mute' | `send${0 | 1 | 2 | 3 | 4 | 5}`;
 export type GlobalParam = 'bpm' | 'swing' | 'master';
 
 export type MainToWorklet =
@@ -62,6 +62,8 @@ export type WorkletToMain =
       type: 'recordedNote';
       channel: number; pattern: number; index: number;
       note: number; velocity: number; accent: boolean;
+      /** Length in steps; a second message updates it when the key is released. */
+      gate: number;
     }
   | { type: 'recordedLock'; channel: number; pattern: number; index: number; id: string; value: number };
 

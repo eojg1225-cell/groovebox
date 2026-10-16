@@ -11,6 +11,10 @@ import { Svf } from '../instruments/dsp';
 import { Delay } from '../fx/Delay';
 import { Distortion } from '../fx/Distortion';
 import { MidCut } from '../fx/MidCut';
+import { Chorus } from '../fx/Chorus';
+import { Reverb } from '../fx/Reverb';
+import { Flanger } from '../fx/Flanger';
+import { EFFECTS } from '../fx';
 import type { Effect } from '../fx/Effect';
 import type { MixParam } from './protocol';
 import { NUM_SENDS } from './project';
@@ -19,8 +23,7 @@ import { NUM_SENDS } from './project';
 const CHUNK = 256;
 /** Max sound parameters per instrument that can be locked per step. */
 export const LOCK_SLOTS = 32;
-/** Sequenced notes release at this fraction of their gate, so repeats re-articulate. */
-const GATE_FRACTION = 0.8;
+
 const STEP_SLOTS = NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS;
 
 /**
@@ -65,6 +68,8 @@ export class Engine {
   private readonly stepNote = new Float32Array(STEP_SLOTS);
   private readonly stepVel = new Float32Array(STEP_SLOTS);
   private readonly stepAccent = new Uint8Array(STEP_SLOTS);
+  /** Note length in steps (1 = until the next step starts). */
+  private readonly stepGate = new Uint8Array(STEP_SLOTS).fill(1);
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
   private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
   private readonly patternLength = new Uint8Array(NUM_CHANNELS * NUM_PATTERNS).fill(16);
@@ -91,14 +96,21 @@ export class Engine {
   private readonly volumeValue = new Float32Array(NUM_CHANNELS).fill(0.8);
   /** Chord mode per channel (index into CHORDS). */
   private readonly chord = new Uint8Array(NUM_CHANNELS);
-  /** Frames until the sequenced note on a channel is released (-1 = none pending). */
-  private readonly gateFrames = new Float64Array(NUM_CHANNELS).fill(-1);
+  /** Steps until the sequenced note on a channel is released (0 = none held). */
+  private readonly gateSteps = new Int16Array(NUM_CHANNELS);
   private readonly gateGroup = new Int16Array(NUM_CHANNELS);
+  /** Live recording: the held note per channel (-1 = none) and where it started. */
+  private readonly recNote = new Int16Array(NUM_CHANNELS).fill(-1);
+  private readonly recStart = new Float64Array(NUM_CHANNELS);
+  private readonly recIndex = new Int16Array(NUM_CHANNELS);
+  private readonly recPattern = new Int8Array(NUM_CHANNELS);
+  private readonly recVel = new Float32Array(NUM_CHANNELS);
+  private readonly recAccent = new Uint8Array(NUM_CHANNELS);
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   private readonly scratchL = new Float32Array(CHUNK);
   private readonly scratchR = new Float32Array(CHUNK);
 
-  // Send effects: per-channel send levels feed three buses, each into its effect.
+  // Send effects: per-channel send levels feed one bus per effect.
   private readonly delay: Delay;
   private readonly effects: Effect[];
   private readonly sendLevel: Smoother[] = []; // [ch * NUM_SENDS + k]
@@ -109,7 +121,11 @@ export class Engine {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
     this.delay = new Delay(sampleRate);
-    this.effects = [this.delay, new Distortion(sampleRate), new MidCut(sampleRate)];
+    // Same order as EFFECTS in src/fx/index.ts.
+    this.effects = [
+      this.delay, new Distortion(sampleRate), new MidCut(sampleRate),
+      new Chorus(sampleRate), new Reverb(sampleRate), new Flanger(sampleRate),
+    ];
     for (let k = 0; k < NUM_SENDS; k++) {
       this.busL.push(new Float32Array(CHUNK));
       this.busR.push(new Float32Array(CHUNK));
@@ -156,7 +172,7 @@ export class Engine {
       case 'setFx': this.setFx(msg.id, msg.value); break;
       case 'transport': this.setPlaying(msg.playing); break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity); break;
-      case 'release': this.current[msg.channel]?.noteOff(msg.note); break;
+      case 'release': this.release(msg.channel, msg.note); break;
       case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
       case 'setChord': this.chord[msg.channel] = msg.chord; break;
       case 'recordNote': this.recordNote(msg.channel, msg.note, msg.velocity, msg.accent); break;
@@ -207,7 +223,8 @@ export class Engine {
       }
       if (!playing) {
         this.current[ch]?.noteOff(-1);
-        this.gateFrames[ch] = -1;
+        this.gateSteps[ch] = 0;
+        this.recNote[ch] = -1;
         this.restoreBase(ch);
       }
     }
@@ -229,18 +246,9 @@ export class Engine {
         const until = Math.ceil(this.framesToStep);
         if (until < n) n = until;
       }
-      // Split at pending note releases too.
-      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-        const g = this.gateFrames[ch];
-        if (g >= 0) {
-          if (g < 1) { this.releaseGate(ch); continue; }
-          if (Math.ceil(g) < n) n = Math.ceil(g);
-        }
-      }
       this.renderChunk(outL, outR, pos, n);
       pos += n;
       if (this.playing) this.framesToStep -= n;
-      for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.gateFrames[ch] >= 0) this.gateFrames[ch] -= n;
     }
     this.finishBlock(outL, outR, frames);
   }
@@ -271,11 +279,13 @@ export class Engine {
       const len = this.patternLength[pat];
       const idx = this.position[ch] % len;
       const s = pat * MAX_STEPS + idx;
+      // A held note ends where its gate says: exactly at the start of a later step.
+      if (this.gateSteps[ch] > 0 && --this.gateSteps[ch] === 0) this.releaseGate(ch);
       this.applyLocks(ch, s);
       if (this.stepActive[s] && this.skipStep[ch] !== idx) {
         this.noteOn(ch, this.stepNote[s], this.stepVel[s]);
         this.gateGroup[ch] = this.stepNote[s];
-        this.gateFrames[ch] = this.stepFrames(this.globalStep) * GATE_FRACTION;
+        this.gateSteps[ch] = this.stepGate[s];
       }
       this.skipStep[ch] = -1;
       this.currentStep[ch] = idx;
@@ -290,7 +300,7 @@ export class Engine {
   private noteOn(ch: number, note: number, velocity: number): void {
     const inst = this.current[ch];
     if (!inst) return;
-    if (this.gateFrames[ch] >= 0) this.releaseGate(ch);
+    if (this.gateSteps[ch] > 0) this.releaseGate(ch);
     const fc = hitToneCutoff(velocity);
     this.toneL[ch].setup(fc, 0, this.sampleRate);
     this.toneR[ch].setup(fc, 0, this.sampleRate);
@@ -300,12 +310,30 @@ export class Engine {
 
   private releaseGate(ch: number): void {
     this.current[ch]?.noteOff(this.gateGroup[ch]);
-    this.gateFrames[ch] = -1;
+    this.gateSteps[ch] = 0;
+  }
+
+  /** Live note released. If it was being recorded, its length becomes the step's gate. */
+  private release(ch: number, note: number): void {
+    this.current[ch]?.noteOff(note);
+    if (this.recNote[ch] !== note) return;
+    this.recNote[ch] = -1;
+    if (!this.playing) return;
+    const elapsed = this.lastStepFrames - this.framesToStep;
+    const endStep = elapsed < this.lastStepFrames / 2 ? this.globalStep - 1 : this.globalStep;
+    const gate = Math.max(1, Math.min(MAX_STEPS, endStep - this.recStart[ch]));
+    const pattern = this.recPattern[ch];
+    const index = this.recIndex[ch];
+    this.stepGate[(ch * NUM_PATTERNS + pattern) * MAX_STEPS + index] = gate;
+    this.onRecorded?.({
+      type: 'recordedNote', channel: ch, pattern, index, note,
+      velocity: this.recVel[ch], accent: this.recAccent[ch] === 1, gate,
+    });
   }
 
   private setInstrument(ch: number, kind: InstrumentKind, sound: Record<string, number>): void {
     this.current[ch]?.noteOff(-1);
-    this.gateFrames[ch] = -1;
+    this.gateSteps[ch] = 0;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
     this.lockApplied.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
     // Locks are stored by parameter slot, which means something else on another instrument.
@@ -364,9 +392,17 @@ export class Engine {
     this.stepNote[s] = note;
     this.stepVel[s] = velocity;
     this.stepAccent[s] = accent ? 1 : 0;
+    this.stepGate[s] = 1;
     // The note already sounded now; don't play it again when that step comes round.
     if (isNext) this.skipStep[ch] = index;
-    this.onRecorded?.({ type: 'recordedNote', channel: ch, pattern, index, note, velocity, accent });
+    // Remember it so the release sets its length.
+    this.recNote[ch] = note;
+    this.recStart[ch] = isNext ? this.globalStep : this.globalStep - 1;
+    this.recIndex[ch] = index;
+    this.recPattern[ch] = pattern;
+    this.recVel[ch] = velocity;
+    this.recAccent[ch] = accent ? 1 : 0;
+    this.onRecorded?.({ type: 'recordedNote', channel: ch, pattern, index, note, velocity, accent, gate: 1 });
   }
 
   private recordLock(ch: number, id: string, value: number): void {
@@ -393,8 +429,6 @@ export class Engine {
       this.busL[k].fill(0, 0, n);
       this.busR[k].fill(0, 0, n);
     }
-    const b0L = this.busL[0], b0R = this.busR[0], b1L = this.busL[1], b1R = this.busR[1];
-    const b2L = this.busL[2], b2R = this.busR[2];
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const inst = this.current[ch];
       if (!inst) continue;
@@ -405,9 +439,7 @@ export class Engine {
       const pan = this.pan[ch];
       const tl = this.toneL[ch];
       const tr = this.toneR[ch];
-      const s0 = this.sendLevel[ch * NUM_SENDS];
-      const s1 = this.sendLevel[ch * NUM_SENDS + 1];
-      const s2 = this.sendLevel[ch * NUM_SENDS + 2];
+      const sendBase = ch * NUM_SENDS;
       for (let i = 0; i < n; i++) {
         const v = vol.next();
         // Equal-power pan, -1..1 -> 0..pi/2
@@ -419,19 +451,21 @@ export class Engine {
         outL[off + i] += l;
         outR[off + i] += r;
         // Post-fader sends (a muted channel sends nothing).
-        const g0 = s0.next(), g1 = s1.next(), g2 = s2.next();
-        b0L[i] += l * g0; b0R[i] += r * g0;
-        b1L[i] += l * g1; b1R[i] += r * g1;
-        b2L[i] += l * g2; b2R[i] += r * g2;
+        for (let k = 0; k < NUM_SENDS; k++) {
+          const g = this.sendLevel[sendBase + k].next();
+          this.busL[k][i] += l * g;
+          this.busR[k][i] += r * g;
+        }
       }
     }
-    // Three independent send effects, each returning into the main mix.
+    // Independent send effects, each returning into the main mix.
     for (let k = 0; k < NUM_SENDS; k++) this.effects[k].process(this.busL[k], this.busR[k], outL, outR, off, n);
   }
 
   private setFx(id: string, value: number): void {
-    const fx = id.startsWith('dly_') ? this.effects[0] : id.startsWith('dst_') ? this.effects[1] : id.startsWith('mid_') ? this.effects[2] : null;
-    fx?.setParam(id, value);
+    for (let k = 0; k < EFFECTS.length; k++) {
+      if (id.startsWith(EFFECTS[k].prefix)) { this.effects[k].setParam(id, value); return; }
+    }
   }
 
   private finishBlock(outL: Float32Array, outR: Float32Array, frames: number): void {
@@ -477,6 +511,7 @@ export class Engine {
     this.stepNote[s] = step.note;
     this.stepVel[s] = step.velocity;
     this.stepAccent[s] = step.accent ? 1 : 0;
+    this.stepGate[s] = Math.max(1, Math.min(MAX_STEPS, Math.round(step.gate || 1)));
     const base = s * LOCK_SLOTS;
     this.locks.fill(NaN, base, base + LOCK_SLOTS);
     const inst = this.current[ch];
@@ -489,7 +524,7 @@ export class Engine {
   }
 
   private setMix(ch: number, id: MixParam, value: number): void {
-    if (id === 'send0' || id === 'send1' || id === 'send2') {
+    if (id.startsWith('send')) {
       this.sendLevel[ch * NUM_SENDS + Number(id.charAt(4))].setTarget(value);
       return;
     }

@@ -11,6 +11,7 @@ import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
 import { loadSession } from './storage/session';
+import { loadSavedProject } from './storage/saved';
 import { textWidth } from './ui/font';
 
 const TITLE_HOLD_MS = 1400;
@@ -25,7 +26,8 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   void navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
 }
 
-const project = loadSession() ?? createDefaultProject();
+// Working session first (survives reloads), then the saved project, else a fresh one.
+const project = loadSession() ?? loadSavedProject() ?? createDefaultProject();
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
   channels: NUM_CHANNELS,
   patterns: PATTERN_NAMES,

@@ -24,9 +24,9 @@ export function createDefaultProject(): Project {
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });
-  // The pad is ready for jungle chords; a touch of dub delay on the pad and lead.
+  // The pad is ready for jungle chords, with some reverb; dub delay on the lead.
   channels[4].chord = CHORD_NAMES.indexOf('MIN9');
-  channels[4].sends[0] = 0.25;
+  channels[4].sends[4] = 0.3;
   channels[5].sends[0] = 0.3;
   return { version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8, fx: defaultFx(), channels };
 }

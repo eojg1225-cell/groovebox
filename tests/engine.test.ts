@@ -12,6 +12,9 @@ import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
 import { MidCut } from '../src/fx/MidCut';
 import { FX_PARAMS } from '../src/fx';
+import { Chorus } from '../src/fx/Chorus';
+import { Reverb } from '../src/fx/Reverb';
+import { Flanger } from '../src/fx/Flanger';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -304,7 +307,7 @@ describe('chords and gates', () => {
     const p = kickProject([]);
     applyPreset(p.channels[4], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'STAB'));
     p.channels[4].sounds.pad!.release = 0.02;
-    p.channels[4].sends = [0, 0, 0];
+    p.channels[4].sends = [0, 0, 0, 0, 0, 0];
     p.channels[4].chord = 0;
     p.channels[4].patterns[0].steps[0].active = true;
     const plain = engineWith(p);
@@ -417,7 +420,7 @@ describe('send effects', () => {
     const dry = kickProject([0], { bpm: 120 });
     const wet = kickProject([0], { bpm: 120 });
     wet.fx.dly_time = 3; // a quarter note later
-    wet.channels[0].sends = [1, 0, 0];
+    wet.channels[0].sends = [1, 0, 0, 0, 0, 0];
     const tail = (p: Project) => {
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
@@ -425,6 +428,86 @@ describe('send effects', () => {
     };
     expect(tail(dry)).toBeLessThan(1e-4);
     expect(tail(wet)).toBeGreaterThan(0.01);
+  });
+});
+
+describe('note lengths', () => {
+  /** Lead track (mono, short release) with one note at step 0 of the given gate. */
+  const leadProject = (gate: number) => {
+    const p = kickProject([]);
+    p.channels.forEach((c) => (c.sends = [0, 0, 0, 0, 0, 0]));
+    const lead = p.channels[5];
+    lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, release: 0.005 };
+    lead.patterns[0].steps[0].active = true;
+    lead.patterns[0].steps[0].gate = gate;
+    return p;
+  };
+  const level = (l: Float32Array, from: number, to: number) => stats(l.subarray(from, to)).peak;
+
+  it('a note lasts exactly one step by default', () => {
+    const e = engineWith(leadProject(1));
+    e.handleMessage({ type: 'transport', playing: true });
+    const { l } = render(e, 0.3); // steps are 6000 frames
+    expect(level(l, 4000, 5900)).toBeGreaterThan(0.05);
+    expect(level(l, 7000, 11000)).toBeLessThan(0.002);
+  });
+
+  it('a tied note sustains until the step where it is released', () => {
+    const e = engineWith(leadProject(3));
+    e.handleMessage({ type: 'transport', playing: true });
+    const { l } = render(e, 0.5);
+    expect(level(l, 16000, 17900)).toBeGreaterThan(0.05); // still in step 2
+    expect(level(l, 19000, 23000)).toBeLessThan(0.002); // released at step 3
+  });
+
+  it('live recording sets the note length from how long the key was held', () => {
+    const e = engineWith(leadProject(1));
+    const got: RecordedMsg[] = [];
+    e.onRecorded = (m) => got.push(m);
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 6500 / SR); // early in step 1
+    e.handleMessage({ type: 'recordNote', channel: 5, note: 50, velocity: 0.8, accent: false });
+    render(e, 24000 / SR); // hold ~4 steps
+    e.handleMessage({ type: 'release', channel: 5, note: 50 });
+    const last = got[got.length - 1];
+    expect(last.type === 'recordedNote' && [last.index, last.gate]).toEqual([1, 4]);
+  });
+});
+
+describe('more send effects', () => {
+  const run = (fx: { process: Chorus['process'] }, seconds = 1) => {
+    const n = Math.floor(SR * seconds);
+    const input = Float32Array.from({ length: n }, (_, i) => (i < SR / 10 ? Math.sin(i * 0.05) * 0.8 : 0));
+    const l = new Float32Array(n);
+    const r = new Float32Array(n);
+    fx.process(input, input, l, r, 0, n);
+    return { l, r };
+  };
+
+  it('reverb produces a decaying stereo tail, bounded', () => {
+    const rv = new Reverb(SR);
+    rv.setParam('rev_return', 1);
+    const { l, r } = run(rv, 3);
+    expect(stats(l).nan).toBe(false);
+    expect(stats(l.subarray(SR / 2, SR)).peak).toBeGreaterThan(0.001); // tail after the input stops
+    expect(stats(l.subarray(SR * 2.8)).peak).toBeLessThan(stats(l.subarray(SR / 2, SR)).peak);
+    expect(stats(l).peak).toBeLessThan(2);
+    let diff = 0;
+    for (let i = 0; i < l.length; i++) diff += Math.abs(l[i] - r[i]);
+    expect(diff).toBeGreaterThan(0); // stereo
+  });
+
+  it('chorus and flanger stay bounded, even with high flanger feedback', () => {
+    const ch = new Chorus(SR);
+    ch.setParam('cho_return', 1);
+    const fl = new Flanger(SR);
+    fl.setParam('flg_return', 1);
+    fl.setParam('flg_fdbk', 0.95);
+    for (const out of [run(ch), run(fl)]) {
+      expect(stats(out.l).nan).toBe(false);
+      expect(stats(out.l).peak).toBeGreaterThan(0.1);
+      expect(stats(out.l).peak).toBeLessThan(2);
+    }
   });
 });
 

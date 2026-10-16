@@ -13,6 +13,8 @@ export interface LaneCell {
   note: string;
   /** Step has motion-recorded parameter locks. */
   locked: boolean;
+  /** Empty step covered by an earlier note's length (tie). */
+  tie: boolean;
 }
 
 export interface LaneView {
@@ -36,6 +38,8 @@ interface HeaderView {
   patternLabel: string;
   bpmText: string;
   playing: boolean;
+  /** Short confirmation (e.g. "PROJECT SAVED") shown in place of the middle text. */
+  message: string;
 }
 
 interface FooterView {
@@ -86,7 +90,13 @@ function fit(text: string, width: number): string {
 function drawHeader(s: PixelScreen, v: HeaderView, middle: string, middleColor: string): void {
   s.rect(0, 0, SCREEN_W, 9, INK.dim);
   s.text(2, 2, `${v.channelLabel}  ${v.patternLabel}`, INK.hi);
-  s.text(112, 2, middle, middleColor);
+  if (v.message) {
+    const w = textWidth(v.message) + 4;
+    s.rect(110, 1, w, 7, INK.warn);
+    s.text(112, 2, v.message, INK.bg);
+  } else {
+    s.text(112, 2, middle, middleColor);
+  }
   s.textRight(SCREEN_W - 12, 2, `${v.bpmText} BPM`, INK.hi);
   if (v.playing) {
     for (let i = 0; i < 4; i++) s.rect(SCREEN_W - 8 + i, 1 + i, 1, 7 - i * 2, INK.hi);
@@ -119,7 +129,10 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
       const x = GRID_X + i * (CELL + CELL_GAP) + Math.floor(i / 4) * GROUP_GAP;
       if (cell.state === 'none') return;
       const head = lane.playhead === i;
-      if (cell.state === 'off') {
+      if (cell.state === 'off' && cell.tie) {
+        // Note held over from an earlier step: a bar joining it to the note.
+        s.rect(x - CELL_GAP - (i % 4 === 0 ? GROUP_GAP : 0), y + 1, CELL + CELL_GAP + (i % 4 === 0 ? GROUP_GAP : 0), 3, head ? INK.warn : INK.mid);
+      } else if (cell.state === 'off') {
         s.rect(x, y + LANE_H - 1, CELL, 1, head ? INK.hi : INK.dim);
       } else if (cell.note) {
         const color = head ? INK.warn : cell.state === 'ghost' ? INK.mid : INK.hi;

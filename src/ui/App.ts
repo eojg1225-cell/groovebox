@@ -21,7 +21,7 @@
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
-import { FX_PAGE_IDS, FX_PARAMS } from '../fx';
+import { EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
   MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
@@ -29,8 +29,9 @@ import {
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound } from '../instruments/registry';
 import { saveSession } from '../storage/session';
+import { savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView } from './views';
 
@@ -43,6 +44,25 @@ export function noteName(n: number): string {
 const isBlackKey = (n: number) => NOTE_NAMES[n % 12].length > 1;
 
 type Status = Extract<WorkletToMain, { type: 'status' }>;
+
+/** Steps covered by an earlier note's gate (ties), as a boolean per step. */
+function tiedSteps(steps: Step[], length: number): boolean[] {
+  const tied = new Array<boolean>(steps.length).fill(false);
+  let coverEnd = -1;
+  for (let i = 0; i < length; i++) {
+    if (steps[i].active) coverEnd = i + Math.max(1, steps[i].gate) - 1;
+    else if (i <= coverEnd) tied[i] = true;
+  }
+  return tied;
+}
+
+/** Note sounding at step `head`, including notes tied over from earlier steps; -1 if none. */
+function soundingNote(steps: Step[], head: number): number {
+  for (let i = head; i >= 0; i--) {
+    if (steps[i].active) return i + Math.max(1, steps[i].gate) > head ? steps[i].note : -1;
+  }
+  return -1;
+}
 type Recorded = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>;
 
 export interface AudioInfo {
@@ -75,6 +95,13 @@ export class App {
   private readonly octave: number[];
   /** Strip button -> note being held (keyboard), so release ends the right note. */
   private readonly heldNotes = new Map<number, number>();
+  /** Effect shown on the FX page (index into EFFECTS). */
+  private fxIndex = 0;
+  /** Step entry in progress: the key held down and the step it wrote (for ties). */
+  private entry: { button: number; index: number } | null = null;
+  /** Short confirmation shown on the screen header (e.g. after saving). */
+  private message = '';
+  private messageUntil = 0;
   private touchedKnob = -1;
   private touchedAt = 0;
   private status: Status | null = null;
@@ -110,6 +137,7 @@ export class App {
       step.note = m.note;
       step.velocity = m.velocity;
       step.accent = m.accent;
+      step.gate = m.gate;
     } else {
       step.locks = { ...step.locks, [m.id]: m.value };
     }
@@ -140,9 +168,38 @@ export class App {
     return c.instrument === 'none' ? '---' : INSTRUMENTS[c.instrument].name;
   }
 
+  /** Factory presets followed by the user's saved patches for a track type. */
+  private presetNames(kind: SoundKind): string[] {
+    return [...INSTRUMENTS[kind].presets.map((p) => p.name), ...userPatches(kind).map((p) => p.name)];
+  }
+
   private presetName(c: ChannelState): string {
     if (c.instrument === 'none') return '';
-    return INSTRUMENTS[c.instrument].presets[c.presets[c.instrument] ?? 0].name;
+    return this.presetNames(c.instrument)[c.presets[c.instrument] ?? 0] ?? '';
+  }
+
+  /** Load factory preset or user patch `index` (in presetNames order) onto a track. */
+  private loadPreset(ch: number, kind: SoundKind, index: number): void {
+    const c = this.project.channels[ch];
+    const factory = INSTRUMENTS[kind].presets.length;
+    if (index < factory) {
+      applyPreset(c, kind, index);
+    } else {
+      const patch = userPatches(kind)[index - factory];
+      if (!patch) return;
+      const defaults: Record<string, number> = {};
+      for (const p of INSTRUMENTS[kind].params) defaults[p.id] = p.defaultValue;
+      c.sounds[kind] = { ...defaults, ...patch.values };
+      c.presets[kind] = index;
+      c.live = [...patch.live];
+    }
+    const sound = c.sounds[kind] ?? {};
+    for (const id in sound) this.send({ type: 'setSound', channel: ch, id, value: sound[id] });
+  }
+
+  private flash(text: string): void {
+    this.message = text;
+    this.messageUntil = performance.now() + 2500;
   }
 
   private pageCount(ch = this.selected): number {
@@ -155,7 +212,8 @@ export class App {
     const c = this.project.channels[ch];
     const heard = this.status?.patterns[ch] ?? c.activePattern;
     const head = this.status?.steps[ch] ?? -1;
-    const following = ch !== this.selected || this.mode === 'play';
+    // Other lanes, PLAY mode and live recording follow the playhead's 16-step block.
+    const following = ch !== this.selected || this.mode === 'play' || this.recording;
     let page: number;
     if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
     else if (!isDrum(c.instrument) && this.mode === 'record') page = Math.floor(this.cursor[ch] / 16);
@@ -231,17 +289,7 @@ export class App {
       pages.push({ name: 'SOUND', targets: () => params.map((p) => this.paramTarget(ch, p.id)) });
     }
     pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
-    pages.push({
-      name: 'FX',
-      targets: () => FX_PAGE_IDS.map((id) => {
-        const spec = FX_PARAMS.find((p) => p.id === id) as ParamSpec;
-        return {
-          label: spec.name, spec, channel: ch,
-          get: () => this.project.fx[id] ?? spec.defaultValue,
-          set: (v: number) => { this.project.fx[id] = v; this.send({ type: 'setFx', id, value: v }); },
-        };
-      }),
-    });
+    pages.push({ name: `FX ${EFFECTS[this.fxIndex].name}`, targets: () => this.fxTargets() });
     pages.push({
       name: 'GLOBAL',
       targets: () => GLOBAL_PARAMS.map((spec) => ({
@@ -259,8 +307,29 @@ export class App {
   }
 
   /**
+   * FX page for one effect (the FX page button steps through the six).
+   * Top row = routing: each track module's top knob is that track's send into this
+   * effect. Bottom row = the effect's controls, ending with its return level.
+   */
+  private fxTargets(): (KnobTarget | null)[] {
+    const k = this.fxIndex;
+    const targets: (KnobTarget | null)[] = [];
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      targets.push(this.paramTarget(ch, `mix:send${k}`, this.kindName(this.project.channels[ch]), ch === this.selected));
+    }
+    for (const spec of EFFECTS[k].params) {
+      targets.push({
+        label: spec.name, spec, channel: this.selected,
+        get: () => this.project.fx[spec.id] ?? spec.defaultValue,
+        set: (v: number) => { this.project.fx[spec.id] = v; this.send({ type: 'setFx', id: spec.id, value: v }); },
+      });
+    }
+    return targets;
+  }
+
+  /**
    * TRACK page. Row 1: type, preset, volume, pan, live knob 1 and 2.
-   * Row 2: the three send levels (delay, distortion, mid-cut), chord mode.
+   * Row 2: chord mode (pitched tracks). Sends are routed on the FX pages.
    */
   private trackTargets(): (KnobTarget | null)[] {
     const ch = this.selected;
@@ -274,15 +343,10 @@ export class App {
     });
     if (c.instrument !== 'none') {
       const kind = c.instrument;
-      const presets = INSTRUMENTS[kind].presets;
       targets.push({
-        label: 'PRESET', spec: choice('preset', 'PRESET', presets.map((p) => p.name)), channel: ch,
+        label: 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch,
         get: () => c.presets[kind] ?? 0,
-        set: (v) => {
-          applyPreset(c, kind, v);
-          const sound = c.sounds[kind] ?? {};
-          for (const id in sound) this.send({ type: 'setSound', channel: ch, id, value: sound[id] });
-        },
+        set: (v) => this.loadPreset(ch, kind, v),
       });
     } else {
       targets.push(null);
@@ -297,7 +361,6 @@ export class App {
         set: (v) => { c.live[r] = candidates[v].id; },
       });
     }
-    targets.push(this.paramTarget(ch, 'mix:send0'), this.paramTarget(ch, 'mix:send1'), this.paramTarget(ch, 'mix:send2'));
     if (!isDrum(c.instrument)) {
       targets.push({
         label: 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch,
@@ -379,8 +442,30 @@ export class App {
       this.send({ type: 'selectPattern', channel: this.selected, pattern, immediate: this.immediateSwitch });
       this.save();
     } else if ((m = /^dpage(\d)$/.exec(id))) {
-      this.designPage = Number(m[1]);
+      const page = Number(m[1]);
+      // Tapping the FX page again steps to the next effect.
+      if (page === this.designPage && this.designPages()[page]?.name.startsWith('FX')) {
+        this.fxIndex = (this.fxIndex + 1) % EFFECTS.length;
+      }
+      this.designPage = page;
       this.touchedKnob = -1;
+    } else if (id === 'savepatch') {
+      const c = this.channel;
+      if (c.instrument === 'none') {
+        this.flash('NOTHING TO SAVE');
+      } else {
+        const kind = c.instrument;
+        const name = savePatch(kind, c.sounds[kind] ?? presetSound(kind, 0), c.live);
+        if (name) {
+          c.presets[kind] = this.presetNames(kind).lastIndexOf(name);
+          this.save();
+          this.flash(`SAVED ${INSTRUMENTS[kind].name} ${name}`);
+        } else {
+          this.flash('SAVE FAILED');
+        }
+      }
+    } else if (id === 'saveproject') {
+      this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
     } else if (id === 'motion') {
       this.motion = !this.motion;
     } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
@@ -393,6 +478,9 @@ export class App {
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
+    } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
+      // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
+      this.tie(id === 'cur+' ? 1 : -1);
     } else if (id === 'cur-' || id === 'cur+') {
       this.moveCursor(id === 'cur+' ? 1 : -1);
     } else if (id === 'rest') {
@@ -427,15 +515,17 @@ export class App {
         // Live recording: the worklet writes the note to the nearest step.
         this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent' });
       } else if (this.mode === 'record') {
-        // Step entry: write at the cursor, hear it, advance.
+        // Step entry: write a one-step note at the cursor and hear it. The cursor moves
+        // on when the key is released (past any steps tied with ▶ meanwhile).
         const index = this.cursor[ch];
         const step = this.pattern.steps[index];
         step.active = true;
         step.note = note;
+        step.gate = 1;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
-        this.moveCursor(1);
+        this.entry = { button, index };
         this.save();
       } else {
         // PLAY and SOUND DESIGN: play only, never recorded.
@@ -467,6 +557,32 @@ export class App {
     if (note === undefined) return;
     this.heldNotes.delete(button);
     this.send({ type: 'release', channel: this.selected, note });
+    if (this.entry?.button === button) {
+      const len = this.pattern.length;
+      this.cursor[this.selected] = (this.entry.index + this.pattern.steps[this.entry.index].gate) % len;
+      this.entry = null;
+      this.refreshPanel();
+    }
+  }
+
+  /** Lengthen (+1) or shorten (-1) the note being entered; tied-over steps are cleared. */
+  private tie(delta: number): void {
+    if (!this.entry) return;
+    const { index } = this.entry;
+    const step = this.pattern.steps[index];
+    const gate = Math.max(1, Math.min(this.pattern.length - index, step.gate + delta));
+    if (gate === step.gate) return;
+    step.gate = gate;
+    if (delta > 0) {
+      const covered = this.pattern.steps[index + gate - 1];
+      if (covered.active || covered.locks) {
+        covered.active = false;
+        delete covered.locks;
+        this.sendStep(index + gate - 1, covered);
+      }
+    }
+    this.sendStep(index, step);
+    this.save();
   }
 
   private cycleLength(): void {
@@ -567,17 +683,19 @@ export class App {
     const pitchedRecord = this.keyboard && this.mode === 'record' && !this.recording;
     const cursor = this.cursor[ch];
 
-    // LEDs: the step being played (red while motion recording), the step-entry cursor.
+    // LEDs: the step being played (red while recording), the step-entry cursor, and while
+    // a key is held in step entry, every step the note covers.
+    const entryEnd = this.entry ? this.entry.index + pattern.steps[this.entry.index].gate - 1 : -1;
     for (let i = 0; i < STEP_BUTTONS; i++) {
       const index = page * 16 + i;
       let state: '' | 'on' | 'rec' | 'cursor' = '';
-      if (pitchedRecord && index === cursor) state = 'cursor';
+      if (pitchedRecord && (this.entry ? index >= this.entry.index && index <= entryEnd : index === cursor)) state = 'cursor';
       if (head === index) state = this.recording ? 'rec' : 'on';
       this.panel.setLed(i, state);
     }
 
     if (this.keyboard) {
-      const sounding = head >= 0 && pattern.steps[head].active ? pattern.steps[head].note : -1;
+      const sounding = soundingNote(pattern.steps, head);
       const cursorStep = pattern.steps[cursor];
       const cursorNote = pitchedRecord && cursorStep.active ? cursorStep.note : -1;
       for (let i = 0; i < STEP_BUTTONS; i++) {
@@ -646,6 +764,7 @@ export class App {
         : `PAT ${PATTERN_NAMES[c.activePattern]}`,
       bpmText: this.project.bpm.toFixed(1),
       playing: this.playing,
+      message: performance.now() < this.messageUntil ? this.message : '',
     };
   }
 
@@ -658,12 +777,14 @@ export class App {
       const page = this.visiblePage(i);
       const head = this.playing && shown === heard ? (this.status?.steps[i] ?? -1) : -1;
       const pitched = !isDrum(lc.instrument);
+      const tied = pitched ? tiedSteps(pat.steps, pat.length) : null;
       const cells: LaneCell[] = [];
       for (let k = 0; k < 16; k++) {
         const idx = page * 16 + k;
         const step = pat.steps[idx];
         cells.push({
           state: idx >= pat.length ? 'none' : step.active ? stepDynamic(step) : 'off',
+          tie: !!tied?.[idx],
           note: pitched && i === ch && step.active ? NOTE_NAMES[step.note % 12] : '',
           locked: !!step.locks && Object.keys(step.locks).length > 0,
         });

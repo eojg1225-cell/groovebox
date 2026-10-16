@@ -10,7 +10,8 @@
  *   [ step LEDs                                    ] [ PLAY ]
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
- * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, dpage0..3, play,
+ * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, savepatch,
+ * saveproject, dpage0..3, play,
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row, k7..k12
  * bottom row; module i holds k(i+1) and k(i+7)).
  */
@@ -92,6 +93,8 @@ export class Panel implements ControlSurface {
       q('.mutes').appendChild(this.makeButton(`mute${ch}`, 'MUTE', 'btn mute'));
     }
     for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
+    q('.patterns').appendChild(this.makeButton('savepatch', 'SAVE<small>PATCH</small>', 'btn save'));
+    q('.patterns').appendChild(this.makeButton('saveproject', 'SAVE<small>PROJECT</small>', 'btn save'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.pages').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel.

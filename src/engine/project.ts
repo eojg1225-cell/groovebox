@@ -2,8 +2,9 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 3;
-export const NUM_SENDS = 3;
+export const PROJECT_VERSION = 4;
+/** One send per effect (delay, distortion, mid-cut, chorus, reverb, flanger). */
+export const NUM_SENDS = 6;
 export const NUM_CHANNELS = 6;
 export const NUM_PATTERNS = 3;
 export const MAX_STEPS = 64;
@@ -23,7 +24,7 @@ export interface Step {
   note: number;
   /** 0..1 */
   velocity: number;
-  /** Gate length in steps (pitched instruments release after it). */
+  /** Note length in whole steps (1 = until the next step); tied steps are left empty. */
   gate: number;
   slide: boolean;
   accent: boolean;
@@ -67,7 +68,7 @@ export interface ChannelState {
   chord: number;
   volume: number; // 0..1
   pan: number; // -1..1
-  /** Send levels 0..1 to the delay, distortion and mid-cut. */
+  /** Send levels 0..1, one per send effect (see src/fx/index.ts EFFECTS). */
   sends: number[];
   mute: boolean;
   patterns: Pattern[];
@@ -102,7 +103,7 @@ export function emptyChannel(): ChannelState {
     chord: 0,
     volume: 0.8,
     pan: 0,
-    sends: [0, 0, 0],
+    sends: new Array(NUM_SENDS).fill(0),
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
     activePattern: 0,
