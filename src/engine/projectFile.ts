@@ -133,7 +133,7 @@ function readSteps(pattern: Obj): { i: number; note: number; vel: number; gate: 
   return out;
 }
 
-function readChannel(src: Obj, ch: ChannelState): void {
+function readChannel(src: Obj, ch: ChannelState, version: number): void {
   const kind = src.instrument;
   if (typeof kind === 'string' && (SOUND_KINDS as string[]).includes(kind) && kind !== ch.instrument) {
     applyPreset(ch, kind as SoundKind, 0);
@@ -150,7 +150,9 @@ function readChannel(src: Obj, ch: ChannelState): void {
   if (isObj(src.presets)) {
     for (const k of SOUND_KINDS) if (typeof src.presets[k] === 'number') ch.presets[k] = src.presets[k] as number;
   }
-  if (Array.isArray(src.live) && src.live.length === 2 && src.live.every((x) => typeof x === 'string')) {
+  // Before v5 the live knobs followed the preset; from v5 they default to VOLUME/CUTOFF
+  // and only a choice made since is kept.
+  if (version >= 5 && Array.isArray(src.live) && src.live.length === 2 && src.live.every((x) => typeof x === 'string')) {
     ch.live = [src.live[0] as string, src.live[1] as string];
   }
   ch.chord = Math.round(num(src.chord, ch.chord, 0, 64));
@@ -214,7 +216,7 @@ export function fromStored(data: unknown): Project | null {
   }
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
-    if (isObj(src)) readChannel(src, p.channels[i]);
+    if (isObj(src)) readChannel(src, p.channels[i], num(data.version, 0));
   }
   return p;
 }

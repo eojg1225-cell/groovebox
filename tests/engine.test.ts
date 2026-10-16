@@ -622,6 +622,15 @@ describe('project', () => {
     expect(p.channels[5].sendLevel).toBe(0.4);
   });
 
+  it('live knobs from before v5 reset to VOLUME/CUTOFF; later choices are kept', () => {
+    const old = { ...toStored(createDefaultProject()), version: 4 };
+    old.channels[0].live = ['t_decay', 't_pitch'];
+    expect(fromStored(old)!.channels[0].live).toEqual(['mix:volume', 'mix:cutoff']);
+    const now = toStored(createDefaultProject());
+    now.channels[0].live = ['t_decay', 'mix:pan'];
+    expect(fromStored(now)!.channels[0].live).toEqual(['t_decay', 'mix:pan']);
+  });
+
   it('the start project holds the sequence in progress, with VOLUME/CUTOFF live knobs', () => {
     const p = createStartProject();
     expect(p.channels[3].patterns[0].length).toBe(64);
