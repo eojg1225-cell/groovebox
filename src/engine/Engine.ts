@@ -1,4 +1,4 @@
-import type { MainToWorklet } from './protocol';
+import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
   MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS,
@@ -6,10 +6,25 @@ import {
 } from './project';
 import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS } from '../instruments/registry';
+import { Svf } from '../instruments/dsp';
 
 /** Largest chunk rendered at once; blocks are split at step boundaries anyway. */
 const CHUNK = 256;
+/** Max sound parameters per instrument that can be locked per step. */
+export const LOCK_SLOTS = 8;
 const KINDS = Object.keys(INSTRUMENTS) as Exclude<InstrumentKind, 'none'>[];
+const STEP_SLOTS = NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS;
+
+/**
+ * Per-hit tone: the channel output passes a gentle 12 dB low-pass whose cutoff follows the
+ * hit velocity, so accents are fully bright and ghost notes softer and darker, like a real
+ * player hitting harder or lighter.
+ */
+export function hitToneCutoff(velocity: number): number {
+  return 20000 * Math.pow(2, -(1 - Math.min(1, Math.max(0, velocity))) * 3.2);
+}
+
+export type RecordedMsg = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>;
 
 /**
  * Pure audio engine: sequencer, instruments, mixer, master. No DOM, no Web Audio.
@@ -30,27 +45,41 @@ export class Engine {
   readonly currentStep = new Int16Array(NUM_CHANNELS).fill(-1);
   /** Pattern currently playing per channel. */
   readonly activePattern = new Uint8Array(NUM_CHANNELS);
+  /** Called when motion recording writes into a pattern (event rate, not per block). */
+  onRecorded: ((msg: RecordedMsg) => void) | null = null;
 
   private bpm = 128;
   private swing = 0; // 0..0.5 fraction of a step
   private readonly master: Smoother;
 
   // Step data: index = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + step
-  private readonly stepActive = new Uint8Array(NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS);
-  private readonly stepNote = new Float32Array(NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS);
-  private readonly stepVel = new Float32Array(NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS);
+  private readonly stepActive = new Uint8Array(STEP_SLOTS);
+  private readonly stepNote = new Float32Array(STEP_SLOTS);
+  private readonly stepVel = new Float32Array(STEP_SLOTS);
+  private readonly stepAccent = new Uint8Array(STEP_SLOTS);
+  /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
+  private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
   private readonly patternLength = new Uint8Array(NUM_CHANNELS * NUM_PATTERNS).fill(16);
 
   private readonly pendingPattern = new Int8Array(NUM_CHANNELS).fill(-1);
   private readonly position = new Uint8Array(NUM_CHANNELS);
+  /** Step index whose trigger is skipped once (a live note was already played for it). */
+  private readonly skipStep = new Int16Array(NUM_CHANNELS).fill(-1);
   private globalStep = 0;
   private framesToStep = 0;
+  private lastStepFrames = 1;
 
   // Channels
   private readonly instruments: Record<string, Instrument>[] = [];
   private readonly current: (Instrument | null)[] = [];
+  /** Channel's own sound values per param slot (what applies when no lock). */
+  private readonly baseValue = new Float32Array(NUM_CHANNELS * LOCK_SLOTS);
+  /** Whether a lock is currently applied per channel/param slot. */
+  private readonly lockApplied = new Uint8Array(NUM_CHANNELS * LOCK_SLOTS);
   private readonly volume: Smoother[] = [];
   private readonly pan: Smoother[] = [];
+  private readonly toneL: Svf[] = [];
+  private readonly toneR: Svf[] = [];
   private readonly volumeValue = new Float32Array(NUM_CHANNELS).fill(0.8);
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   private readonly scratchL = new Float32Array(CHUNK);
@@ -66,6 +95,12 @@ export class Engine {
       this.current.push(null);
       this.volume.push(new Smoother(0.8, 0.02, sampleRate));
       this.pan.push(new Smoother(0, 0.02, sampleRate));
+      const l = new Svf();
+      const r = new Svf();
+      l.setup(hitToneCutoff(1), 0, sampleRate);
+      r.setup(hitToneCutoff(1), 0, sampleRate);
+      this.toneL.push(l);
+      this.toneR.push(r);
     }
   }
 
@@ -73,6 +108,9 @@ export class Engine {
     switch (msg.type) {
       case 'loadProject': this.loadProject(msg.project); break;
       case 'setStep': this.writeStep(msg.channel, msg.pattern, msg.index, msg.step); break;
+      case 'setPatternLength':
+        this.patternLength[msg.channel * NUM_PATTERNS + msg.pattern] = Math.max(1, Math.min(MAX_STEPS, msg.length));
+        break;
       case 'selectPattern':
         if (!this.playing || msg.immediate) {
           this.activePattern[msg.channel] = msg.pattern;
@@ -81,7 +119,7 @@ export class Engine {
           this.pendingPattern[msg.channel] = msg.pattern;
         }
         break;
-      case 'setSound': this.current[msg.channel]?.setParam(msg.id, msg.value); break;
+      case 'setSound': this.setSound(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setGlobal':
         if (msg.id === 'bpm') this.bpm = msg.value;
@@ -89,7 +127,9 @@ export class Engine {
         else if (msg.id === 'master') this.master.setTarget(msg.value);
         break;
       case 'transport': this.setPlaying(msg.playing); break;
-      case 'trigger': this.current[msg.channel]?.noteOn(msg.note, msg.velocity); break;
+      case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity); break;
+      case 'recordNote': this.recordNote(msg.channel, msg.note, msg.velocity, msg.accent); break;
+      case 'recordLock': this.recordLock(msg.channel, msg.id, msg.value); break;
       case 'ping': break; // answered by the host
     }
   }
@@ -102,8 +142,9 @@ export class Engine {
       const c = p.channels[ch];
       this.current[ch] = c.instrument === 'none' ? null : this.instruments[ch][c.instrument];
       const inst = this.current[ch];
+      this.lockApplied.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
       if (inst) {
-        for (const spec of inst.params) inst.setParam(spec.id, c.sound[spec.id] ?? spec.defaultValue);
+        inst.params.forEach((spec, slot) => this.setSound(ch, spec.id, c.sound[spec.id] ?? spec.defaultValue, slot));
       }
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
@@ -127,12 +168,16 @@ export class Engine {
     this.framesToStep = 0; // first step fires at the next sample
     this.position.fill(0);
     this.currentStep.fill(-1);
+    this.skipStep.fill(-1);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       if (this.pendingPattern[ch] >= 0) {
         this.activePattern[ch] = this.pendingPattern[ch];
         this.pendingPattern[ch] = -1;
       }
-      if (!playing) this.current[ch]?.noteOff();
+      if (!playing) {
+        this.current[ch]?.noteOff();
+        this.restoreBase(ch);
+      }
     }
   }
 
@@ -170,6 +215,8 @@ export class Engine {
     return k % 2 === 0 ? base * (1 + this.swing) : base * (1 - this.swing);
   }
 
+  // ------------------------------------------------------------------ sequencing
+
   private fireStep(): void {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const inst = this.current[ch];
@@ -183,13 +230,96 @@ export class Engine {
       const len = this.patternLength[pat];
       const idx = this.position[ch] % len;
       const s = pat * MAX_STEPS + idx;
-      if (this.stepActive[s]) inst.noteOn(this.stepNote[s], this.stepVel[s]);
+      this.applyLocks(ch, s);
+      if (this.stepActive[s] && this.skipStep[ch] !== idx) this.noteOn(ch, this.stepNote[s], this.stepVel[s]);
+      this.skipStep[ch] = -1;
       this.currentStep[ch] = idx;
       this.position[ch] = (idx + 1) % len;
     }
-    this.framesToStep += this.stepFrames(this.globalStep);
+    this.lastStepFrames = this.stepFrames(this.globalStep);
+    this.framesToStep += this.lastStepFrames;
     this.globalStep++;
   }
+
+  private noteOn(ch: number, note: number, velocity: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const fc = hitToneCutoff(velocity);
+    this.toneL[ch].setup(fc, 0, this.sampleRate);
+    this.toneR[ch].setup(fc, 0, this.sampleRate);
+    inst.noteOn(note, velocity);
+  }
+
+  /** Apply the step's locks; params locked on the previous step but not this one revert. */
+  private applyLocks(ch: number, stepSlot: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const n = Math.min(inst.params.length, LOCK_SLOTS);
+    for (let k = 0; k < n; k++) {
+      const v = this.locks[stepSlot * LOCK_SLOTS + k];
+      const applied = ch * LOCK_SLOTS + k;
+      if (v === v) { // not NaN
+        inst.setParam(inst.params[k].id, v);
+        this.lockApplied[applied] = 1;
+      } else if (this.lockApplied[applied]) {
+        inst.setParam(inst.params[k].id, this.baseValue[applied]);
+        this.lockApplied[applied] = 0;
+      }
+    }
+  }
+
+  private restoreBase(ch: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    for (let k = 0; k < Math.min(inst.params.length, LOCK_SLOTS); k++) {
+      if (this.lockApplied[ch * LOCK_SLOTS + k]) {
+        inst.setParam(inst.params[k].id, this.baseValue[ch * LOCK_SLOTS + k]);
+        this.lockApplied[ch * LOCK_SLOTS + k] = 0;
+      }
+    }
+  }
+
+  /** Index of the step nearest to "now" for a channel, given the current step progress. */
+  private nearestStep(ch: number): { index: number; isNext: boolean } {
+    const elapsed = this.lastStepFrames - this.framesToStep;
+    const cur = this.currentStep[ch];
+    if (cur < 0) return { index: 0, isNext: true };
+    return elapsed < this.lastStepFrames / 2
+      ? { index: cur, isNext: false }
+      : { index: this.position[ch], isNext: true };
+  }
+
+  private recordNote(ch: number, note: number, velocity: number, accent: boolean): void {
+    this.noteOn(ch, note, velocity);
+    if (!this.playing || !this.current[ch]) return;
+    const { index, isNext } = this.nearestStep(ch);
+    const pattern = this.activePattern[ch];
+    const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
+    this.stepActive[s] = 1;
+    this.stepNote[s] = note;
+    this.stepVel[s] = velocity;
+    this.stepAccent[s] = accent ? 1 : 0;
+    // The note already sounded now; don't play it again when that step comes round.
+    if (isNext) this.skipStep[ch] = index;
+    this.onRecorded?.({ type: 'recordedNote', channel: ch, pattern, index, note, velocity, accent });
+  }
+
+  private recordLock(ch: number, id: string, value: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const slot = this.slotOf(inst, id);
+    if (slot < 0) return;
+    inst.setParam(id, value); // hear it now
+    if (!this.playing || this.currentStep[ch] < 0) return;
+    const pattern = this.activePattern[ch];
+    const index = this.currentStep[ch];
+    const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
+    this.locks[s * LOCK_SLOTS + slot] = value;
+    this.lockApplied[ch * LOCK_SLOTS + slot] = 1;
+    this.onRecorded?.({ type: 'recordedLock', channel: ch, pattern, index, id, value });
+  }
+
+  // ------------------------------------------------------------------ audio
 
   private renderChunk(outL: Float32Array, outR: Float32Array, off: number, n: number): void {
     const sl = this.scratchL;
@@ -202,12 +332,16 @@ export class Engine {
       inst.render(sl, sr, 0, n);
       const vol = this.volume[ch];
       const pan = this.pan[ch];
+      const tl = this.toneL[ch];
+      const tr = this.toneR[ch];
       for (let i = 0; i < n; i++) {
         const v = vol.next();
         // Equal-power pan, -1..1 -> 0..pi/2
         const a = (pan.next() + 1) * 0.25 * Math.PI;
-        outL[off + i] += sl[i] * v * Math.cos(a);
-        outR[off + i] += sr[i] * v * Math.sin(a);
+        tl.process(sl[i]);
+        tr.process(sr[i]);
+        outL[off + i] += tl.low * v * Math.cos(a);
+        outR[off + i] += tr.low * v * Math.sin(a);
       }
     }
   }
@@ -233,11 +367,37 @@ export class Engine {
     this.frame += frames;
   }
 
+  // ------------------------------------------------------------------ state
+
+  private slotOf(inst: Instrument, id: string): number {
+    const n = Math.min(inst.params.length, LOCK_SLOTS);
+    for (let k = 0; k < n; k++) if (inst.params[k].id === id) return k;
+    return -1;
+  }
+
+  private setSound(ch: number, id: string, value: number, knownSlot = -1): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
+    if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
+    inst.setParam(id, value);
+  }
+
   private writeStep(ch: number, pattern: number, index: number, step: Step): void {
     const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
     this.stepActive[s] = step.active ? 1 : 0;
     this.stepNote[s] = step.note;
     this.stepVel[s] = step.velocity;
+    this.stepAccent[s] = step.accent ? 1 : 0;
+    const base = s * LOCK_SLOTS;
+    this.locks.fill(NaN, base, base + LOCK_SLOTS);
+    const inst = this.current[ch];
+    if (step.locks && inst) {
+      for (const id in step.locks) {
+        const slot = this.slotOf(inst, id);
+        if (slot >= 0) this.locks[base + slot] = step.locks[id];
+      }
+    }
   }
 
   private setMix(ch: number, id: 'volume' | 'pan' | 'mute', value: number): void {

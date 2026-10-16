@@ -23,6 +23,26 @@ export interface Step {
   gate: number;
   slide: boolean;
   accent: boolean;
+  /**
+   * Optional per-step parameter locks (sound param id -> value), written by motion
+   * recording. Absent = the channel's own value.
+   */
+  locks?: Record<string, number>;
+}
+
+/** Hit dynamics. Velocity drives both level and the per-hit tone (low-pass) in the engine. */
+export type Dynamic = 'ghost' | 'normal' | 'accent';
+export const DYNAMIC_VELOCITY: Record<Dynamic, number> = { ghost: 0.45, normal: 0.8, accent: 1 };
+export const STEP_LENGTHS = [16, 32, 48, 64] as const;
+
+export function stepDynamic(step: Step): Dynamic {
+  if (step.accent) return 'accent';
+  return step.velocity < 0.6 ? 'ghost' : 'normal';
+}
+
+export function setStepDynamic(step: Step, d: Dynamic): void {
+  step.accent = d === 'accent';
+  step.velocity = DYNAMIC_VELOCITY[d];
 }
 
 export interface Pattern {
@@ -72,11 +92,11 @@ function channel(instrument: InstrumentKind, volume = 0.8): ChannelState {
   };
 }
 
-function setSteps(p: Pattern, indices: number[], notes?: number[], velocity = 0.8): void {
+function setSteps(p: Pattern, indices: number[], notes?: number[], dynamic: Dynamic = 'normal'): void {
   indices.forEach((i, n) => {
     const s = p.steps[i];
     s.active = true;
-    s.velocity = velocity;
+    setStepDynamic(s, dynamic);
     if (notes) s.note = notes[n % notes.length];
   });
 }
@@ -87,15 +107,18 @@ export function createDefaultProject(): Project {
   const snare = channel('snare', 0.7);
   const hat = channel('hat', 0.55);
   const bass = channel('bass', 0.7);
-  setSteps(kick.patterns[0], [0, 4, 8, 12], undefined, 1);
+  setSteps(kick.patterns[0], [0, 4, 8, 12], undefined, 'accent');
   setSteps(snare.patterns[0], [4, 12]);
-  setSteps(hat.patterns[0], [2, 6, 10, 14], undefined, 0.9);
-  setSteps(hat.patterns[0], [3, 11], undefined, 0.45);
+  setSteps(snare.patterns[0], [7, 15], undefined, 'ghost');
+  setSteps(hat.patterns[0], [2, 6, 10, 14], undefined, 'accent');
+  setSteps(hat.patterns[0], [0, 4, 8, 12], undefined, 'ghost');
   setSteps(bass.patterns[0], [2, 3, 6, 10, 11, 14], [36, 36, 48, 36, 39, 34]);
+  setSteps(bass.patterns[0], [6], [48], 'accent');
   // Pattern B: a jungle-ish variation to switch to.
   setSteps(kick.patterns[1], [0, 10]);
-  setSteps(snare.patterns[1], [4, 12, 15]);
-  setSteps(hat.patterns[1], [0, 2, 4, 6, 8, 10, 12, 14], undefined, 0.7);
+  setSteps(snare.patterns[1], [4, 12]);
+  setSteps(snare.patterns[1], [7, 9, 15], undefined, 'ghost');
+  setSteps(hat.patterns[1], [0, 2, 4, 6, 8, 10, 12, 14]);
   setSteps(bass.patterns[1], [0, 7, 10], [33, 33, 36]);
   return {
     version: PROJECT_VERSION,

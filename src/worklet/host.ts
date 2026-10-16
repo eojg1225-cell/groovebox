@@ -29,6 +29,8 @@ export class AudioHost {
   private pending: MainToWorklet[] = [];
   roundTripMs = NaN;
   onStatus: ((s: StatusMsg) => void) | null = null;
+  /** Motion-record results written by the worklet. */
+  onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>) => void) | null = null;
 
   /** Must be called synchronously inside a user gesture handler. */
   constructor() {
@@ -120,6 +122,10 @@ export class AudioHost {
         }
         break;
       }
+      case 'recordedNote':
+      case 'recordedLock':
+        this.onRecorded?.(msg);
+        break;
       case 'ready': break;
     }
   }

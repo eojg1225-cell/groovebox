@@ -11,6 +11,7 @@ export type MainToWorklet =
   /** Replace the whole engine state (startup, session restore). */
   | { type: 'loadProject'; project: Project }
   | { type: 'setStep'; channel: number; pattern: number; index: number; step: Step }
+  | { type: 'setPatternLength'; channel: number; pattern: number; length: number }
   /** Switch pattern; quantised to the end of the channel's loop unless immediate or stopped. */
   | { type: 'selectPattern'; channel: number; pattern: number; immediate: boolean }
   /** Instrument parameter in real units. */
@@ -18,8 +19,18 @@ export type MainToWorklet =
   | { type: 'setMix'; channel: number; id: MixParam; value: number }
   | { type: 'setGlobal'; id: GlobalParam; value: number }
   | { type: 'transport'; playing: boolean }
-  /** Audition a note on a channel. */
+  /** Audition / play a note on a channel now. */
   | { type: 'trigger'; channel: number; note: number; velocity: number }
+  /**
+   * Motion record: play the note now and, if playing, write it into the nearest step of
+   * the channel's playing pattern. The worklet answers with "recordedNote".
+   */
+  | { type: 'recordNote'; channel: number; note: number; velocity: number; accent: boolean }
+  /**
+   * Motion record: lock a sound parameter on the step playing now (and hear it now).
+   * The worklet answers with "recordedLock".
+   */
+  | { type: 'recordLock'; channel: number; id: string; value: number }
   /** Round-trip timing probe; the worklet answers with "pong" carrying the same id. */
   | { type: 'ping'; id: number };
 
@@ -38,6 +49,12 @@ export type WorkletToMain =
       steps: number[];
       patterns: number[];
     }
-  | { type: 'pong'; id: number };
+  | { type: 'pong'; id: number }
+  | {
+      type: 'recordedNote';
+      channel: number; pattern: number; index: number;
+      note: number; velocity: number; accent: boolean;
+    }
+  | { type: 'recordedLock'; channel: number; pattern: number; index: number; id: string; value: number };
 
 export const STATUS_HZ = 30;

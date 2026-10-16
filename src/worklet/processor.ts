@@ -32,6 +32,7 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
       }
       this.engine.handleMessage(msg);
     };
+    this.engine.onRecorded = (msg) => this.port.postMessage(msg);
     const ready: WorkletToMain = { type: 'ready', sampleRate };
     this.port.postMessage(ready);
   }

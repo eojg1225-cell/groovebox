@@ -51,6 +51,7 @@ function unlockAudio(): void {
     }
     // Queued until the worklet is up, then delivered in order.
     for (const msg of app.syncMessages()) host.send(msg);
+    host.onRecorded = (m) => app.onRecorded(m);
     host.onStatus = (s) => {
       app.setStatus(s);
       audio.peak = Math.max(Math.max(s.peakL, s.peakR), audio.peak * 0.85);

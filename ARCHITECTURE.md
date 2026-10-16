@@ -28,13 +28,16 @@ Main -> worklet:
 | type | fields | meaning |
 |---|---|---|
 | `loadProject` | `project` | Replace all engine state (startup / session restore) |
-| `setStep` | `channel`, `pattern`, `index`, `step` | Write one step |
+| `setStep` | `channel`, `pattern`, `index`, `step` | Write one step (incl. its locks) |
+| `setPatternLength` | `channel`, `pattern`, `length` | 1-64 steps |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern; quantised to the channel's loop end unless `immediate` or stopped |
 | `setSound` | `channel`, `id`, `value` | Instrument parameter (real units) |
 | `setMix` | `channel`, `id` (`volume`/`pan`/`mute`), `value` | Channel mixer |
 | `setGlobal` | `id` (`bpm`/`swing`/`master`), `value` | Project-wide settings |
 | `transport` | `playing` | Start (from step 1) / stop |
-| `trigger` | `channel`, `note`, `velocity` | Audition a note |
+| `trigger` | `channel`, `note`, `velocity` | Play a note now |
+| `recordNote` | `channel`, `note`, `velocity`, `accent` | Motion record: play now, write to the nearest step (answers `recordedNote`) |
+| `recordLock` | `channel`, `id`, `value` | Motion record: lock a sound param on the step playing now (answers `recordedLock`) |
 | `ping` | `id` | Round-trip probe |
 
 Worklet -> main:
@@ -43,6 +46,10 @@ Worklet -> main:
 | `ready` | `sampleRate` | Processor constructed |
 | `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[6]`, `patterns[6]` | ~30 Hz: meters, playhead and playing pattern per channel |
 | `pong` | `id` | Answer to `ping` |
+| `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent` | A motion-recorded note was written |
+| `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A motion-recorded lock was written |
+
+The worklet decides where recorded events land because only it knows the exact play position. A note recorded just before a step is written to that step and its trigger there is skipped once, so it doesn't sound twice.
 
 No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is `postMessage`.
 
@@ -53,6 +60,10 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 ## Sequencer
 
 A global 16th-note clock (swing lengthens even steps and shortens odd ones) drives all channels. Each channel keeps its own position and loops at its pattern length (polymeter). `Engine.process` splits each block at step boundaries so notes start on the exact sample. Pending pattern switches apply when the channel's position returns to step 1.
+
+**Parameter locks:** each step can lock up to 8 sound parameters (`Step.locks`, stored in a NaN-filled typed array in the engine). A lock is applied just before its step triggers; a parameter locked on the previous step but not this one reverts to the channel's own value.
+
+**Dynamics:** ghost / normal / accent map to velocity 0.45 / 0.8 / 1.0. Each channel's output passes a 12 dB low-pass whose cutoff is set per hit from the velocity (`hitToneCutoff`: ~20 kHz at accent, ~13 kHz normal, ~5 kHz ghost), so softer hits are also darker.
 
 ## Instruments
 

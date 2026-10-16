@@ -4,10 +4,11 @@
  *
  *   [ pixel screen        ] [ channel select / mute, pattern, page ]
  *   [ 8 parameter knobs                                             ]
- *   [ 16 step buttons                                    ] [ PLAY  ]
+ *   [ function row: mode, motion, dynamics, length, page, ... ] [      ]
+ *   [ 16-button strip (steps or keyboard)                      ] [ PLAY ]
  *
  * Control ids: ch1..ch6, mute1..mute6, patA/patB/patC, page:<name>, step1..step16,
- * play; knobs k1..k8.
+ * play, plus the function row ids in FUNCTION_ROW; knobs k1..k8.
  */
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
@@ -16,6 +17,16 @@ export const DESIGN_W = 1200;
 export const DESIGN_H = 750;
 export const KNOB_COUNT = 8;
 export const STEP_BUTTONS = 16;
+
+/** Function row: groups of [id, label] (labels may contain <small> lines). */
+export const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
+  [['mode:record', 'RECORD'], ['mode:play', 'PLAY<small>MODE</small>']],
+  [['motion', 'MOTION<small>REC</small>']],
+  [['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
+  [['len', '16<small>STEPS</small>'], ['steppage', '1-16<small>VIEW</small>']],
+  [['oct-', 'OCT −'], ['oct+', 'OCT +']],
+  [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],
+];
 
 export interface PanelConfig {
   channels: number;
@@ -52,7 +63,10 @@ export class Panel implements ControlSurface {
       </div>
       <div class="knob-row"></div>
       <div class="panel-bottom">
-        <div class="steps"></div>
+        <div class="bottom-main">
+          <div class="function-row"></div>
+          <div class="steps"></div>
+        </div>
         <div class="play-area"></div>
       </div>`;
     host.appendChild(root);
@@ -73,6 +87,14 @@ export class Panel implements ControlSurface {
       const knob = new Knob(`k${i}`, '', 0.5, (id, value) => this.emitter.emit({ type: 'knob', id, value }));
       this.knobs.set(knob.id, knob);
       knobRow.appendChild(knob.el);
+    }
+
+    const fnRow = q('.function-row');
+    for (const group of FUNCTION_ROW) {
+      const g = document.createElement('div');
+      g.className = 'fn-group';
+      for (const [id, label] of group) g.appendChild(this.makeButton(id, label, 'btn fn'));
+      fnRow.appendChild(g);
     }
 
     const steps = q('.steps');
@@ -120,6 +142,13 @@ export class Panel implements ControlSurface {
     if (b && b.classList.contains(flag) !== on) b.classList.toggle(flag, on);
   }
 
+  /** Greys a button out and ignores presses on it. */
+  setButtonEnabled(id: string, enabled: boolean): void {
+    if (enabled) this.disabled.delete(id);
+    else this.disabled.add(id);
+    this.setButtonFlag(id, 'disabled', !enabled);
+  }
+
   setButtonText(id: string, html: string): void {
     const b = this.buttons.get(id);
     if (b && b.innerHTML !== html) b.innerHTML = html;
@@ -136,8 +165,9 @@ export class Panel implements ControlSurface {
   }
 
   private press(id: string, pressed: boolean): void {
+    if (!pressed) this.buttons.get(id)?.classList.remove('down');
     if (this.disabled.has(id)) return;
-    this.buttons.get(id)?.classList.toggle('down', pressed);
+    if (pressed) this.buttons.get(id)?.classList.add('down');
     this.emitter.emit({ type: 'button', id, pressed });
   }
 

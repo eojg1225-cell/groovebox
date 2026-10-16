@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Engine } from '../src/engine/Engine';
+import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
 import { toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
 import { createDefaultProject, emptyPattern, normalizeProject, type Project } from '../src/engine/project';
@@ -160,6 +160,78 @@ describe('sequencer', () => {
     expect(e.currentStep[0]).toBe(2);
     e.handleMessage({ type: 'transport', playing: false });
     expect(e.currentStep[0]).toBe(-1);
+  });
+});
+
+describe('dynamics, locks and motion recording', () => {
+  it('accent hits are louder and brighter than ghost notes', () => {
+    expect(hitToneCutoff(1)).toBeGreaterThan(19000);
+    expect(hitToneCutoff(0.8)).toBeLessThan(hitToneCutoff(1));
+    expect(hitToneCutoff(0.45)).toBeLessThan(6000);
+    // Same hat, accent vs ghost: compare level and high-frequency content.
+    const hit = (velocity: number) => {
+      const p = kickProject([]);
+      const e = engineWith(p);
+      e.handleMessage({ type: 'trigger', channel: 2, note: 36, velocity });
+      const { l } = render(e, 0.05);
+      let energy = 0;
+      let diffEnergy = 0; // first difference emphasises highs
+      for (let i = 1; i < l.length; i++) { energy += l[i] ** 2; diffEnergy += (l[i] - l[i - 1]) ** 2; }
+      return { energy, brightness: diffEnergy / energy };
+    };
+    const accent = hit(1);
+    const ghost = hit(0.45);
+    expect(accent.energy).toBeGreaterThan(ghost.energy * 2);
+    expect(accent.brightness).toBeGreaterThan(ghost.brightness * 1.2);
+  });
+
+  it('a step lock applies on its step and reverts on the next', () => {
+    const p = kickProject([0, 1]);
+    p.channels[0].sound = { decay: 1, click: 0, punch: 0, tune: 40 };
+    p.channels[0].patterns[0].steps[0].locks = { tune: 120 };
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const { l } = render(e, 0.25); // steps 0 and 1 (6000 frames each)
+    const crossings = (a: number, b: number) => {
+      let n = 0;
+      for (let i = a + 1; i < b; i++) if (l[i - 1] < 0 && l[i] >= 0) n++;
+      return n;
+    };
+        // 4000-frame windows (1/12 s): ~10 cycles at 120 Hz vs ~3 at 40 Hz.
+    expect(crossings(1000, 5000)).toBeGreaterThanOrEqual(9);
+    expect(crossings(7000, 11000)).toBeLessThanOrEqual(4);
+  });
+
+  it('motion-recorded notes land on the nearest step and do not double-trigger', () => {
+    const p = kickProject([]);
+    const e = engineWith(p);
+    const got: RecordedMsg[] = [];
+    e.onRecorded = (m) => got.push(m);
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 1000 / SR); // ~1000 frames into step 0 -> nearest is step 0
+    e.handleMessage({ type: 'recordNote', channel: 3, note: 40, velocity: 1, accent: true });
+    render(e, 4000 / SR); // now ~5000 frames in -> nearest is the next step (1)
+    e.handleMessage({ type: 'recordNote', channel: 3, note: 43, velocity: 0.8, accent: false });
+    expect(got.map((m) => m.type === 'recordedNote' && [m.index, m.note])).toEqual([[0, 40], [1, 43]]);
+  });
+
+  it('motion-recorded knob moves lock the step playing now', () => {
+    const e = engineWith(kickProject([0]));
+    const got: RecordedMsg[] = [];
+    e.onRecorded = (m) => got.push(m);
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 6500 / SR); // inside step 1
+    e.handleMessage({ type: 'recordLock', channel: 0, id: 'tune', value: 90 });
+    expect(got).toEqual([{ type: 'recordedLock', channel: 0, pattern: 0, index: 1, id: 'tune', value: 90 }]);
+  });
+
+  it('pattern length can grow to 64 steps', () => {
+    const p = kickProject([0]);
+    const e = engineWith(p);
+    e.handleMessage({ type: 'setPatternLength', channel: 0, pattern: 0, length: 32 });
+    e.handleMessage({ type: 'transport', playing: true });
+    // Kick on step 1 of a 32-step loop: hits at 0 and 32 * 6000.
+    near(onsets(render(e, 4.2).l), [0, 192000]);
   });
 });
 

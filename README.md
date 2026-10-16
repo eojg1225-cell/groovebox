@@ -33,9 +33,24 @@ Note: AudioWorklet needs a secure context, so on another device use the HTTPS Pa
 A title screen fades into the panel. The first touch anywhere switches sound on (browsers require a gesture).
 
 - **Channels 1-4** (top right): kick, snare, hat, bass. Tap a number to select it; MUTE under each. Channels 5-6 are reserved.
-- **Pattern A/B/C** for the selected channel. While playing, the switch happens at the end of the loop (the new letter blinks until then). Pattern B holds a variation.
+- **Pattern A/B/C** for the selected channel.
 - **Knob pages:** SOUND (the selected channel's voice), MIX (volume, pan), GLOBAL (BPM, swing, master). The pixel screen lists what each knob does.
-- **16-step strip** edits the selected channel's pattern; the orange outline is the playhead. **PLAY/STOP** on the right.
-- Patterns and settings are kept for the browser session (survive a reload, not closing the tab).
+- **Strip:** 16 step buttons on drum tracks, a 16-key keyboard on pitched tracks (bass). **PLAY/STOP** on the right.
+- **Function row:**
+  - **RECORD / PLAY mode** (see below).
+  - **MOTION REC:** while playing, knob moves on the SOUND page are recorded into the step playing at that moment (orange dot on the screen), and live keyboard notes land on the nearest step.
+  - **ACCENT / GHOST:** the dynamic for new hits. Accent = loudest and fully bright; ghost = quiet and darker (a gentle per-hit low-pass); neither = normal. On drum tracks, tapping an existing hit with ACCENT or GHOST armed re-paints it.
+  - **STEPS:** pattern length 16 → 32 → 48 → 64 → 16. **VIEW** pages through long patterns.
+  - **OCT − / OCT +:** keyboard octave. **◀ ▶ REST:** step-entry cursor and rest (record mode, pitched tracks).
 
-Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I steps 1-8, A-K steps 9-16. Knobs: drag vertically (Shift = fine), mouse wheel, double-tap to reset.
+| | RECORD mode (building) | PLAY mode (performing) |
+|---|---|---|
+| Drum tracks | Strip toggles steps; VIEW chooses the 16-step page | Strip toggles steps live; view follows the playhead |
+| Pitched tracks | Keyboard writes the note at the cursor and moves on; ◀ ▶ move, REST clears | Keyboard plays live (recorded with MOTION REC) |
+| Pattern A/B/C | Switches immediately | Switches at the end of the loop |
+
+On the screen, hit height shows the dynamic (tall accent, medium normal, short ghost); the bass lane shows note names and the cursor.
+
+Patterns and settings are kept for the browser session (survive a reload, not closing the tab).
+
+Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I / A-K the 16 strip buttons. Knobs: drag vertically (Shift = fine), mouse wheel, double-tap to reset.
