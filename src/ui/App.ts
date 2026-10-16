@@ -7,18 +7,21 @@
  *  RECORD  building patterns. Patterns switch at once. Drums: strip toggles steps (with
  *          the armed accent/ghost), VIEW pages long patterns. Pitched: step-entry keyboard
  *          (note at the cursor, then advance; ◀ ▶ REST).
- *  PLAY    performing. Patterns switch at loop end; the view follows the playhead.
- *          Drums: steps toggle live. Pitched: live keyboard.
- *  DESIGN  sound design for the selected track: all parameters on pages of 12 knobs,
- *          plus TRACK (type, preset, mix, live-knob assignment, chord mode) and GLOBAL.
- * In RECORD and PLAY the 12 knobs are the live knobs: one column per track, two each,
+ *  PLAY    performing. Nothing is recorded: the strip is a keyboard for every track
+ *          (drums play chromatically), patterns switch at loop end, the view follows
+ *          the playhead.
+ *  DESIGN  sound design for the selected track: its core parameters (SOUND), TRACK
+ *          (type, preset, mix, sends, live-knob assignment, chord), FX and GLOBAL.
+ *          The strip is an audition keyboard.
+ * In RECORD and PLAY the 12 knobs are the live knobs: one module per track, two each,
  * assigned on the TRACK page. Only non-coarse parameters can be assigned.
- * MOTION REC (while playing): live-knob moves on instrument parameters become per-step
- * locks on that track, and live keyboard notes are written to the nearest step.
+ * MOTION REC (RECORD mode, while playing): live-knob moves on instrument parameters
+ * become per-step locks on that track, and keyboard notes are written to the nearest step.
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { GLOBAL_PARAMS, MIX_PARAMS } from '../engine/mixParams';
+import { GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { FX_PAGE_IDS, FX_PARAMS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
   MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
@@ -82,7 +85,7 @@ export class App {
     private readonly panel: Panel,
     private send: (msg: MainToWorklet) => void,
   ) {
-    this.octave = project.channels.map((c) => Math.floor(c.patterns[0].steps[0].note / 12) * 12);
+    this.octave = project.channels.map((c) => (c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote));
     panel.subscribe((e) => this.onControl(e));
     this.refreshPanel();
   }
@@ -123,14 +126,23 @@ export class App {
     return this.channel.patterns[this.channel.activePattern];
   }
 
+  /** Pitched tracks always get a keyboard; drums only show steps while recording. */
   private get keyboard(): boolean {
-    return !isDrum(this.channel.instrument);
+    return !isDrum(this.channel.instrument) || this.mode !== 'record';
   }
 
-  private soundName(c: ChannelState): string {
-    if (c.instrument === 'none') return '---';
-    const idx = c.presets[c.instrument];
-    return idx === undefined ? INSTRUMENTS[c.instrument].name : INSTRUMENTS[c.instrument].presets[idx].name;
+  /** Motion recording only happens in RECORD mode, while playing. */
+  private get recording(): boolean {
+    return this.mode === 'record' && this.motion && this.playing;
+  }
+
+  private kindName(c: ChannelState): string {
+    return c.instrument === 'none' ? '---' : INSTRUMENTS[c.instrument].name;
+  }
+
+  private presetName(c: ChannelState): string {
+    if (c.instrument === 'none') return '';
+    return INSTRUMENTS[c.instrument].presets[c.presets[c.instrument] ?? 0].name;
   }
 
   private pageCount(ch = this.selected): number {
@@ -175,14 +187,17 @@ export class App {
   private paramTarget(ch: number, id: string, label?: string, highlight?: boolean): KnobTarget | null {
     const c = this.project.channels[ch];
     if (id.startsWith(MIX_PREFIX)) {
-      const mixId = id.slice(MIX_PREFIX.length) as 'volume' | 'pan';
+      const mixId = id.slice(MIX_PREFIX.length) as MixId;
       const spec = MIX_PARAMS.find((p) => p.id === mixId);
       if (!spec) return null;
+      const sendIndex = mixId.startsWith('send') ? Number(mixId.charAt(4)) : -1;
       return {
         label: label ?? spec.name, spec, channel: ch, highlight,
-        get: () => (mixId === 'pan' ? c.pan : c.volume),
+        get: () => (sendIndex >= 0 ? c.sends[sendIndex] : mixId === 'pan' ? c.pan : c.volume),
         set: (v) => {
-          if (mixId === 'pan') c.pan = v; else c.volume = v;
+          if (sendIndex >= 0) c.sends[sendIndex] = v;
+          else if (mixId === 'pan') c.pan = v;
+          else c.volume = v;
           this.send({ type: 'setMix', channel: ch, id: mixId, value: v });
         },
       };
@@ -195,7 +210,7 @@ export class App {
       label: label ?? spec.name, spec, channel: ch, highlight,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
       set: (v) => {
-        if (this.motion && this.playing && this.mode !== 'design') {
+        if (this.recording) {
           // Recorded as a lock on the step playing now; the track's own value is untouched.
           this.send({ type: 'recordLock', channel: ch, id, value: v });
         } else {
@@ -212,11 +227,21 @@ export class App {
     const c = this.channel;
     const pages: { name: string; targets: () => (KnobTarget | null)[] }[] = [];
     if (c.instrument !== 'none') {
-      for (const page of INSTRUMENTS[c.instrument].pages) {
-        pages.push({ name: page.name, targets: () => page.ids.map((id) => this.paramTarget(ch, id)) });
-      }
+      const params = INSTRUMENTS[c.instrument].params;
+      pages.push({ name: 'SOUND', targets: () => params.map((p) => this.paramTarget(ch, p.id)) });
     }
     pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
+    pages.push({
+      name: 'FX',
+      targets: () => FX_PAGE_IDS.map((id) => {
+        const spec = FX_PARAMS.find((p) => p.id === id) as ParamSpec;
+        return {
+          label: spec.name, spec, channel: ch,
+          get: () => this.project.fx[id] ?? spec.defaultValue,
+          set: (v: number) => { this.project.fx[id] = v; this.send({ type: 'setFx', id, value: v }); },
+        };
+      }),
+    });
     pages.push({
       name: 'GLOBAL',
       targets: () => GLOBAL_PARAMS.map((spec) => ({
@@ -233,7 +258,10 @@ export class App {
     return pages;
   }
 
-  /** TRACK page: instrument type, preset, mix, live-knob assignment, chord mode. */
+  /**
+   * TRACK page. Row 1: type, preset, volume, pan, live knob 1 and 2.
+   * Row 2: the three send levels (delay, distortion, mid-cut), chord mode.
+   */
   private trackTargets(): (KnobTarget | null)[] {
     const ch = this.selected;
     const c = this.channel;
@@ -269,6 +297,7 @@ export class App {
         set: (v) => { c.live[r] = candidates[v].id; },
       });
     }
+    targets.push(this.paramTarget(ch, 'mix:send0'), this.paramTarget(ch, 'mix:send1'), this.paramTarget(ch, 'mix:send2'));
     if (!isDrum(c.instrument)) {
       targets.push({
         label: 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch,
@@ -291,7 +320,11 @@ export class App {
     // Locks belong to the old instrument's parameters.
     for (const p of c.patterns) for (const s of p.steps) delete s.locks;
     this.send({ type: 'setInstrument', channel: this.selected, kind, sound: c.sounds[kind] ?? {} });
-    this.octave[this.selected] = 36;
+    this.octave[this.selected] = INSTRUMENTS[kind].baseNote;
+    if (isDrum(kind)) {
+      c.chord = 0;
+      this.send({ type: 'setChord', channel: this.selected, chord: 0 });
+    }
   }
 
   /** The 12 knob targets for the current mode. */
@@ -307,9 +340,7 @@ export class App {
     for (let row = 0; row < 2; row++) {
       for (let ch = 0; ch < KNOBS_PER_ROW; ch++) {
         const c = this.project.channels[ch];
-        const t = this.paramTarget(ch, c.live[row], undefined, ch === this.selected);
-        if (t) t.label = `${ch + 1} ${t.spec.name}`;
-        out.push(t);
+        out.push(this.paramTarget(ch, c.live[row], undefined, ch === this.selected));
       }
     }
     return out;
@@ -392,7 +423,10 @@ export class App {
       const note = this.octave[ch] + button;
       const vel = this.velocity();
       this.heldNotes.set(button, note);
-      if (this.mode === 'record') {
+      if (this.mode === 'record' && this.recording) {
+        // Live recording: the worklet writes the note to the nearest step.
+        this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent' });
+      } else if (this.mode === 'record') {
         // Step entry: write at the cursor, hear it, advance.
         const index = this.cursor[ch];
         const step = this.pattern.steps[index];
@@ -403,9 +437,8 @@ export class App {
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
         this.moveCursor(1);
         this.save();
-      } else if (this.mode === 'play' && this.motion && this.playing) {
-        this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent' });
       } else {
+        // PLAY and SOUND DESIGN: play only, never recorded.
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
       }
       return;
@@ -495,7 +528,8 @@ export class App {
       const c = this.project.channels[ch];
       this.panel.setButtonLit(`ch${ch + 1}`, ch === this.selected);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
-      this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.soundName(c)}</small>`);
+      this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
+      this.panel.setBadge(ch, this.mode === 'design' ? 'dim' : ch === this.selected ? 'lit' : '');
     }
     const pages = this.mode === 'design' ? this.designPages() : [];
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
@@ -510,7 +544,7 @@ export class App {
     const rec = this.mode === 'record';
     const kb = this.keyboard;
     this.panel.setButtonFlag('motion', 'armed', this.motion);
-    this.panel.setButtonEnabled('motion', this.mode !== 'design');
+    this.panel.setButtonEnabled('motion', this.mode === 'record');
     this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent');
     this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost');
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
@@ -530,7 +564,7 @@ export class App {
     const heardHere = this.playing && playingPattern === c.activePattern;
     const head = heardHere ? (this.status?.steps[ch] ?? -1) : -1;
     const page = this.visiblePage(ch);
-    const pitchedRecord = this.keyboard && this.mode === 'record';
+    const pitchedRecord = this.keyboard && this.mode === 'record' && !this.recording;
     const cursor = this.cursor[ch];
 
     // LEDs: the step being played (red while motion recording), the step-entry cursor.
@@ -538,7 +572,7 @@ export class App {
       const index = page * 16 + i;
       let state: '' | 'on' | 'rec' | 'cursor' = '';
       if (pitchedRecord && index === cursor) state = 'cursor';
-      if (head === index) state = this.motion && this.mode !== 'design' ? 'rec' : 'on';
+      if (head === index) state = this.recording ? 'rec' : 'on';
       this.panel.setLed(i, state);
     }
 
@@ -606,7 +640,7 @@ export class App {
     const c = this.channel;
     const playingPattern = this.status?.patterns[ch] ?? c.activePattern;
     return {
-      channelLabel: `CH${ch + 1} ${this.soundName(c)}`,
+      channelLabel: `CH${ch + 1} ${this.kindName(c)}`,
       patternLabel: this.playing && playingPattern !== c.activePattern
         ? `PAT ${PATTERN_NAMES[playingPattern]}>${PATTERN_NAMES[c.activePattern]}`
         : `PAT ${PATTERN_NAMES[c.activePattern]}`,
@@ -635,7 +669,7 @@ export class App {
         });
       }
       return {
-        name: `${i + 1}${this.soundName(lc).replace(' ', '').slice(0, 4)}`,
+        name: `${i + 1}${this.kindName(lc).slice(0, 4)}`,
         cells,
         playhead: head >= 0 && Math.floor(head / 16) === page ? head % 16 : -1,
         cursor: i === ch && pitched && this.mode === 'record' && Math.floor(this.cursor[i] / 16) === page ? this.cursor[i] % 16 : -1,
@@ -649,7 +683,7 @@ export class App {
     return {
       ...this.header(),
       stepsLabel: len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
-      motion: this.motion,
+      motion: this.motion && this.mode === 'record',
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
       keyboardLabel: this.keyboard ? `KEYS ${noteName(this.octave[ch])}` : '',
@@ -672,7 +706,7 @@ export class App {
       : paramSpec(c.instrument, id)?.name) ?? '-';
     return {
       ...this.header(),
-      kindLabel: c.instrument === 'none' ? '' : INSTRUMENTS[c.instrument].name,
+      kindLabel: this.presetName(c),
       pages: pages.map((p) => p.name),
       page: this.designPage,
       slots: this.slots(),

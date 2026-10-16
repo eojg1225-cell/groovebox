@@ -69,6 +69,7 @@ html, body {
   display: flex; flex-direction: column; gap: 14px;
 }
 .panel-top { display: flex; gap: 20px; height: 284px; flex: none; }
+.panel { gap: 12px; }
 
 .screen-bezel {
   background: #050807;
@@ -117,18 +118,44 @@ html, body {
 .btn.page { height: 40px; font-size: 12px; }
 .btn.page.disabled { opacity: 0.12; }
 
-/* ---------- Knobs: 2 rows of 6 ---------- */
+/* ---------- Knob section: six track modules, like a hardware front panel ---------- */
 .knob-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  grid-auto-rows: 104px;
-  height: 214px; flex: none;
-  row-gap: 6px;
-  justify-items: center;
+  display: flex;
+  height: 226px; flex: none;
+  border-radius: 14px;
+  background: #171b1f;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  padding: 6px 0;
 }
-.knob { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 170px; border-radius: 12px; padding-top: 2px; }
-.knob.highlight { background: #20272d; }
-.knob-body { position: relative; width: 76px; height: 76px; touch-action: none; cursor: ns-resize; }
+.knob-module {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  position: relative;
+  padding: 2px 0;
+}
+/* Machined groove between modules: a dark cut with a highlight edge. */
+.knob-module + .knob-module::before {
+  content: '';
+  position: absolute; left: -2px; top: 8px; bottom: 8px; width: 4px;
+  border-radius: 2px;
+  background: #0b0e10;
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.06), inset 1px 0 2px rgba(0, 0, 0, 0.8);
+}
+/* Printed track number between the two knobs. */
+.track-badge {
+  min-width: 34px; height: 22px; padding: 0 8px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  border: 2px solid #3a444e;
+  color: var(--ink-dim);
+  font-size: 13px; font-weight: 800; letter-spacing: 0.05em;
+  transition: background-color 80ms, color 80ms, opacity 80ms;
+}
+.track-badge.lit { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.track-badge.dim { opacity: 0.3; }
+.knob { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; }
+.knob.highlight .knob-label { color: var(--ink); }
+.knob-body { position: relative; width: 72px; height: 72px; touch-action: none; cursor: ns-resize; }
 .knob-ring { position: absolute; inset: 0; transform: rotate(135deg); }
 .knob-track, .knob-arc { fill: none; stroke-width: 7; }
 .knob-track { stroke: #2f3740; stroke-dasharray: 270 360; }
@@ -147,7 +174,7 @@ html, body {
 }
 .knob.active .knob-cap { box-shadow: 0 0 0 3px var(--accent); }
 .knob-label {
-  font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink-dim);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink-dim);
   min-height: 1.2em; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .knob.disabled .knob-body { opacity: 0.2; cursor: default; }

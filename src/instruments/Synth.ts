@@ -33,22 +33,52 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'release', name: 'RELEASE', min: 0.01, max: 4, defaultValue: 0.15, unit: 'S', curve: 'exp' },
 ];
 
-export const SYNTH_PAGES = [
-  { name: 'OSC+FILTER', ids: ['wave', 'detune', 'sub', 'octave', 'voice', 'glide', 'cutoff', 'reso', 'fenv', 'fdecay', 'drive', 'level'] },
-  { name: 'ENVELOPE', ids: ['attack', 'decay', 'sustain', 'release'] },
-];
+const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
 
-export const SYNTH_PRESETS: readonly Preset[] = [
-  { name: 'BASS', live: ['cutoff', 'fenv'],
-    values: { wave: 0, sub: 0.35, voice: 1, octave: 2, cutoff: 380, reso: 0.55, fenv: 0.5, fdecay: 0.25, attack: 0.002, decay: 0.3, sustain: 0.2, release: 0.06, level: 0.75 } },
-  { name: 'REESE', live: ['cutoff', 'detune'],
-    values: { wave: 0, detune: 0.7, sub: 0.5, voice: 1, glide: 0.04, cutoff: 650, reso: 0.2, fenv: 0.1, fdecay: 0.5, attack: 0.005, decay: 1, sustain: 1, release: 0.12, drive: 2, level: 0.7 } },
-  { name: 'SUB', live: ['decay', 'drive'],
-    values: { wave: 3, voice: 1, cutoff: 2000, reso: 0, fenv: 0, attack: 0.003, decay: 0.6, sustain: 0.8, release: 0.1, level: 0.85 } },
-  { name: 'STAB', live: ['cutoff', 'decay'],
-    values: { wave: 0, detune: 0.3, voice: 0, octave: 2, cutoff: 1500, reso: 0.3, fenv: 0.45, fdecay: 0.18, attack: 0.002, decay: 0.35, sustain: 0.15, release: 0.25, level: 0.55 } },
-  { name: 'PAD', live: ['cutoff', 'release'],
-    values: { wave: 0, detune: 0.5, voice: 0, cutoff: 1100, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.45, decay: 1.2, sustain: 0.8, release: 1.2, level: 0.5 } },
+function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec[] {
+  return ids.map((id) => ({ ...BY_ID[id], defaultValue: defaults[id] ?? BY_ID[id].defaultValue }));
+}
+
+/**
+ * Three synth tracks share the engine with different core controls:
+ *  BASS mono with glide and an AD-ish envelope, PAD polyphonic (chords), LEAD mono.
+ * Settings a track type doesn't expose are fixed (see *_FIXED).
+ */
+export const BASS_PARAMS = synthParams(
+  ['wave', 'detune', 'sub', 'octave', 'glide', 'drive', 'cutoff', 'reso', 'fenv', 'fdecay', 'decay', 'sustain'],
+  { sub: 0.35, cutoff: 380, reso: 0.55, fenv: 0.5, fdecay: 0.25, decay: 0.3, sustain: 0.2 },
+);
+export const BASS_FIXED = { voice: 1, attack: 0.002, release: 0.06, level: 0.75 };
+
+export const PAD_PARAMS = synthParams(
+  ['wave', 'detune', 'octave', 'cutoff', 'reso', 'fenv', 'attack', 'decay', 'sustain', 'release', 'fdecay', 'drive'],
+  { detune: 0.5, cutoff: 1100, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.45, decay: 1.2, sustain: 0.8, release: 1.2 },
+);
+export const PAD_FIXED = { voice: 0, glide: 0, sub: 0, level: 0.5 };
+
+export const LEAD_PARAMS = synthParams(
+  ['wave', 'detune', 'octave', 'glide', 'cutoff', 'reso', 'fenv', 'fdecay', 'attack', 'decay', 'sustain', 'release'],
+  { wave: 1, detune: 0.15, octave: 3, glide: 0.05, cutoff: 2200, reso: 0.3, fenv: 0.3, fdecay: 0.3, attack: 0.005, decay: 0.3, sustain: 0.6, release: 0.15 },
+);
+export const LEAD_FIXED = { voice: 1, sub: 0, drive: 1.5, level: 0.55 };
+
+export const BASS_PRESETS: readonly Preset[] = [
+  { name: 'BASS', live: ['cutoff', 'fenv'], values: {} },
+  { name: 'REESE', live: ['cutoff', 'detune'], values: { detune: 0.7, sub: 0.5, glide: 0.04, cutoff: 650, reso: 0.2, fenv: 0.1, fdecay: 0.5, decay: 1, sustain: 1, drive: 2 } },
+  { name: 'SUB', live: ['decay', 'drive'], values: { wave: 3, sub: 0, cutoff: 2000, reso: 0, fenv: 0, decay: 0.6, sustain: 0.8 } },
+  { name: 'ACID', live: ['cutoff', 'reso'], values: { wave: 0, sub: 0, glide: 0.06, cutoff: 300, reso: 0.85, fenv: 0.7, fdecay: 0.18, decay: 0.25, sustain: 0.3, drive: 3 } },
+];
+export const PAD_PRESETS: readonly Preset[] = [
+  { name: 'WARM', live: ['cutoff', 'release'], values: {} },
+  { name: 'STAB', live: ['cutoff', 'decay'], values: { detune: 0.3, cutoff: 1500, reso: 0.3, fenv: 0.45, fdecay: 0.18, attack: 0.002, decay: 0.35, sustain: 0.15, release: 0.25 } },
+  { name: 'GLASS', live: ['cutoff', 'attack'], values: { wave: 2, detune: 0.2, octave: 3, cutoff: 5000, attack: 0.02, decay: 0.8, sustain: 0.4, release: 1.5 } },
+  { name: 'DARK', live: ['cutoff', 'reso'], values: { wave: 1, detune: 0.6, octave: 1, cutoff: 500, reso: 0.4, attack: 0.8, release: 2 } },
+];
+export const LEAD_PRESETS: readonly Preset[] = [
+  { name: 'SQUARE', live: ['cutoff', 'glide'], values: {} },
+  { name: 'SAW', live: ['cutoff', 'fenv'], values: { wave: 0, detune: 0.3, cutoff: 1800, fenv: 0.5 } },
+  { name: 'SINE', live: ['glide', 'decay'], values: { wave: 3, detune: 0, cutoff: 6000, fenv: 0, sustain: 0.8 } },
+  { name: 'SCREAM', live: ['cutoff', 'reso'], values: { wave: 0, detune: 0.5, cutoff: 900, reso: 0.8, fenv: 0.6, fdecay: 0.4 } },
 ];
 
 const STAGE_OFF = 0, STAGE_ATTACK = 1, STAGE_DECAY = 2, STAGE_SUSTAIN = 3, STAGE_RELEASE = 4;
@@ -69,7 +99,6 @@ class Voice {
 }
 
 export class Synth implements Instrument {
-  readonly params = SYNTH_PARAMS;
   private readonly sr: number;
   private readonly voices: Voice[] = [];
   private wave = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
@@ -79,10 +108,12 @@ export class Synth implements Instrument {
   private attackInc = 1; private decayMul = 0; private sustain = 0.5; private releaseMul = 0;
   private ageCounter = 0;
 
-  constructor(sampleRate: number) {
+  constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>) {
     this.sr = sampleRate;
     for (let i = 0; i < MAX_VOICES; i++) this.voices.push(new Voice());
     for (const p of SYNTH_PARAMS) this.setParam(p.id, p.defaultValue);
+    for (const id in fixed) this.setParam(id, fixed[id]);
+    for (const p of params) this.setParam(p.id, p.defaultValue);
   }
 
   noteOn(note: number, velocity: number, group: number): void {

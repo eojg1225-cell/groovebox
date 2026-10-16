@@ -6,8 +6,12 @@ import { emptyPattern, normalizeProject, type Project } from '../src/engine/proj
 import { applyPreset, createDefaultProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, presetSound } from '../src/instruments/registry';
-import { Drum } from '../src/instruments/Drum';
-import { Synth } from '../src/instruments/Synth';
+import { Drum, KICK_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
+import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
+import { Delay } from '../src/fx/Delay';
+import { Distortion } from '../src/fx/Distortion';
+import { MidCut } from '../src/fx/MidCut';
+import { FX_PARAMS } from '../src/fx';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -54,7 +58,7 @@ function kickProject(steps: number[], opts: { length?: number; bpm?: number; swi
     c.patterns = c.patterns.map(() => emptyPattern());
   });
   const kick = p.channels[0];
-  kick.sounds.drum = { ...presetSound('drum', 0), t_decay: 0.05, c_level: 0 };
+  kick.sounds.kick = { ...presetSound('kick', 0), t_decay: 0.05, c_level: 0 };
   kick.patterns[0].length = opts.length ?? 16;
   for (const s of steps) kick.patterns[0].steps[s].active = true;
   return p;
@@ -73,7 +77,7 @@ const near = (actual: number[], expected: number[], tol = 4) => {
 
 describe('params', () => {
   it('round-trips normalised values for every instrument, mix and global param', () => {
-    const all = [...Object.values(INSTRUMENTS).flatMap((i) => i.params), ...MIX_PARAMS, ...GLOBAL_PARAMS];
+    const all = [...Object.values(INSTRUMENTS).flatMap((i) => i.params), ...MIX_PARAMS, ...GLOBAL_PARAMS, ...FX_PARAMS];
     for (const spec of all) {
       const points = spec.options ? spec.options.map((_, i) => i / (spec.options!.length - 1)) : [0, 0.25, 0.5, 1];
       for (const n of points) expect(toNorm(spec, toValue(spec, n))).toBeCloseTo(n, 9);
@@ -88,7 +92,7 @@ describe('instruments', () => {
     for (const [pi, preset] of entry.presets.entries()) {
       it(`${kind} ${preset.name}: sounds, stays finite and bounded, then dies away`, () => {
         const inst = entry.create(SR);
-        const sound = presetSound(kind as 'drum' | 'synth', pi);
+        const sound = presetSound(kind as keyof typeof INSTRUMENTS, pi);
         for (const id in sound) inst.setParam(id, sound[id]);
         const l = new Float32Array(SR * 5);
         const r = new Float32Array(SR * 5);
@@ -106,22 +110,24 @@ describe('instruments', () => {
     }
   }
 
-  it('every page lists real params and fits 12 knobs; coarse params are discrete', () => {
+  it('each type fits one page of 12 knobs; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
-      for (const page of entry.pages) {
-        expect(page.ids.length).toBeLessThanOrEqual(12);
-        for (const id of page.ids) expect(entry.params.some((p) => p.id === id)).toBe(true);
-      }
+      expect(entry.params.length).toBeLessThanOrEqual(12);
       for (const p of entry.params) if (p.options) expect(p.coarse).toBe(true);
       for (const preset of entry.presets) {
-        for (const id of preset.live) expect(entry.params.find((p) => p.id === id)?.coarse).toBeFalsy();
+        for (const id of preset.live) {
+          const spec = entry.params.find((p) => p.id === id);
+          expect(spec).toBeDefined();
+          expect(spec?.coarse).toBeFalsy();
+        }
+        for (const id in preset.values) expect(entry.params.some((p) => p.id === id)).toBe(true);
       }
     }
   });
 
   it('drum crush and drive keep the output bounded', () => {
-    const d = new Drum(SR);
-    const sound = presetSound('drum', INSTRUMENTS.drum.presets.findIndex((p) => p.name === 'IND HIT'));
+    const d = new Drum(SR, SNARE_PARAMS);
+    const sound = presetSound('snare', INSTRUMENTS.snare.presets.findIndex((p) => p.name === 'IND'));
     for (const id in sound) d.setParam(id, sound[id]);
     d.setParam('drive', 30);
     d.setParam('crush', 1);
@@ -134,8 +140,8 @@ describe('instruments', () => {
   });
 
   it('synth plays several voices at once (for chords)', () => {
-    const one = new Synth(SR);
-    const four = new Synth(SR);
+    const one = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+    const four = new Synth(SR, PAD_PARAMS, PAD_FIXED);
     for (const s of [one, four]) { s.setParam('attack', 0.001); s.setParam('sustain', 1); s.setParam('level', 0.3); }
     one.noteOn(48, 1, 48);
     for (const n of CHORDS[1].intervals) four.noteOn(48 + n, 1, 48);
@@ -245,7 +251,7 @@ describe('dynamics, locks and motion recording', () => {
 
   it('a step lock applies on its step and reverts on the next', () => {
     const p = kickProject([0, 1]);
-    p.channels[0].sounds.drum = { ...presetSound('drum', 0), t_decay: 1, c_level: 0, t_sweep: 0, t_pitch: 40 };
+    p.channels[0].sounds.kick = { ...presetSound('kick', 0), t_decay: 1, c_level: 0, t_sweep: 0, t_pitch: 40 };
     p.channels[0].patterns[0].steps[0].locks = { t_pitch: 120 };
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
@@ -296,8 +302,10 @@ describe('dynamics, locks and motion recording', () => {
 describe('chords and gates', () => {
   it('chord mode plays the chord and sequenced notes release after their gate', () => {
     const p = kickProject([]);
-    applyPreset(p.channels[4], 'synth', INSTRUMENTS.synth.presets.findIndex((x) => x.name === 'STAB'));
-    p.channels[4].sounds.synth!.release = 0.02;
+    applyPreset(p.channels[4], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'STAB'));
+    p.channels[4].sounds.pad!.release = 0.02;
+    p.channels[4].sends = [0, 0, 0];
+    p.channels[4].chord = 0;
     p.channels[4].patterns[0].steps[0].active = true;
     const plain = engineWith(p);
     p.channels[4].chord = CHORDS.findIndex((c) => c.name === 'MIN9');
@@ -314,11 +322,109 @@ describe('chords and gates', () => {
     const p = kickProject([0]);
     p.channels[0].patterns[0].steps[0].locks = { t_pitch: 300 };
     const e = engineWith(p);
-    e.handleMessage({ type: 'setInstrument', channel: 0, kind: 'synth', sound: presetSound('synth', 0) });
+    e.handleMessage({ type: 'setInstrument', channel: 0, kind: 'bass', sound: presetSound('bass', 0) });
     e.handleMessage({ type: 'transport', playing: true });
     const st = stats(render(e, 0.1).l);
     expect(st.nan).toBe(false);
     expect(st.peak).toBeGreaterThan(0.01);
+  });
+});
+
+describe('drum layers', () => {
+  it('a kick has no metal layer and a snare no click layer', () => {
+    expect(KICK_PARAMS.some((p) => p.id.startsWith('m_'))).toBe(false);
+    expect(SNARE_PARAMS.some((p) => p.id.startsWith('c_'))).toBe(false);
+    expect(INSTRUMENTS.hat.params.some((p) => p.id.startsWith('t_'))).toBe(false);
+  });
+
+  it('the played note tunes a drum (chromatic play)', () => {
+    const zc = (note: number) => {
+      const d = new Drum(SR, KICK_PARAMS);
+      d.setParam('t_sweep', 0); d.setParam('c_level', 0); d.setParam('t_decay', 2);
+      const l = new Float32Array(SR / 4);
+      d.noteOn(note, 1, note);
+      d.render(l, new Float32Array(l.length), 0, l.length);
+      let n = 0;
+      for (let i = 1; i < l.length; i++) if (l[i - 1] < 0 && l[i] >= 0) n++;
+      return n;
+    };
+    expect(zc(48) / zc(36)).toBeCloseTo(2, 0);
+  });
+});
+
+describe('send effects', () => {
+  const impulse = (len: number) => { const a = new Float32Array(len); a[0] = 1; return a; };
+
+  it('delay repeats at the tempo-synced time and decays', () => {
+    const d = new Delay(SR);
+    d.setTempo(120);
+    d.setParam('dly_time', 3); // 1/4 = 24000 frames
+    d.setParam('dly_tone', 12000);
+    d.setParam('dly_fdbk', 0.5);
+    d.setParam('dly_return', 1);
+    // Let the delay time glide to its target first.
+    const pre = new Float32Array(SR);
+    d.process(pre, pre, new Float32Array(SR), new Float32Array(SR), 0, SR);
+    const n = SR * 2;
+    const inL = impulse(n);
+    const outL = new Float32Array(n);
+    d.process(inL, new Float32Array(n), outL, new Float32Array(n), 0, n);
+    const peakNear = (at: number) => Math.max(...Array.from(outL.subarray(at - 50, at + 50), Math.abs));
+    expect(peakNear(24000)).toBeGreaterThan(0.3);
+    expect(peakNear(48000)).toBeLessThan(peakNear(24000));
+    expect(peakNear(48000)).toBeGreaterThan(0.01);
+  });
+
+  it('delay feedback above 1 stays bounded (runs away gracefully)', () => {
+    const d = new Delay(SR);
+    d.setTempo(170);
+    d.setParam('dly_time', 0);
+    d.setParam('dly_fdbk', 1.1);
+    d.setParam('dly_return', 1);
+    const n = SR * 6;
+    const outL = new Float32Array(n);
+    const noiseIn = Float32Array.from({ length: n }, (_, i) => (i < 2000 ? Math.sin(i * 0.3) : 0));
+    d.process(noiseIn, noiseIn, outL, new Float32Array(n), 0, n);
+    expect(stats(outL).nan).toBe(false);
+    expect(stats(outL).peak).toBeLessThan(2.5);
+  });
+
+  it('distortion output is bounded at any drive', () => {
+    const d = new Distortion(SR);
+    d.setParam('dst_drive', 50);
+    d.setParam('dst_return', 1);
+    const n = SR / 4;
+    const sine = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.05) * 2);
+    const out = new Float32Array(n);
+    d.process(sine, sine, out, new Float32Array(n), 0, n);
+    expect(stats(out).peak).toBeLessThan(1);
+  });
+
+  it('mid-cut removes energy at its centre frequency', () => {
+    const energyAt = (freq: number) => {
+      const m = new MidCut(SR);
+      m.setParam('mid_freq', 1000); m.setParam('mid_depth', 24); m.setParam('mid_return', 1);
+      const n = SR / 2;
+      const sine = Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * freq * i) / SR));
+      const out = new Float32Array(n);
+      m.process(sine, sine, out, new Float32Array(n), 0, n);
+      return out.subarray(n / 2).reduce((a, v) => a + v * v, 0) / (n / 2);
+    };
+    expect(energyAt(1000)).toBeLessThan(energyAt(100) * 0.1);
+  });
+
+  it('a channel send feeds its effect into the mix', () => {
+    const dry = kickProject([0], { bpm: 120 });
+    const wet = kickProject([0], { bpm: 120 });
+    wet.fx.dly_time = 3; // a quarter note later
+    wet.channels[0].sends = [1, 0, 0];
+    const tail = (p: Project) => {
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 0.6).l.subarray(23000, 26000)).peak;
+    };
+    expect(tail(dry)).toBeLessThan(1e-4);
+    expect(tail(wet)).toBeGreaterThan(0.01);
   });
 });
 

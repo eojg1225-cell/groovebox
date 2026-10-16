@@ -10,7 +10,7 @@ Web-first groovebox (techno, DnB, dub, jungle). Full spec: `groovebox-brief.md` 
 - Must work in desktop Chrome/Edge and Silk on a Fire tablet (touch, multi-touch).
 
 ## Current milestone
-M1: Sequencer + drums (in progress). Done: worklet sequencer (sample-accurate, swing, polymeter, quantised A/B/C switching, lengths 16-64, note gates), 6 channels, layered DRUM instrument (tone/metal/noise/click + drive/crush, 8 presets), 6-voice SYNTH with chord mode, RECORD/PLAY/SOUND DESIGN modes, 12 knobs (live: 2 per track; design: full parameter pages + TRACK + GLOBAL), coarse params design-only, motion record + clear, accent/ghost, step LEDs, landscape lock/rotation, empty patterns at startup, session persistence. Next: half/double-time, per-step note/gate editing, M2 mixer/FX.
+M1 done, M2 (mixer + FX sends) in progress. Done: sequencer (sample-accurate, swing, polymeter, A/B/C, 16-64 steps, gates), 6 tracks (KICK/SNARE/HAT layered drums, BASS/PAD/LEAD synths, chord mode), RECORD/PLAY/SOUND DESIGN (PLAY never records), 12 knobs in 6 track modules, motion record (RECORD only), accent/ghost, step LEDs, send FX (delay, distortion, mid-cut) with per-track sends and FX page, landscape lock/rotation, session persistence. Next: master limiter, half/double-time, per-step note/gate editing.
 
 ## After every build
 Run `npm run build:artifact` and republish `dist-artifact/groovebox.html` (with `files: {"groovebox-worklet.js": "dist-artifact/groovebox-worklet.js"}`) to the user's Artifact https://claude.ai/artifact/1gX3NeJdaGnWsLa3szA6q1, then end the reply with a **▶ Launch** link to it.

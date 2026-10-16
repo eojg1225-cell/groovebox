@@ -4,7 +4,7 @@
  */
 import type { InstrumentKind, Project, Step } from './project';
 
-export type MixParam = 'volume' | 'pan' | 'mute';
+export type MixParam = 'volume' | 'pan' | 'mute' | 'send0' | 'send1' | 'send2';
 export type GlobalParam = 'bpm' | 'swing' | 'master';
 
 export type MainToWorklet =
@@ -24,6 +24,8 @@ export type MainToWorklet =
   | { type: 'setSound'; channel: number; id: string; value: number }
   | { type: 'setMix'; channel: number; id: MixParam; value: number }
   | { type: 'setGlobal'; id: GlobalParam; value: number }
+  /** Send effect parameter (ids in src/fx). */
+  | { type: 'setFx'; id: string; value: number }
   | { type: 'transport'; playing: boolean }
   /** Audition / play a note on a channel now. */
   | { type: 'trigger'; channel: number; note: number; velocity: number }

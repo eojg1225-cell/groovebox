@@ -4,7 +4,12 @@ import type { ParamSpec } from './params';
 export const MIX_PARAMS: readonly ParamSpec[] = [
   { id: 'volume', name: 'VOLUME', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
   { id: 'pan', name: 'PAN', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'send0', name: 'DLY SEND', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'send1', name: 'DST SEND', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'send2', name: 'MID SEND', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
 ];
+
+export type MixId = 'volume' | 'pan' | 'send0' | 'send1' | 'send2';
 
 /** Project-wide parameters (GLOBAL page). */
 export const GLOBAL_PARAMS: readonly ParamSpec[] = [

@@ -8,6 +8,12 @@ import { CHORDS } from './chords';
 import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
 import { Svf } from '../instruments/dsp';
+import { Delay } from '../fx/Delay';
+import { Distortion } from '../fx/Distortion';
+import { MidCut } from '../fx/MidCut';
+import type { Effect } from '../fx/Effect';
+import type { MixParam } from './protocol';
+import { NUM_SENDS } from './project';
 
 /** Largest chunk rendered at once; blocks are split at step boundaries anyway. */
 const CHUNK = 256;
@@ -92,9 +98,23 @@ export class Engine {
   private readonly scratchL = new Float32Array(CHUNK);
   private readonly scratchR = new Float32Array(CHUNK);
 
+  // Send effects: per-channel send levels feed three buses, each into its effect.
+  private readonly delay: Delay;
+  private readonly effects: Effect[];
+  private readonly sendLevel: Smoother[] = []; // [ch * NUM_SENDS + k]
+  private readonly busL: Float32Array[] = [];
+  private readonly busR: Float32Array[] = [];
+
   constructor(sampleRate: number) {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
+    this.delay = new Delay(sampleRate);
+    this.effects = [this.delay, new Distortion(sampleRate), new MidCut(sampleRate)];
+    for (let k = 0; k < NUM_SENDS; k++) {
+      this.busL.push(new Float32Array(CHUNK));
+      this.busR.push(new Float32Array(CHUNK));
+    }
+    for (let i = 0; i < NUM_CHANNELS * NUM_SENDS; i++) this.sendLevel.push(new Smoother(0, 0.02, sampleRate));
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const set: Record<string, Instrument> = {};
       for (const kind of SOUND_KINDS) set[kind] = INSTRUMENTS[kind].create(sampleRate);
@@ -129,10 +149,11 @@ export class Engine {
       case 'setSound': this.setSound(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setGlobal':
-        if (msg.id === 'bpm') this.bpm = msg.value;
+        if (msg.id === 'bpm') { this.bpm = msg.value; this.delay.setTempo(msg.value); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
         else if (msg.id === 'master') this.master.setTarget(msg.value);
         break;
+      case 'setFx': this.setFx(msg.id, msg.value); break;
       case 'transport': this.setPlaying(msg.playing); break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity); break;
       case 'release': this.current[msg.channel]?.noteOff(msg.note); break;
@@ -146,6 +167,9 @@ export class Engine {
 
   loadProject(p: Project): void {
     this.bpm = p.bpm;
+    this.delay.setTempo(p.bpm);
+    for (const id in p.fx) this.setFx(id, p.fx[id]);
+    this.delay.settle();
     this.swing = (p.swing - 50) / 50;
     this.master.setImmediate(p.master);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -155,6 +179,7 @@ export class Engine {
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
+      for (let k = 0; k < NUM_SENDS; k++) this.sendLevel[ch * NUM_SENDS + k].setImmediate(c.sends[k] ?? 0);
       // A loaded project starts at its values instead of gliding to them.
       this.volume[ch].setImmediate(c.mute ? 0 : c.volume);
       this.pan[ch].setImmediate(c.pan);
@@ -364,6 +389,12 @@ export class Engine {
   private renderChunk(outL: Float32Array, outR: Float32Array, off: number, n: number): void {
     const sl = this.scratchL;
     const sr = this.scratchR;
+    for (let k = 0; k < NUM_SENDS; k++) {
+      this.busL[k].fill(0, 0, n);
+      this.busR[k].fill(0, 0, n);
+    }
+    const b0L = this.busL[0], b0R = this.busR[0], b1L = this.busL[1], b1R = this.busR[1];
+    const b2L = this.busL[2], b2R = this.busR[2];
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const inst = this.current[ch];
       if (!inst) continue;
@@ -374,16 +405,33 @@ export class Engine {
       const pan = this.pan[ch];
       const tl = this.toneL[ch];
       const tr = this.toneR[ch];
+      const s0 = this.sendLevel[ch * NUM_SENDS];
+      const s1 = this.sendLevel[ch * NUM_SENDS + 1];
+      const s2 = this.sendLevel[ch * NUM_SENDS + 2];
       for (let i = 0; i < n; i++) {
         const v = vol.next();
         // Equal-power pan, -1..1 -> 0..pi/2
         const a = (pan.next() + 1) * 0.25 * Math.PI;
         tl.process(sl[i]);
         tr.process(sr[i]);
-        outL[off + i] += tl.low * v * Math.cos(a);
-        outR[off + i] += tr.low * v * Math.sin(a);
+        const l = tl.low * v * Math.cos(a);
+        const r = tr.low * v * Math.sin(a);
+        outL[off + i] += l;
+        outR[off + i] += r;
+        // Post-fader sends (a muted channel sends nothing).
+        const g0 = s0.next(), g1 = s1.next(), g2 = s2.next();
+        b0L[i] += l * g0; b0R[i] += r * g0;
+        b1L[i] += l * g1; b1R[i] += r * g1;
+        b2L[i] += l * g2; b2R[i] += r * g2;
       }
     }
+    // Three independent send effects, each returning into the main mix.
+    for (let k = 0; k < NUM_SENDS; k++) this.effects[k].process(this.busL[k], this.busR[k], outL, outR, off, n);
+  }
+
+  private setFx(id: string, value: number): void {
+    const fx = id.startsWith('dly_') ? this.effects[0] : id.startsWith('dst_') ? this.effects[1] : id.startsWith('mid_') ? this.effects[2] : null;
+    fx?.setParam(id, value);
   }
 
   private finishBlock(outL: Float32Array, outR: Float32Array, frames: number): void {
@@ -440,7 +488,11 @@ export class Engine {
     }
   }
 
-  private setMix(ch: number, id: 'volume' | 'pan' | 'mute', value: number): void {
+  private setMix(ch: number, id: MixParam, value: number): void {
+    if (id === 'send0' || id === 'send1' || id === 'send2') {
+      this.sendLevel[ch * NUM_SENDS + Number(id.charAt(4))].setTarget(value);
+      return;
+    }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);
     else this.muted[ch] = value > 0 ? 1 : 0;

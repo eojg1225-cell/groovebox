@@ -1,27 +1,35 @@
 /**
- * Instrument registry: one table entry per instrument kind. Adding an instrument means
- * one class plus one entry here.
+ * Instrument registry: one table entry per track type. Adding a type means one entry
+ * here (plus a class if it needs new DSP).
  */
 import type { Instrument, Preset } from './Instrument';
 import type { InstrumentKind, SoundKind } from '../engine/project';
 import type { ParamSpec } from '../engine/params';
-import { Drum, DRUM_PAGES, DRUM_PARAMS, DRUM_PRESETS } from './Drum';
-import { Synth, SYNTH_PAGES, SYNTH_PARAMS, SYNTH_PRESETS } from './Synth';
+import { Drum, HAT_PARAMS, HAT_PRESETS, KICK_PARAMS, KICK_PRESETS, SNARE_PARAMS, SNARE_PRESETS } from './Drum';
+import {
+  BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS,
+  PAD_FIXED, PAD_PARAMS, PAD_PRESETS, Synth,
+} from './Synth';
 
 export interface InstrumentEntry {
   name: string;
+  /** Core parameters, in knob order (at most 12: one sound design page). */
   params: readonly ParamSpec[];
-  /** Sound design pages: up to 12 param ids each (2 rows of 6 knobs). */
-  pages: readonly { name: string; ids: readonly string[] }[];
   presets: readonly Preset[];
-  /** Drum voices use the step strip; pitched instruments get a keyboard. */
+  /** Drum voices use the step strip when recording; pitched types get a keyboard. */
   drum: boolean;
+  /** Lowest note on the keyboard. */
+  baseNote: number;
   create: (sampleRate: number) => Instrument;
 }
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
-  drum: { name: 'DRUM', params: DRUM_PARAMS, pages: DRUM_PAGES, presets: DRUM_PRESETS, drum: true, create: (sr) => new Drum(sr) },
-  synth: { name: 'SYNTH', params: SYNTH_PARAMS, pages: SYNTH_PAGES, presets: SYNTH_PRESETS, drum: false, create: (sr) => new Synth(sr) },
+  kick: { name: 'KICK', params: KICK_PARAMS, presets: KICK_PRESETS, drum: true, baseNote: 36, create: (sr) => new Drum(sr, KICK_PARAMS) },
+  snare: { name: 'SNARE', params: SNARE_PARAMS, presets: SNARE_PRESETS, drum: true, baseNote: 36, create: (sr) => new Drum(sr, SNARE_PARAMS) },
+  hat: { name: 'HAT', params: HAT_PARAMS, presets: HAT_PRESETS, drum: true, baseNote: 36, create: (sr) => new Drum(sr, HAT_PARAMS) },
+  bass: { name: 'BASS', params: BASS_PARAMS, presets: BASS_PRESETS, drum: false, baseNote: 36, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
+  pad: { name: 'PAD', params: PAD_PARAMS, presets: PAD_PRESETS, drum: false, baseNote: 48, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
+  lead: { name: 'LEAD', params: LEAD_PARAMS, presets: LEAD_PRESETS, drum: false, baseNote: 48, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
 };
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];

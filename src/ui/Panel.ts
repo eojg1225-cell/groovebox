@@ -5,13 +5,14 @@
  *
  *   [ pixel screen ] [ MODE: record / play / sound design ]
  *                    [ channels 1-6, mutes, patterns, pages ]
- *   [ 12 knobs: 2 rows of 6                                 ]
+ *   [ 6 track modules, each: knob / track number / knob     ]
  *   [ function row                                 ] [      ]
  *   [ step LEDs                                    ] [ PLAY ]
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
  * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, dpage0..3, play,
- * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row).
+ * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row, k7..k12
+ * bottom row; module i holds k(i+1) and k(i+7)).
  */
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
@@ -53,6 +54,7 @@ export class Panel implements ControlSurface {
   private readonly buttons = new Map<string, HTMLElement>();
   private readonly disabled = new Set<string>();
   private readonly leds: HTMLElement[] = [];
+  private readonly badges: HTMLElement[] = [];
 
   constructor(host: HTMLElement, cfg: PanelConfig) {
     const root = document.createElement('div');
@@ -92,11 +94,20 @@ export class Panel implements ControlSurface {
     for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.pages').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
 
+    // Knob modules, one per track, separated by grooves like a hardware front panel.
     const grid = q('.knob-grid');
     for (let i = 1; i <= KNOB_COUNT; i++) {
-      const knob = new Knob(`k${i}`, '', 0.5, (id, value) => this.emitter.emit({ type: 'knob', id, value }));
-      this.knobs.push(knob);
-      grid.appendChild(knob.el);
+      this.knobs.push(new Knob(`k${i}`, '', 0.5, (id, value) => this.emitter.emit({ type: 'knob', id, value })));
+    }
+    for (let m = 0; m < KNOBS_PER_ROW; m++) {
+      const module = document.createElement('div');
+      module.className = 'knob-module';
+      const badge = document.createElement('div');
+      badge.className = 'track-badge';
+      badge.textContent = String(m + 1);
+      this.badges.push(badge);
+      module.append(this.knobs[m].el, badge, this.knobs[m + KNOBS_PER_ROW].el);
+      grid.appendChild(module);
     }
 
     const fnRow = q('.function-row');
@@ -146,6 +157,15 @@ export class Panel implements ControlSurface {
       k.set(slot.value);
     } else {
       k.set(0);
+    }
+  }
+
+  /** Printed track number between a module's knobs: lit = selected track, dim = not in use. */
+  setBadge(i: number, state: 'lit' | 'dim' | ''): void {
+    const b = this.badges[i];
+    if (b && b.dataset.state !== state) {
+      b.dataset.state = state;
+      b.className = state ? `track-badge ${state}` : 'track-badge';
     }
   }
 

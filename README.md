@@ -32,29 +32,28 @@ Note: AudioWorklet needs a secure context, so on another device use the HTTPS Pa
 
 A title screen fades into the panel; the first touch switches sound on (browsers require a gesture). The instrument is always landscape: on touch devices it goes full screen and locks landscape where the browser allows; on any portrait screen the panel is drawn rotated. Every pattern starts empty.
 
-**Top right:** MODE (RECORD / PLAY / SOUND DESIGN, kept apart at the top), channels 1-6 with MUTE, pattern A/B/C, and the sound design page buttons.
+**Layout (like a hardware front panel):** screen top left; top right MODE (RECORD / PLAY / SOUND DESIGN, set apart at the top), channels 1-6 with MUTE, pattern A/B/C, sound design page buttons. Below: six recessed knob modules separated by grooves, one per track, each with two knobs and the track number printed between them. Then the function row, step lights, the 16-button strip and PLAY.
+
+**Tracks:** 1 KICK, 2 SNARE, 3 HAT, 4 BASS, 5 PAD (chord MIN9), 6 LEAD. A track's type can be changed on its TRACK page.
 
 **Modes**
 
-| | RECORD (building) | PLAY (performing) | SOUND DESIGN |
+| | RECORD | PLAY | SOUND DESIGN |
 |---|---|---|---|
-| 12 knobs | Live knobs: one column per track, 2 each | Live knobs | Every parameter of the selected track, by page |
-| Drum strip | Toggle steps; VIEW pages long patterns | Toggle steps live; view follows the playhead | Toggle steps |
-| Pitched strip | Step-entry keyboard (cursor; ◀ ▶ REST) | Live keyboard (recorded with MOTION REC) | Audition keyboard |
+| Knobs | Live knobs: two per track | Live knobs | The selected track's page |
+| Drum strip | Toggle steps | Keyboard (drum tuned chromatically) | Keyboard (audition) |
+| Pitched strip | Step entry (cursor; ◀ ▶ REST); with MOTION REC while playing, live notes are recorded | Keyboard | Keyboard (audition) |
+| Recorded? | Yes | **Never** | No |
 | Pattern A/B/C | Switch immediately | Switch at loop end | Switch immediately |
 
-Sound design pages: the instrument's pages, then **TRACK** (type DRUM/SYNTH, preset, volume, pan, LIVE 1 / LIVE 2 assignment, chord mode for synths) and **GLOBAL** (BPM, swing, master). Coarse settings (waveforms, layer modes, filter types, type, preset, chord) only live here; the live knobs can only be given the subtler parameters. The screen draws the 12 knobs with their values.
+**Sound design pages:** SOUND (the type's core parameters, one page of up to 12), TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2, delay / distortion / mid-cut sends, chord on pitched tracks), FX (all 12 effect controls) and GLOBAL (BPM, swing, master). Coarse settings (waveforms, modes, type, preset, chord) only live here.
 
-**Instruments**
-- **DRUM**, built from layers: TONE (pitch, sweep, sweep time, decay, drive, wave), CLICK (level, tone, length), METAL (six-oscillator square bank, ring-mod or FM; pitch, spread, tone, decay), NOISE (LP/BP/HP, cutoff, resonance, decay, clap bursts), and a master DRIVE and CRUSH (bit and sample-rate reduction). Presets: KICK, SNARE, HAT, OPEN HAT, CLAP, METAL, IND KICK, IND HIT.
-- **SYNTH**, 6-voice: saw/square/triangle/sine with detune (reese), sub, octave, poly/mono with glide, resonant low-pass with envelope, drive, ADSR. Presets: BASS, REESE, SUB, STAB, PAD. **Chord mode:** MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
+**Sounds**
+- **KICK** = TONE + CLICK; **SNARE** = TONE + METAL; **HAT** = CLICK + METAL. TONE: level, pitch, sweep, sweep time, decay, wave. CLICK: level, tone, length. METAL: level, pitch, spread, noise blend, tone, decay, mode (square bank / ring / FM). Every drum also has DRIVE and CRUSH. Presets include industrial ones (IND).
+- **BASS** (mono, glide), **PAD** (6-voice, chords: MIN7 … MIN11, SUS4), **LEAD** (mono, glide).
 
-Default tracks: 1 KICK, 2 SNARE, 3 HAT, 4 METAL, 5 BASS, 6 STAB (chord MIN9).
+**FX sends:** DELAY (tempo-synced 1/16 to 1 bar, feedback up to 1.1 that runs away gracefully, tone in the feedback path), DISTORTION (drive, tone, soft/hard character), MID-CUT (frequency, width, depth). Each track has three send levels; each effect has a return level. Sends can be put on live knobs.
 
-**Function row:** MOTION REC (live-knob moves become per-step locks on that track; live notes land on the nearest step), ACCENT / GHOST (louder and brighter / quieter and darker), STEPS 16-64, VIEW, OCT − / +, ◀ ▶ REST (step entry), CLEAR MOTION (removes the selected pattern's recorded knob motion).
+**Function row:** MOTION REC (RECORD mode only), ACCENT / GHOST, STEPS 16-64, VIEW, OCT − / +, ◀ ▶ REST, CLEAR MOTION. **Step lights** show the playing step (red while recording) and the step-entry cursor (orange).
 
-**Step lights** above the strip show the step being played (red while motion recording) and the step-entry cursor (orange).
-
-Patterns and settings are kept for the browser session.
-
-Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I / A-K the 16 strip buttons. Knobs: drag vertically (Shift = fine), mouse wheel, double-tap to reset.
+Knobs: drag vertically (400 px for the full range; Shift = fine), mouse wheel, double-tap to reset. Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I / A-K the strip.

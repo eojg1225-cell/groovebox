@@ -4,7 +4,8 @@
  */
 import { localY } from './orientation';
 
-const DRAG_PIXELS_FULL_RANGE = 200;
+// Pixels of vertical drag for the full range (larger = less sensitive).
+const DRAG_PIXELS_FULL_RANGE = 400;
 const DOUBLE_TAP_MS = 300;
 const SWEEP_DEG = 270;
 

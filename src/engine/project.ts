@@ -2,7 +2,8 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
+export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 6;
 export const NUM_PATTERNS = 3;
 export const MAX_STEPS = 64;
@@ -10,11 +11,11 @@ export const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 
-export type InstrumentKind = 'none' | 'drum' | 'synth';
+export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'bass' | 'pad' | 'lead';
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
 
 /** Live-knob target: an instrument param id, or a mixer param. */
-export type LiveTarget = string; // e.g. "t_decay", "mix:volume"
+export type LiveTarget = string; // e.g. "t_decay", "mix:volume", "mix:send0"
 
 export interface Step {
   active: boolean;
@@ -66,6 +67,8 @@ export interface ChannelState {
   chord: number;
   volume: number; // 0..1
   pan: number; // -1..1
+  /** Send levels 0..1 to the delay, distortion and mid-cut. */
+  sends: number[];
   mute: boolean;
   patterns: Pattern[];
   activePattern: number;
@@ -77,6 +80,8 @@ export interface Project {
   /** 50..75 (%): 50 = straight. */
   swing: number;
   master: number; // 0..1
+  /** Send effect parameters (see src/fx), id -> value. */
+  fx: Record<string, number>;
   channels: ChannelState[];
 }
 
@@ -97,6 +102,7 @@ export function emptyChannel(): ChannelState {
     chord: 0,
     volume: 0.8,
     pan: 0,
+    sends: [0, 0, 0],
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
     activePattern: 0,
@@ -107,9 +113,9 @@ export function emptyChannel(): ChannelState {
 export function normalizeProject(data: unknown): Project | null {
   const p = data as Project;
   if (!p || typeof p !== 'object' || p.version !== PROJECT_VERSION) return null;
-  if (!Array.isArray(p.channels) || p.channels.length !== NUM_CHANNELS) return null;
+  if (!Array.isArray(p.channels) || p.channels.length !== NUM_CHANNELS || !p.fx) return null;
   for (const ch of p.channels) {
-    if (!ch.sounds || !Array.isArray(ch.live) || !Array.isArray(ch.patterns) || ch.patterns.length !== NUM_PATTERNS) return null;
+    if (!ch.sounds || !Array.isArray(ch.live) || !Array.isArray(ch.sends) || !Array.isArray(ch.patterns) || ch.patterns.length !== NUM_PATTERNS) return null;
     for (const pat of ch.patterns) {
       if (!Array.isArray(pat.steps) || pat.steps.length !== MAX_STEPS) return null;
     }
