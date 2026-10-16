@@ -9,6 +9,8 @@ export const NUM_EFFECTS = 6;
 export const NUM_CHANNELS = 6;
 export const NUM_PATTERNS = 3;
 export const MAX_STEPS = 64;
+/** Most hits a ROLL step can have. */
+export const MAX_ROLL = 8;
 export const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
@@ -29,6 +31,10 @@ export interface Step {
   velocity: number;
   /** Note length in whole steps (1 = until the next step); tied steps are left empty. */
   gate: number;
+  /**
+   * SLIDE: if the previous note is still held when this step comes, it glides into this
+   * note (legato, no new attack) instead of being released and re-struck.
+   */
   slide: boolean;
   accent: boolean;
   /**
@@ -38,6 +44,8 @@ export interface Step {
   ring?: boolean;
   /** REST: an explicit stop marker (no note); ends a ringing note. */
   rest?: boolean;
+  /** ROLL: hits per step (2-8 = evenly spaced repeats inside the step); absent = 1. */
+  roll?: number;
   /**
    * Optional per-step parameter locks (sound param id -> value), written by motion
    * recording. Absent = the channel's own value.

@@ -19,6 +19,10 @@ export interface LaneCell {
   ring: boolean;
   /** Rest marker. */
   rest: boolean;
+  /** SLIDE: the previous held note glides into this one. */
+  slide: boolean;
+  /** Hits in the step (ROLL), 1 = one. */
+  roll: number;
 }
 
 export interface LaneView {
@@ -152,6 +156,13 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
         s.rect(x, y + LANE_H - h, CELL, h, head ? INK.warn : lane.muted ? INK.mid : INK.hi);
       }
       if (cell.locked) s.rect(x + CELL - 2, y - 1, 2, 1, INK.warn);
+      // ROLL: the cell split into its hits.
+      for (let k = 1; k < cell.roll; k++) s.rect(x + Math.round((k * CELL) / cell.roll), y - 1, 1, LANE_H + 1, INK.bg);
+      // SLIDE: a low bar from the previous cell into this note.
+      if (cell.slide) {
+        const gap = CELL_GAP + (i % 4 === 0 ? GROUP_GAP : 0);
+        s.rect(x - gap - 3, y + LANE_H - 1, gap + 4, 2, head ? INK.warn : INK.hi);
+      }
       // RING: a tail running to the right edge of the cell.
       if (cell.ring) s.rect(x + CELL - 1, y + 1, 2, LANE_H - 2, INK.warn);
     });

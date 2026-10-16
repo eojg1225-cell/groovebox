@@ -8,7 +8,7 @@
  * because the rest of the format changed.
  */
 import {
-  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION,
+  MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION,
   type ChannelState, type Project, type SoundKind,
 } from './project';
 import { applyPreset, createDefaultProject } from './defaultProject';
@@ -21,7 +21,7 @@ import { LFO_RATES, LFO_SHAPES, type LfoState } from './lfo';
 export const FILE_FORMAT = 'groovebox-project';
 
 /**
- * One step with a note: index, note, velocity; gate/accent/ring/locks only when set.
+ * One step with a note: index, note, velocity; gate/accent/ring/slide/roll/locks only when set.
  * A rest marker is stored as { i, x: 1 } (no note).
  */
 export interface StoredStep {
@@ -31,6 +31,8 @@ export interface StoredStep {
   g?: number;
   a?: 1;
   r?: 1;
+  s?: 1;
+  k?: number;
   x?: 1;
   l?: Record<string, number>;
 }
@@ -105,6 +107,8 @@ export function toStored(p: Project): StoredProject {
           if (s.gate > 1) out.g = s.gate;
           if (s.accent) out.a = 1;
           if (s.ring) out.r = 1;
+          if (s.slide) out.s = 1;
+          if (s.roll && s.roll > 1) out.k = s.roll;
           if (s.locks && Object.keys(s.locks).length) out.l = { ...s.locks };
           return [out];
         }),
@@ -129,6 +133,7 @@ function numbers(x: unknown): Record<string, number> {
 /** Steps of a stored pattern in either shape: compact `steps: StoredStep[]` or full `steps: Step[64]`. */
 interface ReadStep {
   i: number; note: number; vel: number; gate: number; accent: boolean; ring: boolean; rest: boolean;
+  slide: boolean; roll: number;
   locks?: Record<string, number>;
 }
 
@@ -142,7 +147,7 @@ function readSteps(pattern: Obj): ReadStep[] {
     const i = compact ? s.i as number : k;
     if (!Number.isInteger(i) || i < 0 || i >= MAX_STEPS) continue;
     if (compact ? s.x === 1 : s.active !== true && s.rest === true) {
-      out.push({ i, rest: true, note: 36, vel: 0.8, gate: 1, accent: false, ring: false });
+      out.push({ i, rest: true, note: 36, vel: 0.8, gate: 1, accent: false, ring: false, slide: false, roll: 1 });
       continue;
     }
     if (!compact && s.active !== true) continue;
@@ -154,6 +159,8 @@ function readSteps(pattern: Obj): ReadStep[] {
       gate: Math.round(num(compact ? s.g : s.gate, 1, 1, MAX_STEPS)),
       accent: compact ? s.a === 1 : s.accent === true,
       ring: compact ? s.r === 1 : s.ring === true,
+      slide: compact ? s.s === 1 : s.slide === true,
+      roll: Math.round(num(compact ? s.k : s.roll, 1, 1, MAX_ROLL)),
       rest: false,
       locks: Object.keys(locks).length ? locks : undefined,
     });
@@ -240,6 +247,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       }
       step.active = true;
       if (s.ring) step.ring = true;
+      step.slide = s.slide;
+      if (s.roll > 1) step.roll = s.roll;
       step.note = s.note;
       step.velocity = s.vel;
       step.gate = s.gate;

@@ -18,6 +18,10 @@
  * FX 1-3 (RECORD / PLAY): the knobs and the screen switch to that bus's controls (FX 1 =
  * the drum bus, FX 2 / 3 = sends); the channel buttons then add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
+ * SLIDE: in step entry, holding a key and pressing another enters the new note on the step
+ * after the held one, sliding into it (legato). Bass / lead also slide when played legato.
+ * ROLL (drum steps): hold a step and press ▶ / ◀ for more / fewer hits inside it; hold a
+ * step and tap another to roll from one to the other (a crescendo of double hits).
  * MOTION REC (RECORD mode, while playing): live-knob moves on instrument parameters
  * become per-step locks on that track, and keyboard notes are written to the nearest step.
  */
@@ -28,7 +32,7 @@ import { LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
-  MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
+  DYNAMIC_VELOCITY, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
@@ -113,6 +117,11 @@ export class App {
   private clearUsed = false;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   private entry: { button: number; index: number } | null = null;
+  /**
+   * Drum step held down (RECORD): ▶ / ◀ change its roll, another step makes a roll range.
+   * remove = it was already a hit (it is removed on release unless the hold was used).
+   */
+  private drumHold: { button: number; index: number; remove: boolean; used: boolean } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
   private message = '';
   private messageUntil = 0;
@@ -152,6 +161,8 @@ export class App {
       step.velocity = m.velocity;
       step.accent = m.accent;
       step.gate = m.gate;
+      step.slide = m.slide;
+      delete step.roll;
     } else {
       step.locks = { ...step.locks, [m.id]: m.value };
     }
@@ -592,6 +603,9 @@ export class App {
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
+    } else if ((id === 'cur-' || id === 'cur+') && this.drumHold) {
+      // Holding a drum step: ▶ adds a hit inside it (roll), ◀ takes one away.
+      this.changeRoll(id === 'cur+' ? 1 : -1);
     } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
       // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
       this.tie(id === 'cur+' ? 1 : -1);
@@ -605,7 +619,9 @@ export class App {
       const step = this.pattern.steps[this.cursor[this.selected]];
       step.active = false;
       step.ring = false;
+      step.slide = false;
       step.rest = true;
+      delete step.roll;
       delete step.locks;
       this.sendStep(this.cursor[this.selected], step);
       this.moveCursor(1);
@@ -630,28 +646,48 @@ export class App {
     if (this.keyboard) {
       const note = this.octave[ch] + button;
       const vel = this.velocity();
+      // Bass / lead played legato (a key still held) slide into the new note.
+      let heldNote = -1;
+      for (const n of this.heldNotes.values()) heldNote = n;
+      const legato = heldNote >= 0 && this.isMono(this.channel);
       this.heldNotes.set(button, note);
       if (this.mode === 'record' && this.recording) {
         // Live recording: the worklet writes the note to the nearest step.
-        this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent' });
+        this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent', slide: legato });
       } else if (this.mode === 'record') {
         // Step entry: write a one-step note at the cursor and hear it. The cursor moves
         // on when the key is released (past any steps tied with ▶ meanwhile).
-        const index = this.cursor[ch];
+        // SLIDE: with a key still held, the new note goes right after the held one and
+        // the held note slides into it.
+        let index = this.cursor[ch];
+        let slideFrom = -1;
+        if (this.entry && this.entry.button !== button) {
+          const prev = this.pattern.steps[this.entry.index];
+          index = this.entry.index + prev.gate;
+          if (index >= this.pattern.length) {
+            this.heldNotes.delete(button);
+            this.flash('END OF PATTERN');
+            return;
+          }
+          slideFrom = prev.note;
+        }
         const step = this.pattern.steps[index];
         step.active = true;
         step.note = note;
         step.gate = 1;
         step.ring = this.ring;
         step.rest = false;
+        step.slide = slideFrom >= 0;
+        delete step.roll;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
-        this.send({ type: 'trigger', channel: ch, note, velocity: vel });
+        this.send({ type: 'trigger', channel: ch, note, velocity: vel, slideFrom });
+        if (slideFrom >= 0) this.flash(`SLIDE ${noteName(slideFrom)} > ${noteName(note)}`);
         this.entry = { button, index };
         this.save();
       } else {
         // PLAY and SOUND DESIGN: play only, never recorded.
-        this.send({ type: 'trigger', channel: ch, note, velocity: vel });
+        this.send({ type: 'trigger', channel: ch, note, velocity: vel, slideFrom: legato ? heldNote : -1 });
       }
       return;
     }
@@ -666,22 +702,70 @@ export class App {
       step.rest = !step.rest;
       step.active = false;
       step.ring = false;
+      delete step.roll;
       delete step.locks;
+    } else if (this.drumHold && this.drumHold.button !== button) {
+      // A step is held: roll from it to this one.
+      this.rollRange(this.drumHold.index, index);
+      this.drumHold.used = true;
+      return;
     } else if (!step.active) {
       step.active = true;
       step.rest = false;
       step.ring = this.ring;
+      delete step.roll;
       setStepDynamic(step, this.dynamic);
       if (!this.playing) this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
+      this.drumHold = { button, index, remove: false, used: false };
     } else if (armed && (stepDynamic(step) !== this.dynamic || !!step.ring !== this.ring)) {
       setStepDynamic(step, this.dynamic);
       step.ring = this.ring;
+      this.drumHold = { button, index, remove: false, used: false };
     } else {
-      step.active = false;
-      step.ring = false;
-      delete step.locks;
+      // Already a hit: removed when released, unless the hold is used for a roll.
+      this.drumHold = { button, index, remove: true, used: false };
+      return;
     }
     this.sendStep(index, step);
+    this.save();
+  }
+
+  private isMono(c: ChannelState): boolean {
+    return c.instrument === 'bass' || c.instrument === 'lead';
+  }
+
+  /** ▶ / ◀ on a held drum step: one more / fewer hit inside it (1-MAX_ROLL). */
+  private changeRoll(delta: number): void {
+    const hold = this.drumHold;
+    if (!hold) return;
+    const step = this.pattern.steps[hold.index];
+    const roll = Math.max(1, Math.min(MAX_ROLL, (step.active ? step.roll ?? 1 : 0) + delta));
+    step.active = true;
+    step.rest = false;
+    if (roll > 1) step.roll = roll;
+    else delete step.roll;
+    hold.used = true;
+    this.sendStep(hold.index, step);
+    this.flash(roll > 1 ? `ROLL ${roll} HITS` : 'ROLL OFF');
+    this.save();
+  }
+
+  /** Roll from step `from` to step `to`: every step a double hit, rising in velocity. */
+  private rollRange(from: number, to: number): void {
+    const n = Math.abs(to - from);
+    const dir = to > from ? 1 : -1;
+    for (let k = 0; k <= n; k++) {
+      const i = from + k * dir;
+      const step = this.pattern.steps[i];
+      step.active = true;
+      step.rest = false;
+      step.ring = false;
+      step.roll = 2;
+      step.velocity = DYNAMIC_VELOCITY.ghost + ((1 - DYNAMIC_VELOCITY.ghost) * k) / n;
+      step.accent = k === n;
+      this.sendStep(i, step);
+    }
+    this.flash(`ROLL ${Math.min(from, to) + 1}-${Math.max(from, to) + 1}`);
     this.save();
   }
 
@@ -700,7 +784,9 @@ export class App {
     step.active = false;
     step.ring = false;
     step.rest = false;
+    step.slide = false;
     step.gate = 1;
+    delete step.roll;
     delete step.locks;
     this.sendStep(index, step);
     this.clearUsed = true;
@@ -715,7 +801,9 @@ export class App {
       step.active = false;
       step.ring = false;
       step.rest = false;
+      step.slide = false;
       step.gate = 1;
+      delete step.roll;
       delete step.locks;
       this.sendStep(i, step, ch);
     });
@@ -725,6 +813,20 @@ export class App {
   }
 
   private releaseKey(button: number): void {
+    if (this.drumHold?.button === button) {
+      const hold = this.drumHold;
+      this.drumHold = null;
+      if (hold.remove && !hold.used) {
+        const step = this.pattern.steps[hold.index];
+        step.active = false;
+        step.ring = false;
+        delete step.roll;
+        delete step.locks;
+        this.sendStep(hold.index, step);
+        this.save();
+      }
+      this.refreshPanel();
+    }
     const note = this.heldNotes.get(button);
     if (note === undefined) return;
     this.heldNotes.delete(button);
@@ -891,7 +993,7 @@ export class App {
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, kb && rec);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || !!this.drumHold);
     this.panel.setButtonEnabled('rest', rec);
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
@@ -941,7 +1043,8 @@ export class App {
         const off = index >= pattern.length;
         const step = pattern.steps[index];
         const d = step.active && !off ? stepDynamic(step) : null;
-        this.panel.setButtonText(id, String(index + 1));
+        const roll = d !== null && step.roll && step.roll > 1 ? step.roll : 0;
+        this.panel.setButtonText(id, roll ? `${index + 1}<small>×${roll}</small>` : String(index + 1));
         this.panel.setButtonFlag(id, 'off', off);
         this.panel.setButtonFlag(id, 'lit', d !== null);
         this.panel.setButtonFlag(id, 'accent', d === 'accent');
@@ -1025,6 +1128,8 @@ export class App {
           locked: !!step.locks && Object.keys(step.locks).length > 0,
           ring: step.active && !!step.ring,
           rest: !step.active && !!step.rest,
+          slide: step.active && step.slide,
+          roll: step.active ? step.roll ?? 1 : 0,
         });
       }
       return {

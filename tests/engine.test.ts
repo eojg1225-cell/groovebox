@@ -967,3 +967,69 @@ describe('drum whole-voice controls', () => {
     expect(e(dark)).toBeLessThan(e(bright));
   });
 });
+
+describe('slides and rolls', () => {
+  it('ROLL plays evenly spaced hits inside the step', () => {
+    const p = kickProject([0, 4], { bpm: 120 });
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01 };
+    p.channels[0].patterns[0].steps[0].roll = 3; // 6000 frames / 3
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 0.6).l), [0, 2000, 4000, 24000]);
+  });
+
+  const bass = () => {
+    const s = new Synth(SR, INSTRUMENTS.bass.params, { voice: 1 });
+    for (const [id, v] of Object.entries({ shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0, drive: 1 })) s.setParam(id, v);
+    return s;
+  };
+  const crossings = (s: Synth, seconds: number) => {
+    const n = Math.round(SR * seconds);
+    const l = new Float32Array(n);
+    s.render(l, new Float32Array(n), 0, n);
+    let c = 0;
+    for (let i = 1; i < n; i++) if ((l[i - 1] < 0) !== (l[i] < 0)) c++;
+    return c;
+  };
+
+  it('a SLIDE glides the held voice to the new pitch instead of jumping', () => {
+    const jump = bass();
+    jump.noteOn(45, 1, 45);
+    crossings(jump, 0.2);
+    jump.noteOn(57, 1, 57);
+    const slide = bass();
+    slide.noteOn(45, 1, 45);
+    crossings(slide, 0.2);
+    slide.noteOn(57, 1, 57, false, 45);
+    const early = (s: Synth) => crossings(s, 0.02);
+    expect(early(slide)).toBeLessThan(early(jump) * 0.85);
+    expect(crossings(slide, 0.1)).toBeGreaterThan(crossings(bass(), 0) + 15); // arrives up there
+  });
+
+  it('a sequenced SLIDE glides from the held note into the next step', () => {
+    const p = kickProject([], { bpm: 120 });
+    const b = p.channels[3];
+    b.sounds.bass = { ...b.sounds.bass!, shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0, drive: 1 };
+    const pat = b.patterns[0];
+    Object.assign(pat.steps[0], { active: true, note: 45, gate: 1 });
+    Object.assign(pat.steps[1], { active: true, note: 57, gate: 1, slide: true });
+    b.fxSend = 0;
+    const crossingsAfterBoundary = (slide: boolean) => {
+      pat.steps[1].slide = slide;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const l = render(e, 0.2).l.subarray(6000, 6960); // first 20 ms of step 2
+      let c = 0;
+      for (let i = 1; i < l.length; i++) if ((l[i - 1] < 0) !== (l[i] < 0)) c++;
+      return c;
+    };
+    expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
+  });
+
+  it('slides and rolls survive the stored format', () => {
+    const p = createDefaultProject();
+    Object.assign(p.channels[3].patterns[0].steps[2], { active: true, note: 50, slide: true });
+    Object.assign(p.channels[1].patterns[0].steps[5], { active: true, roll: 4 });
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))).toEqual(p);
+  });
+});

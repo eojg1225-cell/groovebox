@@ -18,6 +18,8 @@ const LEGACY_WAVE_TO_SHAPE = [2, 3, 1, 0];
 const VOICE_MODES = ['POLY', 'MONO'] as const;
 const OCTAVES = ['-2', '-1', '0', '+1', '+2'] as const;
 const MAX_VOICES = 6;
+/** Glide time of a SLIDE when the sound's own GLIDE is (near) zero. */
+const SLIDE_SECONDS = 0.06;
 const FILTER_UPDATE = 16;
 
 export const SYNTH_PARAMS: readonly ParamSpec[] = [
@@ -91,6 +93,8 @@ class Voice {
   freq = 110;
   targetFreq = 110;
   velocity = 1;
+  /** Pitch glide coefficient in use (GLIDE for mono notes, the slide time for slides). */
+  glide = 1;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
   stage = STAGE_OFF;
   amp = 0;
@@ -105,6 +109,7 @@ export class Synth implements Instrument {
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private glideCoeff = 1;
+  private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0;
   private drive = 1; private crush = 0; private level = 0.7;
   private holdCount = 0; private held = 0;
@@ -120,9 +125,26 @@ export class Synth implements Instrument {
     for (const p of params) this.setParam(p.id, p.defaultValue);
   }
 
-  noteOn(note: number, velocity: number, group: number, _ring = false): void {
+  noteOn(note: number, velocity: number, group: number, _ring = false, slideFrom = -1): void {
     const n = note + this.octave * 12;
     const freq = midiToHz(n);
+    if (slideFrom >= 0) {
+      // Legato: the oldest still-held voice of that group glides here, envelopes untouched.
+      let s: Voice | null = null;
+      const count = this.mono ? 1 : MAX_VOICES;
+      for (let i = 0; i < count; i++) {
+        const c = this.voices[i];
+        if (c.group === slideFrom && c.stage !== STAGE_OFF && c.stage !== STAGE_RELEASE && (!s || c.age < s.age)) s = c;
+      }
+      if (s) {
+        s.note = note;
+        s.group = group;
+        s.targetFreq = freq;
+        s.glide = this.slideCoeff;
+        s.velocity = velocity;
+        return;
+      }
+    }
     let v: Voice;
     if (this.mono) {
       v = this.voices[0];
@@ -134,6 +156,7 @@ export class Synth implements Instrument {
     v.note = note;
     v.group = group;
     v.targetFreq = freq;
+    v.glide = this.glideCoeff;
     v.velocity = velocity;
     v.stage = STAGE_ATTACK;
     v.fenv = 1;
@@ -165,7 +188,10 @@ export class Synth implements Instrument {
         this.mono = Math.round(value) === 1;
         if (this.mono) for (let i = 1; i < MAX_VOICES; i++) this.voices[i].stage = STAGE_OFF;
         break;
-      case 'glide': this.glideCoeff = value <= 0.001 ? 1 : 1 - Math.exp(-1 / (value * sr)); break;
+      case 'glide':
+        this.glideCoeff = value <= 0.001 ? 1 : 1 - Math.exp(-1 / (value * sr));
+        this.slideCoeff = 1 - Math.exp(-1 / (Math.max(value, SLIDE_SECONDS) * sr));
+        break;
       case 'cutoff': this.cutoff = value; break;
       case 'reso': this.reso = value; break;
       case 'fenv': this.fenvAmt = value; break;
@@ -209,7 +235,10 @@ export class Synth implements Instrument {
       const v = this.voices[vi];
       if (v.stage === STAGE_OFF) continue;
       for (let i = start; i < end; i++) {
-        if (v.freq !== v.targetFreq) v.freq += (v.targetFreq - v.freq) * this.glideCoeff;
+        if (v.freq !== v.targetFreq) {
+          v.freq += (v.targetFreq - v.freq) * v.glide;
+          if (Math.abs(v.targetFreq - v.freq) < 1e-3) v.freq = v.targetFreq;
+        }
         const dt1 = (v.freq * this.pitchMod) / sr;
         const dt2 = dt1 * det;
         v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;

@@ -37,12 +37,13 @@ export type MainToWorklet =
   | { type: 'setLfo'; channel: number; id: LfoId; value: number }
   | { type: 'transport'; playing: boolean }
   /** Audition / play a note on a channel now. */
-  | { type: 'trigger'; channel: number; note: number; velocity: number }
+  /** slideFrom: a held note this one glides from (legato), -1 / absent = a new note. */
+  | { type: 'trigger'; channel: number; note: number; velocity: number; slideFrom?: number }
   /**
    * Motion record: play the note now and, if playing, write it into the nearest step of
    * the channel's playing pattern. The worklet answers with "recordedNote".
    */
-  | { type: 'recordNote'; channel: number; note: number; velocity: number; accent: boolean }
+  | { type: 'recordNote'; channel: number; note: number; velocity: number; accent: boolean; slide?: boolean }
   /**
    * Motion record: lock a sound parameter on the step playing now (and hear it now).
    * The worklet answers with "recordedLock".
@@ -73,6 +74,8 @@ export type WorkletToMain =
       note: number; velocity: number; accent: boolean;
       /** Length in steps; a second message updates it when the key is released. */
       gate: number;
+      /** Played legato from the previous held note. */
+      slide: boolean;
     }
   | { type: 'recordedLock'; channel: number; pattern: number; index: number; id: string; value: number };
 

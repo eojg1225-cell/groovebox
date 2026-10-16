@@ -45,8 +45,8 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | Knobs | Two live knobs per track (default VOLUME + CUTOFF); FX 1-3 show a bus | Same | The selected track's page |
 | FX 1/2/3 | Open that bus: its controls fill the knobs **and the screen** (the sequencer returns when it is closed); the channel buttons light for the tracks on it — tap one to add / remove it | Same | Put the selected track on / off that bus |
 | CLEAR (hold) | + step: clear that step (a note tied over it ends before it); + channel button: clear that track's current pattern. While held the strip shows steps | Same | — |
-| Drum strip | Toggle steps | Keyboard (chromatic drum) | Keyboard (audition) |
-| Pitched strip | Stopped: step entry (cursor; ◀ ▶ REST; hold + ▶ ties). Playing: live recording | Keyboard | Keyboard (audition) |
+| Drum strip | Toggle steps (a hit is removed on release). **Rolls:** hold a step + ▶ / ◀ = more / fewer hits inside it (up to 8); hold a step + tap another = a roll between them (double hits rising from ghost to accent) | Keyboard (chromatic drum) | Keyboard (audition) |
+| Pitched strip | Stopped: step entry (cursor; ◀ ▶ REST; hold + ▶ ties). **Slide:** hold a key + press another = the new note goes on the step after the held one and the held note glides into it (legato, no new attack; the sound's GLIDE or 60 ms). Playing: live recording (legato on bass / lead records slides) | Keyboard (bass / lead slide when played legato) | Keyboard (audition) |
 | Recorded? | Yes | Never | No |
 
 **Sound design pages:** SOUND — the same on every track, one column per module: 1 TIMBRE / INTENSITY, 2 ATTACK / DECAY, 3 FILTER / RESO, 4 LFO RATE / VOL MOD, 5 LFO SHAPE / PITCH MOD, 6 DRIVE / CRUSH. Press SOUND again for **DETAIL** (the type's layers: drums one layer per row; synths oscillators on top, glide or chord / filter envelope / sustain / release / level below). TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Drum ATTACK / DECAY / FILTER / RESO act on the whole drum (DECAY scales every layer's decay) and sit on top of the macros.
