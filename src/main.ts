@@ -32,11 +32,27 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('dblclick', (e) => e.preventDefault());
 
+// Installable / offline (production builds only, so the dev server never caches).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  void navigator.serviceWorker.register('./sw.js').catch(() => { /* offline support is optional */ });
+}
+
 let starting = false;
-startButton.addEventListener('pointerup', () => void start());
+startButton.addEventListener('pointerup', (e) => {
+  // On touch devices opened in a normal browser tab, go full screen with the same tap.
+  if (e.pointerType === 'touch') enterFullscreen();
+  void start();
+});
 startButton.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' || e.key === ' ') void start();
 });
+
+function enterFullscreen(): void {
+  const standalone = window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
+  const el = document.documentElement;
+  if (standalone || document.fullscreenElement || !el.requestFullscreen) return;
+  el.requestFullscreen({ navigationUI: 'hide' }).catch(() => { /* not allowed; carry on */ });
+}
 
 async function start(): Promise<void> {
   if (starting) return;

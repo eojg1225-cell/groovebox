@@ -6,6 +6,15 @@ Web-first groovebox for techno, DnB, dub and jungle. Runs in desktop Chrome/Edge
 
 Spec: [`groovebox-brief.md`](groovebox-brief.md). Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
+## Launcher (home-screen icon)
+
+The app is installable, so it opens full screen in landscape from its own icon and also works offline once it has loaded.
+
+- **Fire tablet (Silk):** open the URL, tap the menu (⋮ / ☰), choose **Add to Home Screen**, confirm.
+- **Desktop Chrome/Edge:** click the install icon at the right of the address bar (or menu → *Install Groovebox* / *Apps → Install this site as an app*).
+
+In a normal touch-browser tab, "Tap to start" also switches to full screen.
+
 ## Develop
 
 ```sh
