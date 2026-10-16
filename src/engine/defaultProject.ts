@@ -1,14 +1,15 @@
 import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
 import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
-import { defaultFx } from '../fx';
+import { defaultSendFx } from '../fx';
+import { fromStored } from './projectFile';
+import startProject from './startProject.json';
 
 /** Give a channel an instrument kind with one of its presets. */
 export function applyPreset(c: ChannelState, kind: SoundKind, index: number): void {
   c.instrument = kind;
   c.sounds[kind] = presetSound(kind, index);
   c.presets[kind] = index;
-  c.live = [...INSTRUMENTS[kind].presets[index].live];
 }
 
 /**
@@ -25,9 +26,20 @@ export function createDefaultProject(): Project {
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });
-  // The pad is ready for jungle chords, with some reverb; dub delay on the lead.
+  // The pad is ready for jungle chords into the reverb send; the lead into the dub delay.
   channels[4].chord = CHORD_NAMES.indexOf('MIN9');
-  channels[4].sends[4] = 0.3;
-  channels[5].sends[0] = 0.3;
-  return { version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8, fx: defaultFx(), channels };
+  channels[4].fxSend = 2;
+  channels[5].fxSend = 1;
+  return { version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8, sendFx: defaultSendFx(), lofi: 0, channels };
+}
+
+/**
+ * The start project: the sequence being worked on during development (kept in
+ * startProject.json, in the stored format), with live knobs on VOLUME / CUTOFF.
+ * Used when there is no session or saved project.
+ */
+export function createStartProject(): Project {
+  const p = fromStored(startProject) ?? createDefaultProject();
+  for (const c of p.channels) c.live = ['mix:volume', 'mix:cutoff'];
+  return p;
 }

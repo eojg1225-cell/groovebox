@@ -4,7 +4,7 @@ import { toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
 import { emptyPattern, type Project } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
-import { applyPreset, createDefaultProject } from '../src/engine/defaultProject';
+import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, presetSound } from '../src/instruments/registry';
 import { Drum, KICK_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
@@ -12,10 +12,12 @@ import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
 import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
 import { MidCut } from '../src/fx/MidCut';
-import { FX_PARAMS } from '../src/fx';
+
 import { Chorus } from '../src/fx/Chorus';
 import { Reverb } from '../src/fx/Reverb';
-import { Flanger } from '../src/fx/Flanger';
+import { Compressor } from '../src/fx/Compressor';
+import { Tape } from '../src/fx/Tape';
+import { KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT } from '../src/instruments/Drum';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -81,7 +83,7 @@ const near = (actual: number[], expected: number[], tol = 4) => {
 
 describe('params', () => {
   it('round-trips normalised values for every instrument, mix and global param', () => {
-    const all = [...Object.values(INSTRUMENTS).flatMap((i) => i.params), ...MIX_PARAMS, ...GLOBAL_PARAMS, ...FX_PARAMS];
+    const all = [...Object.values(INSTRUMENTS).flatMap((i) => i.params), ...MIX_PARAMS, ...GLOBAL_PARAMS];
     for (const spec of all) {
       const points = spec.options ? spec.options.map((_, i) => i / (spec.options!.length - 1)) : [0, 0.25, 0.5, 1];
       for (const n of points) expect(toNorm(spec, toValue(spec, n))).toBeCloseTo(n, 9);
@@ -114,18 +116,25 @@ describe('instruments', () => {
     }
   }
 
-  it('each type fits one page of 12 knobs; coarse params are discrete; presets use real params', () => {
+  it('each type has a 12-knob layout of its own params; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
-      expect(entry.params.length).toBeLessThanOrEqual(12);
+      expect(entry.layout.length).toBeLessThanOrEqual(12);
+      for (const id of entry.layout) if (id) expect(entry.params.some((p) => p.id === id)).toBe(true);
       for (const p of entry.params) if (p.options) expect(p.coarse).toBe(true);
       for (const preset of entry.presets) {
-        for (const id of preset.live) {
-          const spec = entry.params.find((p) => p.id === id);
-          expect(spec).toBeDefined();
-          expect(spec?.coarse).toBeFalsy();
-        }
         for (const id in preset.values) expect(entry.params.some((p) => p.id === id)).toBe(true);
       }
+    }
+  });
+
+  it('drum layouts: one row per layer, each row ending in a master (DRIVE, CRUSH)', () => {
+    const layerOf = (id: string | null) => id?.split('_')[0];
+    for (const layout of [KICK_LAYOUT, SNARE_LAYOUT, HAT_LAYOUT]) {
+      expect(layout).toHaveLength(12);
+      expect(layout[5]).toBe('drive');
+      expect(layout[11]).toBe('crush');
+      expect(new Set(layout.slice(0, 5).map(layerOf)).size).toBe(1);
+      expect(new Set(layout.slice(6, 11).map(layerOf)).size).toBe(1);
     }
   });
 
@@ -308,7 +317,7 @@ describe('chords and gates', () => {
     const p = kickProject([]);
     applyPreset(p.channels[4], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'STAB'));
     p.channels[4].sounds.pad!.release = 0.02;
-    p.channels[4].sends = [0, 0, 0, 0, 0, 0];
+    p.channels[4].fxSend = 0;
     p.channels[4].chord = 0;
     p.channels[4].patterns[0].steps[0].active = true;
     const plain = engineWith(p);
@@ -417,11 +426,12 @@ describe('send effects', () => {
     expect(energyAt(1000)).toBeLessThan(energyAt(100) * 0.1);
   });
 
-  it('a channel send feeds its effect into the mix', () => {
+  it('a track routed to a send gets that send\'s effects (send 2 delay = 1/4 note)', () => {
     const dry = kickProject([0], { bpm: 120 });
     const wet = kickProject([0], { bpm: 120 });
-    wet.fx.dly_time = 3; // a quarter note later
-    wet.channels[0].sends = [1, 0, 0, 0, 0, 0];
+    wet.channels[0].fxSend = 2;
+    wet.channels[0].sendLevel = 1;
+    wet.sendFx[1] = [1, 0, 0, 0, 0, 0]; // only the delay, full
     const tail = (p: Project) => {
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
@@ -430,13 +440,58 @@ describe('send effects', () => {
     expect(tail(dry)).toBeLessThan(1e-4);
     expect(tail(wet)).toBeGreaterThan(0.01);
   });
+
+  it('routing can be changed and removed live', () => {
+    const p = kickProject([0], { bpm: 120 });
+    p.sendFx[0] = [1, 0, 0, 0, 0, 0];
+    const e = engineWith(p);
+    e.handleMessage({ type: 'setRouting', channel: 0, send: 1 });
+    e.handleMessage({ type: 'setMix', channel: 0, id: 'send', value: 1 });
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 0.05);
+    e.handleMessage({ type: 'setRouting', channel: 0, send: 0 });
+    // Send 1's delay is 3/16 = 18000 frames: with the route removed right after the hit
+    // the echo still comes (it was already in the delay line), so check nothing new feeds it.
+    expect(stats(render(e, 1).l).nan).toBe(false);
+  });
+
+  it('track cutoff darkens the track', () => {
+    const bright = (cutoff: number) => {
+      const p = kickProject([], { bpm: 120 });
+      p.channels[2].patterns[0].steps[0].active = true; // hat
+      p.channels[2].cutoff = cutoff;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const { l } = render(e, 0.05);
+      let d = 0;
+      for (let i = 1; i < l.length; i++) d += (l[i] - l[i - 1]) ** 2;
+      return d;
+    };
+    expect(bright(500)).toBeLessThan(bright(20000) * 0.1);
+  });
+
+  it('LO-FI saturates and rolls off highs, bounded', () => {
+    const run = (amount: number) => {
+      const t = new Tape(SR);
+      t.setImmediate(amount);
+      const n = SR / 2;
+      const l = Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * 8000 * i) / SR) * 0.5);
+      const r = l.slice();
+      t.process(l, r, n);
+      return stats(l.subarray(n / 2));
+    };
+    const inputPeak = 0.5 * Math.sin(Math.PI / 3); // 8 kHz at 48 kHz samples at 60° steps
+    expect(run(0).peak).toBeCloseTo(inputPeak, 3); // bypassed
+    expect(run(1).nan).toBe(false);
+    expect(run(1).peak).toBeLessThan(inputPeak * 0.5); // 8 kHz is rolled off at full lo-fi
+  });
 });
 
 describe('note lengths', () => {
   /** Lead track (mono, short release) with one note at step 0 of the given gate. */
   const leadProject = (gate: number) => {
     const p = kickProject([]);
-    p.channels.forEach((c) => (c.sends = [0, 0, 0, 0, 0, 0]));
+    p.channels.forEach((c) => (c.fxSend = 0));
     const lead = p.channels[5];
     lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, release: 0.005 };
     lead.patterns[0].steps[0].active = true;
@@ -498,13 +553,12 @@ describe('more send effects', () => {
     expect(diff).toBeGreaterThan(0); // stereo
   });
 
-  it('chorus and flanger stay bounded, even with high flanger feedback', () => {
+  it('chorus and compressor stay bounded', () => {
     const ch = new Chorus(SR);
     ch.setParam('cho_return', 1);
-    const fl = new Flanger(SR);
-    fl.setParam('flg_return', 1);
-    fl.setParam('flg_fdbk', 0.95);
-    for (const out of [run(ch), run(fl)]) {
+    const cmp = new Compressor(SR);
+    cmp.setParam('cmp_return', 1);
+    for (const out of [run(ch), run(cmp)]) {
       expect(stats(out.l).nan).toBe(false);
       expect(stats(out.l).peak).toBeGreaterThan(0.1);
       expect(stats(out.l).peak).toBeLessThan(2);
@@ -523,7 +577,10 @@ describe('project', () => {
     p.channels[3].patterns[1].length = 32;
     const s = p.channels[3].patterns[1].steps[20];
     Object.assign(s, { active: true, note: 41, gate: 3, velocity: 0.45, locks: { cutoff: 900 } });
-    p.channels[4].sends[4] = 0.7;
+    p.channels[4].fxSend = 3;
+    p.channels[4].sendLevel = 0.7;
+    p.lofi = 0.4;
+    p.sendFx[2][5] = 0.9;
     p.channels[1].mute = true;
     return p;
   };
@@ -554,6 +611,24 @@ describe('project', () => {
     expect(loaded.channels[1].mute).toBe(true);
   });
 
+  it('maps the old per-effect sends onto the new routing', () => {
+    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    for (const c of old.channels) { delete c.fxSend; delete c.sendLevel; c.sends = [0, 0, 0, 0, 0, 0]; }
+    old.channels[4].sends[4] = 0.3; // reverb
+    old.channels[5].sends[0] = 0.4; // delay
+    old.channels[2].sends[1] = 0.6; // distortion
+    const p = fromStored(old)!;
+    expect([p.channels[4].fxSend, p.channels[5].fxSend, p.channels[2].fxSend, p.channels[0].fxSend]).toEqual([2, 1, 3, 0]);
+    expect(p.channels[5].sendLevel).toBe(0.4);
+  });
+
+  it('the start project holds the sequence in progress, with VOLUME/CUTOFF live knobs', () => {
+    const p = createStartProject();
+    expect(p.channels[3].patterns[0].length).toBe(64);
+    expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
+    expect(p.channels.every((c) => c.live[0] === 'mix:volume' && c.live[1] === 'mix:cutoff')).toBe(true);
+  });
+
   it('keeps the notes even from an older, different format', () => {
     // A version-1 style project: other instrument kinds, a "sound" field, no sends or fx.
     const steps = Array.from({ length: 64 }, (_, i) => ({ active: i % 4 === 0, note: 36 + i, velocity: 0.8, gate: 1, slide: false, accent: false }));
@@ -573,8 +648,8 @@ describe('project', () => {
     expect(p.channels[1].patterns[0].steps[8]).toMatchObject({ active: true, note: 44 });
     expect(p.channels[1].pan).toBe(0.2);
     // Unknown things fall back to defaults.
-    expect(p.channels[1].sends).toHaveLength(6);
-    expect(p.fx.dly_time).toBeDefined();
+    expect(p.channels[1].fxSend).toBe(0);
+    expect(p.sendFx).toHaveLength(3);
   });
 
   it('rejects data with no channels', () => {

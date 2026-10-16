@@ -1,0 +1,467 @@
+{
+ "bpm": 155.4,
+ "channels": [
+  {
+   "activePattern": 0,
+   "chord": 0,
+   "instrument": "kick",
+   "live": [
+    "t_decay",
+    "t_pitch"
+   ],
+   "mute": false,
+   "pan": 0,
+   "patterns": [
+    {
+     "len": 16,
+     "steps": [
+      {
+       "i": 0,
+       "n": 36,
+       "v": 0.8
+      },
+      {
+       "i": 10,
+       "n": 36,
+       "v": 0.8
+      }
+     ]
+    },
+    {
+     "len": 16,
+     "steps": []
+    },
+    {
+     "len": 16,
+     "steps": []
+    }
+   ],
+   "presets": {
+    "kick": 0
+   },
+   "sends": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "sounds": {
+    "kick": {
+     "c_len": 0.003,
+     "c_level": 0.25,
+     "c_tone": 1047,
+     "crush": 0,
+     "drive": 1,
+     "t_decay": 0.5,
+     "t_level": 0.95,
+     "t_pitch": 55,
+     "t_stime": 0.035,
+     "t_sweep": 30,
+     "t_wave": 0
+    }
+   },
+   "volume": 0.8
+  },
+  {
+   "activePattern": 0,
+   "chord": 0,
+   "instrument": "snare",
+   "live": [
+    "m_decay",
+    "t_pitch"
+   ],
+   "mute": false,
+   "pan": 0,
+   "patterns": [
+    {
+     "len": 16,
+     "steps": [
+      {
+       "i": 4,
+       "n": 36,
+       "v": 0.8
+      },
+      {
+       "i": 12,
+       "n": 36,
+       "v": 0.8
+      }
+     ]
+    },
+    {
+     "len": 16,
+     "steps": []
+    },
+    {
+     "len": 16,
+     "steps": []
+    }
+   ],
+   "presets": {
+    "snare": 0
+   },
+   "sends": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "sounds": {
+    "snare": {
+     "crush": 0.3842856979370117,
+     "drive": 5.7,
+     "m_decay": 0.2,
+     "m_level": 0.24214289188385013,
+     "m_mode": 0,
+     "m_noise": 0.557142858505249,
+     "m_pitch": 330,
+     "m_tone": 1800,
+     "t_decay": 0.04024389398810842,
+     "t_level": 0.7250000381469727,
+     "t_pitch": 81,
+     "t_sweep": 7
+    }
+   },
+   "volume": 0.8
+  },
+  {
+   "activePattern": 0,
+   "chord": 0,
+   "instrument": "hat",
+   "live": [
+    "m_decay",
+    "m_tone"
+   ],
+   "mute": false,
+   "pan": 0,
+   "patterns": [
+    {
+     "len": 16,
+     "steps": [
+      {
+       "a": 1,
+       "i": 0,
+       "n": 36,
+       "v": 1
+      },
+      {
+       "i": 2,
+       "n": 36,
+       "v": 0.45
+      },
+      {
+       "a": 1,
+       "i": 4,
+       "n": 36,
+       "v": 1
+      },
+      {
+       "i": 6,
+       "n": 36,
+       "v": 0.45
+      },
+      {
+       "a": 1,
+       "i": 8,
+       "n": 36,
+       "v": 1
+      },
+      {
+       "i": 10,
+       "n": 36,
+       "v": 0.45
+      },
+      {
+       "a": 1,
+       "i": 12,
+       "n": 36,
+       "v": 1
+      },
+      {
+       "i": 14,
+       "n": 36,
+       "v": 0.45
+      }
+     ]
+    },
+    {
+     "len": 16,
+     "steps": []
+    },
+    {
+     "len": 16,
+     "steps": []
+    }
+   ],
+   "presets": {
+    "hat": 0
+   },
+   "sends": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "sounds": {
+    "hat": {
+     "c_len": 0.002,
+     "c_level": 0.2,
+     "c_tone": 9000,
+     "crush": 0,
+     "drive": 1,
+     "m_decay": 0.05,
+     "m_level": 0.6,
+     "m_mode": 0,
+     "m_noise": 0.3,
+     "m_pitch": 420,
+     "m_spread": 1,
+     "m_tone": 8500
+    }
+   },
+   "volume": 0.8
+  },
+  {
+   "activePattern": 0,
+   "chord": 0,
+   "instrument": "bass",
+   "live": [
+    "cutoff",
+    "fenv"
+   ],
+   "mute": false,
+   "pan": 0,
+   "patterns": [
+    {
+     "len": 64,
+     "steps": [
+      {
+       "g": 4,
+       "i": 0,
+       "n": 33,
+       "v": 0.8
+      },
+      {
+       "g": 6,
+       "i": 4,
+       "n": 41,
+       "v": 0.8
+      },
+      {
+       "g": 2,
+       "i": 10,
+       "n": 33,
+       "v": 0.8
+      },
+      {
+       "g": 4,
+       "i": 12,
+       "n": 41,
+       "v": 0.8
+      },
+      {
+       "i": 16,
+       "n": 38,
+       "v": 0.8
+      },
+      {
+       "i": 22,
+       "n": 38,
+       "v": 0.8
+      },
+      {
+       "i": 28,
+       "n": 38,
+       "v": 0.8
+      }
+     ]
+    },
+    {
+     "len": 16,
+     "steps": []
+    },
+    {
+     "len": 16,
+     "steps": []
+    }
+   ],
+   "presets": {
+    "bass": 4
+   },
+   "sends": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "sounds": {
+    "bass": {
+     "cutoff": 250,
+     "decay": 0.3,
+     "detune": 0.43613014221191404,
+     "drive": 1,
+     "fdecay": 0.25,
+     "fenv": 0.5,
+     "glide": 0,
+     "octave": 2,
+     "reso": 0.55,
+     "sub": 0.35,
+     "sustain": 0.2,
+     "wave": 1
+    }
+   },
+   "volume": 0.8
+  },
+  {
+   "activePattern": 0,
+   "chord": 4,
+   "instrument": "pad",
+   "live": [
+    "cutoff",
+    "release"
+   ],
+   "mute": false,
+   "pan": 0,
+   "patterns": [
+    {
+     "len": 16,
+     "steps": []
+    },
+    {
+     "len": 16,
+     "steps": []
+    },
+    {
+     "len": 16,
+     "steps": []
+    }
+   ],
+   "presets": {
+    "pad": 0
+   },
+   "sends": [
+    0,
+    0,
+    0,
+    0,
+    0.3,
+    0
+   ],
+   "sounds": {
+    "pad": {
+     "attack": 0.45,
+     "cutoff": 1100,
+     "decay": 1.2,
+     "detune": 0.5,
+     "drive": 1,
+     "fdecay": 1,
+     "fenv": 0.1,
+     "octave": 2,
+     "release": 1.2,
+     "reso": 0.15,
+     "sustain": 0.8,
+     "wave": 1
+    }
+   },
+   "volume": 0.8
+  },
+  {
+   "activePattern": 0,
+   "chord": 0,
+   "instrument": "lead",
+   "live": [
+    "cutoff",
+    "glide"
+   ],
+   "mute": false,
+   "pan": 0,
+   "patterns": [
+    {
+     "len": 16,
+     "steps": [
+      {
+       "i": 0,
+       "n": 50,
+       "v": 0.45
+      }
+     ]
+    },
+    {
+     "len": 16,
+     "steps": []
+    },
+    {
+     "len": 16,
+     "steps": []
+    }
+   ],
+   "presets": {
+    "lead": 0
+   },
+   "sends": [
+    0.3,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "sounds": {
+    "lead": {
+     "attack": 0.005,
+     "cutoff": 2200,
+     "decay": 0.3,
+     "detune": 0.15,
+     "fdecay": 0.3,
+     "fenv": 0.3,
+     "glide": 0.05,
+     "octave": 3,
+     "release": 0.15,
+     "reso": 0.3,
+     "sustain": 0.6,
+     "wave": 1
+    }
+   },
+   "volume": 0.8
+  }
+ ],
+ "format": "groovebox-project",
+ "fx": {
+  "cho_depth": 0.5,
+  "cho_rate": 0.6,
+  "cho_return": 0.6,
+  "cho_width": 0.8,
+  "dly_fdbk": 0.45,
+  "dly_return": 0.6,
+  "dly_time": 2,
+  "dly_tone": 2800,
+  "dst_char": 0.3,
+  "dst_drive": 8,
+  "dst_return": 0.5,
+  "dst_tone": 4000,
+  "flg_depth": 0.7,
+  "flg_fdbk": 0.6,
+  "flg_manual": 2,
+  "flg_rate": 0.15,
+  "flg_return": 0.6,
+  "mid_depth": 12,
+  "mid_freq": 1000,
+  "mid_return": 0.7,
+  "mid_width": 1,
+  "rev_damp": 0.5,
+  "rev_predelay": 15,
+  "rev_return": 0.5,
+  "rev_size": 0.7,
+  "rev_width": 1
+ },
+ "master": 0.8,
+ "swing": 50,
+ "version": 4
+}

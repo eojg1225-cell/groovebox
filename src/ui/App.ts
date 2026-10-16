@@ -20,7 +20,7 @@
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { EFFECT_AMOUNT, GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
@@ -32,7 +32,7 @@ import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { savePatch, saveProject, userPatches } from '../storage/saved';
-import { DESIGN_PAGE_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
+import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView } from './views';
 
 export type Mode = 'record' | 'play' | 'design';
@@ -82,6 +82,7 @@ interface KnobTarget {
 }
 
 const MIX_PREFIX = 'mix:';
+type GlobalId = 'bpm' | 'swing' | 'master' | 'lofi';
 
 export class App {
   selected = 0;
@@ -95,8 +96,8 @@ export class App {
   private readonly octave: number[];
   /** Strip button -> note being held (keyboard), so release ends the right note. */
   private readonly heldNotes = new Map<number, number>();
-  /** Effect shown on the FX page (index into EFFECTS). */
-  private fxIndex = 0;
+  /** Send shown on the knobs in RECORD/PLAY (1-3), 0 = the tracks' live knobs. */
+  private fxView = 0;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   private entry: { button: number; index: number } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
@@ -248,14 +249,12 @@ export class App {
       const mixId = id.slice(MIX_PREFIX.length) as MixId;
       const spec = MIX_PARAMS.find((p) => p.id === mixId);
       if (!spec) return null;
-      const sendIndex = mixId.startsWith('send') ? Number(mixId.charAt(4)) : -1;
+      const field = mixId === 'send' ? 'sendLevel' : mixId;
       return {
         label: label ?? spec.name, spec, channel: ch, highlight,
-        get: () => (sendIndex >= 0 ? c.sends[sendIndex] : mixId === 'pan' ? c.pan : c.volume),
+        get: () => c[field],
         set: (v) => {
-          if (sendIndex >= 0) c.sends[sendIndex] = v;
-          else if (mixId === 'pan') c.pan = v;
-          else c.volume = v;
+          c[field] = v;
           this.send({ type: 'setMix', channel: ch, id: mixId, value: v });
         },
       };
@@ -285,51 +284,52 @@ export class App {
     const c = this.channel;
     const pages: { name: string; targets: () => (KnobTarget | null)[] }[] = [];
     if (c.instrument !== 'none') {
-      const params = INSTRUMENTS[c.instrument].params;
-      pages.push({ name: 'SOUND', targets: () => params.map((p) => this.paramTarget(ch, p.id)) });
+      const layout = INSTRUMENTS[c.instrument].layout;
+      pages.push({ name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) });
     }
     pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
-    pages.push({ name: `FX ${EFFECTS[this.fxIndex].name}`, targets: () => this.fxTargets() });
     pages.push({
       name: 'GLOBAL',
       targets: () => GLOBAL_PARAMS.map((spec) => ({
         label: spec.name, spec, channel: ch,
-        get: () => (spec.id === 'bpm' ? this.project.bpm : spec.id === 'swing' ? this.project.swing : this.project.master),
-        set: (v: number) => {
-          if (spec.id === 'bpm') this.project.bpm = v;
-          else if (spec.id === 'swing') this.project.swing = v;
-          else this.project.master = v;
-          this.send({ type: 'setGlobal', id: spec.id as 'bpm' | 'swing' | 'master', value: v });
-        },
+        get: () => this.getGlobal(spec.id as GlobalId),
+        set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
       })),
     });
     return pages;
   }
 
+  private getGlobal(id: GlobalId): number {
+    return this.project[id];
+  }
+
+  private setGlobal(id: GlobalId, v: number): void {
+    this.project[id] = v;
+    this.send({ type: 'setGlobal', id, value: v });
+  }
+
   /**
-   * FX page for one effect (the FX page button steps through the six).
-   * Top row = routing: each track module's top knob is that track's send into this
-   * effect. Bottom row = the effect's controls, ending with its return level.
+   * A send's knobs (FX 1-3 in RECORD/PLAY). Six modules = six effects: the top knob is
+   * the effect's single AMOUNT; the bottom knob is the send level of the track in that
+   * module, if it is routed to this send.
    */
-  private fxTargets(): (KnobTarget | null)[] {
-    const k = this.fxIndex;
-    const targets: (KnobTarget | null)[] = [];
+  private sendTargets(k: number): (KnobTarget | null)[] {
+    const targets: (KnobTarget | null)[] = EFFECTS.map((fx, e) => ({
+      label: fx.name, spec: EFFECT_AMOUNT, channel: this.selected,
+      get: () => this.project.sendFx[k][e],
+      set: (v: number) => { this.project.sendFx[k][e] = v; this.send({ type: 'setSendFx', send: k, effect: e, value: v }); },
+    }));
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-      targets.push(this.paramTarget(ch, `mix:send${k}`, this.kindName(this.project.channels[ch]), ch === this.selected));
-    }
-    for (const spec of EFFECTS[k].params) {
-      targets.push({
-        label: spec.name, spec, channel: this.selected,
-        get: () => this.project.fx[spec.id] ?? spec.defaultValue,
-        set: (v: number) => { this.project.fx[spec.id] = v; this.send({ type: 'setFx', id: spec.id, value: v }); },
-      });
+      const c = this.project.channels[ch];
+      targets.push(c.fxSend === k + 1 ? this.paramTarget(ch, 'mix:send', `${this.kindName(c)} SEND`, ch === this.selected) : null);
     }
     return targets;
   }
 
   /**
-   * TRACK page. Row 1: type, preset, volume, pan, live knob 1 and 2.
-   * Row 2: chord mode (pitched tracks). Sends are routed on the FX pages.
+   * TRACK page. Row 1: type, preset, volume, pan, LIVE 1 and LIVE 2 (which parameters
+   * the track's two live knobs control). Row 2: cutoff, send level, chord (pitched).
+   * The send itself is chosen with FX 1/2/3.
    */
   private trackTargets(): (KnobTarget | null)[] {
     const ch = this.selected;
@@ -353,14 +353,17 @@ export class App {
     }
     targets.push(this.paramTarget(ch, 'mix:volume'), this.paramTarget(ch, 'mix:pan'));
     const candidates = this.liveCandidates(c);
+    const liveTargets: KnobTarget[] = [];
     for (let r = 0; r < 2; r++) {
       const spec = choice(`live${r}`, `LIVE ${r + 1}`, candidates.map((x) => x.spec.name));
-      targets.push({
+      liveTargets.push({
         label: `LIVE ${r + 1}`, spec, channel: ch,
         get: () => Math.max(0, candidates.findIndex((x) => x.id === c.live[r])),
         set: (v) => { c.live[r] = candidates[v].id; },
       });
     }
+    targets.push(...liveTargets);
+    targets.push(this.paramTarget(ch, 'mix:cutoff'), this.paramTarget(ch, 'mix:send'));
     if (!isDrum(c.instrument)) {
       targets.push({
         label: 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch,
@@ -374,12 +377,11 @@ export class App {
   private setType(kind: SoundKind): void {
     const c = this.channel;
     if (c.instrument === kind) return;
-    if (c.sounds[kind]) {
-      c.instrument = kind;
-      c.live = [...INSTRUMENTS[kind].presets[c.presets[kind] ?? 0].live];
-    } else {
-      applyPreset(c, kind, 0);
-    }
+    if (c.sounds[kind]) c.instrument = kind;
+    else applyPreset(c, kind, 0);
+    // Live knobs that pointed at the old instrument's parameters fall back to the defaults.
+    const valid = new Set([...INSTRUMENTS[kind].params.map((p) => p.id), ...MIX_PARAMS.map((p) => MIX_PREFIX + p.id)]);
+    c.live = c.live.map((id, r) => (valid.has(id) ? id : r === 0 ? 'mix:volume' : 'mix:cutoff')) as [string, string];
     // Locks belong to the old instrument's parameters.
     for (const p of c.patterns) for (const s of p.steps) delete s.locks;
     this.send({ type: 'setInstrument', channel: this.selected, kind, sound: c.sounds[kind] ?? {} });
@@ -398,6 +400,7 @@ export class App {
       const t = pages[this.designPage].targets();
       return Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null);
     }
+    if (this.fxView > 0) return this.sendTargets(this.fxView - 1);
     // Live knobs: column = track, rows = live knob 1 / 2.
     const out: (KnobTarget | null)[] = [];
     for (let row = 0; row < 2; row++) {
@@ -412,6 +415,7 @@ export class App {
   // ---------------------------------------------------------------- controls
 
   private onControl(e: ControlEvent): void {
+    if (e.type === 'knob' && e.id.startsWith('m')) return this.onMasterKnob(e.id, e.value);
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
     if (e.type !== 'button') return;
     const id = e.id;
@@ -442,13 +446,22 @@ export class App {
       this.send({ type: 'selectPattern', channel: this.selected, pattern, immediate: this.immediateSwitch });
       this.save();
     } else if ((m = /^dpage(\d)$/.exec(id))) {
-      const page = Number(m[1]);
-      // Tapping the FX page again steps to the next effect.
-      if (page === this.designPage && this.designPages()[page]?.name.startsWith('FX')) {
-        this.fxIndex = (this.fxIndex + 1) % EFFECTS.length;
-      }
-      this.designPage = page;
+      this.designPage = Number(m[1]);
       this.touchedKnob = -1;
+    } else if ((m = /^fx([1-3])$/.exec(id))) {
+      const n = Number(m[1]);
+      if (this.mode === 'design') {
+        // Sound design: route the selected track to this send (again = no send).
+        const c = this.channel;
+        c.fxSend = c.fxSend === n ? 0 : n;
+        this.send({ type: 'setRouting', channel: this.selected, send: c.fxSend });
+        this.flash(c.fxSend ? `${this.kindName(c)} -> FX ${n}` : `${this.kindName(c)} NO SEND`);
+        this.save();
+      } else {
+        // RECORD / PLAY: show this send's controls on the knobs (again = back to tracks).
+        this.fxView = this.fxView === n ? 0 : n;
+        this.touchedKnob = -1;
+      }
     } else if (id === 'savepatch') {
       const c = this.channel;
       if (c.instrument === 'none') {
@@ -606,6 +619,17 @@ export class App {
     if (this.viewPage[this.selected] >= this.pageCount()) this.viewPage[this.selected] = 0;
   }
 
+  /** TEMPO and LO-FI master knobs. */
+  private onMasterKnob(id: string, norm: number): void {
+    const gid: GlobalId = id === 'mtempo' ? 'bpm' : 'lofi';
+    const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
+    let value = toValue(spec, norm);
+    if (spec.decimals !== undefined) value = Math.round(value * 10 ** spec.decimals) / 10 ** spec.decimals;
+    this.setGlobal(gid, value);
+    this.flash(`${spec.name} ${formatValue(spec, value)}`);
+    this.save();
+  }
+
   private onKnob(slot: number, norm: number): void {
     const t = this.targets[slot];
     if (!t) return;
@@ -646,6 +670,13 @@ export class App {
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
       this.panel.setBadge(ch, this.mode === 'design' ? 'dim' : ch === this.selected ? 'lit' : '');
+    }
+    for (const [id, gid] of [['mtempo', 'bpm'], ['mlofi', 'lofi']] as const) {
+      const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
+      this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, spec.defaultValue));
+    }
+    for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
+      this.panel.setButtonLit(`fx${n}`, this.mode === 'design' ? this.channel.fxSend === n : this.fxView === n);
     }
     const pages = this.mode === 'design' ? this.designPages() : [];
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
@@ -803,7 +834,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
+      stepsLabel: this.fxView > 0 ? `KNOBS: FX ${this.fxView}` : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
       motion: this.motion && this.mode === 'record',
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
@@ -833,7 +864,7 @@ export class App {
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
       liveLabel: `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
-      chordLabel: !isDrum(c.instrument) && c.chord > 0 ? `CHORD ${CHORD_NAMES[c.chord]}` : '',
+      chordLabel: [c.fxSend ? `FX${c.fxSend}` : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,

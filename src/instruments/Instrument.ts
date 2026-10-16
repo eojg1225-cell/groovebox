@@ -23,6 +23,4 @@ export interface Instrument {
 export interface Preset {
   name: string;
   values: Record<string, number>;
-  /** Suggested live knobs for this sound. */
-  live: [string, string];
 }

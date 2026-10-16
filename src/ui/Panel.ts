@@ -11,9 +11,9 @@
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
  * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, savepatch,
- * saveproject, dpage0..3, play,
+ * saveproject, dpage0..2, fx1..fx3, play,
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row, k7..k12
- * bottom row; module i holds k(i+1) and k(i+7)).
+ * bottom row; module i holds k(i+1) and k(i+7)); master knobs mtempo, mlofi.
  */
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
@@ -24,7 +24,12 @@ export const DESIGN_H = 760;
 export const KNOB_COUNT = 12;
 export const KNOBS_PER_ROW = 6;
 export const STEP_BUTTONS = 16;
-export const DESIGN_PAGE_BUTTONS = 4;
+export const DESIGN_PAGE_BUTTONS = 3;
+export const FX_SEND_BUTTONS = 3;
+export const MASTER_KNOBS = [
+  { id: 'mtempo', label: 'TEMPO' },
+  { id: 'mlofi', label: 'LO-FI' },
+] as const;
 
 export const MODES = [
   { id: 'record', label: 'RECORD' },
@@ -56,6 +61,7 @@ export class Panel implements ControlSurface {
   private readonly disabled = new Set<string>();
   private readonly leds: HTMLElement[] = [];
   private readonly badges: HTMLElement[] = [];
+  private readonly masterKnobs = new Map<string, Knob>();
 
   constructor(host: HTMLElement, cfg: PanelConfig) {
     const root = document.createElement('div');
@@ -70,7 +76,7 @@ export class Panel implements ControlSurface {
           <div class="row channels"></div>
           <div class="row mutes"></div>
           <div class="row patterns"></div>
-          <div class="row pages"></div>
+          <div class="row pages"><div class="page-buttons"></div><div class="fx-buttons"><span class="fx-label">FX</span></div></div>
         </div>
       </div>
       <div class="knob-grid"></div>
@@ -80,7 +86,7 @@ export class Panel implements ControlSurface {
           <div class="leds"></div>
           <div class="steps"></div>
         </div>
-        <div class="play-area"></div>
+        <div class="play-area"><div class="master-knobs"></div></div>
       </div>`;
     host.appendChild(root);
     this.root = root;
@@ -95,7 +101,8 @@ export class Panel implements ControlSurface {
     for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     q('.patterns').appendChild(this.makeButton('savepatch', 'SAVE<small>PATCH</small>', 'btn save'));
     q('.patterns').appendChild(this.makeButton('saveproject', 'SAVE<small>PROJECT</small>', 'btn save'));
-    for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.pages').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
+    for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
+    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, String(i), 'btn fxsend'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel.
     const grid = q('.knob-grid');
@@ -132,7 +139,13 @@ export class Panel implements ControlSurface {
       if ((i - 1) % 4 === 0) b.classList.add('beat');
       steps.appendChild(b);
     }
-    q('.play-area').appendChild(this.makeButton('play', 'PLAY', 'btn play'));
+    q('.play-area').prepend(this.makeButton('play', 'PLAY', 'btn play'));
+    for (const m of MASTER_KNOBS) {
+      const knob = new Knob(m.id, m.label, 0.5, (id, value) => this.emitter.emit({ type: 'knob', id, value }));
+      knob.el.classList.add('master');
+      this.masterKnobs.set(m.id, knob);
+      q('.master-knobs').appendChild(knob.el);
+    }
 
     this.installKeyboard();
     this.fit();
@@ -161,6 +174,14 @@ export class Panel implements ControlSurface {
     } else {
       k.set(0);
     }
+  }
+
+  /** Master knob (TEMPO / LO-FI): current value and default, normalised. */
+  configureMaster(id: string, value: number, defaultValue: number): void {
+    const k = this.masterKnobs.get(id);
+    if (!k) return;
+    k.defaultValue = defaultValue;
+    k.set(value);
   }
 
   /** Printed track number between a module's knobs: lit = selected track, dim = not in use. */

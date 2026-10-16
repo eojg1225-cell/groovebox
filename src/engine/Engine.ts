@@ -8,14 +8,9 @@ import { CHORDS } from './chords';
 import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
 import { Svf } from '../instruments/dsp';
-import { Delay } from '../fx/Delay';
-import { Distortion } from '../fx/Distortion';
-import { MidCut } from '../fx/MidCut';
-import { Chorus } from '../fx/Chorus';
-import { Reverb } from '../fx/Reverb';
-import { Flanger } from '../fx/Flanger';
+import { SendBus } from '../fx/SendBus';
+import { Tape } from '../fx/Tape';
 import { EFFECTS } from '../fx';
-import type { Effect } from '../fx/Effect';
 import type { MixParam } from './protocol';
 import { NUM_SENDS } from './project';
 
@@ -110,27 +105,40 @@ export class Engine {
   private readonly scratchL = new Float32Array(CHUNK);
   private readonly scratchR = new Float32Array(CHUNK);
 
-  // Send effects: per-channel send levels feed one bus per effect.
-  private readonly delay: Delay;
-  private readonly effects: Effect[];
-  private readonly sendLevel: Smoother[] = []; // [ch * NUM_SENDS + k]
+  // Track low-pass (CUTOFF), coefficients refreshed every 16 samples while it moves.
+  private readonly cutoff: Smoother[] = [];
+  private readonly cutL: Svf[] = [];
+  private readonly cutR: Svf[] = [];
+  private readonly cutApplied = new Float32Array(NUM_CHANNELS);
+
+  // Sends: each track feeds at most one of the three send buses.
+  private readonly sends: SendBus[] = [];
+  private readonly route = new Int8Array(NUM_CHANNELS).fill(-1); // bus index or -1
+  private readonly sendLevel: Smoother[] = [];
   private readonly busL: Float32Array[] = [];
   private readonly busR: Float32Array[] = [];
+  private readonly tape: Tape;
 
   constructor(sampleRate: number) {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
-    this.delay = new Delay(sampleRate);
-    // Same order as EFFECTS in src/fx/index.ts.
-    this.effects = [
-      this.delay, new Distortion(sampleRate), new MidCut(sampleRate),
-      new Chorus(sampleRate), new Reverb(sampleRate), new Flanger(sampleRate),
-    ];
+    this.tape = new Tape(sampleRate);
     for (let k = 0; k < NUM_SENDS; k++) {
+      this.sends.push(new SendBus(sampleRate, k));
       this.busL.push(new Float32Array(CHUNK));
       this.busR.push(new Float32Array(CHUNK));
     }
-    for (let i = 0; i < NUM_CHANNELS * NUM_SENDS; i++) this.sendLevel.push(new Smoother(0, 0.02, sampleRate));
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      this.sendLevel.push(new Smoother(0.5, 0.02, sampleRate));
+      this.cutoff.push(new Smoother(20000, 0.02, sampleRate));
+      const l = new Svf();
+      const r = new Svf();
+      l.setup(20000, 0, sampleRate);
+      r.setup(20000, 0, sampleRate);
+      this.cutL.push(l);
+      this.cutR.push(r);
+      this.cutApplied[ch] = 20000;
+    }
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const set: Record<string, Instrument> = {};
       for (const kind of SOUND_KINDS) set[kind] = INSTRUMENTS[kind].create(sampleRate);
@@ -165,11 +173,13 @@ export class Engine {
       case 'setSound': this.setSound(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setGlobal':
-        if (msg.id === 'bpm') { this.bpm = msg.value; this.delay.setTempo(msg.value); }
+        if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b.setTempo(msg.value); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
         else if (msg.id === 'master') this.master.setTarget(msg.value);
+        else if (msg.id === 'lofi') this.tape.setAmount(msg.value);
         break;
-      case 'setFx': this.setFx(msg.id, msg.value); break;
+      case 'setRouting': this.route[msg.channel] = msg.send >= 1 && msg.send <= NUM_SENDS ? msg.send - 1 : -1; break;
+      case 'setSendFx': this.sends[msg.send]?.setAmount(msg.effect, msg.value); break;
       case 'transport': this.setPlaying(msg.playing); break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity); break;
       case 'release': this.release(msg.channel, msg.note); break;
@@ -183,9 +193,13 @@ export class Engine {
 
   loadProject(p: Project): void {
     this.bpm = p.bpm;
-    this.delay.setTempo(p.bpm);
-    for (const id in p.fx) this.setFx(id, p.fx[id]);
-    this.delay.settle();
+    for (let k = 0; k < NUM_SENDS; k++) {
+      const bus = this.sends[k];
+      bus.setTempo(p.bpm);
+      for (let e = 0; e < EFFECTS.length; e++) bus.setAmount(e, p.sendFx[k]?.[e] ?? 0);
+      bus.settle();
+    }
+    this.tape.setImmediate(p.lofi);
     this.swing = (p.swing - 50) / 50;
     this.master.setImmediate(p.master);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -195,7 +209,9 @@ export class Engine {
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
-      for (let k = 0; k < NUM_SENDS; k++) this.sendLevel[ch * NUM_SENDS + k].setImmediate(c.sends[k] ?? 0);
+      this.route[ch] = c.fxSend >= 1 && c.fxSend <= NUM_SENDS ? c.fxSend - 1 : -1;
+      this.sendLevel[ch].setImmediate(c.sendLevel);
+      this.cutoff[ch].setImmediate(c.cutoff);
       // A loaded project starts at its values instead of gliding to them.
       this.volume[ch].setImmediate(c.mute ? 0 : c.volume);
       this.pan[ch].setImmediate(c.pan);
@@ -439,36 +455,45 @@ export class Engine {
       const pan = this.pan[ch];
       const tl = this.toneL[ch];
       const tr = this.toneR[ch];
-      const sendBase = ch * NUM_SENDS;
+      const cut = this.cutoff[ch];
+      const cl = this.cutL[ch];
+      const cr = this.cutR[ch];
+      const level = this.sendLevel[ch];
+      const bus = this.route[ch];
+      const bL = bus >= 0 ? this.busL[bus] : null;
+      const bR = bus >= 0 ? this.busR[bus] : null;
       for (let i = 0; i < n; i++) {
         const v = vol.next();
         // Equal-power pan, -1..1 -> 0..pi/2
         const a = (pan.next() + 1) * 0.25 * Math.PI;
+        const fc = cut.next();
+        if ((i & 15) === 0 && fc !== this.cutApplied[ch]) {
+          cl.setup(fc, 0.1, this.sampleRate);
+          cr.setup(fc, 0.1, this.sampleRate);
+          this.cutApplied[ch] = fc;
+        }
         tl.process(sl[i]);
         tr.process(sr[i]);
-        const l = tl.low * v * Math.cos(a);
-        const r = tr.low * v * Math.sin(a);
+        cl.process(tl.low);
+        cr.process(tr.low);
+        const l = cl.low * v * Math.cos(a);
+        const r = cr.low * v * Math.sin(a);
         outL[off + i] += l;
         outR[off + i] += r;
-        // Post-fader sends (a muted channel sends nothing).
-        for (let k = 0; k < NUM_SENDS; k++) {
-          const g = this.sendLevel[sendBase + k].next();
-          this.busL[k][i] += l * g;
-          this.busR[k][i] += r * g;
+        // Post-fader send (a muted track sends nothing).
+        const g = level.next();
+        if (bL && bR) {
+          bL[i] += l * g;
+          bR[i] += r * g;
         }
       }
     }
-    // Independent send effects, each returning into the main mix.
-    for (let k = 0; k < NUM_SENDS; k++) this.effects[k].process(this.busL[k], this.busR[k], outL, outR, off, n);
-  }
-
-  private setFx(id: string, value: number): void {
-    for (let k = 0; k < EFFECTS.length; k++) {
-      if (id.startsWith(EFFECTS[k].prefix)) { this.effects[k].setParam(id, value); return; }
-    }
+    // Each send bus runs its six effects back into the mix.
+    for (let k = 0; k < NUM_SENDS; k++) this.sends[k].process(this.busL[k], this.busR[k], outL, outR, off, n);
   }
 
   private finishBlock(outL: Float32Array, outR: Float32Array, frames: number): void {
+    this.tape.process(outL, outR, frames);
     let pL = this.peakL;
     let pR = this.peakR;
     for (let i = 0; i < frames; i++) {
@@ -524,10 +549,8 @@ export class Engine {
   }
 
   private setMix(ch: number, id: MixParam, value: number): void {
-    if (id.startsWith('send')) {
-      this.sendLevel[ch * NUM_SENDS + Number(id.charAt(4))].setTarget(value);
-      return;
-    }
+    if (id === 'send') { this.sendLevel[ch].setTarget(value); return; }
+    if (id === 'cutoff') { this.cutoff[ch].setTarget(value); return; }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);
     else this.muted[ch] = value > 0 ? 1 : 0;

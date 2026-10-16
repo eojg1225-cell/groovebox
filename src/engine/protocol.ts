@@ -4,8 +4,8 @@
  */
 import type { InstrumentKind, Project, Step } from './project';
 
-export type MixParam = 'volume' | 'pan' | 'mute' | `send${0 | 1 | 2 | 3 | 4 | 5}`;
-export type GlobalParam = 'bpm' | 'swing' | 'master';
+export type MixParam = 'volume' | 'pan' | 'mute' | 'cutoff' | 'send';
+export type GlobalParam = 'bpm' | 'swing' | 'master' | 'lofi';
 
 export type MainToWorklet =
   /** Replace the whole engine state (startup, session restore). */
@@ -24,8 +24,10 @@ export type MainToWorklet =
   | { type: 'setSound'; channel: number; id: string; value: number }
   | { type: 'setMix'; channel: number; id: MixParam; value: number }
   | { type: 'setGlobal'; id: GlobalParam; value: number }
-  /** Send effect parameter (ids in src/fx). */
-  | { type: 'setFx'; id: string; value: number }
+  /** Route a track to send 1-3 (0 = none). */
+  | { type: 'setRouting'; channel: number; send: number }
+  /** Amount 0..1 of effect `effect` (EFFECTS order) inside send `send` (0-2). */
+  | { type: 'setSendFx'; send: number; effect: number; value: number }
   | { type: 'transport'; playing: boolean }
   /** Audition / play a note on a channel now. */
   | { type: 'trigger'; channel: number; note: number; velocity: number }

@@ -21,7 +21,7 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   choice('octave', 'OCTAVE', OCTAVES, 2),
   choice('voice', 'VOICES', VOICE_MODES),
   { id: 'glide', name: 'GLIDE', min: 0, max: 0.5, defaultValue: 0, unit: 'S', curve: 'linear' },
-  { id: 'cutoff', name: 'CUTOFF', min: 40, max: 12000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'cutoff', name: 'FILTER', min: 40, max: 12000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'reso', name: 'RESO', min: 0, max: 0.95, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
   { id: 'fdecay', name: 'FLT DEC', min: 0.01, max: 3, defaultValue: 0.3, unit: 'S', curve: 'exp' },
@@ -63,22 +63,22 @@ export const LEAD_PARAMS = synthParams(
 export const LEAD_FIXED = { voice: 1, sub: 0, drive: 1.5, level: 0.55 };
 
 export const BASS_PRESETS: readonly Preset[] = [
-  { name: 'BASS', live: ['cutoff', 'fenv'], values: {} },
-  { name: 'REESE', live: ['cutoff', 'detune'], values: { detune: 0.7, sub: 0.5, glide: 0.04, cutoff: 650, reso: 0.2, fenv: 0.1, fdecay: 0.5, decay: 1, sustain: 1, drive: 2 } },
-  { name: 'SUB', live: ['decay', 'drive'], values: { wave: 3, sub: 0, cutoff: 2000, reso: 0, fenv: 0, decay: 0.6, sustain: 0.8 } },
-  { name: 'ACID', live: ['cutoff', 'reso'], values: { wave: 0, sub: 0, glide: 0.06, cutoff: 300, reso: 0.85, fenv: 0.7, fdecay: 0.18, decay: 0.25, sustain: 0.3, drive: 3 } },
+  { name: 'BASS', values: {} },
+  { name: 'REESE', values: { detune: 0.7, sub: 0.5, glide: 0.04, cutoff: 650, reso: 0.2, fenv: 0.1, fdecay: 0.5, decay: 1, sustain: 1, drive: 2 } },
+  { name: 'SUB', values: { wave: 3, sub: 0, cutoff: 2000, reso: 0, fenv: 0, decay: 0.6, sustain: 0.8 } },
+  { name: 'ACID', values: { wave: 0, sub: 0, glide: 0.06, cutoff: 300, reso: 0.85, fenv: 0.7, fdecay: 0.18, decay: 0.25, sustain: 0.3, drive: 3 } },
 ];
 export const PAD_PRESETS: readonly Preset[] = [
-  { name: 'WARM', live: ['cutoff', 'release'], values: {} },
-  { name: 'STAB', live: ['cutoff', 'decay'], values: { detune: 0.3, cutoff: 1500, reso: 0.3, fenv: 0.45, fdecay: 0.18, attack: 0.002, decay: 0.35, sustain: 0.15, release: 0.25 } },
-  { name: 'GLASS', live: ['cutoff', 'attack'], values: { wave: 2, detune: 0.2, octave: 3, cutoff: 5000, attack: 0.02, decay: 0.8, sustain: 0.4, release: 1.5 } },
-  { name: 'DARK', live: ['cutoff', 'reso'], values: { wave: 1, detune: 0.6, octave: 1, cutoff: 500, reso: 0.4, attack: 0.8, release: 2 } },
+  { name: 'WARM', values: {} },
+  { name: 'STAB', values: { detune: 0.3, cutoff: 1500, reso: 0.3, fenv: 0.45, fdecay: 0.18, attack: 0.002, decay: 0.35, sustain: 0.15, release: 0.25 } },
+  { name: 'GLASS', values: { wave: 2, detune: 0.2, octave: 3, cutoff: 5000, attack: 0.02, decay: 0.8, sustain: 0.4, release: 1.5 } },
+  { name: 'DARK', values: { wave: 1, detune: 0.6, octave: 1, cutoff: 500, reso: 0.4, attack: 0.8, release: 2 } },
 ];
 export const LEAD_PRESETS: readonly Preset[] = [
-  { name: 'SQUARE', live: ['cutoff', 'glide'], values: {} },
-  { name: 'SAW', live: ['cutoff', 'fenv'], values: { wave: 0, detune: 0.3, cutoff: 1800, fenv: 0.5 } },
-  { name: 'SINE', live: ['glide', 'decay'], values: { wave: 3, detune: 0, cutoff: 6000, fenv: 0, sustain: 0.8 } },
-  { name: 'SCREAM', live: ['cutoff', 'reso'], values: { wave: 0, detune: 0.5, cutoff: 900, reso: 0.8, fenv: 0.6, fdecay: 0.4 } },
+  { name: 'SQUARE', values: {} },
+  { name: 'SAW', values: { wave: 0, detune: 0.3, cutoff: 1800, fenv: 0.5 } },
+  { name: 'SINE', values: { wave: 3, detune: 0, cutoff: 6000, fenv: 0, sustain: 0.8 } },
+  { name: 'SCREAM', values: { wave: 0, detune: 0.5, cutoff: 900, reso: 0.8, fenv: 0.6, fdecay: 0.4 } },
 ];
 
 const STAGE_OFF = 0, STAGE_ATTACK = 1, STAGE_DECAY = 2, STAGE_SUSTAIN = 3, STAGE_RELEASE = 4;

@@ -1,24 +1,26 @@
 /**
- * On-screen knob: vertical drag (multi-touch safe via pointer capture), mouse wheel,
- * double-tap / double-click to reset. Value is normalised 0..1.
+ * On-screen rotary ENCODER (continuous rotation, no end stops), as on the planned
+ * hardware: turning changes the value relatively; the value itself is shown on the pixel
+ * screen. Vertical drag (multi-touch safe via pointer capture), mouse wheel, double-tap /
+ * double-click resets to default. Value is normalised 0..1.
  */
 import { localY } from './orientation';
 
 // Pixels of vertical drag for the full range (larger = less sensitive).
 const DRAG_PIXELS_FULL_RANGE = 400;
+/** Visual rotation per pixel of drag; the cap keeps turning past the value's limits. */
+const DEGREES_PER_PIXEL = 0.9;
 const DOUBLE_TAP_MS = 300;
-const SWEEP_DEG = 270;
 
 export class Knob {
   readonly el: HTMLElement;
-  private readonly indicator: HTMLElement;
-  private readonly arc: SVGCircleElement;
+  private readonly cap: HTMLElement;
   private readonly labelEl: HTMLElement;
   private enabled = true;
   private value: number;
+  private angle = 0;
   private dragPointer: number | null = null;
-  private dragStartY = 0;
-  private dragStartValue = 0;
+  private lastY = 0;
   private lastTap = -Infinity;
 
   constructor(
@@ -32,17 +34,13 @@ export class Knob {
     el.className = 'knob';
     el.innerHTML = `
       <div class="knob-body">
-        <svg class="knob-ring" viewBox="0 0 100 100" aria-hidden="true">
-          <circle class="knob-track" cx="50" cy="50" r="44" pathLength="360"/>
-          <circle class="knob-arc" cx="50" cy="50" r="44" pathLength="360"/>
-        </svg>
+        <div class="knob-ticks"></div>
         <div class="knob-cap"><div class="knob-indicator"></div></div>
       </div>
       <div class="knob-label"></div>`;
     this.labelEl = el.querySelector('.knob-label') as HTMLElement;
     this.labelEl.textContent = label;
-    this.indicator = el.querySelector('.knob-cap') as HTMLElement;
-    this.arc = el.querySelector('.knob-arc') as SVGCircleElement;
+    this.cap = el.querySelector('.knob-cap') as HTMLElement;
     this.el = el;
 
     const body = el.querySelector('.knob-body') as HTMLElement;
@@ -51,11 +49,10 @@ export class Knob {
     body.addEventListener('pointerup', (e) => this.onUp(e));
     body.addEventListener('pointercancel', (e) => this.onUp(e));
     body.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
-    this.render();
   }
 
   setLabel(label: string): void {
-    this.labelEl.textContent = label;
+    if (this.labelEl.textContent !== label) this.labelEl.textContent = label;
   }
 
   /** A disabled knob ignores input and is drawn dimmed (e.g. unused slot on a page). */
@@ -69,17 +66,18 @@ export class Knob {
     return this.value;
   }
 
-  /** Set without emitting. */
+  /** Set the value without emitting. An encoder has no position, so nothing moves. */
   set(value: number): void {
     this.value = Math.min(1, Math.max(0, value));
-    this.render();
   }
 
-  private change(value: number): void {
-    const v = Math.min(1, Math.max(0, value));
+  /** Turn by a number of pixels of drag (positive = clockwise / up). */
+  private turn(pixels: number, fine: boolean): void {
+    this.angle += pixels * DEGREES_PER_PIXEL * (fine ? 0.2 : 1);
+    this.cap.style.transform = `rotate(${this.angle}deg)`;
+    const v = Math.min(1, Math.max(0, this.value + (pixels / DRAG_PIXELS_FULL_RANGE) * (fine ? 0.2 : 1)));
     if (v === this.value) return;
     this.value = v;
-    this.render();
     this.onChange(this.id, v);
   }
 
@@ -89,13 +87,15 @@ export class Knob {
     const now = performance.now();
     if (now - this.lastTap < DOUBLE_TAP_MS) {
       this.lastTap = -Infinity;
-      this.change(this.defaultValue);
+      if (this.value !== this.defaultValue) {
+        this.value = this.defaultValue;
+        this.onChange(this.id, this.value);
+      }
       return;
     }
     this.lastTap = now;
     this.dragPointer = e.pointerId;
-    this.dragStartY = localY(e);
-    this.dragStartValue = this.value;
+    this.lastY = localY(e);
     body.setPointerCapture(e.pointerId);
     this.el.classList.add('active');
   }
@@ -103,9 +103,9 @@ export class Knob {
   private onMove(e: PointerEvent): void {
     if (e.pointerId !== this.dragPointer) return;
     e.preventDefault();
-    const fine = e.shiftKey ? 0.2 : 1;
-    const dy = (this.dragStartY - localY(e)) / DRAG_PIXELS_FULL_RANGE;
-    this.change(this.dragStartValue + dy * fine);
+    const y = localY(e);
+    this.turn(this.lastY - y, e.shiftKey);
+    this.lastY = y;
   }
 
   private onUp(e: PointerEvent): void {
@@ -117,14 +117,6 @@ export class Knob {
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
     if (!this.enabled) return;
-    const step = e.shiftKey ? 0.002 : 0.01;
-    this.change(this.value - Math.sign(e.deltaY) * step);
-  }
-
-  private render(): void {
-    const deg = -SWEEP_DEG / 2 + this.value * SWEEP_DEG;
-    this.indicator.style.transform = `rotate(${deg}deg)`;
-    // Arc drawn from the 7:30 position clockwise.
-    this.arc.style.strokeDasharray = `${this.value * SWEEP_DEG} 360`;
+    this.turn(-Math.sign(e.deltaY) * 4, e.shiftKey);
   }
 }

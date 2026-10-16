@@ -13,7 +13,7 @@ import {
 } from './project';
 import { applyPreset, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, SOUND_KINDS, presetSound } from '../instruments/registry';
-import { FX_PARAMS } from '../fx';
+import { EFFECTS } from '../fx';
 
 export const FILE_FORMAT = 'groovebox-project';
 
@@ -40,7 +40,9 @@ export interface StoredChannel {
   chord: number;
   volume: number;
   pan: number;
-  sends: number[];
+  cutoff: number;
+  fxSend: number;
+  sendLevel: number;
   mute: boolean;
   activePattern: number;
   patterns: StoredPattern[];
@@ -52,7 +54,8 @@ export interface StoredProject {
   bpm: number;
   swing: number;
   master: number;
-  fx: Record<string, number>;
+  sendFx: number[][];
+  lofi: number;
   channels: StoredChannel[];
 }
 
@@ -63,7 +66,8 @@ export function toStored(p: Project): StoredProject {
     bpm: p.bpm,
     swing: p.swing,
     master: p.master,
-    fx: { ...p.fx },
+    sendFx: p.sendFx.map((row) => [...row]),
+    lofi: p.lofi,
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
       sounds: JSON.parse(JSON.stringify(c.sounds)) as Record<string, Record<string, number>>,
@@ -72,7 +76,9 @@ export function toStored(p: Project): StoredProject {
       chord: c.chord,
       volume: c.volume,
       pan: c.pan,
-      sends: [...c.sends],
+      cutoff: c.cutoff,
+      fxSend: c.fxSend,
+      sendLevel: c.sendLevel,
       mute: c.mute,
       activePattern: c.activePattern,
       patterns: c.patterns.map((pat) => ({
@@ -151,7 +157,23 @@ function readChannel(src: Obj, ch: ChannelState): void {
   ch.volume = num(src.volume, ch.volume, 0, 1);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.mute = src.mute === true;
-  if (Array.isArray(src.sends)) for (let k = 0; k < NUM_SENDS; k++) ch.sends[k] = num(src.sends[k], ch.sends[k], 0, 1);
+  ch.cutoff = num(src.cutoff, ch.cutoff, 40, 20000);
+  if (typeof src.fxSend === 'number') {
+    ch.fxSend = Math.round(num(src.fxSend, 0, 0, NUM_SENDS));
+    ch.sendLevel = num(src.sendLevel, ch.sendLevel, 0, 1);
+  } else if (Array.isArray(src.sends)) {
+    // Older format: one level per effect. Route to the send holding the strongest one:
+    // delay -> FX 1 (dub delay), reverb -> FX 2, anything else -> FX 3.
+    const levels = src.sends.map((x) => num(x, 0, 0, 1));
+    const max = Math.max(0, ...levels);
+    if (max > 0) {
+      const k = levels.indexOf(max);
+      ch.fxSend = k === 0 ? 1 : k === 4 ? 2 : 3;
+      ch.sendLevel = max;
+    } else {
+      ch.fxSend = 0;
+    }
+  }
   ch.activePattern = Math.round(num(src.activePattern, 0, 0, NUM_PATTERNS - 1));
 
   if (!Array.isArray(src.patterns)) return;
@@ -183,8 +205,13 @@ export function fromStored(data: unknown): Project | null {
   p.bpm = num(data.bpm, p.bpm, 60, 200);
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
-  const fx = numbers(data.fx);
-  for (const spec of FX_PARAMS) if (spec.id in fx) p.fx[spec.id] = Math.min(spec.max, Math.max(spec.min, fx[spec.id]));
+  p.lofi = num(data.lofi, p.lofi, 0, 1);
+  if (Array.isArray(data.sendFx)) {
+    for (let k = 0; k < NUM_SENDS; k++) {
+      const row = data.sendFx[k];
+      if (Array.isArray(row)) for (let e = 0; e < EFFECTS.length; e++) p.sendFx[k][e] = num(row[e], p.sendFx[k][e], 0, 1);
+    }
+  }
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
     if (isObj(src)) readChannel(src, p.channels[i]);

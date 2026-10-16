@@ -30,36 +30,34 @@ Note: AudioWorklet needs a secure context, so on another device use the HTTPS Pa
 
 ## Current state
 
-A title screen fades into the panel; the first touch switches sound on (browsers require a gesture). The instrument is always landscape: on touch devices it goes full screen and locks landscape where the browser allows; on any portrait screen the panel is drawn rotated. Every pattern starts empty.
+A title screen fades into the panel; the first touch switches sound on (browsers require a gesture). The instrument is always landscape (full screen + orientation lock on touch devices where allowed; rotated layout on portrait screens). With no session or saved project it opens the **start project** (the sequence in progress, `src/engine/startProject.json`).
 
-**Layout (like a hardware front panel):** screen top left; top right MODE (RECORD / PLAY / SOUND DESIGN, set apart at the top), channels 1-6 with MUTE, pattern A/B/C with SAVE PATCH and SAVE PROJECT, sound design page buttons. Below: six recessed knob modules separated by grooves, one per track, each with two knobs and the track number printed between them. Then the function row, step lights, the 16-button strip and PLAY.
+**Layout (like a hardware front panel):** screen top left; top right MODE (RECORD / PLAY / SOUND DESIGN), channels 1-6 with MUTE, pattern A/B/C with SAVE PATCH / SAVE PROJECT, the sound design pages (SOUND / TRACK / GLOBAL) and the small **FX 1 2 3** buttons. Below: six recessed track modules (two knobs each, track number between), the function row, step lights, the 16-button strip, and bottom right PLAY with the **TEMPO** and **LO-FI** master knobs.
 
-**Tracks:** 1 KICK, 2 SNARE, 3 HAT, 4 BASS, 5 PAD (chord MIN9), 6 LEAD. A track's type can be changed on its TRACK page.
+**Knobs are endless encoders** (as on the planned hardware): they turn without end stops and change values relatively; values are shown on the screen. Drag vertically (400 px = full range, Shift = fine), mouse wheel, double-tap resets.
+
+**Tracks:** 1 KICK, 2 SNARE, 3 HAT, 4 BASS, 5 PAD (chords), 6 LEAD.
 
 **Modes**
 
 | | RECORD | PLAY | SOUND DESIGN |
 |---|---|---|---|
-| Knobs | Live knobs: two per track | Live knobs | The selected track's page |
-| Drum strip | Toggle steps | Keyboard (drum tuned chromatically) | Keyboard (audition) |
-| Pitched strip | Step entry (cursor; ◀ ▶ REST; hold a key + ▶ to tie); with MOTION REC while playing, live notes are recorded with the length they're held | Keyboard | Keyboard (audition) |
-| Recorded? | Yes | **Never** | No |
-| Pattern A/B/C | Switch immediately | Switch at loop end | Switch immediately |
+| Knobs | Two live knobs per track (default VOLUME + CUTOFF); FX 1-3 show a send | Same | The selected track's page |
+| FX 1/2/3 | Open that send on the knobs | Same | Route the selected track to that send (again = no send) |
+| Drum strip | Toggle steps | Keyboard (chromatic drum) | Keyboard (audition) |
+| Pitched strip | Step entry (cursor; ◀ ▶ REST; hold + ▶ ties); MOTION REC records live | Keyboard | Keyboard (audition) |
+| Recorded? | Yes | Never | No |
 
-**Sound design pages:** SOUND (the type's core parameters, one page of up to 12), TRACK (type, preset incl. saved USER patches, volume, pan, LIVE 1 / LIVE 2, chord on pitched tracks), FX (tap again to step through the six effects; top row = each track's send into that effect, i.e. the routing; bottom row = the effect's controls and return) and GLOBAL (BPM, swing, master). Coarse settings (waveforms, modes, type, preset, chord) only live here.
+**Sound design pages:** SOUND (12 knobs; drums: row 1 = first layer + DRIVE, row 2 = second layer + CRUSH), TRACK (type, preset, volume, pan, LIVE 1 / LIVE 2 = what the two live knobs control, cutoff, send level, chord on pitched tracks), GLOBAL (tempo, swing, master, lo-fi). Coarse settings only live here.
 
-**Sounds**
-- **KICK** = TONE + CLICK; **SNARE** = TONE + METAL; **HAT** = CLICK + METAL. TONE: level, pitch, sweep, sweep time, decay, wave. CLICK: level, tone, length. METAL: level, pitch, spread, noise blend, tone, decay, mode (square bank / ring / FM). Every drum also has DRIVE and CRUSH. Presets include industrial ones (IND).
-- **BASS** (mono, glide), **PAD** (6-voice, chords: MIN7 … MIN11, SUS4), **LEAD** (mono, glide).
+**Sounds:** KICK = TONE + CLICK, SNARE = TONE + METAL, HAT = CLICK + METAL. TONE: level, pitch, sweep, sweep time, decay (+ wave on the snare). CLICK: level, tone, resonance, length, noise. METAL: level, pitch, spread/noise, tone, decay. Every drum: DRIVE and CRUSH. BASS (mono, glide), PAD (6-voice, chords MIN7 … MIN11, SUS4), LEAD (mono, glide).
 
-**FX sends (six):** DELAY (tempo-synced 1/16 to 1 bar, feedback up to 1.1 that runs away gracefully, tone in the feedback path), DISTORT (drive, tone, soft/hard character), MID CUT (frequency, width, depth), CHORUS (rate, depth, width), REVERB (size, damping, pre-delay, width) and FLANGER (rate, depth, manual, feedback). Each track has a send to each; sends can also go on live knobs.
+**FX sends:** three sends, each holding six effects with one AMOUNT knob each: DELAY (tempo-synced: send 1 = 3/16, 2 = 1/4, 3 = 1/8; more amount = more feedback), DISTORT, MID CUT (carves the signal feeding the send's other effects), CHORUS, REVERB, COMP (parallel compression). Each track goes to one send with its own SEND LVL. Start: FX 1 dub delay, FX 2 reverb, FX 3 dirt.
 
-**Strip:** the keyboard starts on A (A1 for bass and drums, A2 for pad and lead); divider lines split the strip and LEDs into groups of four.
+**Master:** TEMPO; LO-FI (tape: low-end bump, progressive saturation, high roll-off), saved with the project.
 
-**Sequencing:** a note lasts one step by default. In step entry, hold the key and press ▶ to extend it over more steps (◀ shortens); release the key and the cursor moves past it. Live-recorded notes keep the length they were held. While live recording (RECORD + MOTION REC + playing), the strip and screen follow the 16-step block that is playing, so taps land in that block.
+**Sequencing:** notes last one step by default; hold a key + ▶ to tie in step entry; live-recorded notes keep their held length; while live recording the strip follows the playing 16-step block. Keyboard starts on A; dividers mark groups of four.
 
-**Saving:** SAVE PATCH stores the selected track's sound as USER 1, USER 2… for that track type (they appear after the factory presets). SAVE PROJECT stores everything; the saved project opens at the next launch. Both live in the browser's local storage on this device. The working session also survives reloads. Saves use a forgiving format: notes and pattern lengths carry over even when the rest of the project format changes. On claude.ai the working project is also mirrored to the artifact's store.
+**Saving:** SAVE PATCH (USER n per track type), SAVE PROJECT (opens next launch), both in this browser's local storage; the working session survives reloads; on claude.ai the project is also mirrored to the artifact's store. The save format is forgiving: notes carry over across format changes.
 
-**Function row:** MOTION REC (RECORD mode only), ACCENT / GHOST, STEPS 16-64, VIEW, OCT − / +, ◀ ▶ REST, CLEAR MOTION. **Step lights** show the playing step (red while recording) and the step-entry cursor (orange).
-
-Knobs: drag vertically (400 px for the full range; Shift = fine), mouse wheel, double-tap to reset. Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I / A-K the strip.
+Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I / A-K the strip.

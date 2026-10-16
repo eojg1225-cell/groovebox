@@ -2,9 +2,10 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 4;
-/** One send per effect (delay, distortion, mid-cut, chorus, reverb, flanger). */
-export const NUM_SENDS = 6;
+export const PROJECT_VERSION = 5;
+/** Send buses (FX 1-3); each holds all six effects (see src/fx). */
+export const NUM_SENDS = 3;
+export const NUM_EFFECTS = 6;
 export const NUM_CHANNELS = 6;
 export const NUM_PATTERNS = 3;
 export const MAX_STEPS = 64;
@@ -16,7 +17,7 @@ export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'bass' | 'pad' 
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
 
 /** Live-knob target: an instrument param id, or a mixer param. */
-export type LiveTarget = string; // e.g. "t_decay", "mix:volume", "mix:send0"
+export type LiveTarget = string; // e.g. "t_decay", "mix:volume", "mix:cutoff", "mix:send"
 
 export interface Step {
   active: boolean;
@@ -68,8 +69,12 @@ export interface ChannelState {
   chord: number;
   volume: number; // 0..1
   pan: number; // -1..1
-  /** Send levels 0..1, one per send effect (see src/fx/index.ts EFFECTS). */
-  sends: number[];
+  /** Low-pass cutoff of the track (Hz; 20000 = open). */
+  cutoff: number;
+  /** Which send the track feeds: 0 = none, 1-3 = FX send. */
+  fxSend: number;
+  /** How much of the track goes to its send, 0..1. */
+  sendLevel: number;
   mute: boolean;
   patterns: Pattern[];
   activePattern: number;
@@ -81,8 +86,10 @@ export interface Project {
   /** 50..75 (%): 50 = straight. */
   swing: number;
   master: number; // 0..1
-  /** Send effect parameters (see src/fx), id -> value. */
-  fx: Record<string, number>;
+  /** Effect amounts per send: sendFx[send][effect], 0..1 (effects in src/fx EFFECTS order). */
+  sendFx: number[][];
+  /** Master LO-FI (tape saturation + EQ), 0..1. */
+  lofi: number;
   channels: ChannelState[];
 }
 
@@ -99,11 +106,13 @@ export function emptyChannel(): ChannelState {
     instrument: 'none',
     sounds: {},
     presets: {},
-    live: ['mix:volume', 'mix:pan'],
+    live: ['mix:volume', 'mix:cutoff'],
     chord: 0,
     volume: 0.8,
     pan: 0,
-    sends: new Array(NUM_SENDS).fill(0),
+    cutoff: 20000,
+    fxSend: 0,
+    sendLevel: 0.5,
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
     activePattern: 0,
