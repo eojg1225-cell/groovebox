@@ -717,8 +717,17 @@ export class App {
       setStepDynamic(step, this.dynamic);
       if (!this.playing) this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
       this.drumHold = { button, index, remove: false, used: false };
-    } else if (armed && (stepDynamic(step) !== this.dynamic || !!step.ring !== this.ring)) {
-      setStepDynamic(step, this.dynamic);
+    } else if (this.dynamic !== 'normal') {
+      // ACCENT / GHOST armed: a hit of another dynamic takes the armed one; a hit that
+      // already has it goes back to normal. The note is never removed.
+      if (stepDynamic(step) !== this.dynamic) {
+        setStepDynamic(step, this.dynamic);
+        step.ring = this.ring;
+      } else {
+        setStepDynamic(step, 'normal');
+      }
+      this.drumHold = { button, index, remove: false, used: false };
+    } else if (armed && !!step.ring !== this.ring) {
       step.ring = this.ring;
       this.drumHold = { button, index, remove: false, used: false };
     } else {

@@ -81,9 +81,9 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   pad: {
     anchors: [
+      { name: 'GLASS', values: { shape: 0, fm: 0.75, fmratio: 2, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, attack: 0.02, decay: 1.1, sustain: 0.35, release: 1.8, drive: 1 } },
       { name: 'WARM', values: { shape: 2, fm: 0, fmratio: 2, detune: 0.4, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.5, decay: 1.2, sustain: 0.8, release: 1.4, drive: 1 } },
       { name: 'STRINGS', values: { shape: 2, fm: 0, fmratio: 2, detune: 0.75, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, attack: 0.35, decay: 1.5, sustain: 0.85, release: 1.6, drive: 1.2 } },
-      { name: 'GLASS', values: { shape: 0, fm: 0.75, fmratio: 2, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, attack: 0.02, decay: 1.1, sustain: 0.35, release: 1.8, drive: 1 } },
       { name: 'DARK', values: { shape: 3, fm: 0.15, fmratio: 0.5, detune: 0.85, cutoff: 450, reso: 0.55, fenv: 0.2, fdecay: 1.5, attack: 0.9, decay: 2, sustain: 0.9, release: 2.2, drive: 1.8 } },
     ],
     excite: [
