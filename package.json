@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.engine.json",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview --host",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:artifact": "npm run build && node scripts/build-artifact.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

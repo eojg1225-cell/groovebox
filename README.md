@@ -23,6 +23,7 @@ npm run dev        # dev server (also on your LAN, for testing on the tablet)
 npm test           # offline engine tests in Node (Vitest)
 npm run build      # typecheck (incl. DOM-free engine check) + static build into dist/
 npm run preview    # serve dist/ locally
+npm run build:artifact  # also pack a single-page copy into dist-artifact/ for publishing as a claude.ai Artifact
 ```
 
 Note: AudioWorklet needs a secure context, so on another device use the HTTPS Pages URL (plain `http://<lan-ip>` will not start audio).

@@ -41,7 +41,7 @@ export class AudioHost {
     if (!this.ctx.audioWorklet) {
       throw new Error('AudioWorklet is not supported in this browser (a secure https page is required).');
     }
-    await this.ctx.audioWorklet.addModule(workletUrl);
+    await this.loadWorklet();
     const node = new AudioWorkletNode(this.ctx, PROCESSOR_NAME, {
       numberOfInputs: 0,
       numberOfOutputs: 1,
@@ -58,6 +58,25 @@ export class AudioHost {
     });
     window.setInterval(() => this.ping(), 1000);
     this.ping();
+  }
+
+  /**
+   * Load the worklet module by URL; if the host page's security policy refuses that
+   * (e.g. some embedded/sandboxed hosts), fetch the same file and load it as a blob.
+   */
+  private async loadWorklet(): Promise<void> {
+    try {
+      await this.ctx.audioWorklet.addModule(workletUrl);
+    } catch (err) {
+      const res = await fetch(workletUrl).catch(() => null);
+      if (!res?.ok) throw err;
+      const blobUrl = URL.createObjectURL(new Blob([await res.text()], { type: 'text/javascript' }));
+      try {
+        await this.ctx.audioWorklet.addModule(blobUrl);
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+    }
   }
 
   send(msg: MainToWorklet): void {
