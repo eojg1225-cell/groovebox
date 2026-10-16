@@ -56,11 +56,13 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   hat: {
+    // Every hit starts as its HEAD (a hat; at the far left a ride bell) and morphs into the
+    // tail, so short hits stay hats and the tail (and RING) decides the cymbal.
     anchors: [
-      { name: 'RIDE', values: { m_level: 0.55, m_pitch: 1150, m_spread: 0.35, m_noise: 0.2, m_tone: 2500, m_decay: 1.1, m_mode: 2, m_fm: 0.45, c_level: 0.35, c_tone: 6000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.2, crush: 0 } },
-      { name: 'HAT', values: { m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.07, m_mode: 0, m_fm: 0.5, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0 } },
-      { name: 'CRASH', values: { m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.65, m_tone: 4500, m_decay: 1.8, m_mode: 0.5, m_fm: 0.5, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0 } },
-      { name: 'CHINA', values: { m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_decay: 1.2, m_mode: 1, m_fm: 0.6, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.05 } },
+      { name: 'RIDE', values: { m_level: 0.55, m_pitch: 1150, m_spread: 0.35, m_noise: 0.25, m_tone: 3000, m_decay: 0.45, m_mode: 2, m_fm: 0.45, h_time: 0.06, h_pitch: 1500, h_tone: 6000, h_noise: 0.02, h_mode: 2, h_spread: 0.25, ring: 2.5, c_level: 0.35, c_tone: 6000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.2, crush: 0 } },
+      { name: 'HAT', values: { m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.07, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, ring: 0.45, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0 } },
+      { name: 'CRASH', values: { m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.7, m_tone: 4500, m_decay: 0.14, m_mode: 0.5, m_fm: 0.5, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, ring: 2.2, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0 } },
+      { name: 'CHINA', values: { m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_decay: 0.14, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, ring: 1.6, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.05 } },
     ],
     excite: [
       { id: 'm_tone', low: 0.6, high: 1.5 }, { id: 'm_decay', low: 0.7, high: 1.4 }, { id: 'drive', low: 0.8, high: 2.5 },
@@ -81,14 +83,15 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   pad: {
     anchors: [
-      { name: 'GLASS', values: { shape: 0, fm: 0.75, fmratio: 2, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, attack: 0.02, decay: 1.1, sustain: 0.35, release: 1.8, drive: 1 } },
-      { name: 'WARM', values: { shape: 2, fm: 0, fmratio: 2, detune: 0.4, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.5, decay: 1.2, sustain: 0.8, release: 1.4, drive: 1 } },
-      { name: 'STRINGS', values: { shape: 2, fm: 0, fmratio: 2, detune: 0.75, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, attack: 0.35, decay: 1.5, sustain: 0.85, release: 1.6, drive: 1.2 } },
-      { name: 'DARK', values: { shape: 3, fm: 0.15, fmratio: 0.5, detune: 0.85, cutoff: 450, reso: 0.55, fenv: 0.2, fdecay: 1.5, attack: 0.9, decay: 2, sustain: 0.9, release: 2.2, drive: 1.8 } },
+      { name: 'GLASS', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.75, fmratio: 2, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, attack: 0.02, decay: 1.1, sustain: 0.35, release: 1.8, drive: 1 } },
+      { name: 'WARM', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0, fmratio: 2, detune: 0.4, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.5, decay: 1.2, sustain: 0.8, release: 1.4, drive: 1 } },
+      { name: 'STRINGS', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0, fmratio: 2, detune: 0.75, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, attack: 0.35, decay: 1.5, sustain: 0.85, release: 1.6, drive: 1.2 } },
+      // Euphoric and ethereal: an FM supersaw (unison saws, FM at 3:2) that swells open.
+      { name: 'ETHEREAL', values: { shape: 2, unison: 1, fm: 0.35, fmratio: 1.5, detune: 1.6, cutoff: 7000, reso: 0.15, fattack: 1.5, fenv: 0.3, fdecay: 4, attack: 0.7, decay: 3, attack2: 1.8, decay2: 4, sustain: 0.95, release: 3.5, drive: 1.1 } },
     ],
     excite: [
       { id: 'cutoff', low: 0.55, high: 1.8 }, { id: 'detune', low: 0.7, high: 1.3 }, { id: 'drive', low: 0.8, high: 2 },
-      { id: 'fm', low: 0.7, high: 1.3 }, { id: 'release', low: 0.8, high: 1.2 },
+      { id: 'fm', low: 0.7, high: 1.3 }, { id: 'release', low: 0.8, high: 1.2 }, { id: 'unison', low: 0.6, high: 1.4 },
     ],
   },
   lead: {

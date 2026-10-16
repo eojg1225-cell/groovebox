@@ -16,7 +16,7 @@ import { INSTRUMENTS, SOUND_KINDS, presetSound } from '../instruments/registry';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
-import { LFO_RATES, LFO_SHAPES, type LfoState } from './lfo';
+import { LFO_RATES, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
 
@@ -263,6 +263,12 @@ function readLfo(src: unknown, lfo: LfoState): void {
   lfo.pitch = num(src.pitch, lfo.pitch, 0, 48);
   lfo.filter = num(src.filter, lfo.filter, 0, 8);
   lfo.pan = num(src.pan, lfo.pan, 0, 1);
+  lfo.phase = num(src.phase, lfo.phase, 0, 1);
+  lfo.smooth = num(src.smooth, lfo.smooth, 0, 1);
+  lfo.fade = num(src.fade, lfo.fade, 0, 4);
+  lfo.retrig = Math.round(num(src.retrig, lfo.retrig, 0, LFO_RETRIG.length - 1));
+  lfo.send = num(src.send, lfo.send, 0, 1);
+  lfo.spread = num(src.spread, lfo.spread, 0, 1);
 }
 
 /**

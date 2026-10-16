@@ -9,7 +9,8 @@ import { MACROS } from './macros';
  * Per voice two elements, OSC 1 and OSC 2 (OSC 2 detuned by DETUNE), each with a
  * continuous SHAPE (sine -> triangle -> saw -> square) blended by FM with an FM pair (sine
  * carrier, sine modulator at FM RATIO, index following the filter envelope), and each
- * with its own ATTACK / DECAY (shared SUSTAIN / RELEASE); a sine sub joins OSC 1. Then a
+ * with its own ATTACK / DECAY (shared SUSTAIN / RELEASE); a sine sub joins OSC 1. UNISON
+ * adds four more detuned copies (two per element, spread by DETUNE) for supersaws. Then a
  * resonant low-pass with its own envelope (ATTACK, DECAY, ENV amount) -> drive, then CRUSH
  * on the summed output. MONO uses one voice with glide. Ranges go far past "sensible" on
  * purpose.
@@ -22,6 +23,9 @@ const OCTAVES = ['-2', '-1', '0', '+1', '+2'] as const;
 const MAX_VOICES = 6;
 /** Glide time of a SLIDE when the sound's own GLIDE is (near) zero. */
 const SLIDE_SECONDS = 0.06;
+/** UNISON copies relative to OSC 1 (x the spread), and their start phases. */
+const UNISON_SPREAD = [-1, -0.4, 0.4, 1];
+const UNISON_PHASE = [0.13, 0.61, 0.37, 0.89];
 const FILTER_UPDATE = 16;
 
 export const SYNTH_PARAMS: readonly ParamSpec[] = [
@@ -32,6 +36,7 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'fmratio', name: 'FM RATIO', min: 0.25, max: 16, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
   { id: 'detune', name: 'DETUNE', min: 0, max: 4, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'sub', name: 'SUB', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'unison', name: 'UNISON', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   choice('octave', 'OCTAVE', OCTAVES, 2),
   choice('voice', 'VOICES', VOICE_MODES),
   { id: 'glide', name: 'GLIDE', min: 0, max: 3, defaultValue: 0, unit: 'S', curve: 'linear' },
@@ -62,7 +67,7 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
  * PAD (polyphonic, chords) and LEAD (mono, glide). Each type's parameters are all set by
  * TIMBRE / INTENSITY; settings outside the list are fixed (*_FIXED).
  */
-const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
+const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'unison', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
 
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level'];
 export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, release: 0.06, level: 0.75 });
@@ -80,9 +85,9 @@ export const SYNTH_ELEMENTS = ['attack', 'decay', 'attack2', 'decay2'];
  * envelope amount / the rest of the amp envelope / level. The pad has CHORD instead of
  * glide ("track:chord" is a track setting).
  */
-export const BASS_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'sub', 'octave', 'glide', 'fenv', null, 'sustain', 'release', 'level'];
-export const PAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'track:chord', 'fenv', null, 'sustain', 'release', 'level'];
-export const LEAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', null, 'octave', 'glide', 'fenv', null, 'sustain', 'release', 'level'];
+export const BASS_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'sub', 'octave', 'glide', 'fenv', 'unison', 'sustain', 'release', 'level'];
+export const PAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'unison', 'octave', 'track:chord', 'fenv', null, 'sustain', 'release', 'level'];
+export const LEAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'unison', 'octave', 'glide', 'fenv', null, 'sustain', 'release', 'level'];
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'bass' | 'pad' | 'lead'): Preset[] {
@@ -115,6 +120,8 @@ class Voice {
   /** Pitch glide coefficient in use (GLIDE for mono notes, the slide time for slides). */
   glide = 1;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
+  /** UNISON copies' phases. */
+  readonly u = new Float64Array(4);
   /** Envelope stage and level per element (OSC 1, OSC 2). */
   readonly stage = new Uint8Array(2);
   readonly amp = new Float64Array(2);
@@ -129,6 +136,9 @@ export class Synth implements Instrument {
   private readonly sr: number;
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2; private detune = 0; private sub = 0; private octave = 0; private mono = false;
+  private unison = 0;
+  /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
+  private readonly uRatio = new Float64Array(4);
   private glideCoeff = 1;
   private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
@@ -183,6 +193,7 @@ export class Synth implements Instrument {
     v.targetFreq = freq;
     v.glide = this.glideCoeff;
     v.velocity = velocity;
+    if (!sounding(v)) for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
     v.stage[0] = STAGE_ATTACK;
     v.stage[1] = STAGE_ATTACK;
     v.fattacking = this.fattackInc > 0;
@@ -215,6 +226,7 @@ export class Synth implements Instrument {
       case 'fmratio': this.fmRatio = value; break;
       case 'detune': this.detune = value; break;
       case 'sub': this.sub = value; break;
+      case 'unison': this.unison = value; break;
       case 'octave': this.octave = Math.round(value) - 2; break;
       case 'voice':
         this.mono = Math.round(value) === 1;
@@ -267,6 +279,13 @@ export class Synth implements Instrument {
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const count = this.mono ? 1 : MAX_VOICES;
     const fmod = this.filterMod === 0 ? 1 : Math.pow(2, this.filterMod);
+    const uni = this.unison;
+    if (uni > 0) {
+      // Copies at -1, -0.4, +0.4, +1 x the spread: 12 cents + DETUNE.
+      const cents = 12 + 20 * this.detune;
+      for (let k = 0; k < 4; k++) this.uRatio[k] = Math.pow(2, (UNISON_SPREAD[k] * cents) / 1200);
+    }
+    const uniGain = 1 / (1 + uni);
     for (let vi = 0; vi < count; vi++) {
       const v = this.voices[vi];
       if (!sounding(v)) continue;
@@ -289,6 +308,18 @@ export class Synth implements Instrument {
           const fmOut = Math.sin(2 * Math.PI * v.p1 + index * Math.sin(2 * Math.PI * v.p4));
           o1 = o1 * (1 - this.fm) + fmOut * this.fm;
           o2 = o2 * (1 - this.fm) + fmOut * this.fm;
+        }
+        if (uni > 0) {
+          // UNISON: two detuned copies join each element.
+          const u = v.u;
+          let c1 = 0, c2 = 0;
+          for (let k = 0; k < 4; k++) {
+            const d = dt1 * this.uRatio[k];
+            u[k] += d; if (u[k] >= 1) u[k] -= 1;
+            if (k & 1) c2 += this.osc(u[k], d); else c1 += this.osc(u[k], d);
+          }
+          o1 = (o1 + c1 * uni * 0.5) * uniGain * 1.4;
+          o2 = (o2 + c2 * uni * 0.5) * uniGain * 1.4;
         }
         o1 += Math.sin(2 * Math.PI * v.p3) * this.sub * 2; // x2: the element mix halves it
 

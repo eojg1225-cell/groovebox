@@ -7,7 +7,7 @@ import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, presetSound } from '../src/instruments/registry';
-import { Drum, KICK_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
+import { Drum, HAT_PARAMS, KICK_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
 import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
 import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
@@ -787,7 +787,7 @@ describe('project', () => {
     p.fx1.stt_grid = 2;
     p.fx1.lp_cutoff = 800;
     p.channels[3].fx1 = true;
-    p.lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3, filter: 2, pan: 0.5 };
+    p.lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
     p.channels[5].lfoOn = true;
     p.channels[2].patterns[0].steps[6].active = true;
     p.channels[2].patterns[0].steps[6].ring = true;
@@ -1076,5 +1076,80 @@ describe('synth elements', () => {
     };
     expect(level(1, 2000)).toBeLessThan(level(0.001, 2000) * 0.7); // OSC 2 still rising
     expect(level(1, 46000)).toBeGreaterThan(level(0.001, 46000) * 0.9); // both in
+  });
+});
+
+describe('LFO options', () => {
+  const pad = (lfo: Partial<Project['lfo']>, notes: number[]) => {
+    const p = kickProject([], { bpm: 120 });
+    const c = p.channels[4];
+    c.fxSend = 0;
+    c.chord = 0;
+    c.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, release: 0.01 };
+    for (const s of notes) Object.assign(c.patterns[0].steps[s], { active: true, gate: 2 });
+    p.lfo = { ...p.lfo, rate: 4, shape: 1, vol: 1, ...lfo }; // square, 1/4 = 24000 frames
+    c.lfoOn = true;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    return render(e, 0.6).l;
+  };
+  const peak = (l: Float32Array, a: number, b: number) => stats(l.subarray(a, b)).peak;
+
+  it('RETRIG NOTE restarts the LFO on each note', () => {
+    expect(peak(pad({ retrig: 0 }, [0, 2]), 13000, 23000)).toBeLessThan(1e-3); // song-locked: low half
+    expect(peak(pad({ retrig: 1 }, [0, 2]), 13000, 23000)).toBeGreaterThan(0.05); // restarted: high half
+  });
+
+  it('FADE IN brings the modulation in gradually', () => {
+    expect(peak(pad({ fade: 4 }, [0, 2]), 13000, 23000)).toBeGreaterThan(0.05);
+  });
+});
+
+describe('hat head and RING LEN', () => {
+  const hat = (name: string, ring = false, extra: Record<string, number> = {}) => {
+    const d = new Drum(SR, HAT_PARAMS);
+    const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === name)), c_level: 0, ...extra };
+    for (const id in sound) d.setParam(id, sound[id]);
+    d.noteOn(36, 1, 36, ring);
+    const l = new Float32Array(SR * 2);
+    d.render(l, new Float32Array(SR * 2), 0, l.length);
+    return l;
+  };
+  const diff = (a: Float32Array, b: Float32Array, from: number, to: number) => {
+    let d = 0, e = 0;
+    for (let i = from; i < to; i++) { d += (a[i] - b[i]) ** 2; e += a[i] ** 2 + b[i] ** 2; }
+    return d / e;
+  };
+
+  it('every hat timbre starts as a hat; the tail is the cymbal', () => {
+    const h = hat('HAT', false, { m_decay: 2 });
+    const c = hat('CRASH', false, { m_decay: 2 });
+    expect(diff(h, c, 0, 240)).toBeLessThan(diff(h, c, 9600, 12000) * 0.5);
+  });
+
+  it('RING adds the sound\'s RING LEN to the decay (not a blown-out multiple)', () => {
+    const tail = (l: Float32Array, t: number) => stats(l.subarray(SR * t, SR * t + 2400)).peak;
+    const plain = hat('HAT');
+    const ring = hat('HAT', true);
+    expect(tail(plain, 0.3)).toBeLessThan(1e-3);
+    expect(tail(ring, 0.3)).toBeGreaterThan(1e-3); // ~0.5 s open hat
+    expect(tail(ring, 1.2)).toBeLessThan(1e-4); // ... and then gone
+  });
+});
+
+describe('ETHEREAL pad', () => {
+  it('the FM supersaw renders cleanly', () => {
+    const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+    const sound = presetSound('pad', INSTRUMENTS.pad.presets.findIndex((p) => p.name === 'ETHEREAL'));
+    expect(sound.unison).toBeGreaterThan(0.5);
+    expect(sound.fmratio).toBe(1.5);
+    for (const id in sound) s.setParam(id, sound[id]);
+    for (const n of [57, 60, 64, 67]) s.noteOn(n, 0.8, 57);
+    const l = new Float32Array(SR * 2);
+    s.render(l, new Float32Array(SR * 2), 0, l.length);
+    const st = stats(l);
+    expect(st.nan).toBe(false);
+    expect(st.peak).toBeGreaterThan(0.05);
+    expect(st.peak).toBeLessThan(3);
   });
 });

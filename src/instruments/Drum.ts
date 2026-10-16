@@ -11,6 +11,10 @@ import { MACROS } from './macros';
  *  CLICK  very short transient (impulse/noise blend) through a resonant band-pass
  *  METAL  six inharmonic oscillators (square bank, ring-mod pairs or FM) blended with
  *         noise (snare wires, hat sizzle), through a high-pass
+ * HAT only: the metal starts as its HEAD sound (a hat, or a ride bell at the far left of
+ * TIMBRE) and morphs over HEAD time into its tail (the M ... settings), so short hits
+ * stay hats and the tail decides the cymbal.
+ * RING (the sequencer's sustain) adds RING LEN seconds to the tone / metal decays.
  * Each layer has its own ATTACK and DECAY. Then a resonant low-pass FILTER with its own
  * envelope (ATTACK, DECAY, ENV amount), DRIVE (tanh) and CRUSH (bit + sample-rate
  * reduction). Ranges go far past "sensible" on purpose.
@@ -47,6 +51,15 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   // Continuous: 0 = square bank, 1 = ring-mod pairs, 2 = FM (blends in between).
   { id: 'm_mode', name: 'M MODE', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'm_fm', name: 'M FM', min: 0, max: 4, defaultValue: 0.5, unit: '', curve: 'linear' },
+  // HAT head: what the metal sounds like at the start of the hit, before it becomes the tail.
+  { id: 'h_time', name: 'HEAD', min: 0, max: 0.5, defaultValue: 0, unit: 'S', curve: 'linear', decimals: 3 },
+  { id: 'h_pitch', name: 'H PITCH', min: 20, max: 12000, defaultValue: 420, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'h_tone', name: 'H TONE', min: 30, max: 20000, defaultValue: 8500, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'h_noise', name: 'H NOISE', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
+  { id: 'h_mode', name: 'H MODE', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'h_spread', name: 'H SPREAD', min: 0, max: 3, defaultValue: 1, unit: '', curve: 'linear' },
+  // RING (sequencer sustain): seconds added to the decay.
+  { id: 'ring', name: 'RING LEN', min: 0, max: 10, defaultValue: 0.6, unit: 'S', curve: 'linear' },
   // Whole drum: these sit on top of TIMBRE / INTENSITY (the macros never move them).
   { id: 'cutoff', name: 'FILTER', min: 20, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
@@ -63,7 +76,7 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /** Controls every drum has (after its layer parameters). */
-const WHOLE = ['cutoff', 'reso', 'fattack', 'fdecay', 'fenv', 'drive', 'crush'];
+const WHOLE = ['ring', 'cutoff', 'reso', 'fattack', 'fdecay', 'fenv', 'drive', 'crush'];
 
 /*
  * Each drum type: its parameters (all stored, set by TIMBRE / INTENSITY and presets),
@@ -77,7 +90,7 @@ export const KICK_PARAMS = drumParams(
 export const KICK_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 export const KICK_DETAIL = [
   't_level', 't_pitch', 't_sweep', 't_stime', 't_wave', 'fenv',
-  'c_level', 'c_tone', 'c_reso', 'c_noise', null, null,
+  'c_level', 'c_tone', 'c_reso', 'c_noise', null, 'ring',
 ];
 
 export const SNARE_PARAMS = drumParams(
@@ -86,17 +99,21 @@ export const SNARE_PARAMS = drumParams(
 );
 export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
 export const SNARE_DETAIL = [
-  't_level', 't_pitch', 't_sweep', 't_wave', 'm_fm', 'fenv',
+  't_level', 't_pitch', 't_sweep', 'ring', 'm_fm', 'fenv',
   'm_level', 'm_pitch', 'm_tone', 'm_noise', 'm_spread', 'm_mode',
 ];
 
 export const HAT_PARAMS = drumParams(
-  ['timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm', ...WHOLE],
-  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.05 },
+  [
+    'timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm',
+    'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', ...WHOLE,
+  ],
+  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.05, h_time: 0.03, ring: 0.5 },
 );
 export const HAT_ELEMENTS = ['c_attack', 'c_len', 'm_attack', 'm_decay'];
+/** Top: click, then the HEAD time and RING LEN; bottom: the metal tail. */
 export const HAT_DETAIL = [
-  'c_level', 'c_tone', 'c_reso', 'c_noise', 'm_fm', 'fenv',
+  'c_level', 'c_tone', 'c_noise', 'h_time', 'ring', 'fenv',
   'm_level', 'm_pitch', 'm_tone', 'm_noise', 'm_spread', 'm_mode',
 ];
 
@@ -112,8 +129,6 @@ export const HAT_PRESETS: readonly Preset[] = anchorPresets('hat');
 /** 808 cymbal oscillator ratios (relative to the lowest). */
 const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];
 const TWO_PI = Math.PI * 2;
-/** RING multiplies the tone and metal decay times (closed hat 0.05 s -> open ~0.4 s). */
-const RING_FACTOR = 8;
 /** A ringing drum is choked (by the next hit or a rest) with this fade. */
 const CHOKE_SECONDS = 0.012;
 const FILTER_UPDATE = 16;
@@ -139,6 +154,11 @@ export class Drum implements Instrument {
   private fmC = 0; private fmM = 0;
   private tDecayMul = 0; private sweepMul = 0; private mDecayMul = 0; private cDecayMul = 0;
   private tRingMul = 0; private mRingMul = 0;
+  private tDecay = 0.45; private mDecay = 0.2; private ringLen = 0.6;
+  // HAT head -> tail morph: head values, the tail's own tone, and how fast it morphs.
+  private hTime = 0; private hMul = 0; private hPitch = 420; private hTone = 8500; private hNoise = 0.3;
+  private hMode = 0; private hSpread = 1; private mTone = 6000;
+  private hEnv = 0; private hCounter = 0;
   private tAtk = 0; private cAtk = 0; private mAtk = 0;
   private cutoff = 20000; private reso = 0; private filterOn = false;
   private fAtk = 0; private fDecayMul = 0; private fAmount = 0.5;
@@ -185,6 +205,8 @@ export class Drum implements Instrument {
     this.cEnv = this.cAtk > 0 ? 0 : 1; this.cStage = this.cAtk > 0 ? ATTACKING : DECAYING;
     this.fEnv = this.fAtk > 0 ? 0 : 1; this.fStage = this.fAtk > 0 ? ATTACKING : DECAYING;
     this.fCounter = 0;
+    this.hEnv = this.hTime > 0 ? 1 : 0;
+    this.hCounter = 0;
   }
 
   /** Only a ringing hit responds: it is choked (closed off quickly). */
@@ -214,10 +236,7 @@ export class Drum implements Instrument {
       case 't_sweep': this.tSweep = v; break;
       case 't_stime': this.sweepMul = decayMul(v, sr); break;
       case 't_attack': this.tAtk = attackInc(v, sr); break;
-      case 't_decay':
-        this.tDecayMul = decayMul(v, sr);
-        this.tRingMul = decayMul(Math.min(60, v * RING_FACTOR), sr);
-        break;
+      case 't_decay': this.tDecay = v; this.updateDecays(); break;
       case 't_wave': this.tWave = Math.round(v); break;
       case 'c_level': this.cLevel = v; break;
       case 'c_tone': this.cTone = v; this.cFilter.setup(this.cTone, this.cReso, sr); break;
@@ -229,12 +248,16 @@ export class Drum implements Instrument {
       case 'm_pitch': this.mPitch = v; break;
       case 'm_spread': this.mSpread = v; break;
       case 'm_noise': this.mNoise = v; break;
-      case 'm_tone': this.mFilter.setup(v, 0.3, sr); break;
+      case 'm_tone': this.mTone = v; this.mFilter.setup(v, 0.3, sr); break;
       case 'm_attack': this.mAtk = attackInc(v, sr); break;
-      case 'm_decay':
-        this.mDecayMul = decayMul(v, sr);
-        this.mRingMul = decayMul(Math.min(60, v * RING_FACTOR), sr);
-        break;
+      case 'm_decay': this.mDecay = v; this.updateDecays(); break;
+      case 'ring': this.ringLen = v; this.updateDecays(); break;
+      case 'h_time': this.hTime = v; this.hMul = v > 0 ? Math.exp(-1 / (v * sr)) : 0; break;
+      case 'h_pitch': this.hPitch = v; break;
+      case 'h_tone': this.hTone = v; break;
+      case 'h_noise': this.hNoise = v; break;
+      case 'h_mode': this.hMode = v; break;
+      case 'h_spread': this.hSpread = v; break;
       case 'm_mode': this.mMode = Math.min(2, Math.max(0, v)); break;
       case 'm_fm': this.mFm = v; break;
       case 'cutoff': this.cutoff = v; this.setFilterMod(this.filterMod); this.fCounter = 0; break;
@@ -247,6 +270,15 @@ export class Drum implements Instrument {
     }
   }
 
+  /** Normal decays, and RING ones (+ RING LEN). */
+  private updateDecays(): void {
+    const sr = this.sr;
+    this.tDecayMul = decayMul(this.tDecay, sr);
+    this.mDecayMul = decayMul(this.mDecay, sr);
+    this.tRingMul = decayMul(this.tDecay + this.ringLen, sr);
+    this.mRingMul = decayMul(this.mDecay + this.ringLen, sr);
+  }
+
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     if (this.tStage === OFF && this.mStage === OFF && this.cStage === OFF) return;
     const dtBase = 1 / this.sr;
@@ -254,7 +286,13 @@ export class Drum implements Instrument {
     const levels = Math.pow(2, 16 - this.crush * 12);
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const tPitch = this.tPitch * this.tune * this.pitchMod;
-    const mPitch = this.mPitch * this.tune * this.pitchMod;
+    const tune = this.tune * this.pitchMod;
+    // Metal settings in use: the tail's, or (HAT) morphing from the head's.
+    let mPitch = this.mPitch * tune;
+    let mNoise = this.mNoise;
+    let mMode = this.mMode;
+    let mSpread = this.mSpread;
+    this.hCounter = 0; // refresh the head blend on the first sample
 
     for (let i = start; i < end; i++) {
       let sum = 0;
@@ -290,8 +328,26 @@ export class Drum implements Instrument {
 
       // METAL (+ noise blend). M MODE crossfades square bank -> ring-mod -> FM.
       if (this.mStage !== OFF) {
-        const spread = this.mSpread * 2;
-        const mode = this.mMode;
+        if (this.hEnv > 0) {
+          this.hEnv *= this.hMul;
+          if (this.hEnv < 1e-3) {
+            // Head over: the tail's own settings.
+            this.hEnv = 0;
+            mPitch = this.mPitch * tune; mNoise = this.mNoise; mMode = this.mMode; mSpread = this.mSpread;
+            this.mFilter.setup(this.mTone, 0.3, this.sr);
+          } else if (this.hCounter-- <= 0) {
+            // Head -> tail, refreshed every 16 samples (frequencies blend in log).
+            this.hCounter = FILTER_UPDATE;
+            const h = this.hEnv;
+            mPitch = this.mPitch * Math.pow(this.hPitch / this.mPitch, h) * tune;
+            mNoise = this.mNoise + (this.hNoise - this.mNoise) * h;
+            mMode = this.mMode + (this.hMode - this.mMode) * h;
+            mSpread = this.mSpread + (this.hSpread - this.mSpread) * h;
+            this.mFilter.setup(this.mTone * Math.pow(this.hTone / this.mTone, h), 0.3, this.sr);
+          }
+        }
+        const spread = mSpread * 2;
+        const mode = mMode;
         const wSq = Math.max(0, 1 - mode);
         const wRing = Math.max(0, 1 - Math.abs(mode - 1));
         const wFm = Math.max(0, mode - 1);
@@ -314,7 +370,7 @@ export class Drum implements Instrument {
           const index = (0.5 + 9 * this.mFm) * (0.3 + 0.7 * this.mEnv); // M FM 4 = index ~37
           m += wFm * Math.sin(TWO_PI * this.fmC + index * Math.sin(TWO_PI * this.fmM));
         }
-        m = m * (1 - this.mNoise) + this.noise.next() * this.mNoise;
+        m = m * (1 - mNoise) + this.noise.next() * mNoise;
         this.mFilter.process(m);
         sum += this.mFilter.high * this.mEnv * this.mLevel;
         if (this.mStage === ATTACKING) {

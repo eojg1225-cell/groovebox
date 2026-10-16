@@ -308,7 +308,7 @@ export class App {
       }
     }
     for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
-    for (const id of ['rate', 'vol', 'pitch', 'filter', 'pan'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
+    for (const id of ['rate', 'vol', 'pitch', 'filter', 'pan', 'send', 'phase', 'smooth'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
     return list;
   }
 
@@ -405,7 +405,7 @@ export class App {
    * labelled with the effect) on top, INTENSITY (how hard it works) below.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
-    if (k === 3) return LFO_LAYOUT.map((id) => (id ? this.paramTarget(this.selected, `lfo:${id}`) : null));
+    if (k === 3) return LFO_LAYOUT.map((id) => this.paramTarget(this.selected, `lfo:${id}`));
     if (k === 0) {
       const fx1 = this.project.fx1;
       return DRUM_BUS_PARAMS.map((spec): KnobTarget => ({

@@ -59,14 +59,14 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 |---|---|---|
 | KICK (tone + click) | VINTAGE → PUNCH → TECHNO → PSY DOOF (absurd: ~7-octave zap into a square-driven doof) | tone row / click row |
 | SNARE (tone + metal) | RIMSHOT → TIGHT → BREAK → INDUSTRIAL | tone row / metal row |
-| HAT (click + metal) | RIDE → HAT → CRASH → CHINA | click row / metal row |
+| HAT (click + metal; every hit starts as a hat — a ride bell at the far left — and TIMBRE shapes the tail) | RIDE → HAT → CRASH → CHINA | click row / metal row |
 | BASS (mono) | SINE SUB → SOLID → GROWL → FM CLANG | oscillators / glide, envelopes, level |
-| PAD (6 voices) | GLASS → WARM → STRINGS → DARK | oscillators / chord, envelopes, level |
+| PAD (6 voices) | GLASS → WARM → STRINGS → ETHEREAL (FM supersaw: unison saws, FM at 3:2, swelling) | oscillators / chord, envelopes, level |
 | LEAD (mono) | SINE → SQUARE → SCREAM → BELL | oscillators / glide, envelopes, level |
 
 Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
 
-**LFO:** one LFO, opened with the **LFO** button after FX 1-3 (knobs and screen show it; the channel buttons put tracks on / off it, like a send). RATE tempo-synced (4 bars … 1/64, with triplets), SHAPE (sine, square, triangle, saw down, saw up, sample+hold), VOL MOD (tremolo), PITCH MOD (up to ±48 semitones), FILTER MOD (up to ±8 octaves on the track's sound filter), PAN MOD. Phase-locked to the song; restarts with PLAY. Rate and depths can be put on live knobs. Older saves: tracks that used their own LFO join the shared one (which takes the first one's settings).
+**LFO:** one LFO, opened with the **LFO** button after FX 1-3 (knobs and screen show it; the channel buttons put tracks on / off it, like a send). Twelve knobs, one module each: RATE / SHAPE (tempo-synced 4 bars … 1/64 with triplets; sine, square, triangle, saw down, saw up, sample+hold), PHASE / SMOOTH (slew), FADE IN (up to 4 bars, from PLAY or each note) / RETRIG (FREE = locked to the song, NOTE = restarts on each of the track's notes), VOL MOD / PITCH MOD (±48 st), FILTER MOD (±8 octaves on the sound filter) / PAN MOD, SEND MOD (pushes the send level, for dub throws) / SPREAD (offsets each track's phase, so tracks move against each other). Rate and depths can be put on live knobs. Older saves: tracks that used their own LFO join the shared one.
 
 **FX 1 — drum bus:** tracks on it pass *through* it (100% wet), so it replaces rather than adds. Transparent at its defaults. Three effects, four knobs each (two modules per effect): **STUTTER** (amount — turning it up captures one GRID length on the next grid line and repeats it; GRID 1/2 … 1/64 with triplets, turning it while running rolls; FADE per repeat; PITCH per repeat, cumulative), **DISTORT** (DRIVE 0-60 dB, TONE, CRUSH, LEVEL), **LOW-PASS** (CUTOFF, RESO to self-oscillation, ENV follower ± up to 8 octaves, its REL). Chain: stutter → distort → low-pass.
 
@@ -76,7 +76,7 @@ Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
 
 **Master:** TEMPO; LO-FI (tape: low-end bump, progressive saturation, high roll-off), saved with the project.
 
-**Sequencing:** notes last one step by default; hold a key + ▶ to tie in step entry; live-recorded notes keep their held length; while recording the strip follows the playing 16-step block. **RING** (armed like ACCENT): the hit rings until the next hit or rest on its track — pitched notes are held, drums get a long decay that the next hit chokes (a closed hat becomes an open hat). **REST** places a stop marker (drums: arm REST, tap steps; step entry: at the cursor). Keyboard starts on A; dividers mark groups of four.
+**Sequencing:** notes last one step by default; hold a key + ▶ to tie in step entry; live-recorded notes keep their held length; while recording the strip follows the playing 16-step block. **RING** (armed like ACCENT): the hit rings until the next hit or rest on its track — pitched notes are held, drums add the sound's RING LEN to their decay (a natural length per sound: open hat ~0.5 s, crash ~2 s; on DETAIL), choked by the next hit. **REST** places a stop marker (drums: arm REST, tap steps; step entry: at the cursor). Keyboard starts on A; dividers mark groups of four.
 
 **Saving:** SAVE PATCH (USER n per track type), SAVE PROJECT (opens next launch), both in this browser's local storage; the working session survives reloads; on claude.ai the project is also mirrored to the artifact's store. The save format is forgiving: notes carry over across format changes.
 
