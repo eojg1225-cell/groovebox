@@ -123,6 +123,8 @@ export class App {
    * remove = it was already a hit (it is removed on release unless the hold was used).
    */
   private drumHold: { button: number; index: number; remove: boolean; used: boolean } | null = null;
+  /** Note sounding from a ◀ / ▶ step preview, released after the step's length. */
+  private preview: { channel: number; note: number; timer: ReturnType<typeof setTimeout> } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
   private message = '';
   private messageUntil = 0;
@@ -620,6 +622,7 @@ export class App {
       this.tie(id === 'cur+' ? 1 : -1);
     } else if (id === 'cur-' || id === 'cur+') {
       this.moveCursor(id === 'cur+' ? 1 : -1);
+      this.previewCursor();
     } else if (id === 'rest' && !this.keyboard) {
       // Drum steps: arm REST, then tap steps to place / remove rest markers.
       this.restArm = !this.restArm;
@@ -653,6 +656,7 @@ export class App {
       return;
     }
     if (this.keyboard) {
+      this.stopPreview(); // a played key never gets cut off by a preview's release
       const note = this.octave[ch] + button;
       const vel = this.velocity();
       // Bass / lead played legato (a key still held) slide into the new note.
@@ -886,6 +890,33 @@ export class App {
     });
     this.clampCursor();
     this.save();
+  }
+
+  /**
+   * Step entry: landing on a step with a note plays it (its velocity, for its length),
+   * cutting off the previous preview.
+   */
+  private previewCursor(): void {
+    const ch = this.selected;
+    this.stopPreview();
+    const step = this.pattern.steps[this.cursor[ch]];
+    if (!step.active || this.playing) return;
+    this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
+    const ms = (60000 / this.project.bpm / 4) * Math.max(1, step.gate);
+    const note = step.note;
+    const timer = setTimeout(() => {
+      if (this.preview?.timer !== timer) return;
+      this.send({ type: 'release', channel: ch, note });
+      this.preview = null;
+    }, ms);
+    this.preview = { channel: ch, note, timer };
+  }
+
+  private stopPreview(): void {
+    if (!this.preview) return;
+    clearTimeout(this.preview.timer);
+    this.send({ type: 'release', channel: this.preview.channel, note: this.preview.note });
+    this.preview = null;
   }
 
   private moveCursor(delta: number): void {
