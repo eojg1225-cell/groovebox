@@ -17,6 +17,8 @@ export interface ParamSpec {
   readonly unit: string;
   /** "exp" for frequencies and times (min must be > 0). */
   readonly curve: ParamCurve;
+  /** Decimal places for display; automatic when omitted. */
+  readonly decimals?: number;
 }
 
 export function clamp(x: number, lo: number, hi: number): number {
@@ -40,6 +42,6 @@ export function toNorm(spec: ParamSpec, value: number): number {
 /** Compact value text for the pixel screen, e.g. "220HZ", "0.50", "12MS". */
 export function formatValue(spec: ParamSpec, value: number): string {
   const abs = Math.abs(value);
-  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  const digits = spec.decimals ?? (abs >= 100 ? 0 : abs >= 10 ? 1 : 2);
   return value.toFixed(digits) + spec.unit;
 }

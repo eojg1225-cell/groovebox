@@ -28,8 +28,14 @@ npm run build:artifact  # also pack a single-page copy into dist-artifact/ for p
 
 Note: AudioWorklet needs a secure context, so on another device use the HTTPS Pages URL (plain `http://<lan-ip>` will not start audio).
 
-## Current state (M0)
+## Current state
 
-Tap to start, then: PLAY toggles a test-tone drone; TAP fires a short blip (use it to judge touch-to-sound latency by ear); knobs set frequency, level, drive, blip decay and master volume. The pixel screen shows the last-touched control, output meters and measured latency (`BASE` = context processing latency, `OUT` = output latency to the device, `MSG RTT` = UI-to-worklet message round trip).
+A title screen fades into the panel. The first touch anywhere switches sound on (browsers require a gesture).
 
-Keyboard: Space = play, T or Enter = tap. Knobs: drag vertically (Shift = fine), mouse wheel, double-tap/double-click to reset.
+- **Channels 1-4** (top right): kick, snare, hat, bass. Tap a number to select it; MUTE under each. Channels 5-6 are reserved.
+- **Pattern A/B/C** for the selected channel. While playing, the switch happens at the end of the loop (the new letter blinks until then). Pattern B holds a variation.
+- **Knob pages:** SOUND (the selected channel's voice), MIX (volume, pan), GLOBAL (BPM, swing, master). The pixel screen lists what each knob does.
+- **16-step strip** edits the selected channel's pattern; the orange outline is the playhead. **PLAY/STOP** on the right.
+- Patterns and settings are kept for the browser session (survive a reload, not closing the tab).
+
+Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I steps 1-8, A-K steps 9-16. Knobs: drag vertically (Shift = fine), mouse wheel, double-tap to reset.

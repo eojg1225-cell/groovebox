@@ -25,6 +25,8 @@ export class AudioHost {
   private node: AudioWorkletNode | null = null;
   private pingId = 0;
   private pingSentAt = new Map<number, number>();
+  /** Messages sent before the worklet exists; flushed in order once it does. */
+  private pending: MainToWorklet[] = [];
   roundTripMs = NaN;
   onStatus: ((s: StatusMsg) => void) | null = null;
 
@@ -50,6 +52,8 @@ export class AudioHost {
     node.port.onmessage = (e: MessageEvent<WorkletToMain>) => this.onMessage(e.data);
     node.connect(this.ctx.destination);
     this.node = node;
+    for (const msg of this.pending) node.port.postMessage(msg);
+    this.pending = [];
     await this.ctx.resume();
 
     // Resume after the tab was backgrounded or the OS interrupted audio.
@@ -80,11 +84,12 @@ export class AudioHost {
   }
 
   send(msg: MainToWorklet): void {
-    this.node?.port.postMessage(msg);
+    if (this.node) this.node.port.postMessage(msg);
+    else this.pending.push(msg);
   }
 
-  setParam(id: string, value: number): void {
-    this.send({ type: 'setParam', id, value });
+  get running(): boolean {
+    return this.node !== null && this.ctx.state === 'running';
   }
 
   latency(): LatencyInfo {

@@ -10,7 +10,10 @@ Web-first groovebox (techno, DnB, dub, jungle). Full spec: `groovebox-brief.md` 
 - Must work in desktop Chrome/Edge and Silk on a Fire tablet (touch, multi-touch).
 
 ## Current milestone
-M0: Skeleton (Vite + TypeScript, tap-to-start, AudioWorklet test tone, pixel canvas, touch panel with a few knobs, static deploy).
+M1: Sequencer + drums (in progress). Done: worklet sequencer (sample-accurate, swing, polymeter-ready, quantised A/B/C pattern switching), 4 active channels (kick, snare, hat, basic bass), select/mute, 16-step strip, knob pages (SOUND / MIX / GLOBAL), title screen, session persistence (sessionStorage). Next: step pages 17-64 and per-channel length UI, per-step note/velocity editing, half/double-time, drum machine with lanes per voice.
+
+## After every build
+Run `npm run build:artifact` and republish `dist-artifact/groovebox.html` (with `files: {"groovebox-worklet.js": "dist-artifact/groovebox-worklet.js"}`) to the user's Artifact https://claude.ai/artifact/1gX3NeJdaGnWsLa3szA6q1, then end the reply with a **▶ Launch** link to it.
 
 ## Build / deploy
 - `npm install` then `npm run dev` (dev server), `npm test` (Vitest, engine offline in Node), `npm run build` (typecheck incl. DOM-free engine check via `tsconfig.engine.json`, then static build to `dist/`).

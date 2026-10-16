@@ -10,6 +10,8 @@ export class Knob {
   readonly el: HTMLElement;
   private readonly indicator: HTMLElement;
   private readonly arc: SVGCircleElement;
+  private readonly labelEl: HTMLElement;
+  private enabled = true;
   private value: number;
   private dragPointer: number | null = null;
   private dragStartY = 0;
@@ -19,7 +21,7 @@ export class Knob {
   constructor(
     readonly id: string,
     label: string,
-    readonly defaultValue: number,
+    public defaultValue: number,
     private readonly onChange: (id: string, value: number) => void,
   ) {
     this.value = defaultValue;
@@ -34,7 +36,8 @@ export class Knob {
         <div class="knob-cap"><div class="knob-indicator"></div></div>
       </div>
       <div class="knob-label"></div>`;
-    (el.querySelector('.knob-label') as HTMLElement).textContent = label;
+    this.labelEl = el.querySelector('.knob-label') as HTMLElement;
+    this.labelEl.textContent = label;
     this.indicator = el.querySelector('.knob-cap') as HTMLElement;
     this.arc = el.querySelector('.knob-arc') as SVGCircleElement;
     this.el = el;
@@ -46,6 +49,17 @@ export class Knob {
     body.addEventListener('pointercancel', (e) => this.onUp(e));
     body.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     this.render();
+  }
+
+  setLabel(label: string): void {
+    this.labelEl.textContent = label;
+  }
+
+  /** A disabled knob ignores input and is drawn dimmed (e.g. unused slot on a page). */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    this.el.classList.toggle('disabled', !enabled);
+    if (!enabled) this.dragPointer = null;
   }
 
   get(): number {
@@ -67,7 +81,7 @@ export class Knob {
   }
 
   private onDown(e: PointerEvent, body: HTMLElement): void {
-    if (this.dragPointer !== null) return; // one finger per knob
+    if (!this.enabled || this.dragPointer !== null) return; // one finger per knob
     e.preventDefault();
     const now = performance.now();
     if (now - this.lastTap < DOUBLE_TAP_MS) {
@@ -99,6 +113,7 @@ export class Knob {
 
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
+    if (!this.enabled) return;
     const step = e.shiftKey ? 0.002 : 0.01;
     this.change(this.value - Math.sign(e.deltaY) * step);
   }

@@ -1,11 +1,19 @@
+/* Panel design size is 1200x750 (see Panel.ts); everything below is in design pixels. */
 :root {
   --bg: #111417;
   --panel: #1c2126;
   --panel-edge: #2a3138;
+  --key: #2b333b;
+  --key-edge: #38424c;
+  --key-down: #3a454f;
   --ink: #c9d3dc;
   --ink-dim: #6c7884;
   --accent: #5fe0a0;
+  --accent-ink: #0a1410;
   --hot: #ffb347;
+  --mute: #e0705f;
+  --screen-bg: #0a1410;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -28,45 +36,41 @@ html, body {
 
 #app { position: fixed; inset: 0; }
 
-/* ---------- Start overlay ---------- */
-.start {
+/* ---------- Title screen ---------- */
+.title {
   position: fixed; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg);
+  background: var(--screen-bg);
   z-index: 10;
+  transition: opacity 0.7s ease;
 }
-.start-inner { text-align: center; padding: 16px; }
-.start-title { font-size: 40px; letter-spacing: 0.3em; color: var(--accent); margin-bottom: 32px; font-weight: 700; }
-.start-button {
-  display: inline-block;
-  padding: 28px 56px;
-  font-size: 28px; font-weight: 700; letter-spacing: 0.1em;
-  border-radius: 16px;
-  background: var(--accent); color: #0a1410;
-  cursor: pointer;
+.title canvas {
+  width: min(640px, 90vw);
+  aspect-ratio: 160 / 48;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
-.start-button:active { transform: scale(0.97); }
-.start-error { color: var(--hot); margin-top: 20px; min-height: 1.2em; max-width: 520px; }
-.start-note { color: var(--ink-dim); margin-top: 16px; font-size: 14px; }
+.title.fade { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .title { transition-duration: 0.2s; } }
 
-/* ---------- Panel (fixed design size, scaled to fit by JS) ---------- */
+/* ---------- Panel ---------- */
 .panel {
   position: absolute; left: 0; top: 0;
   transform-origin: 0 0;
   background: var(--panel);
   border: 2px solid var(--panel-edge);
   border-radius: 24px;
-  padding: 28px;
-  display: flex; flex-direction: column; gap: 28px;
+  padding: 22px;
+  display: flex; flex-direction: column; gap: 18px;
 }
-.panel-top { display: flex; gap: 28px; height: 360px; }
-.panel-bottom { display: flex; gap: 28px; flex: 1; }
+.panel-top { display: flex; gap: 22px; height: 356px; flex: none; }
 
 .screen-bezel {
   background: #050807;
   border-radius: 12px;
   padding: 16px;
   border: 2px solid #000;
+  flex: none;
 }
 .screen {
   display: block;
@@ -75,48 +79,69 @@ html, body {
   image-rendering: crisp-edges;
 }
 
-.transport { flex: 1; display: flex; flex-direction: column; gap: 20px; }
-.hint { color: var(--ink-dim); font-size: 14px; line-height: 1.5; }
+.side { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.group-label { font-size: 12px; font-weight: 700; letter-spacing: 0.16em; color: var(--ink-dim); margin-top: 4px; }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
 
-.btn, .pad {
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 12px;
-  background: #2b333b; color: var(--ink);
-  font-weight: 700; letter-spacing: 0.1em;
-  border: 2px solid #38424c;
+/* ---------- Buttons ---------- */
+.btn, .step {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 10px;
+  background: var(--key); color: var(--ink);
+  border: 2px solid var(--key-edge);
+  font-weight: 700; letter-spacing: 0.08em;
   cursor: pointer;
   touch-action: none;
+  transition: background-color 60ms, color 60ms;
 }
-.btn { height: 96px; font-size: 24px; }
-.btn.down, .pad.down { background: #3a454f; transform: translateY(1px); }
-.btn.lit { background: var(--accent); color: #0a1410; border-color: var(--accent); }
-.pad { width: 100%; height: 100%; font-size: 32px; }
-.pad.down { background: var(--accent); color: #0a1410; }
+.btn.down, .step.down { background: var(--key-down); transform: translateY(1px); }
+.btn.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.disabled { opacity: 0.3; cursor: default; }
 
-.knob-bank {
-  display: flex; gap: 22px; align-items: center;
-  flex: 1;
-}
-.pad-area { width: 260px; }
+.btn.ch { height: 70px; font-size: 26px; line-height: 1; }
+.btn.ch small { font-size: 11px; letter-spacing: 0.1em; margin-top: 6px; opacity: 0.8; }
+.btn.mute { height: 40px; font-size: 12px; }
+.btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
+.btn.pat { height: 52px; font-size: 22px; }
+.btn.pat.playing { border-color: var(--accent); }
+.btn.page { height: 52px; font-size: 15px; }
 
-/* ---------- Knob ---------- */
-.knob { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 136px; }
-.knob-body { position: relative; width: 120px; height: 120px; touch-action: none; cursor: ns-resize; }
+/* ---------- Knobs ---------- */
+.knob-row { display: flex; justify-content: space-between; height: 140px; flex: none; }
+.knob { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 136px; }
+.knob-body { position: relative; width: 104px; height: 104px; touch-action: none; cursor: ns-resize; }
 .knob-ring { position: absolute; inset: 0; transform: rotate(135deg); }
 .knob-track, .knob-arc { fill: none; stroke-width: 6; }
 .knob-track { stroke: #2f3740; stroke-dasharray: 270 360; }
 .knob-arc { stroke: var(--accent); stroke-linecap: butt; }
 .knob-cap {
-  position: absolute; inset: 16px;
+  position: absolute; inset: 15px;
   border-radius: 50%;
   background: radial-gradient(circle at 40% 35%, #48535e, #262d34);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
 }
 .knob-indicator {
-  position: absolute; left: 50%; top: 6px;
-  width: 6px; height: 26px; margin-left: -3px;
+  position: absolute; left: 50%; top: 5px;
+  width: 6px; height: 22px; margin-left: -3px;
   border-radius: 3px;
   background: var(--ink);
 }
 .knob.active .knob-cap { box-shadow: 0 0 0 3px var(--accent); }
-.knob-label { font-size: 15px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-dim); }
+.knob-label { font-size: 14px; font-weight: 700; letter-spacing: 0.12em; color: var(--ink-dim); min-height: 1.2em; }
+.knob.disabled .knob-body { opacity: 0.25; cursor: default; }
+
+/* ---------- Step strip + play ---------- */
+.panel-bottom { display: flex; gap: 22px; flex: 1; min-height: 0; }
+.steps { flex: 1; display: flex; gap: 6px; }
+.steps > .step { flex: 1 1 0; min-width: 0; }
+/* Wider gap between groups of four. */
+.step:nth-child(4n + 1):not(:first-child) { margin-left: 8px; }
+.step { font-size: 13px; color: var(--ink-dim); justify-content: flex-end; padding-bottom: 8px; }
+.step.beat { border-top-width: 4px; }
+.step.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.step.head { box-shadow: inset 0 0 0 3px var(--hot); }
+.step.lit.head { background: var(--hot); border-color: var(--hot); }
+
+.play-area { width: 170px; flex: none; }
+.btn.play { height: 100%; font-size: 26px; }

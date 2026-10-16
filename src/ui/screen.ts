@@ -19,9 +19,14 @@ export class PixelScreen {
   readonly canvas: HTMLCanvasElement;
   private readonly g: CanvasRenderingContext2D;
 
-  constructor(canvas: HTMLCanvasElement) {
-    canvas.width = SCREEN_W;
-    canvas.height = SCREEN_H;
+  readonly w: number;
+  readonly h: number;
+
+  constructor(canvas: HTMLCanvasElement, w = SCREEN_W, h = SCREEN_H) {
+    canvas.width = w;
+    canvas.height = h;
+    this.w = w;
+    this.h = h;
     this.canvas = canvas;
     const g = canvas.getContext('2d');
     if (!g) throw new Error('2D canvas not available');
@@ -31,7 +36,7 @@ export class PixelScreen {
 
   clear(color: string = INK.bg): void {
     this.g.fillStyle = color;
-    this.g.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    this.g.fillRect(0, 0, this.w, this.h);
   }
 
   rect(x: number, y: number, w: number, h: number, color: string): void {

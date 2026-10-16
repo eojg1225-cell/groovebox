@@ -1,31 +1,18 @@
 /**
- * App entry: tap-to-start overlay, then wires the on-screen panel (ControlSurface) to the
- * audio engine (via AudioHost) and draws the pixel screen.
+ * Entry: title screen that fades into the panel. Audio cannot start without a user
+ * gesture, so the first touch/click/key anywhere quietly unlocks it.
  */
 import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
-import { PixelScreen } from './ui/screen';
-import { drawMainView, type ScreenState } from './ui/views';
-import { formatValue, toNorm, toValue, type ParamSpec } from './engine/params';
-import { TEST_TONE_PARAMS } from './instruments/TestTone';
-import { MASTER_PARAMS } from './engine/Engine';
+import { INK, PixelScreen } from './ui/screen';
+import { drawMainView } from './ui/views';
+import { App, PAGES, type AudioInfo } from './ui/App';
+import { ACTIVE_CHANNELS, NUM_CHANNELS, PATTERN_NAMES, createDefaultProject } from './engine/project';
+import { loadSession } from './storage/session';
+import { textWidth } from './ui/font';
 
-interface KnobBinding {
-  knobId: string;
-  paramId: string; // "<target>.<param>" as understood by the engine
-  spec: ParamSpec;
-}
-
-const BINDINGS: KnobBinding[] = [
-  ...TEST_TONE_PARAMS.map((spec) => ({ knobId: `k_${spec.id}`, paramId: `tone.${spec.id}`, spec })),
-  { knobId: 'k_master', paramId: 'master.volume', spec: MASTER_PARAMS[0] },
-];
-
-const app = document.getElementById('app') as HTMLElement;
-const overlay = document.getElementById('start') as HTMLElement;
-const startButton = document.getElementById('start-button') as HTMLElement;
-const startError = document.getElementById('start-error') as HTMLElement;
+const TITLE_HOLD_MS = 1400;
 
 // Block browser gestures that would scroll, zoom or open menus while playing.
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -34,124 +21,105 @@ document.addEventListener('dblclick', (e) => e.preventDefault());
 
 // Installable / offline (production builds only, so the dev server never caches).
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  void navigator.serviceWorker.register('./sw.js').catch(() => { /* offline support is optional */ });
+  void navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
 }
 
-let starting = false;
-startButton.addEventListener('pointerup', (e) => {
-  // On touch devices opened in a normal browser tab, go full screen with the same tap.
-  if (e.pointerType === 'touch') enterFullscreen();
-  void start();
+const project = loadSession() ?? createDefaultProject();
+const panel = new Panel(document.getElementById('app') as HTMLElement, {
+  channels: NUM_CHANNELS,
+  activeChannels: ACTIVE_CHANNELS,
+  patterns: PATTERN_NAMES,
+  pages: PAGES,
 });
-startButton.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') void start();
-});
+const screen = new PixelScreen(panel.screenCanvas);
 
-function enterFullscreen(): void {
-  const standalone = window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
-  const el = document.documentElement;
-  if (standalone || document.fullscreenElement || !el.requestFullscreen) return;
-  el.requestFullscreen({ navigationUI: 'hide' }).catch(() => { /* not allowed; carry on */ });
-}
+let host: AudioHost | null = null;
+const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0 };
+const app = new App(project, panel, (msg) => host?.send(msg));
 
-async function start(): Promise<void> {
-  if (starting) return;
-  starting = true;
-  startError.textContent = '';
-  let host: AudioHost;
-  try {
-    host = new AudioHost(); // synchronous, inside the gesture
-    await host.start();
-  } catch (err) {
-    starting = false;
-    startError.textContent = `Could not start audio: ${err instanceof Error ? err.message : String(err)}`;
-    return;
-  }
-  overlay.remove();
-  runApp(host);
-}
+// ------------------------------------------------------------------ audio unlock
 
-function runApp(host: AudioHost): void {
-  const panel = new Panel(
-    app,
-    BINDINGS.map((b) => ({ id: b.knobId, label: b.spec.name, defaultValue: toNorm(b.spec, b.spec.defaultValue) })),
-  );
-  const screen = new PixelScreen(panel.screenCanvas);
-  const byKnob = new Map(BINDINGS.map((b) => [b.knobId, b]));
+const UNLOCK_EVENTS = ['pointerdown', 'pointerup', 'touchend', 'keydown'] as const;
 
-  const st: ScreenState = {
-    playing: false,
-    lastName: 'READY',
-    lastValueText: 'TAP!',
-    lastNorm: 0,
-    peakL: 0,
-    peakR: 0,
-    tapFlash: 0,
-    sampleRate: host.ctx.sampleRate,
-    baseMs: NaN,
-    outputMs: NaN,
-    roundTripMs: NaN,
-    audioState: host.ctx.state,
-  };
-
-  // Push defaults so engine and UI agree.
-  for (const b of BINDINGS) host.setParam(b.paramId, b.spec.defaultValue);
-
-  let wakeLock: { release(): Promise<void> } | null = null;
-  async function setWakeLock(on: boolean): Promise<void> {
-    const nav = navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void> }> } };
+function unlockAudio(): void {
+  if (!host) {
     try {
-      if (on && !wakeLock && nav.wakeLock) wakeLock = await nav.wakeLock.request('screen');
-      if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
-    } catch { /* not supported or denied; harmless */ }
-  }
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && st.playing) { wakeLock = null; void setWakeLock(true); }
-  });
-
-  panel.subscribe((e) => {
-    switch (e.type) {
-      case 'knob': {
-        const b = byKnob.get(e.id);
-        if (!b) return;
-        const value = toValue(b.spec, e.value);
-        host.setParam(b.paramId, value);
-        st.lastName = b.spec.name;
-        st.lastValueText = formatValue(b.spec, value);
-        st.lastNorm = e.value;
-        break;
-      }
-      case 'button':
-        if (e.id === 'play' && e.pressed) {
-          st.playing = !st.playing;
-          host.send({ type: 'transport', playing: st.playing });
-          panel.setButtonLit('play', st.playing);
-          void setWakeLock(st.playing);
-        } else if (e.id === 'tap' && e.pressed) {
-          host.send({ type: 'trigger', note: 60, velocity: 1 });
-          st.tapFlash = 1;
-        }
-        break;
+      host = new AudioHost();
+    } catch {
+      audio.state = 'error';
+      return;
     }
-  });
-
-  host.onStatus = (s) => {
-    st.peakL = Math.max(s.peakL, st.peakL * 0.85);
-    st.peakR = Math.max(s.peakR, st.peakR * 0.85);
-  };
-
-  let last = performance.now();
-  const frame = (now: number) => {
-    const dt = (now - last) / 1000;
-    last = now;
-    st.tapFlash = Math.max(0, st.tapFlash - dt * 4);
-    const lat = host.latency();
-    st.baseMs = lat.baseMs;
-    st.outputMs = lat.outputMs;
-    st.roundTripMs = lat.roundTripMs;
-    st.audioState = host.ctx.state;
-    drawMainView(screen, st);
-    requestAnimationFrame(frame);
-  };
-  requestAnimationFrame(frame);
+    // Queued until the worklet is up, then delivered in order.
+    for (const msg of app.syncMessages()) host.send(msg);
+    host.onStatus = (s) => {
+      app.setStatus(s);
+      audio.peak = Math.max(Math.max(s.peakL, s.peakR), audio.peak * 0.85);
+    };
+    audio.state = 'starting';
+    host.start().then(
+      () => {
+        audio.state = 'on';
+        for (const t of UNLOCK_EVENTS) window.removeEventListener(t, unlockAudio, true);
+      },
+      () => {
+        audio.state = 'error';
+        host = null; // allow another attempt on the next touch
+      },
+    );
+  } else if (host.ctx.state !== 'running') {
+    // Touch devices grant audio on pointerup/touchend; retry the resume there.
+    void host.ctx.resume();
+  }
 }
+for (const t of UNLOCK_EVENTS) window.addEventListener(t, unlockAudio, true);
+
+// ------------------------------------------------------------------ title screen
+
+const title = document.getElementById('title') as HTMLElement;
+const titleScreen = new PixelScreen(title.querySelector('canvas') as HTMLCanvasElement, 160, 48);
+titleScreen.clear(INK.bg);
+titleScreen.text((160 - textWidth('GROOVEBOX', 4)) / 2, 8, 'GROOVEBOX', INK.hi, 4);
+const tagline = 'TECHNO - DNB - DUB - JUNGLE';
+titleScreen.text((160 - textWidth(tagline)) / 2, 36, tagline, INK.mid);
+
+let titleGone = false;
+function dismissTitle(): void {
+  if (titleGone) return;
+  titleGone = true;
+  title.classList.add('fade');
+  window.setTimeout(() => title.remove(), 700);
+}
+window.setTimeout(dismissTitle, TITLE_HOLD_MS);
+title.addEventListener('pointerdown', dismissTitle);
+
+// ------------------------------------------------------------------ wake lock
+
+type WakeLock = { release(): Promise<void> };
+let wakeLock: WakeLock | null = null;
+async function updateWakeLock(): Promise<void> {
+  const nav = navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<WakeLock> } };
+  try {
+    if (app.playing && !wakeLock && nav.wakeLock) wakeLock = await nav.wakeLock.request('screen');
+    if (!app.playing && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch { /* not supported or denied */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { wakeLock = null; void updateWakeLock(); }
+});
+
+// ------------------------------------------------------------------ frame loop
+
+let wasPlaying = false;
+const frame = (now: number) => {
+  if (host) {
+    const lat = host.latency();
+    audio.latencyMs = (Number.isFinite(lat.baseMs) ? lat.baseMs : 0) + (Number.isFinite(lat.outputMs) ? lat.outputMs : 0);
+    if (audio.state === 'on' && host.ctx.state !== 'running') audio.state = 'off';
+    else if (audio.state === 'off' && host.ctx.state === 'running') audio.state = 'on';
+  }
+  if (app.playing !== wasPlaying) { wasPlaying = app.playing; void updateWakeLock(); }
+  app.updateFrame(now);
+  drawMainView(screen, app.screenView(now, audio));
+  requestAnimationFrame(frame);
+};
+requestAnimationFrame(frame);
