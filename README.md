@@ -30,27 +30,31 @@ Note: AudioWorklet needs a secure context, so on another device use the HTTPS Pa
 
 ## Current state
 
-A title screen fades into the panel. The first touch anywhere switches sound on (browsers require a gesture).
+A title screen fades into the panel; the first touch switches sound on (browsers require a gesture). The instrument is always landscape: on touch devices it goes full screen and locks landscape where the browser allows; on any portrait screen the panel is drawn rotated. Every pattern starts empty.
 
-- **Channels 1-4** (top right): kick, snare, hat, bass. Tap a number to select it; MUTE under each. Channels 5-6 are reserved.
-- **Pattern A/B/C** for the selected channel.
-- **Knob pages:** SOUND (the selected channel's voice), MIX (volume, pan), GLOBAL (BPM, swing, master). The pixel screen lists what each knob does.
-- **Strip:** 16 step buttons on drum tracks, a 16-key keyboard on pitched tracks (bass). **PLAY/STOP** on the right.
-- **Function row:**
-  - **RECORD / PLAY mode** (see below).
-  - **MOTION REC:** while playing, knob moves on the SOUND page are recorded into the step playing at that moment (orange dot on the screen), and live keyboard notes land on the nearest step.
-  - **ACCENT / GHOST:** the dynamic for new hits. Accent = loudest and fully bright; ghost = quiet and darker (a gentle per-hit low-pass); neither = normal. On drum tracks, tapping an existing hit with ACCENT or GHOST armed re-paints it.
-  - **STEPS:** pattern length 16 → 32 → 48 → 64 → 16. **VIEW** pages through long patterns.
-  - **OCT − / OCT +:** keyboard octave. **◀ ▶ REST:** step-entry cursor and rest (record mode, pitched tracks).
+**Top right:** MODE (RECORD / PLAY / SOUND DESIGN, kept apart at the top), channels 1-6 with MUTE, pattern A/B/C, and the sound design page buttons.
 
-| | RECORD mode (building) | PLAY mode (performing) |
-|---|---|---|
-| Drum tracks | Strip toggles steps; VIEW chooses the 16-step page | Strip toggles steps live; view follows the playhead |
-| Pitched tracks | Keyboard writes the note at the cursor and moves on; ◀ ▶ move, REST clears | Keyboard plays live (recorded with MOTION REC) |
-| Pattern A/B/C | Switches immediately | Switches at the end of the loop |
+**Modes**
 
-On the screen, hit height shows the dynamic (tall accent, medium normal, short ghost); the bass lane shows note names and the cursor.
+| | RECORD (building) | PLAY (performing) | SOUND DESIGN |
+|---|---|---|---|
+| 12 knobs | Live knobs: one column per track, 2 each | Live knobs | Every parameter of the selected track, by page |
+| Drum strip | Toggle steps; VIEW pages long patterns | Toggle steps live; view follows the playhead | Toggle steps |
+| Pitched strip | Step-entry keyboard (cursor; ◀ ▶ REST) | Live keyboard (recorded with MOTION REC) | Audition keyboard |
+| Pattern A/B/C | Switch immediately | Switch at loop end | Switch immediately |
 
-Patterns and settings are kept for the browser session (survive a reload, not closing the tab).
+Sound design pages: the instrument's pages, then **TRACK** (type DRUM/SYNTH, preset, volume, pan, LIVE 1 / LIVE 2 assignment, chord mode for synths) and **GLOBAL** (BPM, swing, master). Coarse settings (waveforms, layer modes, filter types, type, preset, chord) only live here; the live knobs can only be given the subtler parameters. The screen draws the 12 knobs with their values.
+
+**Instruments**
+- **DRUM**, built from layers: TONE (pitch, sweep, sweep time, decay, drive, wave), CLICK (level, tone, length), METAL (six-oscillator square bank, ring-mod or FM; pitch, spread, tone, decay), NOISE (LP/BP/HP, cutoff, resonance, decay, clap bursts), and a master DRIVE and CRUSH (bit and sample-rate reduction). Presets: KICK, SNARE, HAT, OPEN HAT, CLAP, METAL, IND KICK, IND HIT.
+- **SYNTH**, 6-voice: saw/square/triangle/sine with detune (reese), sub, octave, poly/mono with glide, resonant low-pass with envelope, drive, ADSR. Presets: BASS, REESE, SUB, STAB, PAD. **Chord mode:** MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
+
+Default tracks: 1 KICK, 2 SNARE, 3 HAT, 4 METAL, 5 BASS, 6 STAB (chord MIN9).
+
+**Function row:** MOTION REC (live-knob moves become per-step locks on that track; live notes land on the nearest step), ACCENT / GHOST (louder and brighter / quieter and darker), STEPS 16-64, VIEW, OCT − / +, ◀ ▶ REST (step entry), CLEAR MOTION (removes the selected pattern's recorded knob motion).
+
+**Step lights** above the strip show the step being played (red while motion recording) and the step-entry cursor (orange).
+
+Patterns and settings are kept for the browser session.
 
 Keyboard: Space play/stop · 1-6 select channel · Shift+1-6 mute · Q-I / A-K the 16 strip buttons. Knobs: drag vertically (Shift = fine), mouse wheel, double-tap to reset.

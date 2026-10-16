@@ -2,16 +2,19 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 2;
 export const NUM_CHANNELS = 6;
-/** Channels the UI exposes for now; the rest stay in the model, silent. */
-export const ACTIVE_CHANNELS = 4;
 export const NUM_PATTERNS = 3;
 export const MAX_STEPS = 64;
 export const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C'] as const;
+export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 
-export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'bass';
+export type InstrumentKind = 'none' | 'drum' | 'synth';
+export type SoundKind = Exclude<InstrumentKind, 'none'>;
+
+/** Live-knob target: an instrument param id, or a mixer param. */
+export type LiveTarget = string; // e.g. "t_decay", "mix:volume"
 
 export interface Step {
   active: boolean;
@@ -19,7 +22,7 @@ export interface Step {
   note: number;
   /** 0..1 */
   velocity: number;
-  /** Gate length in steps (used by pitched instruments later). */
+  /** Gate length in steps (pitched instruments release after it). */
   gate: number;
   slide: boolean;
   accent: boolean;
@@ -33,7 +36,6 @@ export interface Step {
 /** Hit dynamics. Velocity drives both level and the per-hit tone (low-pass) in the engine. */
 export type Dynamic = 'ghost' | 'normal' | 'accent';
 export const DYNAMIC_VELOCITY: Record<Dynamic, number> = { ghost: 0.45, normal: 0.8, accent: 1 };
-export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 
 export function stepDynamic(step: Step): Dynamic {
   if (step.accent) return 'accent';
@@ -54,8 +56,14 @@ export interface Pattern {
 
 export interface ChannelState {
   instrument: InstrumentKind;
-  /** Instrument parameter values in real units, keyed by ParamSpec id. */
-  sound: Record<string, number>;
+  /** Sound per instrument kind, remembered when switching type (param id -> value). */
+  sounds: Partial<Record<SoundKind, Record<string, number>>>;
+  /** Last chosen preset index per kind (for display). */
+  presets: Partial<Record<SoundKind, number>>;
+  /** The two parameters on this track's live knobs (record/play modes). */
+  live: [LiveTarget, LiveTarget];
+  /** Chord mode index into CHORDS (0 = off). */
+  chord: number;
   volume: number; // 0..1
   pan: number; // -1..1
   mute: boolean;
@@ -73,59 +81,25 @@ export interface Project {
 }
 
 export function emptyStep(note = 36): Step {
-  return { active: false, note, velocity: 0.8, gate: 1, slide: false, accent: false };
+  return { active: false, note, velocity: DYNAMIC_VELOCITY.normal, gate: 1, slide: false, accent: false };
 }
 
 export function emptyPattern(note = 36): Pattern {
   return { length: DEFAULT_STEPS, steps: Array.from({ length: MAX_STEPS }, () => emptyStep(note)) };
 }
 
-function channel(instrument: InstrumentKind, volume = 0.8): ChannelState {
+export function emptyChannel(): ChannelState {
   return {
-    instrument,
-    sound: {},
-    volume,
+    instrument: 'none',
+    sounds: {},
+    presets: {},
+    live: ['mix:volume', 'mix:pan'],
+    chord: 0,
+    volume: 0.8,
     pan: 0,
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
     activePattern: 0,
-  };
-}
-
-function setSteps(p: Pattern, indices: number[], notes?: number[], dynamic: Dynamic = 'normal'): void {
-  indices.forEach((i, n) => {
-    const s = p.steps[i];
-    s.active = true;
-    setStepDynamic(s, dynamic);
-    if (notes) s.note = notes[n % notes.length];
-  });
-}
-
-/** Demo project: a 128 BPM techno loop with a simple bassline. */
-export function createDefaultProject(): Project {
-  const kick = channel('kick', 0.9);
-  const snare = channel('snare', 0.7);
-  const hat = channel('hat', 0.55);
-  const bass = channel('bass', 0.7);
-  setSteps(kick.patterns[0], [0, 4, 8, 12], undefined, 'accent');
-  setSteps(snare.patterns[0], [4, 12]);
-  setSteps(snare.patterns[0], [7, 15], undefined, 'ghost');
-  setSteps(hat.patterns[0], [2, 6, 10, 14], undefined, 'accent');
-  setSteps(hat.patterns[0], [0, 4, 8, 12], undefined, 'ghost');
-  setSteps(bass.patterns[0], [2, 3, 6, 10, 11, 14], [36, 36, 48, 36, 39, 34]);
-  setSteps(bass.patterns[0], [6], [48], 'accent');
-  // Pattern B: a jungle-ish variation to switch to.
-  setSteps(kick.patterns[1], [0, 10]);
-  setSteps(snare.patterns[1], [4, 12]);
-  setSteps(snare.patterns[1], [7, 9, 15], undefined, 'ghost');
-  setSteps(hat.patterns[1], [0, 2, 4, 6, 8, 10, 12, 14]);
-  setSteps(bass.patterns[1], [0, 7, 10], [33, 33, 36]);
-  return {
-    version: PROJECT_VERSION,
-    bpm: 128,
-    swing: 50,
-    master: 0.8,
-    channels: [kick, snare, hat, bass, channel('none'), channel('none')],
   };
 }
 
@@ -135,7 +109,7 @@ export function normalizeProject(data: unknown): Project | null {
   if (!p || typeof p !== 'object' || p.version !== PROJECT_VERSION) return null;
   if (!Array.isArray(p.channels) || p.channels.length !== NUM_CHANNELS) return null;
   for (const ch of p.channels) {
-    if (!Array.isArray(ch.patterns) || ch.patterns.length !== NUM_PATTERNS) return null;
+    if (!ch.sounds || !Array.isArray(ch.live) || !Array.isArray(ch.patterns) || ch.patterns.length !== NUM_PATTERNS) return null;
     for (const pat of ch.patterns) {
       if (!Array.isArray(pat.steps) || pat.steps.length !== MAX_STEPS) return null;
     }

@@ -2,7 +2,7 @@
  * Message protocol between the main thread (UI) and the audio worklet.
  * Plain data only, so it survives structured cloning and can be documented / ported.
  */
-import type { Project, Step } from './project';
+import type { InstrumentKind, Project, Step } from './project';
 
 export type MixParam = 'volume' | 'pan' | 'mute';
 export type GlobalParam = 'bpm' | 'swing' | 'master';
@@ -14,6 +14,12 @@ export type MainToWorklet =
   | { type: 'setPatternLength'; channel: number; pattern: number; length: number }
   /** Switch pattern; quantised to the end of the channel's loop unless immediate or stopped. */
   | { type: 'selectPattern'; channel: number; pattern: number; immediate: boolean }
+  /** Change a channel's instrument (clears its parameter locks) and set its full sound. */
+  | { type: 'setInstrument'; channel: number; kind: InstrumentKind; sound: Record<string, number> }
+  /** Chord mode index (0 = off). */
+  | { type: 'setChord'; channel: number; chord: number }
+  /** Release a note started with trigger/recordNote (note = the played root). */
+  | { type: 'release'; channel: number; note: number }
   /** Instrument parameter in real units. */
   | { type: 'setSound'; channel: number; id: string; value: number }
   | { type: 'setMix'; channel: number; id: MixParam; value: number }

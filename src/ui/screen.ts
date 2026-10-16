@@ -13,6 +13,7 @@ export const INK = {
   mid: '#3fa070',
   hi: '#9cffc8',
   warn: '#ffb347',
+  shade: '#11241b',
 } as const;
 
 export class PixelScreen {

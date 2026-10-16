@@ -1,37 +1,37 @@
 /**
  * App controller: owns the project (source of truth on the UI side), turns ControlSurface
  * events into project edits + engine messages, persists the session and builds the
- * screen view-model.
+ * screen view-models.
  *
- * Two modes, each tuned for its job:
- *  RECORD (building): pattern buttons switch at once; drums: the strip toggles steps (with
- *    the armed accent/ghost) and you page through long patterns yourself; pitched
- *    tracks: the strip is a step-entry keyboard (note at the cursor, then advance).
- *  PLAY (performing): pattern switches wait for the loop end; drums: steps toggle live and
- *    the view follows the playhead; pitched tracks: the strip is a live keyboard.
- * MOTION REC (either mode, while playing): knob moves on the SOUND page become per-step
- * locks, and live keyboard notes are written to the nearest step.
+ * Modes (selected at the top of the panel):
+ *  RECORD  building patterns. Patterns switch at once. Drums: strip toggles steps (with
+ *          the armed accent/ghost), VIEW pages long patterns. Pitched: step-entry keyboard
+ *          (note at the cursor, then advance; ◀ ▶ REST).
+ *  PLAY    performing. Patterns switch at loop end; the view follows the playhead.
+ *          Drums: steps toggle live. Pitched: live keyboard.
+ *  DESIGN  sound design for the selected track: all parameters on pages of 12 knobs,
+ *          plus TRACK (type, preset, mix, live-knob assignment, chord mode) and GLOBAL.
+ * In RECORD and PLAY the 12 knobs are the live knobs: one column per track, two each,
+ * assigned on the TRACK page. Only non-coarse parameters can be assigned.
+ * MOTION REC (while playing): live-knob moves on instrument parameters become per-step
+ * locks on that track, and live keyboard notes are written to the nearest step.
  */
 import type { ControlEvent } from '../controls/ControlSurface';
-import { formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
+import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../engine/mixParams';
+import { CHORD_NAMES } from '../engine/chords';
 import {
-  ACTIVE_CHANNELS, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
-  setStepDynamic, stepDynamic, type Dynamic, type Project, type Step,
+  MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
+  setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
+import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, instrumentName, instrumentParams, isDrum } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec } from '../instruments/registry';
 import { saveSession } from '../storage/session';
-import { KNOB_COUNT, STEP_BUTTONS, type Panel } from './Panel';
-import type { LaneCell, ScreenView } from './views';
+import { DESIGN_PAGE_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
+import type { DesignView, LaneCell, LiveView } from './views';
 
-export type PageId = 'sound' | 'mix' | 'global';
-export type Mode = 'record' | 'play';
-export const PAGES: readonly { id: PageId; label: string }[] = [
-  { id: 'sound', label: 'SOUND' },
-  { id: 'mix', label: 'MIX' },
-  { id: 'global', label: 'GLOBAL' },
-];
+export type Mode = 'record' | 'play' | 'design';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export function noteName(n: number): string {
@@ -48,29 +48,41 @@ export interface AudioInfo {
   peak: number;
 }
 
+/** What one knob controls right now. */
+interface KnobTarget {
+  label: string;
+  spec: ParamSpec;
+  channel: number;
+  get(): number;
+  set(value: number): void;
+  highlight?: boolean;
+}
+
+const MIX_PREFIX = 'mix:';
+
 export class App {
   selected = 0;
-  page: PageId = 'sound';
   mode: Mode = 'record';
+  designPage = 0;
   motion = false;
   dynamic: Dynamic = 'normal';
   playing = false;
-  /** Per channel: manually chosen 16-step view (record mode, drums). */
   private readonly viewPage: number[] = new Array(NUM_CHANNELS).fill(0);
-  /** Per channel: step-entry cursor (record mode, pitched tracks). */
   private readonly cursor: number[] = new Array(NUM_CHANNELS).fill(0);
-  /** Per channel: lowest note on the keyboard. */
   private readonly octave: number[];
-  private touchedSlot = -1;
+  /** Strip button -> note being held (keyboard), so release ends the right note. */
+  private readonly heldNotes = new Map<number, number>();
+  private touchedKnob = -1;
   private touchedAt = 0;
   private status: Status | null = null;
+  private targets: (KnobTarget | null)[] = [];
 
   constructor(
     readonly project: Project,
     private readonly panel: Panel,
     private send: (msg: MainToWorklet) => void,
   ) {
-    this.octave = project.channels.map((c) => (c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote));
+    this.octave = project.channels.map((c) => Math.floor(c.patterns[0].steps[0].note / 12) * 12);
     panel.subscribe((e) => this.onControl(e));
     this.refreshPanel();
   }
@@ -103,7 +115,7 @@ export class App {
 
   // ---------------------------------------------------------------- helpers
 
-  private get channel() {
+  private get channel(): ChannelState {
     return this.project.channels[this.selected];
   }
 
@@ -113,6 +125,12 @@ export class App {
 
   private get keyboard(): boolean {
     return !isDrum(this.channel.instrument);
+  }
+
+  private soundName(c: ChannelState): string {
+    if (c.instrument === 'none') return '---';
+    const idx = c.presets[c.instrument];
+    return idx === undefined ? INSTRUMENTS[c.instrument].name : INSTRUMENTS[c.instrument].presets[idx].name;
   }
 
   private pageCount(ch = this.selected): number {
@@ -128,27 +146,195 @@ export class App {
     const following = ch !== this.selected || this.mode === 'play';
     let page: number;
     if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
-    else if (!isDrum(c.instrument)) page = Math.floor(this.cursor[ch] / 16);
+    else if (!isDrum(c.instrument) && this.mode === 'record') page = Math.floor(this.cursor[ch] / 16);
     else page = this.viewPage[ch];
     return Math.min(page, this.pageCount(ch) - 1);
   }
 
-  private sendStep(index: number, step: Step): void {
-    this.send({ type: 'setStep', channel: this.selected, pattern: this.channel.activePattern, index, step });
+  private sendStep(index: number, step: Step, ch = this.selected): void {
+    const c = this.project.channels[ch];
+    this.send({ type: 'setStep', channel: ch, pattern: c.activePattern, index, step });
+  }
+
+  /** Pattern switching: immediate while building, at loop end while performing. */
+  private get immediateSwitch(): boolean {
+    return this.mode !== 'play';
+  }
+
+  // ---------------------------------------------------------------- knob targets
+
+  /** Specs a track's live knobs may use: its non-coarse sound params plus volume/pan. */
+  private liveCandidates(c: ChannelState): { id: string; spec: ParamSpec }[] {
+    const list = c.instrument === 'none' ? [] : INSTRUMENTS[c.instrument].params
+      .filter((p) => !p.coarse)
+      .map((spec) => ({ id: spec.id, spec }));
+    for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
+    return list;
+  }
+
+  private paramTarget(ch: number, id: string, label?: string, highlight?: boolean): KnobTarget | null {
+    const c = this.project.channels[ch];
+    if (id.startsWith(MIX_PREFIX)) {
+      const mixId = id.slice(MIX_PREFIX.length) as 'volume' | 'pan';
+      const spec = MIX_PARAMS.find((p) => p.id === mixId);
+      if (!spec) return null;
+      return {
+        label: label ?? spec.name, spec, channel: ch, highlight,
+        get: () => (mixId === 'pan' ? c.pan : c.volume),
+        set: (v) => {
+          if (mixId === 'pan') c.pan = v; else c.volume = v;
+          this.send({ type: 'setMix', channel: ch, id: mixId, value: v });
+        },
+      };
+    }
+    if (c.instrument === 'none') return null;
+    const kind = c.instrument;
+    const spec = paramSpec(kind, id);
+    if (!spec) return null;
+    return {
+      label: label ?? spec.name, spec, channel: ch, highlight,
+      get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
+      set: (v) => {
+        if (this.motion && this.playing && this.mode !== 'design') {
+          // Recorded as a lock on the step playing now; the track's own value is untouched.
+          this.send({ type: 'recordLock', channel: ch, id, value: v });
+        } else {
+          (c.sounds[kind] ??= {})[id] = v;
+          this.send({ type: 'setSound', channel: ch, id, value: v });
+        }
+      },
+    };
+  }
+
+  /** Sound design pages for the selected track: instrument pages, then TRACK, GLOBAL. */
+  private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
+    const ch = this.selected;
+    const c = this.channel;
+    const pages: { name: string; targets: () => (KnobTarget | null)[] }[] = [];
+    if (c.instrument !== 'none') {
+      for (const page of INSTRUMENTS[c.instrument].pages) {
+        pages.push({ name: page.name, targets: () => page.ids.map((id) => this.paramTarget(ch, id)) });
+      }
+    }
+    pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
+    pages.push({
+      name: 'GLOBAL',
+      targets: () => GLOBAL_PARAMS.map((spec) => ({
+        label: spec.name, spec, channel: ch,
+        get: () => (spec.id === 'bpm' ? this.project.bpm : spec.id === 'swing' ? this.project.swing : this.project.master),
+        set: (v: number) => {
+          if (spec.id === 'bpm') this.project.bpm = v;
+          else if (spec.id === 'swing') this.project.swing = v;
+          else this.project.master = v;
+          this.send({ type: 'setGlobal', id: spec.id as 'bpm' | 'swing' | 'master', value: v });
+        },
+      })),
+    });
+    return pages;
+  }
+
+  /** TRACK page: instrument type, preset, mix, live-knob assignment, chord mode. */
+  private trackTargets(): (KnobTarget | null)[] {
+    const ch = this.selected;
+    const c = this.channel;
+    const targets: (KnobTarget | null)[] = [];
+    const typeSpec = choice('type', 'TYPE', SOUND_KINDS.map((k) => INSTRUMENTS[k].name));
+    targets.push({
+      label: 'TYPE', spec: typeSpec, channel: ch,
+      get: () => Math.max(0, SOUND_KINDS.indexOf(c.instrument as SoundKind)),
+      set: (v) => this.setType(SOUND_KINDS[v]),
+    });
+    if (c.instrument !== 'none') {
+      const kind = c.instrument;
+      const presets = INSTRUMENTS[kind].presets;
+      targets.push({
+        label: 'PRESET', spec: choice('preset', 'PRESET', presets.map((p) => p.name)), channel: ch,
+        get: () => c.presets[kind] ?? 0,
+        set: (v) => {
+          applyPreset(c, kind, v);
+          const sound = c.sounds[kind] ?? {};
+          for (const id in sound) this.send({ type: 'setSound', channel: ch, id, value: sound[id] });
+        },
+      });
+    } else {
+      targets.push(null);
+    }
+    targets.push(this.paramTarget(ch, 'mix:volume'), this.paramTarget(ch, 'mix:pan'));
+    const candidates = this.liveCandidates(c);
+    for (let r = 0; r < 2; r++) {
+      const spec = choice(`live${r}`, `LIVE ${r + 1}`, candidates.map((x) => x.spec.name));
+      targets.push({
+        label: `LIVE ${r + 1}`, spec, channel: ch,
+        get: () => Math.max(0, candidates.findIndex((x) => x.id === c.live[r])),
+        set: (v) => { c.live[r] = candidates[v].id; },
+      });
+    }
+    if (!isDrum(c.instrument)) {
+      targets.push({
+        label: 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch,
+        get: () => c.chord,
+        set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
+      });
+    }
+    return targets;
+  }
+
+  private setType(kind: SoundKind): void {
+    const c = this.channel;
+    if (c.instrument === kind) return;
+    if (c.sounds[kind]) {
+      c.instrument = kind;
+      c.live = [...INSTRUMENTS[kind].presets[c.presets[kind] ?? 0].live];
+    } else {
+      applyPreset(c, kind, 0);
+    }
+    // Locks belong to the old instrument's parameters.
+    for (const p of c.patterns) for (const s of p.steps) delete s.locks;
+    this.send({ type: 'setInstrument', channel: this.selected, kind, sound: c.sounds[kind] ?? {} });
+    this.octave[this.selected] = 36;
+  }
+
+  /** The 12 knob targets for the current mode. */
+  private computeTargets(): (KnobTarget | null)[] {
+    if (this.mode === 'design') {
+      const pages = this.designPages();
+      this.designPage = Math.min(this.designPage, pages.length - 1);
+      const t = pages[this.designPage].targets();
+      return Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null);
+    }
+    // Live knobs: column = track, rows = live knob 1 / 2.
+    const out: (KnobTarget | null)[] = [];
+    for (let row = 0; row < 2; row++) {
+      for (let ch = 0; ch < KNOBS_PER_ROW; ch++) {
+        const c = this.project.channels[ch];
+        const t = this.paramTarget(ch, c.live[row], undefined, ch === this.selected);
+        if (t) t.label = `${ch + 1} ${t.spec.name}`;
+        out.push(t);
+      }
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- controls
 
   private onControl(e: ControlEvent): void {
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
-    if (e.type !== 'button' || !e.pressed) return;
+    if (e.type !== 'button') return;
     const id = e.id;
     let m: RegExpExecArray | null;
+    if (!e.pressed) {
+      if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
+      return;
+    }
     if (id === 'play') {
       this.playing = !this.playing;
       this.send({ type: 'transport', playing: this.playing });
+    } else if (id.startsWith('mode:')) {
+      this.mode = id.slice(5) as Mode;
+      this.touchedKnob = -1;
     } else if ((m = /^ch(\d)$/.exec(id))) {
       this.selected = Number(m[1]) - 1;
+      this.designPage = 0;
     } else if ((m = /^mute(\d)$/.exec(id))) {
       const ch = Number(m[1]) - 1;
       const c = this.project.channels[ch];
@@ -159,14 +345,11 @@ export class App {
       const pattern = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
       this.channel.activePattern = pattern;
       this.clampCursor();
-      // Record mode: hear what you edit at once. Play mode: keep the groove, switch at loop end.
-      this.send({ type: 'selectPattern', channel: this.selected, pattern, immediate: this.mode === 'record' });
+      this.send({ type: 'selectPattern', channel: this.selected, pattern, immediate: this.immediateSwitch });
       this.save();
-    } else if (id.startsWith('page:')) {
-      this.page = id.slice(5) as PageId;
-      this.touchedSlot = -1;
-    } else if (id === 'mode:record' || id === 'mode:play') {
-      this.mode = id === 'mode:record' ? 'record' : 'play';
+    } else if ((m = /^dpage(\d)$/.exec(id))) {
+      this.designPage = Number(m[1]);
+      this.touchedKnob = -1;
     } else if (id === 'motion') {
       this.motion = !this.motion;
     } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
@@ -188,19 +371,27 @@ export class App {
       this.sendStep(this.cursor[this.selected], step);
       this.moveCursor(1);
       this.save();
+    } else if (id === 'clearmotion') {
+      this.pattern.steps.forEach((step, i) => {
+        if (step.locks) { delete step.locks; this.sendStep(i, step); }
+      });
+      this.save();
     } else if ((m = /^step(\d+)$/.exec(id))) {
       this.onStrip(Number(m[1]) - 1);
     }
     this.refreshPanel();
   }
 
+  private velocity(): number {
+    return this.dynamic === 'accent' ? 1 : this.dynamic === 'ghost' ? 0.45 : 0.8;
+  }
+
   private onStrip(button: number): void {
     const ch = this.selected;
-    const velocity = (d: Dynamic) => (d === 'accent' ? 1 : d === 'ghost' ? 0.45 : 0.8);
-
     if (this.keyboard) {
       const note = this.octave[ch] + button;
-      const vel = velocity(this.dynamic);
+      const vel = this.velocity();
+      this.heldNotes.set(button, note);
       if (this.mode === 'record') {
         // Step entry: write at the cursor, hear it, advance.
         const index = this.cursor[ch];
@@ -212,7 +403,7 @@ export class App {
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
         this.moveCursor(1);
         this.save();
-      } else if (this.motion && this.playing) {
+      } else if (this.mode === 'play' && this.motion && this.playing) {
         this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent' });
       } else {
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
@@ -238,6 +429,13 @@ export class App {
     this.save();
   }
 
+  private releaseKey(button: number): void {
+    const note = this.heldNotes.get(button);
+    if (note === undefined) return;
+    this.heldNotes.delete(button);
+    this.send({ type: 'release', channel: this.selected, note });
+  }
+
   private cycleLength(): void {
     const len = this.pattern.length;
     const next = STEP_LENGTHS.find((l) => l > len) ?? STEP_LENGTHS[0];
@@ -255,58 +453,25 @@ export class App {
   }
 
   private clampCursor(): void {
-    const len = this.pattern.length;
-    if (this.cursor[this.selected] >= len) this.cursor[this.selected] = 0;
+    if (this.cursor[this.selected] >= this.pattern.length) this.cursor[this.selected] = 0;
     if (this.viewPage[this.selected] >= this.pageCount()) this.viewPage[this.selected] = 0;
   }
 
-  private pageSpecs(): readonly ParamSpec[] {
-    if (this.page === 'mix') return MIX_PARAMS;
-    if (this.page === 'global') return GLOBAL_PARAMS;
-    return instrumentParams(this.channel.instrument);
-  }
-
-  private getValue(spec: ParamSpec): number {
-    const c = this.channel;
-    if (this.page === 'mix') return spec.id === 'pan' ? c.pan : c.volume;
-    if (this.page === 'global') {
-      const p = this.project;
-      return spec.id === 'bpm' ? p.bpm : spec.id === 'swing' ? p.swing : p.master;
-    }
-    return c.sound[spec.id] ?? spec.defaultValue;
-  }
-
   private onKnob(slot: number, norm: number): void {
-    const spec = this.pageSpecs()[slot];
-    if (!spec) return;
-    let value = toValue(spec, norm);
-    if (spec.decimals !== undefined) {
-      const f = Math.pow(10, spec.decimals);
+    const t = this.targets[slot];
+    if (!t) return;
+    let value = toValue(t.spec, norm);
+    if (t.spec.decimals !== undefined && !t.spec.options) {
+      const f = Math.pow(10, t.spec.decimals);
       value = Math.round(value * f) / f;
     }
-    const ch = this.selected;
-    const c = this.channel;
-    if (this.page === 'sound') {
-      if (this.motion && this.playing) {
-        // Recorded as a lock on the step playing now; the channel's own value is untouched.
-        this.send({ type: 'recordLock', channel: ch, id: spec.id, value });
-      } else {
-        c.sound[spec.id] = value;
-        this.send({ type: 'setSound', channel: ch, id: spec.id, value });
-      }
-    } else if (this.page === 'mix') {
-      if (spec.id === 'pan') c.pan = value;
-      else c.volume = value;
-      this.send({ type: 'setMix', channel: ch, id: spec.id as 'volume' | 'pan', value });
-    } else {
-      if (spec.id === 'bpm') this.project.bpm = value;
-      else if (spec.id === 'swing') this.project.swing = value;
-      else this.project.master = value;
-      this.send({ type: 'setGlobal', id: spec.id as 'bpm' | 'swing' | 'master', value });
-    }
-    this.touchedSlot = slot;
+    if (t.spec.options && value === t.get()) return; // detent: nothing changed
+    t.set(value);
+    this.touchedKnob = slot;
     this.touchedAt = performance.now();
     this.save();
+    // Discrete choices can change what other knobs mean (type, preset, live assignment).
+    if (t.spec.options) this.refreshPanel();
   }
 
   private save(): void {
@@ -317,42 +482,46 @@ export class App {
 
   /** Knob labels/positions and button states that change on input, not per frame. */
   refreshPanel(): void {
-    const specs = this.pageSpecs();
-    for (let i = 0; i < KNOB_COUNT; i++) {
-      const spec = specs[i];
+    this.targets = this.computeTargets();
+    this.targets.forEach((t, i) => {
       this.panel.configureKnob(
-        `k${i + 1}`,
-        spec ? { label: spec.name, value: toNorm(spec, this.getValue(spec)), defaultValue: toNorm(spec, spec.defaultValue) } : null,
+        i,
+        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.spec.defaultValue), highlight: t.highlight } : null,
       );
-    }
+    });
+
+    for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const c = this.project.channels[ch];
       this.panel.setButtonLit(`ch${ch + 1}`, ch === this.selected);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
-      if (ch < ACTIVE_CHANNELS) {
-        this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${instrumentName(c.instrument)}</small>`);
-      }
+      this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.soundName(c)}</small>`);
     }
-    for (const p of PAGES) this.panel.setButtonLit(`page:${p.id}`, p.id === this.page);
+    const pages = this.mode === 'design' ? this.designPages() : [];
+    for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
+      const page = pages[i];
+      this.panel.setButtonText(`dpage${i}`, page ? page.name : '');
+      this.panel.setButtonEnabled(`dpage${i}`, !!page);
+      this.panel.setButtonLit(`dpage${i}`, !!page && i === this.designPage);
+    }
     this.panel.setButtonLit('play', this.playing);
     this.panel.setButtonText('play', this.playing ? 'STOP' : 'PLAY');
 
     const rec = this.mode === 'record';
     const kb = this.keyboard;
-    this.panel.setButtonLit('mode:record', rec);
-    this.panel.setButtonLit('mode:play', !rec);
-    this.panel.setButtonText('mode:record', 'RECORD<small>MODE</small>');
     this.panel.setButtonFlag('motion', 'armed', this.motion);
+    this.panel.setButtonEnabled('motion', this.mode !== 'design');
     this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent');
     this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost');
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
-    this.panel.setButtonEnabled('steppage', rec && !kb && this.pageCount() > 1);
+    this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     for (const id of ['cur-', 'cur+', 'rest']) this.panel.setButtonEnabled(id, kb && rec);
+    this.panel.setButtonEnabled('clearmotion', this.pattern.steps.some((s) => s.locks));
     this.panel.root.classList.toggle('keyboard', kb);
   }
 
-  /** Per-frame updates: strip lights/labels, playhead, pending pattern blink, view label. */
+  /** Per-frame updates: strip lights/labels, LEDs, pending pattern blink. */
   updateFrame(now: number): void {
     const ch = this.selected;
     const c = this.channel;
@@ -361,12 +530,22 @@ export class App {
     const heardHere = this.playing && playingPattern === c.activePattern;
     const head = heardHere ? (this.status?.steps[ch] ?? -1) : -1;
     const page = this.visiblePage(ch);
+    const pitchedRecord = this.keyboard && this.mode === 'record';
+    const cursor = this.cursor[ch];
+
+    // LEDs: the step being played (red while motion recording), the step-entry cursor.
+    for (let i = 0; i < STEP_BUTTONS; i++) {
+      const index = page * 16 + i;
+      let state: '' | 'on' | 'rec' | 'cursor' = '';
+      if (pitchedRecord && index === cursor) state = 'cursor';
+      if (head === index) state = this.motion && this.mode !== 'design' ? 'rec' : 'on';
+      this.panel.setLed(i, state);
+    }
 
     if (this.keyboard) {
-      // Note sounding at the playhead lights its key.
       const sounding = head >= 0 && pattern.steps[head].active ? pattern.steps[head].note : -1;
-      const cursorStep = pattern.steps[this.cursor[ch]];
-      const cursorNote = this.mode === 'record' && cursorStep.active ? cursorStep.note : -1;
+      const cursorStep = pattern.steps[cursor];
+      const cursorNote = pitchedRecord && cursorStep.active ? cursorStep.note : -1;
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
         const note = this.octave[ch] + i;
@@ -403,25 +582,46 @@ export class App {
       this.panel.setButtonFlag(`pat${name}`, 'lit', p === c.activePattern && (!pending || blink));
       this.panel.setButtonFlag(`pat${name}`, 'playing', p === playingPattern && p !== c.activePattern);
     });
-    if (this.touchedSlot >= 0 && now - this.touchedAt > 4000) this.touchedSlot = -1;
+    if (this.touchedKnob >= 0 && now - this.touchedAt > 4000) this.touchedKnob = -1;
   }
 
-  screenView(now: number, audio: AudioInfo): ScreenView {
+  private footer(audio: AudioInfo): { text: string; alert: boolean } {
+    if (audio.state === 'off') return { text: 'TOUCH FOR SOUND', alert: true };
+    if (audio.state === 'starting') return { text: 'STARTING AUDIO', alert: false };
+    if (audio.state === 'error') return { text: 'AUDIO ERROR', alert: true };
+    return { text: Number.isFinite(audio.latencyMs) ? `OUT ${audio.latencyMs.toFixed(0)}MS` : 'AUDIO ON', alert: false };
+  }
+
+  private slots() {
+    return this.targets.map((t) => (t ? {
+      name: t.label,
+      valueText: formatValue(t.spec, t.get()),
+      norm: toNorm(t.spec, t.get()),
+      highlight: !!t.highlight,
+    } : null));
+  }
+
+  private header() {
     const ch = this.selected;
     const c = this.channel;
     const playingPattern = this.status?.patterns[ch] ?? c.activePattern;
-    const patternLabel = this.playing && playingPattern !== c.activePattern
-      ? `PAT ${PATTERN_NAMES[playingPattern]}>${PATTERN_NAMES[c.activePattern]}`
-      : `PAT ${PATTERN_NAMES[c.activePattern]}`;
+    return {
+      channelLabel: `CH${ch + 1} ${this.soundName(c)}`,
+      patternLabel: this.playing && playingPattern !== c.activePattern
+        ? `PAT ${PATTERN_NAMES[playingPattern]}>${PATTERN_NAMES[c.activePattern]}`
+        : `PAT ${PATTERN_NAMES[c.activePattern]}`,
+      bpmText: this.project.bpm.toFixed(1),
+      playing: this.playing,
+    };
+  }
 
-    const lanes = [];
-    for (let i = 0; i < ACTIVE_CHANNELS; i++) {
-      const lc = this.project.channels[i];
-      // The selected lane shows the pattern being edited; others show what is heard.
+  liveView(now: number, audio: AudioInfo): LiveView {
+    const ch = this.selected;
+    const lanes = this.project.channels.map((lc, i) => {
       const heard = this.status?.patterns[i] ?? lc.activePattern;
       const shown = i === ch ? lc.activePattern : heard;
       const pat = lc.patterns[shown];
-      const page = i === ch ? this.visiblePage(i) : (this.playing && shown === heard ? Math.floor(Math.max(0, this.status?.steps[i] ?? 0) / 16) : 0);
+      const page = this.visiblePage(i);
       const head = this.playing && shown === heard ? (this.status?.steps[i] ?? -1) : -1;
       const pitched = !isDrum(lc.instrument);
       const cells: LaneCell[] = [];
@@ -430,55 +630,58 @@ export class App {
         const step = pat.steps[idx];
         cells.push({
           state: idx >= pat.length ? 'none' : step.active ? stepDynamic(step) : 'off',
-          note: pitched && i === ch && step.active ? noteName(step.note).replace(/(\d)$/, '') : '',
+          note: pitched && i === ch && step.active ? NOTE_NAMES[step.note % 12] : '',
           locked: !!step.locks && Object.keys(step.locks).length > 0,
         });
       }
-      lanes.push({
-        name: `${i + 1}${instrumentName(lc.instrument).slice(0, 4)}`,
+      return {
+        name: `${i + 1}${this.soundName(lc).replace(' ', '').slice(0, 4)}`,
         cells,
         playhead: head >= 0 && Math.floor(head / 16) === page ? head % 16 : -1,
         cursor: i === ch && pitched && this.mode === 'record' && Math.floor(this.cursor[i] / 16) === page ? this.cursor[i] % 16 : -1,
         muted: lc.mute,
         selected: i === ch,
-      });
-    }
-
-    const specs = this.pageSpecs();
-    const slots = [];
-    for (let i = 0; i < KNOB_COUNT; i++) {
-      const spec = specs[i];
-      if (!spec) { slots.push(null); continue; }
-      const value = this.getValue(spec);
-      slots.push({ name: spec.name, valueText: formatValue(spec, value), norm: toNorm(spec, value) });
-    }
-
-    let footerRight = '';
-    let footerAlert = false;
-    if (audio.state === 'off') { footerRight = 'TOUCH FOR SOUND'; footerAlert = true; }
-    else if (audio.state === 'starting') footerRight = 'STARTING AUDIO';
-    else if (audio.state === 'error') { footerRight = 'AUDIO ERROR'; footerAlert = true; }
-    else footerRight = Number.isFinite(audio.latencyMs) ? `OUT ${audio.latencyMs.toFixed(0)}MS` : 'AUDIO ON';
-
+      };
+    });
     const page = this.visiblePage(ch);
     const len = this.pattern.length;
+    const f = this.footer(audio);
     return {
-      channelLabel: `CH${ch + 1} ${instrumentName(c.instrument)}`,
-      patternLabel,
+      ...this.header(),
       stepsLabel: len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
-      bpmText: this.project.bpm.toFixed(1),
-      playing: this.playing,
       motion: this.motion,
       lanes,
-      modeLabel: this.mode === 'record' ? 'REC' : 'PLAY',
-      pageName: PAGES.find((p) => p.id === this.page)?.label ?? '',
+      modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
       keyboardLabel: this.keyboard ? `KEYS ${noteName(this.octave[ch])}` : '',
       dynamicLabel: this.dynamic === 'normal' ? '' : this.dynamic.toUpperCase(),
-      slots,
-      touchedSlot: this.touchedSlot,
+      slots: this.slots(),
+      touchedSlot: this.touchedKnob,
       peak: audio.peak,
-      footerRight,
-      footerAlert,
+      footerRight: f.text,
+      footerAlert: f.alert,
+      blink: Math.floor(now / 400) % 2 === 0,
+    };
+  }
+
+  designView(now: number, audio: AudioInfo): DesignView {
+    const c = this.channel;
+    const pages = this.designPages();
+    const f = this.footer(audio);
+    const liveName = (id: string) => (id.startsWith(MIX_PREFIX)
+      ? MIX_PARAMS.find((p) => MIX_PREFIX + p.id === id)?.name
+      : paramSpec(c.instrument, id)?.name) ?? '-';
+    return {
+      ...this.header(),
+      kindLabel: c.instrument === 'none' ? '' : INSTRUMENTS[c.instrument].name,
+      pages: pages.map((p) => p.name),
+      page: this.designPage,
+      slots: this.slots(),
+      touchedSlot: this.touchedKnob,
+      liveLabel: `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
+      chordLabel: !isDrum(c.instrument) && c.chord > 0 ? `CHORD ${CHORD_NAMES[c.chord]}` : '',
+      peak: audio.peak,
+      footerRight: f.text,
+      footerAlert: f.alert,
       blink: Math.floor(now / 400) % 2 === 0,
     };
   }

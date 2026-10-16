@@ -4,15 +4,17 @@ import {
   MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS,
   type InstrumentKind, type Project, type Step,
 } from './project';
+import { CHORDS } from './chords';
 import type { Instrument } from '../instruments/Instrument';
-import { INSTRUMENTS } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
 import { Svf } from '../instruments/dsp';
 
 /** Largest chunk rendered at once; blocks are split at step boundaries anyway. */
 const CHUNK = 256;
 /** Max sound parameters per instrument that can be locked per step. */
-export const LOCK_SLOTS = 8;
-const KINDS = Object.keys(INSTRUMENTS) as Exclude<InstrumentKind, 'none'>[];
+export const LOCK_SLOTS = 32;
+/** Sequenced notes release at this fraction of their gate, so repeats re-articulate. */
+const GATE_FRACTION = 0.8;
 const STEP_SLOTS = NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS;
 
 /**
@@ -81,6 +83,11 @@ export class Engine {
   private readonly toneL: Svf[] = [];
   private readonly toneR: Svf[] = [];
   private readonly volumeValue = new Float32Array(NUM_CHANNELS).fill(0.8);
+  /** Chord mode per channel (index into CHORDS). */
+  private readonly chord = new Uint8Array(NUM_CHANNELS);
+  /** Frames until the sequenced note on a channel is released (-1 = none pending). */
+  private readonly gateFrames = new Float64Array(NUM_CHANNELS).fill(-1);
+  private readonly gateGroup = new Int16Array(NUM_CHANNELS);
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   private readonly scratchL = new Float32Array(CHUNK);
   private readonly scratchR = new Float32Array(CHUNK);
@@ -90,7 +97,7 @@ export class Engine {
     this.master = new Smoother(0.8, 0.02, sampleRate);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const set: Record<string, Instrument> = {};
-      for (const kind of KINDS) set[kind] = INSTRUMENTS[kind].create(sampleRate);
+      for (const kind of SOUND_KINDS) set[kind] = INSTRUMENTS[kind].create(sampleRate);
       this.instruments.push(set);
       this.current.push(null);
       this.volume.push(new Smoother(0.8, 0.02, sampleRate));
@@ -128,6 +135,9 @@ export class Engine {
         break;
       case 'transport': this.setPlaying(msg.playing); break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity); break;
+      case 'release': this.current[msg.channel]?.noteOff(msg.note); break;
+      case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
+      case 'setChord': this.chord[msg.channel] = msg.chord; break;
       case 'recordNote': this.recordNote(msg.channel, msg.note, msg.velocity, msg.accent); break;
       case 'recordLock': this.recordLock(msg.channel, msg.id, msg.value); break;
       case 'ping': break; // answered by the host
@@ -140,12 +150,8 @@ export class Engine {
     this.master.setImmediate(p.master);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const c = p.channels[ch];
-      this.current[ch] = c.instrument === 'none' ? null : this.instruments[ch][c.instrument];
-      const inst = this.current[ch];
-      this.lockApplied.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
-      if (inst) {
-        inst.params.forEach((spec, slot) => this.setSound(ch, spec.id, c.sound[spec.id] ?? spec.defaultValue, slot));
-      }
+      this.setInstrument(ch, c.instrument, c.instrument === 'none' ? {} : (c.sounds[c.instrument] ?? {}));
+      this.chord[ch] = c.chord;
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
@@ -175,7 +181,8 @@ export class Engine {
         this.pendingPattern[ch] = -1;
       }
       if (!playing) {
-        this.current[ch]?.noteOff();
+        this.current[ch]?.noteOff(-1);
+        this.gateFrames[ch] = -1;
         this.restoreBase(ch);
       }
     }
@@ -197,9 +204,18 @@ export class Engine {
         const until = Math.ceil(this.framesToStep);
         if (until < n) n = until;
       }
+      // Split at pending note releases too.
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+        const g = this.gateFrames[ch];
+        if (g >= 0) {
+          if (g < 1) { this.releaseGate(ch); continue; }
+          if (Math.ceil(g) < n) n = Math.ceil(g);
+        }
+      }
       this.renderChunk(outL, outR, pos, n);
       pos += n;
       if (this.playing) this.framesToStep -= n;
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.gateFrames[ch] >= 0) this.gateFrames[ch] -= n;
     }
     this.finishBlock(outL, outR, frames);
   }
@@ -231,7 +247,11 @@ export class Engine {
       const idx = this.position[ch] % len;
       const s = pat * MAX_STEPS + idx;
       this.applyLocks(ch, s);
-      if (this.stepActive[s] && this.skipStep[ch] !== idx) this.noteOn(ch, this.stepNote[s], this.stepVel[s]);
+      if (this.stepActive[s] && this.skipStep[ch] !== idx) {
+        this.noteOn(ch, this.stepNote[s], this.stepVel[s]);
+        this.gateGroup[ch] = this.stepNote[s];
+        this.gateFrames[ch] = this.stepFrames(this.globalStep) * GATE_FRACTION;
+      }
       this.skipStep[ch] = -1;
       this.currentStep[ch] = idx;
       this.position[ch] = (idx + 1) % len;
@@ -241,13 +261,33 @@ export class Engine {
     this.globalStep++;
   }
 
+  /** Play a note (as a chord when chord mode is on); voices are grouped by the root note. */
   private noteOn(ch: number, note: number, velocity: number): void {
     const inst = this.current[ch];
     if (!inst) return;
+    if (this.gateFrames[ch] >= 0) this.releaseGate(ch);
     const fc = hitToneCutoff(velocity);
     this.toneL[ch].setup(fc, 0, this.sampleRate);
     this.toneR[ch].setup(fc, 0, this.sampleRate);
-    inst.noteOn(note, velocity);
+    const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
+    for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note);
+  }
+
+  private releaseGate(ch: number): void {
+    this.current[ch]?.noteOff(this.gateGroup[ch]);
+    this.gateFrames[ch] = -1;
+  }
+
+  private setInstrument(ch: number, kind: InstrumentKind, sound: Record<string, number>): void {
+    this.current[ch]?.noteOff(-1);
+    this.gateFrames[ch] = -1;
+    this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
+    this.lockApplied.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
+    // Locks are stored by parameter slot, which means something else on another instrument.
+    const from = ch * NUM_PATTERNS * MAX_STEPS * LOCK_SLOTS;
+    this.locks.fill(NaN, from, from + NUM_PATTERNS * MAX_STEPS * LOCK_SLOTS);
+    const inst = this.current[ch];
+    if (inst) inst.params.forEach((spec, slot) => this.setSound(ch, spec.id, sound[spec.id] ?? spec.defaultValue, slot));
   }
 
   /** Apply the step's locks; params locked on the previous step but not this one revert. */

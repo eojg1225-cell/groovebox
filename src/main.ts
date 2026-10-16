@@ -6,9 +6,10 @@ import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
 import { INK, PixelScreen } from './ui/screen';
-import { drawMainView } from './ui/views';
-import { App, PAGES, type AudioInfo } from './ui/App';
-import { ACTIVE_CHANNELS, NUM_CHANNELS, PATTERN_NAMES, createDefaultProject } from './engine/project';
+import { drawDesignView, drawLiveView } from './ui/views';
+import { App, type AudioInfo } from './ui/App';
+import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
+import { createDefaultProject } from './engine/defaultProject';
 import { loadSession } from './storage/session';
 import { textWidth } from './ui/font';
 
@@ -27,9 +28,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 const project = loadSession() ?? createDefaultProject();
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
   channels: NUM_CHANNELS,
-  activeChannels: ACTIVE_CHANNELS,
   patterns: PATTERN_NAMES,
-  pages: PAGES,
 });
 const screen = new PixelScreen(panel.screenCanvas);
 
@@ -40,6 +39,24 @@ const app = new App(project, panel, (msg) => host?.send(msg));
 // ------------------------------------------------------------------ audio unlock
 
 const UNLOCK_EVENTS = ['pointerdown', 'pointerup', 'touchend', 'keydown'] as const;
+
+/**
+ * Touch devices: go full screen and lock to landscape on the first touch (where the
+ * browser allows it). Elsewhere the panel rotates itself on portrait screens.
+ */
+let landscapeTried = false;
+function lockLandscape(): void {
+  if (landscapeTried || !window.matchMedia('(pointer: coarse)').matches) return;
+  landscapeTried = true;
+  const el = document.documentElement;
+  const orientation = window.screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+  if (!el.requestFullscreen || document.fullscreenElement) return;
+  el.requestFullscreen({ navigationUI: 'hide' })
+    .then(() => orientation?.lock?.('landscape'))
+    .catch(() => { /* not allowed here (e.g. embedded); the rotated layout covers it */ });
+}
+
+window.addEventListener('pointerup', lockLandscape, true);
 
 function unlockAudio(): void {
   if (!host) {
@@ -120,7 +137,8 @@ const frame = (now: number) => {
   }
   if (app.playing !== wasPlaying) { wasPlaying = app.playing; void updateWakeLock(); }
   app.updateFrame(now);
-  drawMainView(screen, app.screenView(now, audio));
+  if (app.mode === 'design') drawDesignView(screen, app.designView(now, audio));
+  else drawLiveView(screen, app.liveView(now, audio));
   requestAnimationFrame(frame);
 };
 requestAnimationFrame(frame);

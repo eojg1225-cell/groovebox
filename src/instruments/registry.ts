@@ -2,39 +2,45 @@
  * Instrument registry: one table entry per instrument kind. Adding an instrument means
  * one class plus one entry here.
  */
-import type { Instrument } from './Instrument';
-import type { InstrumentKind } from '../engine/project';
+import type { Instrument, Preset } from './Instrument';
+import type { InstrumentKind, SoundKind } from '../engine/project';
 import type { ParamSpec } from '../engine/params';
-import { Kick, KICK_PARAMS } from './Kick';
-import { Snare, SNARE_PARAMS } from './Snare';
-import { Hat, HAT_PARAMS } from './Hat';
-import { Bass, BASS_PARAMS } from './Bass';
+import { Drum, DRUM_PAGES, DRUM_PARAMS, DRUM_PRESETS } from './Drum';
+import { Synth, SYNTH_PAGES, SYNTH_PARAMS, SYNTH_PRESETS } from './Synth';
 
-interface Entry {
+export interface InstrumentEntry {
   name: string;
   params: readonly ParamSpec[];
+  /** Sound design pages: up to 12 param ids each (2 rows of 6 knobs). */
+  pages: readonly { name: string; ids: readonly string[] }[];
+  presets: readonly Preset[];
   /** Drum voices use the step strip; pitched instruments get a keyboard. */
   drum: boolean;
-  /** Bottom note of the keyboard for pitched instruments. */
-  baseNote: number;
   create: (sampleRate: number) => Instrument;
 }
 
-export const INSTRUMENTS: Record<Exclude<InstrumentKind, 'none'>, Entry> = {
-  kick: { name: 'KICK', params: KICK_PARAMS, drum: true, baseNote: 36, create: (sr) => new Kick(sr) },
-  snare: { name: 'SNARE', params: SNARE_PARAMS, drum: true, baseNote: 36, create: (sr) => new Snare(sr) },
-  hat: { name: 'HAT', params: HAT_PARAMS, drum: true, baseNote: 36, create: (sr) => new Hat(sr) },
-  bass: { name: 'BASS', params: BASS_PARAMS, drum: false, baseNote: 36, create: (sr) => new Bass(sr) },
+export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
+  drum: { name: 'DRUM', params: DRUM_PARAMS, pages: DRUM_PAGES, presets: DRUM_PRESETS, drum: true, create: (sr) => new Drum(sr) },
+  synth: { name: 'SYNTH', params: SYNTH_PARAMS, pages: SYNTH_PAGES, presets: SYNTH_PRESETS, drum: false, create: (sr) => new Synth(sr) },
 };
+
+export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];
 
 export function instrumentParams(kind: InstrumentKind): readonly ParamSpec[] {
   return kind === 'none' ? [] : INSTRUMENTS[kind].params;
 }
 
-export function instrumentName(kind: InstrumentKind): string {
-  return kind === 'none' ? '---' : INSTRUMENTS[kind].name;
-}
-
 export function isDrum(kind: InstrumentKind): boolean {
   return kind === 'none' || INSTRUMENTS[kind].drum;
+}
+
+export function paramSpec(kind: InstrumentKind, id: string): ParamSpec | undefined {
+  return instrumentParams(kind).find((p) => p.id === id);
+}
+
+/** Full sound for a preset: defaults overlaid with the preset's values. */
+export function presetSound(kind: SoundKind, index: number): Record<string, number> {
+  const sound: Record<string, number> = {};
+  for (const p of INSTRUMENTS[kind].params) sound[p.id] = p.defaultValue;
+  return { ...sound, ...INSTRUMENTS[kind].presets[index].values };
 }

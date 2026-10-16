@@ -2,7 +2,7 @@
 
 ```
 src/engine       Pure engine: project model, params, smoothing, protocol, Engine (sequencer, mixer, master). No DOM/Web Audio.
-src/instruments  Instrument interface, registry, Kick/Snare/Hat/Bass, shared DSP. No DOM/Web Audio.
+src/instruments  Instrument interface, registry, Drum (layered), Synth (6-voice), presets, shared DSP. No DOM/Web Audio.
 src/fx           Send effects (from M2). No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
@@ -29,6 +29,9 @@ Main -> worklet:
 |---|---|---|
 | `loadProject` | `project` | Replace all engine state (startup / session restore) |
 | `setStep` | `channel`, `pattern`, `index`, `step` | Write one step (incl. its locks) |
+| `setInstrument` | `channel`, `kind`, `sound` | Change a track's instrument (clears its locks) and set its full sound |
+| `setChord` | `channel`, `chord` | Chord mode index (0 = off) |
+| `release` | `channel`, `note` | Release a live note (the played root) |
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-64 steps |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern; quantised to the channel's loop end unless `immediate` or stopped |
 | `setSound` | `channel`, `id`, `value` | Instrument parameter (real units) |
@@ -55,7 +58,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 ## Project model (`src/engine/project.ts`)
 
-`Project { version, bpm, swing (50-75 %), master, channels[6] }`; `ChannelState { instrument, sound{paramId: value}, volume, pan, mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Kept in `sessionStorage` for now (`src/storage/session.ts`).
+`Project { version: 2, bpm, swing (50-75 %), master, channels[6] }`; `ChannelState { instrument ('drum'|'synth'|'none'), sounds{kind: {paramId: value}}, presets{kind: index}, live[2] (param id or "mix:volume"/"mix:pan"), chord, volume, pan, mute, patterns[3], activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide, accent }`. Kept in `sessionStorage` for now (`src/storage/session.ts`).
 
 ## Sequencer
 
@@ -67,11 +70,16 @@ A global 16th-note clock (swing lengthens even steps and shortens odd ones) driv
 
 ## Instruments
 
-`src/instruments/registry.ts` maps a kind (`kick`, `snare`, `hat`, `bass`) to its class and `ParamSpec[]`. Each channel preallocates one instance of every kind. Shared DSP (noise, ZDF state-variable filter, polyBLEP) is in `dsp.ts`.
+`src/instruments/registry.ts` maps a kind (`drum`, `synth`) to its class, `ParamSpec[]`, sound design pages (12 ids each) and presets. Each channel preallocates one instance of every kind. `ParamSpec.options` marks discrete choices (stored as an index) and `coarse` marks settings only the sound design mode may change. Shared DSP (noise, ZDF state-variable filter, polyBLEP) is in `dsp.ts`.
+
+- **Drum:** TONE (oscillator + exponential pitch sweep), METAL (6 oscillators at 808 cymbal ratios scaled by SPREAD: square bank, ring-mod pairs, or 2-op FM, then high-pass), NOISE (SVF LP/BP/HP, optional clap bursts 11 ms apart), CLICK (filtered transient), summed into tanh DRIVE and CRUSH (sample-and-hold + bit reduction).
+- **Synth:** 6 voices (oldest stolen), two polyBLEP oscillators with detune + sine sub, per-voice SVF low-pass with decay envelope, ADSR, drive; MONO uses one voice with glide.
+
+**Chords and gates:** the engine expands each note through the channel's chord (`src/engine/chords.ts`), tagging voices with the root so they release together. Sequenced notes release after `gate` steps × 0.8; live notes release on the `release` message.
 
 ## UI
 
-`Panel` (ControlSurface) emits `ch1..6`, `mute1..6`, `patA..C`, `page:sound|mix|global`, `step1..16`, `play`, knobs `k1..k8`. `App` maps them onto the project and the engine, and builds the pixel-screen view-model (`views.ts`). Audio starts on the first touch/click/key anywhere (browsers require a gesture); until then the screen footer says TOUCH FOR SOUND.
+`Panel` (ControlSurface) emits `mode:record|play|design`, `ch1..6`, `mute1..6`, `patA..C`, `dpage0..3`, `step1..16`, function-row ids, `play`, knobs `k1..k12` (two rows of 6). `App` maps them onto the project and the engine (each knob resolves to a `KnobTarget` for the current mode) and builds the pixel-screen view-models (`views.ts`: live view and design view). On portrait screens `Panel.fit` rotates the panel 90° and `orientation.ts` keeps knob drags in panel coordinates. Audio starts on the first touch/click/key anywhere (browsers require a gesture); until then the screen footer says TOUCH FOR SOUND.
 
 ## Parameters
 

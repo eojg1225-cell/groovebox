@@ -2,6 +2,8 @@
  * On-screen knob: vertical drag (multi-touch safe via pointer capture), mouse wheel,
  * double-tap / double-click to reset. Value is normalised 0..1.
  */
+import { localY } from './orientation';
+
 const DRAG_PIXELS_FULL_RANGE = 200;
 const DOUBLE_TAP_MS = 300;
 const SWEEP_DEG = 270;
@@ -91,7 +93,7 @@ export class Knob {
     }
     this.lastTap = now;
     this.dragPointer = e.pointerId;
-    this.dragStartY = e.clientY;
+    this.dragStartY = localY(e);
     this.dragStartValue = this.value;
     body.setPointerCapture(e.pointerId);
     this.el.classList.add('active');
@@ -101,7 +103,7 @@ export class Knob {
     if (e.pointerId !== this.dragPointer) return;
     e.preventDefault();
     const fine = e.shiftKey ? 0.2 : 1;
-    const dy = (this.dragStartY - e.clientY) / DRAG_PIXELS_FULL_RANGE;
+    const dy = (this.dragStartY - localY(e)) / DRAG_PIXELS_FULL_RANGE;
     this.change(this.dragStartValue + dy * fine);
   }
 

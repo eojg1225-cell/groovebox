@@ -1,47 +1,58 @@
 /**
  * On-screen hardware panel: the first ControlSurface implementation.
- * Fixed design-size box scaled to fit the window (landscape first):
+ * Fixed design-size box scaled to fit the window; on a portrait screen it is rotated
+ * so the instrument is always landscape.
  *
- *   [ pixel screen        ] [ channel select / mute, pattern, page ]
- *   [ 8 parameter knobs                                             ]
- *   [ function row: mode, motion, dynamics, length, page, ... ] [      ]
- *   [ 16-button strip (steps or keyboard)                      ] [ PLAY ]
+ *   [ pixel screen ] [ MODE: record / play / sound design ]
+ *                    [ channels 1-6, mutes, patterns, pages ]
+ *   [ 12 knobs: 2 rows of 6                                 ]
+ *   [ function row                                 ] [      ]
+ *   [ step LEDs                                    ] [ PLAY ]
+ *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
- * Control ids: ch1..ch6, mute1..mute6, patA/patB/patC, page:<name>, step1..step16,
- * play, plus the function row ids in FUNCTION_ROW; knobs k1..k8.
+ * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, dpage0..3, play,
+ * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row).
  */
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
+import { setRotated } from './orientation';
 
 export const DESIGN_W = 1200;
-export const DESIGN_H = 750;
-export const KNOB_COUNT = 8;
+export const DESIGN_H = 760;
+export const KNOB_COUNT = 12;
+export const KNOBS_PER_ROW = 6;
 export const STEP_BUTTONS = 16;
+export const DESIGN_PAGE_BUTTONS = 4;
+
+export const MODES = [
+  { id: 'record', label: 'RECORD' },
+  { id: 'play', label: 'PLAY' },
+  { id: 'design', label: 'SOUND DESIGN' },
+] as const;
 
 /** Function row: groups of [id, label] (labels may contain <small> lines). */
 export const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
-  [['mode:record', 'RECORD'], ['mode:play', 'PLAY<small>MODE</small>']],
   [['motion', 'MOTION<small>REC</small>']],
   [['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', '1-16<small>VIEW</small>']],
   [['oct-', 'OCT −'], ['oct+', 'OCT +']],
   [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],
+  [['clearmotion', 'CLEAR<small>MOTION</small>']],
 ];
 
 export interface PanelConfig {
   channels: number;
-  activeChannels: number;
   patterns: readonly string[];
-  pages: readonly { id: string; label: string }[];
 }
 
 export class Panel implements ControlSurface {
   readonly root: HTMLElement;
   readonly screenCanvas: HTMLCanvasElement;
   private readonly emitter = new ControlEmitter();
-  private readonly knobs = new Map<string, Knob>();
+  private readonly knobs: Knob[] = [];
   private readonly buttons = new Map<string, HTMLElement>();
   private readonly disabled = new Set<string>();
+  private readonly leds: HTMLElement[] = [];
 
   constructor(host: HTMLElement, cfg: PanelConfig) {
     const root = document.createElement('div');
@@ -52,19 +63,18 @@ export class Panel implements ControlSurface {
       <div class="panel-top">
         <div class="screen-bezel"><canvas class="screen"></canvas></div>
         <div class="side">
-          <div class="group-label">CHANNEL</div>
+          <div class="row modes"></div>
           <div class="row channels"></div>
           <div class="row mutes"></div>
-          <div class="group-label">PATTERN</div>
           <div class="row patterns"></div>
-          <div class="group-label">KNOBS</div>
           <div class="row pages"></div>
         </div>
       </div>
-      <div class="knob-row"></div>
+      <div class="knob-grid"></div>
       <div class="panel-bottom">
         <div class="bottom-main">
           <div class="function-row"></div>
+          <div class="leds"></div>
           <div class="steps"></div>
         </div>
         <div class="play-area"></div>
@@ -74,19 +84,19 @@ export class Panel implements ControlSurface {
     this.screenCanvas = root.querySelector('.screen') as HTMLCanvasElement;
     const q = (sel: string) => root.querySelector(sel) as HTMLElement;
 
+    for (const m of MODES) q('.modes').appendChild(this.makeButton(`mode:${m.id}`, m.label, 'btn mode'));
     for (let ch = 1; ch <= cfg.channels; ch++) {
-      const enabled = ch <= cfg.activeChannels;
-      q('.channels').appendChild(this.makeButton(`ch${ch}`, String(ch), 'btn ch', enabled));
-      q('.mutes').appendChild(this.makeButton(`mute${ch}`, 'MUTE', 'btn mute', enabled));
+      q('.channels').appendChild(this.makeButton(`ch${ch}`, String(ch), 'btn ch'));
+      q('.mutes').appendChild(this.makeButton(`mute${ch}`, 'MUTE', 'btn mute'));
     }
     for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
-    for (const p of cfg.pages) q('.pages').appendChild(this.makeButton(`page:${p.id}`, p.label, 'btn page'));
+    for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.pages').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
 
-    const knobRow = q('.knob-row');
+    const grid = q('.knob-grid');
     for (let i = 1; i <= KNOB_COUNT; i++) {
       const knob = new Knob(`k${i}`, '', 0.5, (id, value) => this.emitter.emit({ type: 'knob', id, value }));
-      this.knobs.set(knob.id, knob);
-      knobRow.appendChild(knob.el);
+      this.knobs.push(knob);
+      grid.appendChild(knob.el);
     }
 
     const fnRow = q('.function-row');
@@ -97,8 +107,13 @@ export class Panel implements ControlSurface {
       fnRow.appendChild(g);
     }
 
+    const leds = q('.leds');
     const steps = q('.steps');
     for (let i = 1; i <= STEP_BUTTONS; i++) {
+      const led = document.createElement('div');
+      led.className = 'led';
+      leds.appendChild(led);
+      this.leds.push(led);
       const b = this.makeButton(`step${i}`, String(i), 'step');
       if ((i - 1) % 4 === 0) b.classList.add('beat');
       steps.appendChild(b);
@@ -116,20 +131,30 @@ export class Panel implements ControlSurface {
   }
 
   setKnob(id: string, value: number): void {
-    this.knobs.get(id)?.set(value);
+    this.knobs.find((k) => k.id === id)?.set(value);
   }
 
-  /** Configure a knob slot: label and default, or null to disable the slot. */
-  configureKnob(id: string, slot: { label: string; value: number; defaultValue: number } | null): void {
-    const k = this.knobs.get(id);
+  /** Configure knob slot i (0-based): label, value and default, or null to disable it. */
+  configureKnob(i: number, slot: { label: string; value: number; defaultValue: number; highlight?: boolean } | null): void {
+    const k = this.knobs[i];
     if (!k) return;
     k.setEnabled(slot !== null);
     k.setLabel(slot?.label ?? '');
+    k.el.classList.toggle('highlight', !!slot?.highlight);
     if (slot) {
       k.defaultValue = slot.defaultValue;
       k.set(slot.value);
     } else {
       k.set(0);
+    }
+  }
+
+  /** LED states for the 16 lights above the strip. */
+  setLed(i: number, state: '' | 'on' | 'rec' | 'cursor'): void {
+    const led = this.leds[i];
+    if (led && led.dataset.state !== state) {
+      led.dataset.state = state;
+      led.className = state ? `led ${state}` : 'led';
     }
   }
 
@@ -154,32 +179,38 @@ export class Panel implements ControlSurface {
     if (b && b.innerHTML !== html) b.innerHTML = html;
   }
 
-  /** Scale the fixed design box to fit the viewport. */
+  /** Scale (and on portrait screens rotate) the fixed design box to fit the viewport. */
   fit(): void {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
-    const x = (vw - DESIGN_W * scale) / 2;
-    const y = (vh - DESIGN_H * scale) / 2;
-    this.root.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    const portrait = vh > vw;
+    setRotated(portrait);
+    document.documentElement.classList.toggle('rotated', portrait);
+    if (portrait) {
+      const scale = Math.min(vh / DESIGN_W, vw / DESIGN_H);
+      const x = (vw - DESIGN_H * scale) / 2 + DESIGN_H * scale;
+      const y = (vh - DESIGN_W * scale) / 2;
+      this.root.style.transform = `translate(${x}px, ${y}px) rotate(90deg) scale(${scale})`;
+    } else {
+      const scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
+      const x = (vw - DESIGN_W * scale) / 2;
+      const y = (vh - DESIGN_H * scale) / 2;
+      this.root.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    }
   }
 
   private press(id: string, pressed: boolean): void {
     if (!pressed) this.buttons.get(id)?.classList.remove('down');
-    if (this.disabled.has(id)) return;
+    if (this.disabled.has(id) && pressed) return;
     if (pressed) this.buttons.get(id)?.classList.add('down');
     this.emitter.emit({ type: 'button', id, pressed });
   }
 
-  private makeButton(id: string, label: string, cls: string, enabled = true): HTMLElement {
+  private makeButton(id: string, label: string, cls: string): HTMLElement {
     const b = document.createElement('div');
     b.className = cls;
     b.innerHTML = label;
     b.setAttribute('role', 'button');
-    if (!enabled) {
-      b.classList.add('disabled');
-      this.disabled.add(id);
-    }
     const pointers = new Set<number>();
     b.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -199,7 +230,7 @@ export class Panel implements ControlSurface {
 
   /**
    * Space: play. 1-6: select channel, Shift+1-6: mute.
-   * Q..I: steps 1-8, A..K: steps 9-16.
+   * Q..I: strip buttons 1-8, A..K: strip buttons 9-16.
    */
   private installKeyboard(): void {
     const stepKeys = 'QWERTYUIASDFGHJK';
