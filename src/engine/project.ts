@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 11;
+export const PROJECT_VERSION = 12;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -50,8 +50,8 @@ export interface Step {
   /** Note length in whole steps (1 = until the next step); tied steps are left empty. */
   gate: number;
   /**
-   * SLIDE: if the previous note is still held when this step comes, it glides into this
-   * note (legato, no new attack) instead of being released and re-struck.
+   * SLIDE (TB-303 style): this note is held until the next note and glides into it (legato,
+   * no new attack). Before v12 the flag sat on the note slid into.
    */
   slide: boolean;
   accent: boolean;

@@ -42,7 +42,7 @@ export const MODES = [
 
 /** Function row: groups of [id, label] (labels may contain <small> lines). */
 export const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
-  [['ring', 'RING'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
+  [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', '1-16<small>VIEW</small>'], ['clear', 'CLEAR<small>HOLD</small>']],
   [['oct-', 'OCT −'], ['oct+', 'OCT +']],
   [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],

@@ -132,6 +132,8 @@ export class App {
   designPage = 0;
   /** RING armed: new hits ring until the next hit or rest. */
   ring = false;
+  /** SLIDE armed (synth tracks): new notes glide into the next one. */
+  slideArm = false;
   /** REST armed (drum tracks): tapping a step places / removes a rest marker. */
   restArm = false;
   dynamic: Dynamic = 'normal';
@@ -678,10 +680,12 @@ export class App {
       this.startReset();
     } else if (id === 'saveproject') {
       this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
-    } else if ((id === 'ring' || id === 'dyn:accent' || id === 'dyn:ghost') && this.flagPaintable) {
+    } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.flagPaintable) {
       this.flagDown(id); // tap = arm (on release), hold = paint steps
     } else if (id === 'ring') {
       this.ring = !this.ring;
+    } else if (id === 'slide') {
+      this.slideArm = !this.slideArm;
     } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
       this.dynamic = this.dynamic === d ? 'normal' : d;
@@ -965,6 +969,9 @@ export class App {
             return;
           }
           slideFrom = prev.note;
+          // The held note slides into this one: it carries the SLIDE flag.
+          prev.slide = true;
+          this.sendStep(this.entry.index, prev);
         }
         const step = this.pattern.steps[index];
         step.active = true;
@@ -972,7 +979,7 @@ export class App {
         step.gate = 1;
         step.ring = this.ring;
         step.rest = false;
-        step.slide = slideFrom >= 0;
+        step.slide = this.slideArm && !isDrum(this.channel.instrument);
         delete step.roll;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
@@ -987,8 +994,10 @@ export class App {
       return;
     }
 
-    // Drum lane. REST armed: toggle a rest marker. Otherwise: place a hit with the armed
-    // dynamic / RING, re-paint a hit that differs from what's armed, or remove it.
+    // Drum lane. REST armed: toggle a rest marker. Otherwise a new hit takes the armed
+    // flags; with any flag armed a hit is never removed: ACCENT / GHOST (exclusive) turn
+    // another dynamic into the armed one or the same one back to normal, RING toggles - each
+    // on its own. Nothing armed: a hit is removed (on release).
     const index = this.visiblePage(ch) * 16 + button;
     if (index >= this.pattern.length) return;
     const step = this.pattern.steps[index];
@@ -1012,18 +1021,9 @@ export class App {
       setStepDynamic(step, this.dynamic);
       if (!this.playing) this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
       this.drumHold = { button, index, remove: false, used: false };
-    } else if (this.dynamic !== 'normal') {
-      // ACCENT / GHOST armed: a hit of another dynamic takes the armed one; a hit that
-      // already has it goes back to normal. The note is never removed.
-      if (stepDynamic(step) !== this.dynamic) {
-        setStepDynamic(step, this.dynamic);
-        step.ring = this.ring;
-      } else {
-        setStepDynamic(step, 'normal');
-      }
-      this.drumHold = { button, index, remove: false, used: false };
-    } else if (armed && !!step.ring !== this.ring) {
-      step.ring = this.ring;
+    } else if (armed) {
+      if (this.dynamic !== 'normal') setStepDynamic(step, stepDynamic(step) === this.dynamic ? 'normal' : this.dynamic);
+      if (this.ring) step.ring = !step.ring;
       this.drumHold = { button, index, remove: false, used: false };
     } else {
       // Already a hit: removed when released, unless the hold is used for a roll.
@@ -1048,7 +1048,7 @@ export class App {
     const timer = setTimeout(() => {
       if (!this.flagHeld.has(id)) return;
       this.flagPaint.add(id);
-      this.flash(`TAP STEPS: ${id === 'ring' ? 'RING' : id.slice(4).toUpperCase()}`);
+      this.flash(`TAP STEPS: ${id === 'ring' || id === 'slide' ? id.toUpperCase() : id.slice(4).toUpperCase()}`);
       this.refreshPanel();
     }, FLAG_HOLD_MS);
     this.flagHeld.set(id, timer);
@@ -1062,6 +1062,7 @@ export class App {
     if (this.flagPaint.delete(id)) return; // it was painting: just stop
     // A tap: arm / disarm for the notes played.
     if (id === 'ring') this.ring = !this.ring;
+    else if (id === 'slide') this.slideArm = !this.slideArm;
     else {
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
       this.dynamic = this.dynamic === d ? 'normal' : d;
@@ -1077,6 +1078,7 @@ export class App {
     }
     for (const id of this.flagPaint) {
       if (id === 'ring') step.ring = !step.ring;
+      else if (id === 'slide') step.slide = !step.slide;
       else {
         const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
         setStepDynamic(step, stepDynamic(step) === d ? 'normal' : d);
@@ -1384,6 +1386,9 @@ export class App {
     const rec = this.mode === 'record';
     const kb = this.keyboard;
     this.panel.setButtonLit('ring', this.ring || this.flagPaint.has('ring'));
+    this.panel.setButtonLit('slide', this.slideArm || this.flagPaint.has('slide'));
+    // SLIDE is a synth thing (drums don't glide).
+    this.panel.setButtonEnabled('slide', !isDrum(this.channel.instrument) && this.mode !== 'song');
     this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent' || this.flagPaint.has('dyn:accent'));
     this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost' || this.flagPaint.has('dyn:ghost'));
     this.panel.setButtonEnabled('ring', rec);
@@ -1433,7 +1438,7 @@ export class App {
       this.panel.setButtonFlag(id, 'lit', exists);
       this.panel.setButtonFlag(id, 'head', row === playingRow);
       this.panel.setButtonFlag(id, 'cursor', row === this.songRow);
-      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
+      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'hit']) this.panel.setButtonFlag(id, f, false);
       this.panel.setLed(i, row === playingRow ? 'on' : row === this.songRow ? 'cursor' : '');
     }
     const start = this.songPage * 16 + 1;
@@ -1487,23 +1492,29 @@ export class App {
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding);
         this.panel.setButtonFlag(id, 'cursor', note === cursorNote);
-        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'hit']) this.panel.setButtonFlag(id, f, false);
       }
     } else {
+      // RING or SLIDE armed (or painting): only notes with that flag light up; the other
+      // hits are outlined and ACCENT / GHOST are not shown.
+      const view = this.ring || this.flagPaint.has('ring') ? 'ring'
+        : this.slideArm || this.flagPaint.has('slide') ? 'slide' : null;
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
         const index = page * 16 + i;
         const off = index >= pattern.length;
         const step = pattern.steps[index];
         const d = step.active && !off ? stepDynamic(step) : null;
+        const flagged = d !== null && (view === 'ring' ? !!step.ring : view === 'slide' ? !!step.slide : true);
         const roll = d !== null && step.roll && step.roll > 1 ? step.roll : 0;
         this.panel.setButtonText(id, roll ? `${index + 1}<small>×${roll}</small>` : String(index + 1));
         this.panel.setButtonFlag(id, 'off', off);
-        this.panel.setButtonFlag(id, 'lit', d !== null);
-        this.panel.setButtonFlag(id, 'accent', d === 'accent');
-        this.panel.setButtonFlag(id, 'ghost', d === 'ghost');
+        this.panel.setButtonFlag(id, 'lit', flagged);
+        this.panel.setButtonFlag(id, 'hit', d !== null && !flagged);
+        this.panel.setButtonFlag(id, 'accent', !view && d === 'accent');
+        this.panel.setButtonFlag(id, 'ghost', !view && d === 'ghost');
         this.panel.setButtonFlag(id, 'head', head === index);
-        this.panel.setButtonFlag(id, 'ring', d !== null && !!step.ring);
+        this.panel.setButtonFlag(id, 'ring', view !== 'slide' && d !== null && !!step.ring);
         this.panel.setButtonFlag(id, 'rest', !off && !step.active && !!step.rest);
         for (const f of ['black', 'cursor']) this.panel.setButtonFlag(id, f, false);
       }

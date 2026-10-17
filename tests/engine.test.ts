@@ -1081,11 +1081,11 @@ describe('slides and rolls', () => {
     const b = p.channels[4];
     b.sounds.bass = { ...b.sounds.bass!, shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0, drive: 1 };
     const pat = b.patterns[0];
-    Object.assign(pat.steps[0], { active: true, note: 45, gate: 1 });
-    Object.assign(pat.steps[1], { active: true, note: 57, gate: 1, slide: true });
+    Object.assign(pat.steps[0], { active: true, note: 45, gate: 1, slide: true }); // slides into step 2
+    Object.assign(pat.steps[1], { active: true, note: 57, gate: 1 });
     b.fxSend = 0;
     const crossingsAfterBoundary = (slide: boolean) => {
-      pat.steps[1].slide = slide;
+      pat.steps[0].slide = slide;
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
       const l = render(e, 0.2).l.subarray(6000, 6960); // first 20 ms of step 2
@@ -1433,5 +1433,32 @@ describe('PLUCK and ARP', () => {
     e.handleMessage({ type: 'transport', playing: true });
     const l = render(e, 0.5).l;
     near(onsets(l, 0.005, 1500), [0, 6000, 12000, 18000], 40); // three chord notes, then round again; stops with the gate
+  });
+});
+
+describe('v12 slide flag', () => {
+  it('older projects move SLIDE from the note slid into to the note that slides', () => {
+    const p = createDefaultProject();
+    const pat = p.channels[4].patterns[0];
+    Object.assign(pat.steps[0], { active: true, note: 45 });
+    Object.assign(pat.steps[2], { active: true, note: 52, slide: true }); // old meaning: slid into
+    const old = JSON.parse(JSON.stringify(toStored(p)));
+    old.version = 11;
+    const q = fromStored(old)!;
+    expect(q.channels[4].patterns[0].steps[0].slide).toBe(true);
+    expect(q.channels[4].patterns[0].steps[2].slide).toBe(false);
+  });
+
+  it('a SLIDE note holds into the next note even after a gap', () => {
+    const p = kickProject([], { bpm: 120 });
+    const b = p.channels[4];
+    b.fxSend = 0;
+    b.sounds.bass = { ...b.sounds.bass!, sustain: 1, decay: 2, decay2: 2, release: 0.005 };
+    Object.assign(b.patterns[0].steps[0], { active: true, note: 45, gate: 1, slide: true });
+    Object.assign(b.patterns[0].steps[3], { active: true, note: 52, gate: 1 });
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const l = render(e, 0.4).l;
+    expect(stats(l.subarray(9000, 15000)).peak).toBeGreaterThan(0.05); // held through steps 2-3
   });
 });

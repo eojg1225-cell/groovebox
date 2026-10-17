@@ -258,6 +258,19 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       if (s.locks) step.locks = s.locks;
     }
   }
+  // Before v12 SLIDE was marked on the note slid into; now on the note that slides.
+  if (version < 12) {
+    for (const pat of ch.patterns) {
+      const targets = pat.steps.map((st, k) => (st.active && st.slide ? k : -1)).filter((k) => k >= 0);
+      for (const k of targets) pat.steps[k].slide = false;
+      for (const k of targets) {
+        for (let b = 1; b < pat.length; b++) {
+          const from = pat.steps[(k - b + pat.length) % pat.length];
+          if (from.active) { from.slide = true; break; }
+        }
+      }
+    }
+  }
 }
 
 function readLfo(src: unknown, lfo: LfoState): void {

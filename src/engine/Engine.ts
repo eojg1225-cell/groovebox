@@ -116,6 +116,8 @@ export class Engine {
   private readonly recVel = new Float32Array(NUM_CHANNELS);
   private readonly recAccent = new Uint8Array(NUM_CHANNELS);
   private readonly recSlide = new Uint8Array(NUM_CHANNELS);
+  /** The held note came from a SLIDE step: the next note glides out of it. */
+  private readonly sliding = new Uint8Array(NUM_CHANNELS);
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
   private readonly songBars = new Uint8Array(SONG_MAX_ROWS);
@@ -442,8 +444,8 @@ export class Engine {
       const idx = this.position[ch] % len;
       const s = pat * MAX_STEPS + idx;
       const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0;
-      // SLIDE: a note still held into this step glides into it instead of ending.
-      const slideFrom = hit && this.stepSlide[s] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
+      // SLIDE: the held note was marked to slide, so it glides into this one (no release).
+      const slideFrom = hit && this.sliding[ch] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
       this.rollLeft[ch] = 0;
       if (slideFrom >= 0) {
         this.gateSteps[ch] = 0;
@@ -460,10 +462,13 @@ export class Engine {
       this.applyLocks(ch, s);
       if (hit) {
         const ring = this.stepRing[s] === 1;
+        // A SLIDE note is held (like RING) until the next note, which it glides into.
+        const slide = this.stepSlide[s] === 1;
         this.noteOn(ch, this.stepNote[s], this.stepVel[s], ring, slideFrom);
         this.gateGroup[ch] = this.stepNote[s];
-        this.gateSteps[ch] = ring ? 1 : this.stepGate[s];
-        this.ringing[ch] = ring ? 1 : 0;
+        this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
+        this.ringing[ch] = ring || slide ? 1 : 0;
+        this.sliding[ch] = slide ? 1 : 0;
         const roll = this.stepRoll[s];
         if (roll > 1) {
           this.rollLeft[ch] = roll - 1;
@@ -604,6 +609,7 @@ export class Engine {
   }
 
   private releaseGate(ch: number): void {
+    this.sliding[ch] = 0;
     if (this.arpHeld[ch]) this.stopArp(ch);
     this.current[ch]?.noteOff(this.gateGroup[ch]);
     this.gateSteps[ch] = 0;
@@ -695,10 +701,12 @@ export class Engine {
       const gate = Math.max(1, Math.min(MAX_STEPS, start - this.recStart[ch]));
       const p = this.recPattern[ch];
       const i = this.recIndex[ch];
+      // The held note slides into this one: the SLIDE flag goes on it.
       this.stepGate[(ch * NUM_PATTERNS + p) * MAX_STEPS + i] = gate;
+      this.stepSlide[(ch * NUM_PATTERNS + p) * MAX_STEPS + i] = 1;
       this.onRecorded?.({
         type: 'recordedNote', channel: ch, pattern: p, index: i, note: prev,
-        velocity: this.recVel[ch], accent: this.recAccent[ch] === 1, gate, slide: this.recSlide[ch] === 1,
+        velocity: this.recVel[ch], accent: this.recAccent[ch] === 1, gate, slide: true,
       });
     }
     const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
@@ -708,7 +716,7 @@ export class Engine {
     this.stepAccent[s] = accent ? 1 : 0;
     this.stepRing[s] = 0;
     this.stepRest[s] = 0;
-    this.stepSlide[s] = prev >= 0 ? 1 : 0;
+    this.stepSlide[s] = 0;
     this.stepRoll[s] = 1;
     this.stepGate[s] = 1;
     // The note already sounded now; don't play it again when that step comes round.
@@ -720,8 +728,8 @@ export class Engine {
     this.recPattern[ch] = pattern;
     this.recVel[ch] = velocity;
     this.recAccent[ch] = accent ? 1 : 0;
-    this.recSlide[ch] = prev >= 0 ? 1 : 0;
-    this.onRecorded?.({ type: 'recordedNote', channel: ch, pattern, index, note, velocity, accent, gate: 1, slide: prev >= 0 });
+    this.recSlide[ch] = 0;
+    this.onRecorded?.({ type: 'recordedNote', channel: ch, pattern, index, note, velocity, accent, gate: 1, slide: false });
   }
 
   private recordLock(ch: number, id: string, value: number): void {
