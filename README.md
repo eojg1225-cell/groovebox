@@ -76,7 +76,7 @@ Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4.
 
 **Default routing** (a starting point, freely changed, no hidden rules): drums on FX 1, bass + lead to FX 2 (dub delay), pad to FX 3 (reverb + chorus). Older saves keep their routing (old delay send → FX 2, reverb send → FX 3; drum tracks join FX 1).
 
-**Master:** TEMPO; LO-FI (tape: low-end bump, progressive saturation, high roll-off), saved with the project.
+**Master:** TEMPO; LO-FI — a tape-style finishing colour, saved with the project: a wide mid dip (~800 Hz → 1 kHz) plus soft, slightly asymmetric saturation that only rounds off peaks (gentle tape compression), level-matched. Subtle through most of the knob (half: −3 dB mids, ~1 dB peak squash); the top end is a deliberate, noticeable degradation (−8 dB mids, heavy peak squash, softened highs).
 
 **Sequencing:** notes last one step by default; hold a key + ▶ to tie in step entry; live-recorded notes keep their held length; while recording the strip follows the playing 16-step block. **RING** (armed like ACCENT): the hit rings until the next hit or rest on its track — pitched notes are held, drums add the sound's RING LEN to their decay (a natural length per sound: open hat ~0.5 s, crash ~2 s; on DETAIL), choked by the next hit. **REST** places a stop marker (drums: arm REST, tap steps; step entry: at the cursor). Keyboard starts on A; dividers mark groups of four.
 

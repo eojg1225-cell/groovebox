@@ -481,20 +481,47 @@ describe('send effects', () => {
     expect(bright(500)).toBeLessThan(bright(20000) * 0.1);
   });
 
-  it('LO-FI saturates and rolls off highs, bounded', () => {
-    const run = (amount: number) => {
+  describe('LO-FI', () => {
+    /** RMS gain (dB) of a sine at freq / amp through LO-FI at `amount`. */
+    const gainDb = (amount: number, freq: number, amp = 0.1) => {
       const t = new Tape(SR);
       t.setImmediate(amount);
       const n = SR / 2;
-      const l = Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * 8000 * i) / SR) * 0.5);
-      const r = l.slice();
-      t.process(l, r, n);
-      return stats(l.subarray(n / 2));
+      const input = Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * freq * i) / SR) * amp);
+      const l = input.slice();
+      t.process(l, l.slice(), n);
+      const rms = (b: Float32Array) => Math.sqrt(b.subarray(n / 2).reduce((s, v) => s + v * v, 0) / (n / 2));
+      return 20 * Math.log10(rms(l) / rms(input));
     };
-    const inputPeak = 0.5 * Math.sin(Math.PI / 3); // 8 kHz at 48 kHz samples at 60° steps
-    expect(run(0).peak).toBeCloseTo(inputPeak, 3); // bypassed
-    expect(run(1).nan).toBe(false);
-    expect(run(1).peak).toBeLessThan(inputPeak * 0.5); // 8 kHz is rolled off at full lo-fi
+
+    it('is bypassed at 0', () => {
+      expect(Math.abs(gainDb(0, 900))).toBeLessThan(0.01);
+    });
+
+    it('half way: a gentle mid dip, lows and highs and quiet levels left alone', () => {
+      expect(gainDb(0.5, 900)).toBeLessThan(-2);
+      expect(gainDb(0.5, 900)).toBeGreaterThan(-4.5);
+      expect(Math.abs(gainDb(0.5, 60))).toBeLessThan(1);
+      expect(Math.abs(gainDb(0.5, 10000))).toBeLessThan(1.5);
+    });
+
+    it('saturation only rounds off peaks, gently in the main range', () => {
+      const squash = (amount: number) => gainDb(amount, 60, 0.9) - gainDb(amount, 60, 0.05);
+      expect(squash(0.3)).toBeGreaterThan(-1); // barely touches loud material
+      expect(squash(0.6)).toBeLessThan(-0.3);
+      expect(squash(0.6)).toBeGreaterThan(-3);
+    });
+
+    it('full: a noticeable degradation, still bounded', () => {
+      expect(gainDb(1, 1040) - gainDb(1, 60)).toBeLessThan(-6); // the dip's centre at full, against the lows
+      expect(gainDb(1, 12000) - gainDb(1, 60)).toBeLessThan(-3); // highs softened
+      const t = new Tape(SR);
+      t.setImmediate(1);
+      const l = Float32Array.from({ length: 4800 }, (_, i) => Math.sin(i * 0.05) * 3);
+      t.process(l, l.slice(), l.length);
+      expect(stats(l).nan).toBe(false);
+      expect(stats(l).peak).toBeLessThan(2);
+    });
   });
 });
 
