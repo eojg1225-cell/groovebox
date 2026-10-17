@@ -452,7 +452,7 @@ export class App {
 
   /**
    * A bus's knobs (FX 1-3 in RECORD/PLAY). FX 1, the drum bus: two modules each for
-   * STUTTER, DISTORT and LOW-PASS. FX 2 / 3: six modules = six effects, WET (return volume,
+   * REVERSE, DISTORT and LOW-PASS. FX 2 / 3: six modules = six effects, WET (return volume,
    * labelled with the effect) on top, INTENSITY (how hard it works) below.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {

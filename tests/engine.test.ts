@@ -20,7 +20,7 @@ import { Tape } from '../src/fx/Tape';
 import { lfoValue } from '../src/engine/lfo';
 import { MACROS, anchorPosition, macroSound } from '../src/instruments/macros';
 import { soundPage, stepsOnStrip } from '../src/instruments/registry';
-import { DrumBus, STUTTER_GRIDS } from '../src/fx/DrumBus';
+import { DrumBus, REVERSE_LENGTHS } from '../src/fx/DrumBus';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -805,7 +805,7 @@ describe('project', () => {
     p.lofi = 0.4;
     p.sendWet[2][5] = 0.9;
     p.sendInt[1][0] = 0.8;
-    p.fx1.stt_grid = 2;
+    p.fx1.rev_len = 3;
     p.fx1.lp_cutoff = 800;
     p.channels[4].fx1 = true;
     p.lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
@@ -936,24 +936,43 @@ describe('FX 1 drum bus', () => {
     expect(diff).toBeLessThan(1e-4);
   });
 
-  it('STUTTER captures one grid length on the next grid line and repeats it', () => {
-    const grid = STUTTER_GRIDS.findIndex((g) => g.name === '1/4'); // 24000 frames at 120 BPM
-    const e = engineWith(withBus({ stt_mix: 1, stt_grid: grid }));
-    e.handleMessage({ type: 'transport', playing: true });
-    near(onsets(render(e, 1.6).l, 0.01), [24000, 48000, 72000], 100);
+  /** The bus's wet signal (with REVERSE settings) for a short decaying burst at t = 0. */
+  const reverseWet = (fx: Record<string, number>, seconds: number) => {
+    const run = (mix: number) => {
+      const bus = new DrumBus(SR);
+      bus.setClock(0, 1 / 6000); // 120 BPM
+      for (const [id, v] of Object.entries({ ...fx, rev_mix: mix })) bus.setParam(id, v);
+      bus.settle();
+      const n = Math.round(SR * seconds);
+      const x = Float32Array.from({ length: n }, (_, i) => (i < 4800 ? Math.sin(i * 0.3) * Math.exp(-i / 700) : 0));
+      const out = new Float32Array(n);
+      for (let o = 0; o < n; o += 128) bus.process(x.subarray(o, o + 128), x.subarray(o, o + 128), out.subarray(o, o + 128), new Float32Array(128), 0, Math.min(128, n - o));
+      return out;
+    };
+    const dry = run(0);
+    const wet = run(1);
+    return wet.map((v, i) => v - dry[i]);
+  };
+
+  it('REVERSE plays slices backwards: a hit swells in instead of starting hard', () => {
+    const len = REVERSE_LENGTHS.findIndex((g) => g.name === '1/8'); // 12000 frames
+    const w = reverseWet({ rev_len: len, rev_fdbk: 0, rev_smear: 0 }, 1);
+    const env = (a: number) => stats(w.subarray(a, a + 480)).peak;
+    let peakAt = 0;
+    for (let a = 0; a < w.length - 480; a += 480) if (env(a) > env(peakAt)) peakAt = a;
+    let firstAt = 0;
+    while (env(firstAt) < env(peakAt) * 0.1) firstAt += 480;
+    expect(env(peakAt)).toBeGreaterThan(0.05);
+    expect(peakAt - firstAt).toBeGreaterThan(SR * 0.02); // rises over 20 ms+ (a forward hit peaks at once)
   });
 
-  it('STUTTER FADE lowers each repeat; back to 0 releases it', () => {
-    const grid = STUTTER_GRIDS.findIndex((g) => g.name === '1/4');
-    const e = engineWith(withBus({ stt_mix: 1, stt_grid: grid, stt_fade: 0.5 }));
-    e.handleMessage({ type: 'transport', playing: true });
-    const { l } = render(e, 1.6);
-    const first = stats(l.subarray(24000, 30000)).peak;
-    const second = stats(l.subarray(48000, 54000)).peak;
-    expect(second).toBeLessThan(first * 0.6);
-    expect(second).toBeGreaterThan(first * 0.4);
-    e.handleMessage({ type: 'setDrumBusParam', id: 'stt_mix', value: 0 });
-    expect(stats(render(e, 0.6).l.subarray(6000)).peak).toBeLessThan(1e-3); // no more repeats
+  it('REV FDBK keeps reversed echoes going; SMEAR stays bounded', () => {
+    const len = REVERSE_LENGTHS.findIndex((g) => g.name === '1/16');
+    const late = (fx: Record<string, number>) => stats(reverseWet({ rev_len: len, ...fx }, 1.5).subarray(SR, SR * 1.5)).peak;
+    expect(late({ rev_fdbk: 0.9, rev_smear: 0 })).toBeGreaterThan(late({ rev_fdbk: 0, rev_smear: 0 }) * 5 + 1e-4);
+    const smeared = reverseWet({ rev_len: len, rev_fdbk: 1.1, rev_smear: 1 }, 2);
+    expect(stats(smeared).nan).toBe(false);
+    expect(stats(smeared).peak).toBeLessThan(4);
   });
 
   it('the low-pass darkens what passes through; DRIVE stays bounded', () => {
@@ -974,7 +993,7 @@ describe('FX 1 drum bus', () => {
 
   it('a lone bus keeps working with odd input (no NaN at extreme settings)', () => {
     const bus = new DrumBus(SR);
-    for (const [id, v] of Object.entries({ stt_mix: 1, stt_grid: 7, stt_pitch: 12, dst_drive: 60, dst_crush: 1, lp_env: 1, lp_reso: 1 })) bus.setParam(id, v);
+    for (const [id, v] of Object.entries({ rev_mix: 1, rev_len: 0, rev_fdbk: 1.1, rev_smear: 1, dst_drive: 60, dst_crush: 1, lp_env: 1, lp_reso: 1 })) bus.setParam(id, v);
     const n = 4096;
     const x = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.05) * 2);
     const out = new Float32Array(n);

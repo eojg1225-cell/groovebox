@@ -2,27 +2,26 @@ import type { ParamSpec } from '../engine/params';
 import { Smoother } from '../engine/smoother';
 import { Svf } from '../instruments/dsp';
 
-/** STUTTER repeat lengths, in 16th steps. */
-export const STUTTER_GRIDS = [
-  { name: '1/2', steps: 8 }, { name: '1/4', steps: 4 }, { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 },
-  { name: '1/16', steps: 1 }, { name: '1/16T', steps: 2 / 3 }, { name: '1/32', steps: 0.5 }, { name: '1/64', steps: 0.25 },
+/** REVERSE slice lengths, in 16th steps. */
+export const REVERSE_LENGTHS = [
+  { name: '1/16', steps: 1 }, { name: '1/8', steps: 2 }, { name: '1/4', steps: 4 }, { name: '1/2', steps: 8 }, { name: '1 BAR', steps: 16 },
 ] as const;
 
 /**
- * FX 1, the drum bus: tracks routed here pass THROUGH it (100% wet, nothing is added
- * alongside), so the stutter replaces the drums and the low-pass really darkens them.
+ * FX 1, the drum bus: tracks routed here pass THROUGH it (nothing is added alongside), so
+ * the low-pass really darkens them and the reverse swells sit under the drums themselves.
  * At its defaults it is transparent. Knob order = panel order (top row, then bottom row):
  * two modules per effect.
  */
 export const DRUM_BUS_PARAMS: readonly ParamSpec[] = [
-  { id: 'stt_mix', name: 'STUTTER', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'stt_grid', name: 'STT GRID', min: 0, max: STUTTER_GRIDS.length - 1, defaultValue: 4, unit: '', curve: 'linear', options: STUTTER_GRIDS.map((g) => g.name) },
+  { id: 'rev_mix', name: 'REVERSE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'rev_len', name: 'REV LEN', min: 0, max: REVERSE_LENGTHS.length - 1, defaultValue: 2, unit: '', curve: 'linear', options: REVERSE_LENGTHS.map((g) => g.name) },
   { id: 'dst_drive', name: 'DRIVE', min: 0, max: 60, defaultValue: 0, unit: 'DB', curve: 'linear', decimals: 0 },
   { id: 'dst_tone', name: 'DST TONE', min: 200, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'lp_cutoff', name: 'LP CUTOFF', min: 30, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'lp_reso', name: 'LP RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'stt_fade', name: 'STT FADE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'stt_pitch', name: 'STT PITCH', min: -12, max: 12, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 1 },
+  { id: 'rev_smear', name: 'SMEAR', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
+  { id: 'rev_fdbk', name: 'REV FDBK', min: 0, max: 1.1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'dst_crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'dst_level', name: 'DST LEVEL', min: 0, max: 2, defaultValue: 1, unit: 'X', curve: 'linear' },
   { id: 'lp_env', name: 'LP ENV', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
@@ -33,16 +32,33 @@ export function defaultDrumBus(): Record<string, number> {
   return Object.fromEntries(DRUM_BUS_PARAMS.map((p) => [p.id, p.defaultValue]));
 }
 
-/** Longest stutter repeat (1/2 bar at 40 BPM is 3 s). */
-const STUTTER_SECONDS = 4;
+/** Reverse buffer: two slices of up to 1 bar at 60 BPM. */
+const REVERSE_SECONDS = 8.5;
 const FILTER_UPDATE = 16;
+/** SMEAR diffusers (samples at 48 kHz): short ones blur, long ones wash into a reverb. */
+const DIFFUSE = [225, 341, 441, 556, 1100, 1700];
+
+/** One allpass diffuser per channel (preallocated). */
+class Allpass {
+  private readonly buf: Float32Array;
+  private i = 0;
+  constructor(len: number) { this.buf = new Float32Array(Math.max(1, len)); }
+  process(x: number, g: number): number {
+    const d = this.buf[this.i];
+    const y = d - g * x;
+    this.buf[this.i] = x + g * y;
+    if (++this.i >= this.buf.length) this.i = 0;
+    return y;
+  }
+}
 
 /**
- * STUTTER -> DISTORT -> LOW-PASS.
- *  STUTTER  turning STUTTER up arms it; on the next GRID line it captures one GRID length
- *           and repeats it (MIX crossfades dry -> repeats). FADE lowers each repeat, PITCH
- *           shifts each repeat further (+/- semitones per repeat). Back to 0 = released.
- *           Changing GRID while it runs re-captures on the next line (a roll).
+ * REVERSE -> DISTORT -> LOW-PASS.
+ *  REVERSE  a reverse delay: the drums are recorded in REV LEN slices (tempo-synced) and each
+ *           slice is played back backwards while the next one records, through two
+ *           overlapping windows (no clicks), so every hit swells in towards where it was.
+ *           REV FDBK feeds the reversed sound back in (reverse echoes of reverse echoes);
+ *           SMEAR diffuses it into a reverse-reverb wash. REVERSE = how much is mixed in.
  *  DISTORT  DRIVE (dB into tanh), TONE (low-pass after it), CRUSH (bits + sample rate), LEVEL.
  *  LOW-PASS CUTOFF, RESO (to self-oscillation), ENV (an envelope follower opens (+) or
  *           closes (-) it on every hit, up to 8 octaves), REL (how fast the follower falls).
@@ -51,18 +67,18 @@ export class DrumBus {
   private readonly sr: number;
   private readonly bufL: Float32Array;
   private readonly bufR: Float32Array;
-  // Stutter
+  // Reverse
   private readonly mix: Smoother;
   private mixTarget = 0;
-  private gridSteps = 1;
-  private fade = 0;
-  private pitch = 0;
-  private latched = false;
-  private t = 0; // samples since capture began
-  private len = 1; // repeat length in samples
-  private cell = -1; // last grid cell index seen (for detecting a grid line)
-  private clock = 0; // song clock at the chunk start, in 16th steps
-  private stepInc = 0; // clock advance per sample
+  private lenSteps = 4;
+  private fdbk = 0.3;
+  private smear = 0.4;
+  private write = 0;
+  private cycle = 0; // samples into the current slice
+  private wetL = 0; private wetR = 0; // last reversed sample (feedback)
+  private readonly apL: Allpass[];
+  private readonly apR: Allpass[];
+  private stepInc = 0; // song clock advance per sample (16th steps), from the engine
   // Distortion
   private driveDb = 0;
   private toneCoeff = 1;
@@ -84,8 +100,11 @@ export class DrumBus {
 
   constructor(sampleRate: number) {
     this.sr = sampleRate;
-    this.bufL = new Float32Array(Math.ceil(sampleRate * STUTTER_SECONDS));
-    this.bufR = new Float32Array(Math.ceil(sampleRate * STUTTER_SECONDS));
+    this.bufL = new Float32Array(Math.ceil(sampleRate * REVERSE_SECONDS));
+    this.bufR = new Float32Array(Math.ceil(sampleRate * REVERSE_SECONDS));
+    const scale = sampleRate / 48000;
+    this.apL = DIFFUSE.map((d) => new Allpass(Math.round(d * scale)));
+    this.apR = DIFFUSE.map((d) => new Allpass(Math.round(d * scale * 1.07))); // decorrelated
     this.mix = new Smoother(0, 0.01, sampleRate);
     this.level = new Smoother(1, 0.02, sampleRate);
     this.cutoff = new Smoother(20000, 0.02, sampleRate);
@@ -93,25 +112,16 @@ export class DrumBus {
   }
 
   /** Song position (16th steps) at the start of the next chunk, and its advance per sample. */
-  setClock(clockSteps: number, stepInc: number): void {
-    this.clock = clockSteps;
+  setClock(_clockSteps: number, stepInc: number): void {
     this.stepInc = stepInc;
   }
 
   setParam(id: string, v: number): void {
     switch (id) {
-      case 'stt_mix': this.mixTarget = v; this.mix.setTarget(v); break;
-      case 'stt_grid': {
-        const steps = STUTTER_GRIDS[Math.round(v)]?.steps ?? 1;
-        if (steps !== this.gridSteps) {
-          this.gridSteps = steps;
-          this.latched = false; // re-capture on the next line of the new grid
-          this.cell = -1;
-        }
-        break;
-      }
-      case 'stt_fade': this.fade = v; break;
-      case 'stt_pitch': this.pitch = v; break;
+      case 'rev_mix': this.mixTarget = v; this.mix.setTarget(v); break;
+      case 'rev_len': this.lenSteps = REVERSE_LENGTHS[Math.round(v)]?.steps ?? 4; break;
+      case 'rev_fdbk': this.fdbk = v; break;
+      case 'rev_smear': this.smear = v; break;
       case 'dst_drive': this.driveDb = v; break;
       case 'dst_tone': this.toneCoeff = v >= 19999 ? 1 : 1 - Math.exp((-2 * Math.PI * v) / this.sr); break;
       case 'dst_crush': this.crush = v; break;
@@ -136,61 +146,60 @@ export class DrumBus {
     const shape = Math.min(1, this.driveDb / 6); // blend in the shaper over the first 6 dB
     const hold = 1 + Math.floor(this.crush * this.crush * 40);
     const levels = Math.pow(2, 16 - this.crush * 14);
-    const grid = this.gridSteps;
-    const fadeN = 64;
+    // Slice length in samples (tempo-synced), at most half the buffer.
+    const stepFrames = this.stepInc > 0 ? 1 / this.stepInc : this.sr / 8;
+    const len = Math.max(256, Math.min(Math.floor(this.bufL.length / 2) - 2, Math.round(this.lenSteps * stepFrames)));
+    const size = this.bufL.length;
+    const g = this.smear > 0 ? 0.45 + 0.3 * this.smear : 0;
     for (let i = 0; i < n; i++) {
       let l = inL[i];
       let r = inR[i];
 
-      // ---- STUTTER
+      // ---- REVERSE: record (with feedback), then read backwards through two windows.
+      const fb = this.fdbk;
+      this.bufL[this.write] = l + (fb > 0 ? Math.tanh(this.wetL * fb) : 0);
+      this.bufR[this.write] = r + (fb > 0 ? Math.tanh(this.wetR * fb) : 0);
       const m = this.mix.next();
+      if (this.cycle >= len) this.cycle -= len;
       if (this.mixTarget > 0 || m > 1e-4) {
-        const c = Math.floor((this.clock + i * this.stepInc) / grid);
-        if (!this.latched && this.mixTarget > 0 && this.cell >= 0 && c !== this.cell) {
-          this.latched = true;
-          this.t = 0;
-          this.len = Math.max(16, Math.min(this.bufL.length, Math.round(grid / this.stepInc)));
+        let yl = 0;
+        let yr = 0;
+        for (let tap = 0; tap < 2; tap++) {
+          // Each tap's read head runs backwards from "now" across two slices; the window
+          // (sin^2, the two taps half a slice apart) sums to 1 and hides the jumps.
+          let ph = this.cycle / len + tap * 0.5;
+          if (ph >= 1) ph -= 1;
+          const d = 2 * len * ph + 1;
+          let pos = this.write - d;
+          if (pos < 0) pos += size;
+          const k = Math.floor(pos);
+          const f = pos - k;
+          const k2 = k + 1 < size ? k + 1 : 0;
+          const w = Math.sin(Math.PI * ph);
+          const win = w * w;
+          yl += (this.bufL[k] + (this.bufL[k2] - this.bufL[k]) * f) * win;
+          yr += (this.bufR[k] + (this.bufR[k2] - this.bufR[k]) * f) * win;
         }
-        this.cell = c;
-        if (this.latched) {
-          const len = this.len;
-          let yl: number;
-          let yr: number;
-          let phase: number;
-          if (this.t < len) {
-            // First pass: the live signal, captured as it goes.
-            this.bufL[this.t] = l;
-            this.bufR[this.t] = r;
-            yl = l;
-            yr = r;
-            phase = this.t;
-          } else {
-            const rep = Math.floor(this.t / len);
-            phase = this.t - rep * len;
-            let st = this.pitch * rep;
-            st = st > 48 ? 48 : st < -48 ? -48 : st;
-            const rate = st === 0 ? 1 : Math.pow(2, st / 12);
-            let p = phase * rate;
-            p -= Math.floor(p / len) * len;
-            const k = Math.floor(p);
-            const f = p - k;
-            const k2 = k + 1 < len ? k + 1 : 0;
-            const g = Math.pow(1 - this.fade, rep);
-            yl = (this.bufL[k] + (this.bufL[k2] - this.bufL[k]) * f) * g;
-            yr = (this.bufR[k] + (this.bufR[k2] - this.bufR[k]) * f) * g;
-            // Short fades at the loop points so repeats don't click.
-            if (phase < fadeN) { yl *= phase / fadeN; yr *= phase / fadeN; }
+        if (g > 0) {
+          // SMEAR: diffuse towards a reverse-reverb wash (blend in by SMEAR).
+          let dl = yl;
+          let dr = yr;
+          for (let a = 0; a < DIFFUSE.length; a++) {
+            dl = this.apL[a].process(dl, g);
+            dr = this.apR[a].process(dr, g);
           }
-          if (len - phase < fadeN) { const w = (len - phase) / fadeN; yl *= w; yr *= w; }
-          this.t++;
-          l += (yl - l) * m;
-          r += (yr - r) * m;
+          yl += (dl - yl) * this.smear;
+          yr += (dr - yr) * this.smear;
         }
-        if (this.mixTarget === 0 && m <= 1e-4) {
-          this.latched = false;
-          this.cell = -1;
-        }
+        this.wetL = yl;
+        this.wetR = yr;
+        l += yl * m;
+        r += yr * m;
+      } else {
+        this.wetL = this.wetR = 0;
       }
+      if (++this.write >= size) this.write = 0;
+      this.cycle++;
 
       // ---- DISTORT
       if (shape > 0) {
