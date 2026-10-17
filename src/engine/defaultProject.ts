@@ -18,11 +18,11 @@ export function applyPreset(c: ChannelState, kind: SoundKind, index: number): vo
  * every pattern empty.
  */
 /** Where each track starts along its TIMBRE. */
-const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'SOLID', 'WARM', 'SQUARE', 'LOW TOM', 'SINE'];
+const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'SQUARE', 'SINE'];
 
 export function createDefaultProject(): Project {
-  // 7 = toms / percussion (pitched from the sequencer), 8 = a second synth line.
-  const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'perc', 'lead'];
+  // 4 = toms / percussion (pitched from the sequencer), 8 = a second synth line.
+  const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'lead'];
   const channels = Array.from({ length: NUM_CHANNELS }, (_, i) => {
     const c = emptyChannel();
     applyPreset(c, kinds[i], Math.max(0, INSTRUMENTS[kinds[i]].presets.findIndex((p) => p.name === START_PRESETS[i])));
@@ -34,12 +34,13 @@ export function createDefaultProject(): Project {
   // Intended routing (a starting point, freely changed): drums and percussion through FX 1
   // (the drum bus), bass and leads to FX 2 (dub delay), the pad - ready for jungle chords - to
   // FX 3 (reverb).
-  channels[4].chord = CHORD_NAMES.indexOf('MIN9');
+  const of = (kind: SoundKind) => channels.find((c) => c.instrument === kind) as ChannelState;
+  of('pad').chord = CHORD_NAMES.indexOf('MIN9');
   channels.forEach((c) => {
     c.fx1 = INSTRUMENTS[c.instrument as SoundKind].drum;
     c.fxSend = c.instrument === 'pad' ? 3 : c.instrument === 'bass' || c.instrument === 'lead' ? 2 : 0;
   });
-  channels[3].sendLevel = 0.25;
+  of('bass').sendLevel = 0.25;
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
     fx1: defaultDrumBus(), lfo: defaultLfo(), song: { rows: [] }, sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels,

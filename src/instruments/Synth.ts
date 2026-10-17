@@ -93,14 +93,6 @@ export const LEAD_FIXED = { voice: 1, sub: 0 };
 /** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */
 export const SYNTH_ELEMENTS = ['attack', 'decay', 'attack2', 'decay2'];
 
-/**
- * DETAIL pages (12 slots, top row then bottom row): oscillators on top, then glide / filter
- * envelope amount / the rest of the amp envelope / level. The pad has CHORD instead of
- * glide ("track:chord" is a track setting).
- */
-export const BASS_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'sub', 'octave', 'glide', 'fenv', 'unison', 'sustain', 'release', 'level'];
-export const PAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'unison', 'octave', 'track:chord', 'fenv', null, 'sustain', 'release', 'level'];
-export const LEAD_DETAIL = ['shape', 'fm', 'fmratio', 'detune', 'unison', 'octave', 'glide', 'fenv', null, 'sustain', 'release', 'level'];
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'bass' | 'pad' | 'lead'): Preset[] {

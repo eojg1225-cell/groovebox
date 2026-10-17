@@ -140,8 +140,6 @@ export class App {
   private readonly heldNotes = new Map<number, number>();
   /** Send shown on the knobs in RECORD/PLAY (1-3), 0 = the tracks' live knobs. */
   private fxView = 0;
-  /** SOUND page: 0 = the shared sound page, 1 = the type's detail page. */
-  private soundSub = 0;
   /** CLEAR held, and whether anything was cleared while it was. */
   private clearHeld = false;
   private clearUsed = false;
@@ -350,7 +348,7 @@ export class App {
     const list: { id: string; spec: ParamSpec }[] = [];
     if (c.instrument !== 'none') {
       const entry = INSTRUMENTS[c.instrument];
-      for (const id of new Set([...entry.layout, ...entry.detail])) {
+      for (const id of entry.layout) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
         if (spec && !spec.coarse) list.push({ id: spec.id, spec });
       }
@@ -421,10 +419,8 @@ export class App {
     const c = this.channel;
     const pages: { name: string; targets: () => (KnobTarget | null)[] }[] = [];
     if (c.instrument !== 'none') {
-      // SOUND again flips between the shared sound page and the type's detail page.
-      const entry = INSTRUMENTS[c.instrument];
-      const layout = this.soundSub ? entry.detail : entry.layout;
-      pages.push({ name: this.soundSub ? 'DETAIL' : 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) });
+      const layout = INSTRUMENTS[c.instrument].layout;
+      pages.push({ name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) });
     }
     pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
     pages.push({
@@ -640,9 +636,6 @@ export class App {
       this.selectPattern(this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
     } else if ((m = /^dpage(\d)$/.exec(id))) {
       const page = Number(m[1]);
-      const hasSound = this.channel.instrument !== 'none';
-      if (page === 0 && hasSound && this.designPage === 0) this.soundSub = 1 - this.soundSub;
-      else if (page === 0) this.soundSub = 0;
       this.designPage = page;
       this.touchedKnob = -1;
     } else if ((m = /^fx([1-4])$/.exec(id))) {
@@ -1308,7 +1301,7 @@ export class App {
     const pages = this.mode === 'design' ? this.designPages() : [];
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
       const page = pages[i];
-      this.panel.setButtonText(`dpage${i}`, !page ? '' : i === 0 && this.channel.instrument !== 'none' ? `${page.name}<small>${this.soundSub + 1}/2</small>` : page.name);
+      this.panel.setButtonText(`dpage${i}`, page ? page.name : '');
       this.panel.setButtonEnabled(`dpage${i}`, !!page);
       this.panel.setButtonLit(`dpage${i}`, !!page && i === this.designPage);
     }

@@ -82,28 +82,20 @@ const WHOLE = ['ring', 'cutoff', 'reso', 'fattack', 'fdecay', 'fenv', 'drive', '
 
 /*
  * Each drum type: its parameters (all stored, set by TIMBRE / INTENSITY and presets),
- * its two elements' ATTACK / DECAY ids (on the SOUND page, see registry) and its DETAIL
- * page (12 slots, top row then bottom row: one layer per row).
+ * and its two elements' ATTACK / DECAY ids (on the SOUND page, see registry). Parameters
+ * without a knob are set by TIMBRE / INTENSITY.
  */
 export const KICK_PARAMS = drumParams(
   ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', ...WHOLE],
   { t_level: 0.95, t_pitch: 48, t_sweep: 30, t_stime: 0.035, t_decay: 0.5, c_level: 0.25, c_tone: 3500, c_len: 0.003 },
 );
 export const KICK_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
-export const KICK_DETAIL = [
-  't_level', 't_pitch', 't_sweep', 't_stime', 't_wave', 'fenv',
-  'c_level', 'c_tone', 'c_reso', 'c_noise', null, 'ring',
-];
 
 export const SNARE_PARAMS = drumParams(
   ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE],
   { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2 },
 );
 export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
-export const SNARE_DETAIL = [
-  't_level', 't_pitch', 't_sweep', 'ring', 'm_fm', 'fenv',
-  'm_level', 'm_pitch', 'm_tone', 'm_noise', 'm_spread', 'm_mode',
-];
 
 export const HAT_PARAMS = drumParams(
   [
@@ -113,11 +105,6 @@ export const HAT_PARAMS = drumParams(
   { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.05, h_time: 0.03, ring: 0.5 },
 );
 export const HAT_ELEMENTS = ['c_attack', 'c_len', 'm_attack', 'm_decay'];
-/** Top: click, then the HEAD time and RING LEN; bottom: the metal tail. */
-export const HAT_DETAIL = [
-  'c_level', 'c_tone', 'c_noise', 'h_time', 'ring', 'fenv',
-  'm_level', 'm_pitch', 'm_tone', 'm_noise', 'm_spread', 'm_mode',
-];
 
 export const PERC_PARAMS = drumParams(
   [
@@ -128,11 +115,6 @@ export const PERC_PARAMS = drumParams(
   { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.5, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
 );
 export const PERC_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
-/** Top: tone and click; bottom: the metal layer (cowbell) and click noise. */
-export const PERC_DETAIL = [
-  't_level', 't_pitch', 't_sweep', 't_stime', 't_wave', 'c_level', 'c_tone', 'c_reso',
-  'm_level', 'm_pitch', 'm_tone', 'm_decay', 'm_noise', 'm_spread', 'm_mode', 'c_noise',
-];
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'kick' | 'snare' | 'hat' | 'perc'): Preset[] {

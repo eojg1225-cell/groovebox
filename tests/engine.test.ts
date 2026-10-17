@@ -119,13 +119,10 @@ describe('instruments', () => {
     }
   }
 
-  it('each type has 16-knob pages of its own params; coarse params are discrete; presets use real params', () => {
+  it('each type has a 16-knob SOUND page of its own params; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
-      expect(entry.layout.length).toBeLessThanOrEqual(16);
-      expect(entry.detail.length).toBeLessThanOrEqual(16);
-      for (const id of [...entry.layout, ...entry.detail]) {
-        if (id && !id.includes(':')) expect(entry.params.some((p) => p.id === id)).toBe(true);
-      }
+      expect(entry.layout).toHaveLength(16);
+      for (const id of entry.layout) expect(id !== null && entry.params.some((p) => p.id === id), String(id)).toBe(true);
       for (const p of entry.params) if (p.options) expect(p.coarse).toBe(true);
       for (const preset of entry.presets) {
         for (const id in preset.values) expect(entry.params.some((p) => p.id === id)).toBe(true);
@@ -133,21 +130,15 @@ describe('instruments', () => {
     }
   });
 
-  it('sound page columns: TIMBRE/INTENSITY, two element ATTACK/DECAYs, FILTER/RESO, FILTER ATTACK/DECAY, DRIVE/CRUSH, FLT ENV/hold, VOLUME/PAN', () => {
-    expect(soundPage(['a1', 'd1', 'a2', 'd2'], 'hold')).toEqual([
-      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive', 'fenv', 'mix:volume',
-      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush', 'hold', 'mix:pan',
+  it('sound page columns: TIMBRE/INTENSITY, element ATK/DECs, FILTER/RESO, FILTER ATK/DEC, DRIVE/CRUSH, tune pair, FLT ENV/hold', () => {
+    expect(soundPage(['a1', 'd1', 'a2', 'd2'], ['t1', 't2'], 'hold')).toEqual([
+      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive', 't1', 'fenv',
+      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush', 't2', 'hold',
     ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
-    // Every type really has these parameters (16 slots on both pages); the pad's chord is on DETAIL.
-    for (const entry of Object.values(INSTRUMENTS)) {
-      expect(entry.layout).toHaveLength(16);
-      expect(entry.detail).toHaveLength(16);
-      for (const id of [...entry.layout, ...entry.detail]) if (id && !id.includes(':')) expect(entry.params.some((p) => p.id === id), id).toBe(true);
-    }
-    expect(INSTRUMENTS.pad.detail).toContain('track:chord');
+    expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['fmratio', 'detune']);
   });
 
   it('drum crush and drive keep the output bounded', () => {
@@ -327,14 +318,14 @@ describe('dynamics, locks and motion recording', () => {
 describe('chords and gates', () => {
   it('chord mode plays the chord and sequenced notes release after their gate', () => {
     const p = kickProject([]);
-    applyPreset(p.channels[4], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'WARM'));
-    p.channels[4].sounds.pad!.release = 0.02;
-    p.channels[4].sounds.pad!.attack = 0.002;
-    p.channels[4].fxSend = 0;
-    p.channels[4].chord = 0;
-    p.channels[4].patterns[0].steps[0].active = true;
+    applyPreset(p.channels[5], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'WARM'));
+    p.channels[5].sounds.pad!.release = 0.02;
+    p.channels[5].sounds.pad!.attack = 0.002;
+    p.channels[5].fxSend = 0;
+    p.channels[5].chord = 0;
+    p.channels[5].patterns[0].steps[0].active = true;
     const plain = engineWith(p);
-    p.channels[4].chord = CHORDS.findIndex((c) => c.name === 'MIN9');
+    p.channels[5].chord = CHORDS.findIndex((c) => c.name === 'MIN9');
     const chord = engineWith(p);
     const energy = (e: Engine, sec: number) => render(e, sec).l.reduce((a, v) => a + v * v, 0);
     for (const e of [plain, chord]) e.handleMessage({ type: 'transport', playing: true });
@@ -532,7 +523,7 @@ describe('note lengths', () => {
   const leadProject = (gate: number) => {
     const p = kickProject([]);
     p.channels.forEach((c) => (c.fxSend = 0));
-    const lead = p.channels[5];
+    const lead = p.channels[6];
     lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, release: 0.005 };
     lead.patterns[0].steps[0].active = true;
     lead.patterns[0].steps[0].gate = gate;
@@ -610,7 +601,7 @@ describe('LFO', () => {
   /** Pad holding a long note, on the LFO set as given; returns the output. */
   const padWithLfo = (lfo: { rate: number; shape: number; vol: number; pitch: number }, seconds: number, on = true) => {
     const p = kickProject([], { bpm: 120 });
-    const pad = p.channels[4];
+    const pad = p.channels[5];
     pad.fxSend = 0;
     pad.chord = 0;
     pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, sustain: 1, release: 0.01 };
@@ -654,9 +645,9 @@ describe('LFO', () => {
     old.version = 7;
     delete old.lfo;
     for (const c of old.channels) { delete c.lfoOn; c.lfo = { rate: 4, shape: 0, vol: 0, pitch: 0 }; }
-    old.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 };
+    old.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 }; // old layout: track 6 = LEAD
     const p = fromStored(old)!;
-    expect(p.channels.map((c) => c.lfoOn)).toEqual([false, false, false, false, false, true, false, false]);
+    expect(p.channels.map((c) => c.lfoOn)).toEqual([false, false, false, false, false, false, true, false]); // now track 7
     expect(p.lfo).toMatchObject({ rate: 7, shape: 5, vol: 0.4, pitch: 3 });
   });
 
@@ -765,7 +756,7 @@ describe('RING and REST', () => {
   it('a RING synth note holds over empty steps until a rest', () => {
     const p = kickProject([], { bpm: 120 });
     p.channels.forEach((c) => (c.fxSend = 0));
-    const lead = p.channels[5];
+    const lead = p.channels[6];
     lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, release: 0.005 };
     lead.patterns[0].steps[0].active = true;
     lead.patterns[0].steps[0].ring = true;
@@ -805,23 +796,23 @@ describe('project', () => {
     p.channels[0].patterns[0].steps[4].active = true;
     p.channels[0].patterns[0].steps[4].accent = true;
     p.channels[0].patterns[0].steps[4].velocity = 1;
-    p.channels[3].patterns[1].length = 32;
-    const s = p.channels[3].patterns[1].steps[20];
+    p.channels[4].patterns[1].length = 32;
+    const s = p.channels[4].patterns[1].steps[20];
     Object.assign(s, { active: true, note: 41, gate: 3, velocity: 0.45, locks: { cutoff: 900 } });
-    p.channels[4].fxSend = 3;
-    p.channels[4].sendLevel = 0.7;
+    p.channels[5].fxSend = 3;
+    p.channels[5].sendLevel = 0.7;
     p.lofi = 0.4;
     p.sendWet[2][5] = 0.9;
     p.sendInt[1][0] = 0.8;
     p.fx1.stt_grid = 2;
     p.fx1.lp_cutoff = 800;
-    p.channels[3].fx1 = true;
+    p.channels[4].fx1 = true;
     p.lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
-    p.channels[5].lfoOn = true;
+    p.channels[6].lfoOn = true;
     p.channels[2].patterns[0].steps[6].active = true;
     p.channels[2].patterns[0].steps[6].ring = true;
     p.channels[2].patterns[0].steps[9].rest = true;
-    p.channels[4].chord = 6;
+    p.channels[5].chord = 6;
     p.channels[1].mute = true;
     return p;
   };
@@ -847,21 +838,21 @@ describe('project', () => {
     const p = busy();
     const old = JSON.parse(JSON.stringify(p)); // the pre-compact format: full step arrays
     const loaded = fromStored(old)!;
-    expect(loaded.channels[3].patterns[1].steps[20]).toMatchObject({ active: true, note: 41, gate: 3 });
-    expect(loaded.channels[3].patterns[1].length).toBe(32);
+    expect(loaded.channels[4].patterns[1].steps[20]).toMatchObject({ active: true, note: 41, gate: 3 });
+    expect(loaded.channels[4].patterns[1].length).toBe(32);
     expect(loaded.channels[1].mute).toBe(true);
   });
 
   it('maps old chord numbers and send amounts into the v6 model', () => {
     const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
     old.version = 5;
-    old.channels[4].chord = 4; // MIN9 in the v5 list
+    old.channels[4].chord = 4; // MIN9 in the v5 list (old layout: track 5 = PAD)
     old.sendFx = old.sendWet;
     delete old.sendWet;
     delete old.sendInt;
     old.sendFx[0][0] = 0.33; // the old dub delay send is today's FX 2
     const p = fromStored(old)!;
-    expect(CHORDS[p.channels[4].chord].name).toBe('MIN9');
+    expect(CHORDS[p.channels[5].chord].name).toBe('MIN9');
     expect(p.sendWet[1][0]).toBe(0.33);
     expect(p.sendInt[1][0]).toBe(0.5);
   });
@@ -869,12 +860,12 @@ describe('project', () => {
   it('maps the old per-effect sends onto the new routing', () => {
     const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
     for (const c of old.channels) { delete c.fxSend; delete c.sendLevel; c.sends = [0, 0, 0, 0, 0, 0]; }
-    old.channels[4].sends[4] = 0.3; // reverb
-    old.channels[5].sends[0] = 0.4; // delay
+    old.channels[5].sends[4] = 0.3; // reverb
+    old.channels[6].sends[0] = 0.4; // delay
     old.channels[2].sends[1] = 0.6; // distortion
     const p = fromStored(old)!;
-    expect([p.channels[4].fxSend, p.channels[5].fxSend, p.channels[2].fxSend, p.channels[0].fxSend]).toEqual([3, 2, 3, 0]);
-    expect(p.channels[5].sendLevel).toBe(0.4);
+    expect([p.channels[5].fxSend, p.channels[6].fxSend, p.channels[2].fxSend, p.channels[0].fxSend]).toEqual([3, 2, 3, 0]);
+    expect(p.channels[6].sendLevel).toBe(0.4);
   });
 
   it('live knobs from before v5 reset to VOLUME/CUTOFF; later choices are kept', () => {
@@ -888,7 +879,7 @@ describe('project', () => {
 
   it('the start project holds the sequence in progress, with VOLUME/CUTOFF live knobs', () => {
     const p = createStartProject();
-    expect(p.channels[3].patterns[0].length).toBe(64);
+    expect(p.channels[4].patterns[0].length).toBe(64);
     expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
     expect(p.channels.every((c) => c.live[0] === 'mix:volume' && c.live[1] === 'mix:cutoff')).toBe(true);
   });
@@ -1067,7 +1058,7 @@ describe('slides and rolls', () => {
 
   it('a sequenced SLIDE glides from the held note into the next step', () => {
     const p = kickProject([], { bpm: 120 });
-    const b = p.channels[3];
+    const b = p.channels[4];
     b.sounds.bass = { ...b.sounds.bass!, shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0, drive: 1 };
     const pat = b.patterns[0];
     Object.assign(pat.steps[0], { active: true, note: 45, gate: 1 });
@@ -1087,7 +1078,7 @@ describe('slides and rolls', () => {
 
   it('slides and rolls survive the stored format', () => {
     const p = createDefaultProject();
-    Object.assign(p.channels[3].patterns[0].steps[2], { active: true, note: 50, slide: true });
+    Object.assign(p.channels[4].patterns[0].steps[2], { active: true, note: 50, slide: true });
     Object.assign(p.channels[1].patterns[0].steps[5], { active: true, roll: 4 });
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.song).toEqual(p.song);
   });
@@ -1111,7 +1102,7 @@ describe('synth elements', () => {
 describe('LFO options', () => {
   const pad = (lfo: Partial<Project['lfo']>, notes: number[]) => {
     const p = kickProject([], { bpm: 120 });
-    const c = p.channels[4];
+    const c = p.channels[5];
     c.fxSend = 0;
     c.chord = 0;
     c.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, release: 0.01 };
@@ -1231,7 +1222,7 @@ describe('bar position (for RESET)', () => {
 describe('notes held past the loop end', () => {
   it('a note tied over the end of a 16-step loop keeps sounding into the next bar', () => {
     const p = kickProject([], { bpm: 120 }); // 6000 frames per step, loop = 96000
-    const b = p.channels[3];
+    const b = p.channels[4];
     b.fxSend = 0;
     b.sounds.bass = { ...b.sounds.bass!, attack: 0.002, attack2: 0.002, decay: 5, decay2: 5, sustain: 1, release: 0.005 };
     Object.assign(b.patterns[0].steps[14], { active: true, note: 45, gate: 4 }); // steps 14, 15, 0, 1
@@ -1281,10 +1272,10 @@ describe('PERC track', () => {
     expect(crossings(48) / crossings(36)).toBeGreaterThan(1.8); // an octave up
   });
 
-  it('a new project has 8 tracks: track 7 PERC, track 8 a second LEAD', () => {
+  it('a new project has 8 tracks: track 4 PERC, track 8 a second LEAD', () => {
     const p = createDefaultProject();
-    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'perc', 'lead']);
-    expect(p.channels[6].fx1).toBe(true);
+    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'lead']);
+    expect(p.channels[3].fx1).toBe(true);
     expect(p.channels[7].fxSend).toBe(2);
   });
 });
@@ -1334,5 +1325,22 @@ describe('song mode', () => {
     e.handleMessage({ type: 'transport', playing: true });
     near(onsets(render(e, 0.5).l, 0.005, 1000), [0]); // pattern A as usual
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.song).toEqual(p.song);
+  });
+});
+
+describe('v10 track order', () => {
+  it('older projects move PERC from track 7 to track 4, with their patterns and song cells', () => {
+    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    old.version = 9;
+    const kinds = ['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'perc', 'lead'];
+    old.channels.forEach((c: { instrument: string; patterns: { len: number; steps: unknown[] }[] }, i: number) => {
+      c.instrument = kinds[i];
+      c.patterns[0].len = 16 + i; // a fingerprint per old track
+    });
+    old.song = { rows: [{ b: 2, p: [0, 1, 2, 3, 0, 1, 2, 3] }] };
+    const p = fromStored(old)!;
+    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'lead']);
+    expect(p.channels.map((c) => c.patterns[0].length)).toEqual([16, 17, 18, 22, 19, 20, 21, 23]);
+    expect(p.song.rows[0].patterns).toEqual([0, 1, 2, 2, 3, 0, 1, 3]);
   });
 });

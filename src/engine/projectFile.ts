@@ -20,6 +20,9 @@ import { LFO_RATES, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
 
+/** Track order change in v10: old track index -> new (PERC moved from 7 to 4). */
+const V9_TO_V10 = [0, 1, 2, 4, 5, 6, 3, 7];
+
 /**
  * One step with a note: index, note, velocity; gate/accent/ring/slide/roll/locks only when set.
  * A rest marker is stored as { i, x: 1 } (no note).
@@ -301,19 +304,21 @@ export function fromStored(data: unknown): Project | null {
   readGrid(data.sendWet ?? data.sendFx, p.sendWet);
   readGrid(data.sendInt, p.sendInt);
   readLfo(data.lfo, p.lfo);
+  // Before v10 the tracks were KICK SNARE HAT BASS PAD LEAD PERC LEAD; PERC is now track 4,
+  // so stored track i goes to slot(i) (patterns, sounds and song cells move with it).
+  const slot = (i: number) => (version < 10 ? (V9_TO_V10[i] ?? i) : i);
   if (isObj(data.song) && Array.isArray(data.song.rows)) {
     for (const r of data.song.rows.slice(0, SONG_MAX_ROWS)) {
       if (!isObj(r)) continue;
       const pats = Array.isArray(r.p) ? r.p : [];
-      p.song.rows.push({
-        bars: Math.round(num(r.b, 4, 1, SONG_MAX_BARS)),
-        patterns: Array.from({ length: NUM_CHANNELS }, (_, ch) => Math.round(num(pats[ch], -1, -1, NUM_PATTERNS - 1))),
-      });
+      const patterns = new Array<number>(NUM_CHANNELS).fill(-1);
+      for (let i = 0; i < NUM_CHANNELS; i++) patterns[slot(i)] = Math.round(num(pats[i], -1, -1, NUM_PATTERNS - 1));
+      p.song.rows.push({ bars: Math.round(num(r.b, 4, 1, SONG_MAX_BARS)), patterns });
     }
   }
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
-    if (isObj(src)) readChannel(src, p.channels[i], version);
+    if (isObj(src)) readChannel(src, p.channels[slot(i)], version);
   }
   // Before v8 every track had its own LFO: tracks that used theirs join the shared one,
   // which takes the first such track's settings.
@@ -322,7 +327,7 @@ export function fromStored(data: unknown): Project | null {
     data.channels.forEach((src, i) => {
       if (i >= NUM_CHANNELS || !isObj(src) || !isObj(src.lfo)) return;
       if (num(src.lfo.vol, 0) <= 0 && num(src.lfo.pitch, 0) <= 0) return;
-      p.channels[i].lfoOn = true;
+      p.channels[slot(i)].lfoOn = true;
       if (first) readLfo(src.lfo, p.lfo);
       first = false;
     });
