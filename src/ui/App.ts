@@ -58,23 +58,32 @@ const isBlackKey = (n: number) => NOTE_NAMES[n % 12].length > 1;
 
 type Status = Extract<WorkletToMain, { type: 'status' }>;
 
-/** Steps covered by an earlier note's gate (ties), as a boolean per step. */
+/**
+ * The note whose length covers step `index` (itself, or an earlier one tied over it,
+ * wrapping round the loop end), as [step, distance]; null if none.
+ */
+function coveringNote(steps: Step[], length: number, index: number): [number, number] | null {
+  for (let k = 0; k < length; k++) {
+    const j = (index - k + length) % length;
+    if (steps[j].active) return Math.max(1, steps[j].gate) > k ? [j, k] : null;
+  }
+  return null;
+}
+
+/** Steps covered by an earlier note's gate (ties, also across the loop end), per step. */
 function tiedSteps(steps: Step[], length: number): boolean[] {
   const tied = new Array<boolean>(steps.length).fill(false);
-  let coverEnd = -1;
   for (let i = 0; i < length; i++) {
-    if (steps[i].active) coverEnd = i + Math.max(1, steps[i].gate) - 1;
-    else if (i <= coverEnd) tied[i] = true;
+    if (!steps[i].active) tied[i] = coveringNote(steps, length, i) !== null;
   }
   return tied;
 }
 
 /** Note sounding at step `head`, including notes tied over from earlier steps; -1 if none. */
-function soundingNote(steps: Step[], head: number): number {
-  for (let i = head; i >= 0; i--) {
-    if (steps[i].active) return i + Math.max(1, steps[i].gate) > head ? steps[i].note : -1;
-  }
-  return -1;
+function soundingNote(steps: Step[], length: number, head: number): number {
+  if (head < 0) return -1;
+  const c = coveringNote(steps, length, head);
+  return c ? steps[c[0]].note : -1;
 }
 type Recorded = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>;
 
@@ -787,10 +796,10 @@ export class App {
         let slideFrom = -1;
         if (this.entry && this.entry.button !== button) {
           const prev = this.pattern.steps[this.entry.index];
-          index = this.entry.index + prev.gate;
-          if (index >= this.pattern.length) {
+          index = (this.entry.index + prev.gate) % this.pattern.length; // wraps past the end
+          if (index === this.entry.index) {
             this.heldNotes.delete(button);
-            this.flash('END OF PATTERN');
+            this.flash('NO ROOM TO SLIDE');
             return;
           }
           slideFrom = prev.note;
@@ -905,13 +914,10 @@ export class App {
   /** CLEAR + step: empty it; a note tied over it now ends just before it. */
   private clearStep(index: number): void {
     const steps = this.pattern.steps;
-    for (let j = index - 1; j >= 0; j--) {
-      if (!steps[j].active) continue;
-      if (j + steps[j].gate > index) {
-        steps[j].gate = index - j;
-        this.sendStep(j, steps[j]);
-      }
-      break;
+    const over = coveringNote(steps, this.pattern.length, index);
+    if (over && over[1] > 0) {
+      steps[over[0]].gate = over[1];
+      this.sendStep(over[0], steps[over[0]]);
     }
     const step = steps[index];
     step.active = false;
@@ -976,16 +982,19 @@ export class App {
   private tie(delta: number): void {
     if (!this.entry) return;
     const { index } = this.entry;
+    const len = this.pattern.length;
     const step = this.pattern.steps[index];
-    const gate = Math.max(1, Math.min(this.pattern.length - index, step.gate + delta));
+    // Up to the whole loop: a tie can run past the end and on from the start.
+    const gate = Math.max(1, Math.min(len, step.gate + delta));
     if (gate === step.gate) return;
     step.gate = gate;
     if (delta > 0) {
-      const covered = this.pattern.steps[index + gate - 1];
+      const at = (index + gate - 1) % len;
+      const covered = this.pattern.steps[at];
       if (covered.active || covered.locks) {
         covered.active = false;
         delete covered.locks;
-        this.sendStep(index + gate - 1, covered);
+        this.sendStep(at, covered);
       }
     }
     this.sendStep(index, step);
@@ -1179,17 +1188,19 @@ export class App {
 
     // LEDs: the step being played (red while recording), the step-entry cursor, and while
     // a key is held in step entry, every step the note covers.
-    const entryEnd = this.entry ? this.entry.index + pattern.steps[this.entry.index].gate - 1 : -1;
+    const entryGate = this.entry ? pattern.steps[this.entry.index].gate : 0;
+    const inEntry = (index: number) =>
+      !!this.entry && (index - this.entry.index + pattern.length) % pattern.length < entryGate;
     for (let i = 0; i < STEP_BUTTONS; i++) {
       const index = page * 16 + i;
       let state: '' | 'on' | 'rec' | 'cursor' = '';
-      if (pitchedRecord && (this.entry ? index >= this.entry.index && index <= entryEnd : index === cursor)) state = 'cursor';
+      if (pitchedRecord && (this.entry ? inEntry(index) : index === cursor)) state = 'cursor';
       if (head === index) state = this.recording ? 'rec' : 'on';
       this.panel.setLed(i, state);
     }
 
     if (this.keyboard) {
-      const sounding = soundingNote(pattern.steps, head);
+      const sounding = soundingNote(pattern.steps, pattern.length, head);
       const cursorStep = pattern.steps[cursor];
       const cursorNote = pitchedRecord && cursorStep.active ? cursorStep.note : -1;
       for (let i = 0; i < STEP_BUTTONS; i++) {

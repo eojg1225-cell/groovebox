@@ -1225,3 +1225,20 @@ describe('bar position (for RESET)', () => {
     expect(Math.min(p, 1 - p)).toBeLessThan(0.01);
   });
 });
+
+describe('notes held past the loop end', () => {
+  it('a note tied over the end of a 16-step loop keeps sounding into the next bar', () => {
+    const p = kickProject([], { bpm: 120 }); // 6000 frames per step, loop = 96000
+    const b = p.channels[3];
+    b.fxSend = 0;
+    b.sounds.bass = { ...b.sounds.bass!, attack: 0.002, attack2: 0.002, decay: 5, decay2: 5, sustain: 1, release: 0.005 };
+    Object.assign(b.patterns[0].steps[14], { active: true, note: 45, gate: 4 }); // steps 14, 15, 0, 1
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const { l } = render(e, 2.6);
+    const level = (a: number) => stats(l.subarray(a, a + 2000)).peak;
+    expect(level(97000)).toBeGreaterThan(0.05); // step 0 of the second time round: still held
+    expect(level(104000)).toBeGreaterThan(0.05); // step 1
+    expect(level(110000)).toBeLessThan(1e-3); // released at step 2
+  });
+});

@@ -472,8 +472,9 @@ export class Engine {
     if (!this.playing) return;
     const elapsed = this.lastStepFrames - this.framesToStep;
     const endStep = elapsed < this.lastStepFrames / 2 ? this.globalStep - 1 : this.globalStep;
-    const gate = Math.max(1, Math.min(MAX_STEPS, endStep - this.recStart[ch]));
     const pattern = this.recPattern[ch];
+    // Up to the whole loop (a note may be held past the end and on from the start).
+    const gate = Math.max(1, Math.min(this.patternLength[ch * NUM_PATTERNS + pattern], endStep - this.recStart[ch]));
     const index = this.recIndex[ch];
     this.stepGate[(ch * NUM_PATTERNS + pattern) * MAX_STEPS + index] = gate;
     this.onRecorded?.({
