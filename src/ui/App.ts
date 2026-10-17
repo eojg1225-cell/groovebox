@@ -19,6 +19,7 @@
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
+ * Hold a channel button: FX 1 / 2 / 3 / LFO become pattern A / B / C / D for that track.
  * RESET: every parameter returns to the saved project (or, if none was saved, to how the
  * session started): while playing it glides back to land on the next bar line, stopped
  * it jumps. Tempo, master volume, routing, mutes and patterns are left alone.
@@ -139,6 +140,9 @@ export class App {
   /** CLEAR held, and whether anything was cleared while it was. */
   private clearHeld = false;
   private clearUsed = false;
+  /** Channel button held down (its pattern A-D on the FX 1-3 / LFO buttons), and if it was used. */
+  private heldTrack = -1;
+  private heldUsed = false;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   private entry: { button: number; index: number } | null = null;
   /**
@@ -557,6 +561,12 @@ export class App {
     let m: RegExpExecArray | null;
     if (!e.pressed) {
       if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
+      if ((m = /^ch(\d)$/.exec(id)) && this.heldTrack === Number(m[1]) - 1) {
+        // A bus is open: a plain tap (no pattern picked meanwhile) adds / removes the track.
+        if (this.sendOpen && !this.heldUsed && !this.clearHeld) this.toggleBus(this.heldTrack, this.fxView);
+        this.heldTrack = -1;
+        this.refreshPanel();
+      }
       if (id === 'clear') {
         this.clearHeld = false;
         if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK');
@@ -575,6 +585,17 @@ export class App {
       this.refreshPanel();
       return;
     }
+    if ((m = /^ch(\d)$/.exec(id))) {
+      this.heldTrack = Number(m[1]) - 1;
+      this.heldUsed = false;
+    }
+    if ((m = /^fx([1-4])$/.exec(id)) && this.heldTrack >= 0) {
+      // Holding a channel button: FX 1 / 2 / 3 / LFO = pattern A / B / C / D of that track.
+      this.selectPattern(this.heldTrack, Number(m[1]) - 1);
+      this.heldUsed = true;
+      this.refreshPanel();
+      return;
+    }
     if (id === 'play') {
       this.playing = !this.playing;
       this.send({ type: 'transport', playing: this.playing });
@@ -582,8 +603,7 @@ export class App {
       this.mode = id.slice(5) as Mode;
       this.touchedKnob = -1;
     } else if ((m = /^ch(\d)$/.exec(id)) && this.sendOpen) {
-      // A bus is open: the channel buttons add / remove tracks from it.
-      this.toggleBus(Number(m[1]) - 1, this.fxView);
+      // A bus is open: the channel buttons add / remove tracks from it (on release).
     } else if ((m = /^ch(\d)$/.exec(id))) {
       this.selected = Number(m[1]) - 1;
       this.designPage = 0;
@@ -593,12 +613,8 @@ export class App {
       c.mute = !c.mute;
       this.send({ type: 'setMix', channel: ch, id: 'mute', value: c.mute ? 1 : 0 });
       this.save();
-    } else if ((m = /^pat([A-C])$/.exec(id))) {
-      const pattern = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
-      this.channel.activePattern = pattern;
-      this.clampCursor();
-      this.send({ type: 'selectPattern', channel: this.selected, pattern, immediate: this.immediateSwitch });
-      this.save();
+    } else if ((m = /^pat([A-D])$/.exec(id))) {
+      this.selectPattern(this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
     } else if ((m = /^dpage(\d)$/.exec(id))) {
       const page = Number(m[1]);
       const hasSound = this.channel.instrument !== 'none';
@@ -762,6 +778,16 @@ export class App {
       this.flash('RESET');
     }
     this.refreshPanel();
+  }
+
+  /** Switch a track's pattern (at once while building, at its loop end while performing). */
+  private selectPattern(ch: number, pattern: number): void {
+    const c = this.project.channels[ch];
+    c.activePattern = pattern;
+    if (ch === this.selected) this.clampCursor();
+    this.send({ type: 'selectPattern', channel: ch, pattern, immediate: this.immediateSwitch });
+    this.flash(`${ch + 1} ${this.kindName(c)} PAT ${PATTERN_NAMES[pattern]}`);
+    this.save();
   }
 
   private velocity(): number {
@@ -1142,7 +1168,17 @@ export class App {
       this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, spec.defaultValue));
     }
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
-      this.panel.setButtonLit(`fx${n}`, this.mode === 'design' ? this.onBus(this.channel, n) : this.fxView === n);
+      const id = `fx${n}`;
+      if (this.heldTrack >= 0) {
+        // Pattern buttons for the held track.
+        this.panel.setButtonText(id, PATTERN_NAMES[n - 1]);
+        this.panel.setButtonLit(id, this.project.channels[this.heldTrack].activePattern === n - 1);
+        this.panel.setButtonFlag(id, 'pattern', true);
+      } else {
+        this.panel.setButtonText(id, n === 4 ? 'LFO' : String(n));
+        this.panel.setButtonLit(id, this.mode === 'design' ? this.onBus(this.channel, n) : this.fxView === n);
+        this.panel.setButtonFlag(id, 'pattern', false);
+      }
     }
     const pages = this.mode === 'design' ? this.designPages() : [];
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {

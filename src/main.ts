@@ -8,7 +8,7 @@ import { Panel } from './ui/Panel';
 import { INK, PixelScreen } from './ui/screen';
 import { drawDesignView, drawLiveView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
-import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
+import { NUM_CHANNELS, PANEL_PATTERNS } from './engine/project';
 import { createStartProject } from './engine/defaultProject';
 import { loadSession } from './storage/session';
 import { loadSavedProject } from './storage/saved';
@@ -33,7 +33,7 @@ const project = loadSession() ?? loadSavedProject() ?? createStartProject();
 mirrorToCloud(project);
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
   channels: NUM_CHANNELS,
-  patterns: PATTERN_NAMES,
+  patterns: PANEL_PATTERNS,
 });
 const screen = new PixelScreen(panel.screenCanvas);
 

@@ -7,12 +7,14 @@ export const PROJECT_VERSION = 8;
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
 export const NUM_CHANNELS = 6;
-export const NUM_PATTERNS = 3;
+export const NUM_PATTERNS = 4;
 export const MAX_STEPS = 64;
 /** Most hits a ROLL step can have. */
 export const MAX_ROLL = 8;
 export const DEFAULT_STEPS = 16;
-export const PATTERN_NAMES = ['A', 'B', 'C'] as const;
+export const PATTERN_NAMES = ['A', 'B', 'C', 'D'] as const;
+/** Patterns with their own button on the panel; D (and A-D for any track) via hold track + FX 1/2/3/LFO. */
+export const PANEL_PATTERNS = ['A', 'B', 'C'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 
 import type { LfoState } from './lfo';

@@ -1242,3 +1242,19 @@ describe('notes held past the loop end', () => {
     expect(level(110000)).toBeLessThan(1e-3); // released at step 2
   });
 });
+
+describe('pattern D', () => {
+  it('older 3-pattern saves load with an empty D; D plays when selected', () => {
+    const p = kickProject([0]);
+    const old = JSON.parse(JSON.stringify(toStored(p)));
+    for (const c of old.channels) c.patterns = c.patterns.slice(0, 3);
+    const loaded = fromStored(old)!;
+    expect(loaded.channels[0].patterns).toHaveLength(4);
+    expect(loaded.channels[0].patterns[3].steps.some((s) => s.active)).toBe(false);
+    loaded.channels[0].patterns[3].steps[2].active = true;
+    const e = engineWith(loaded);
+    e.handleMessage({ type: 'selectPattern', channel: 0, pattern: 3, immediate: true });
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 0.5).l), [12000]);
+  });
+});
