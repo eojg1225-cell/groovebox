@@ -18,7 +18,9 @@ import { Reverb } from '../src/fx/Reverb';
 import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { lfoValue } from '../src/engine/lfo';
-import { MACROS, anchorPosition, macroSound } from '../src/instruments/macros';
+import { MACROS, anchorPosition, macroIds, macroSound } from '../src/instruments/macros';
+import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
+import { paramSpec } from '../src/instruments/registry';
 import { soundPage, stepsOnStrip } from '../src/instruments/registry';
 import { DrumBus, REVERSE_LENGTHS } from '../src/fx/DrumBus';
 
@@ -1640,5 +1642,67 @@ describe('relative live knobs', () => {
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[0].liveOffset).toEqual({ 'macro:decay': 0.4 });
     const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 15 };
     expect(fromStored(old)!.channels[0].liveOffset).toEqual({});
+  });
+});
+
+describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => {
+  const at = (kind: 'pluck' | 'perc' | 'pad', anchor: string, intensity: number) => {
+    const t = anchorPosition(kind, MACROS[kind].anchors.findIndex((a) => a.name === anchor));
+    return macroSound(kind, t, intensity, INSTRUMENTS[kind].params);
+  };
+  const octaves = (a: number, b: number) => Math.abs(Math.log2(a / b));
+
+  it('INTENSITY 0 pulls SAW PLUCK and GLASS PLUCK together without making them the same', () => {
+    const mid = octaves(at('pluck', 'SAW PLUCK', 0.5).cutoff, at('pluck', 'GLASS PLUCK', 0.5).cutoff);
+    const low = octaves(at('pluck', 'SAW PLUCK', 0).cutoff, at('pluck', 'GLASS PLUCK', 0).cutoff);
+    expect(low).toBeLessThan(mid * 0.3 + 1e-9);
+    expect(at('pluck', 'SAW PLUCK', 0).drive).toBeLessThan(at('pluck', 'SAW PLUCK', 0.5).drive);
+    // TIMBRE still matters at 0: FM keeps a quarter of each sound's own amount.
+    expect(at('pluck', 'RAGE DONK', 0).fm).toBeGreaterThan(at('pluck', 'GLASS PLUCK', 0).fm);
+    expect(at('pluck', 'RAGE DONK', 0).fm).toBeGreaterThan(0);
+  });
+
+  it('INTENSITY 0.5 is the sound as designed; 0 makes PERC dull thuds (less sweep, click, drive)', () => {
+    const conga = at('perc', 'CONGA', 0.5);
+    expect(conga.t_sweep).toBeCloseTo(MACROS.perc.anchors.find((a) => a.name === 'CONGA')!.values.t_sweep);
+    const dull = at('perc', 'CONGA', 0);
+    for (const id of ['t_sweep', 'c_level', 'c_tone']) expect(dull[id], id).toBeLessThan(conga[id]);
+    expect(dull.drive).toBeLessThanOrEqual(conga.drive);
+  });
+
+  it('a SOUND page trim stays on top when TIMBRE moves', () => {
+    const specs = INSTRUMENTS.pad.params;
+    const spec = paramSpec('pad', 'cutoff')!;
+    const sound: Record<string, number> = { ...presetSound('pad', 0) };
+    const hiddenA = hiddenSound('pad', sound, specs).cutoff;
+    const darker = hiddenA / 4; // two octaves down
+    const trim = trimFor(spec, darker, hiddenA);
+    sound.timbre = 0.6;
+    const hiddenB = hiddenSound('pad', sound, specs).cutoff;
+    expect(octaves(applyTrim(spec, hiddenB, trim), hiddenB)).toBeCloseTo(2, 1);
+  });
+
+  it('older saves derive trims that reproduce their values exactly', () => {
+    const p = createDefaultProject();
+    const sound = { ...p.channels[5].sounds.pad!, cutoff: 333, intensity: 0.2 };
+    p.channels[5].sounds.pad = sound;
+    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 16 };
+    delete old.channels[5].trims;
+    const q = fromStored(old)!.channels[5];
+    expect(q.sounds.pad!.cutoff).toBeCloseTo(333);
+    const trims = q.trims.pad!;
+    const hidden = hiddenSound('pad', q.sounds.pad!, INSTRUMENTS.pad.params);
+    for (const id of macroIds('pad', INSTRUMENTS.pad.params)) {
+      const spec = paramSpec('pad', id)!;
+      expect(applyTrim(spec, hidden[id], trims[id]), id).toBeCloseTo(q.sounds.pad![id], 4);
+    }
+    expect(deriveTrims('pad', presetSound('pad', 1), INSTRUMENTS.pad.params)).toEqual({});
+  });
+
+  it('live macros only push SOUND page parameters', () => {
+    for (const k of SOUND_KINDS) {
+      const page = new Set([...INSTRUMENTS[k].layout, ...INSTRUMENTS[k].funcLayout]);
+      for (const m of LIVE_MACROS[k]) for (const t of m.targets) expect(page.has(t.id), `${k} ${m.id} ${t.id}`).toBe(true);
+    }
   });
 });

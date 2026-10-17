@@ -15,6 +15,8 @@ export interface UserPatch {
   live: [string, string];
   /** LIVE 3 / 4 (FUNC); absent in patches saved before FUNC. */
   liveFunc?: [string, string];
+  /** SOUND page trims on top of TIMBRE / INTENSITY (absent before v17: derived on load). */
+  trims?: Record<string, number>;
 }
 
 type PatchStore = Partial<Record<SoundKind, UserPatch[]>>;
@@ -42,7 +44,7 @@ export function userPatches(kind: SoundKind): UserPatch[] {
 }
 
 /** Saves a patch as the next USER n for its track type; returns its name, or null on failure. */
-export function savePatch(kind: SoundKind, values: Record<string, number>, live: [string, string], liveFunc: [string, string]): string | null {
+export function savePatch(kind: SoundKind, values: Record<string, number>, live: [string, string], liveFunc: [string, string], trims: Record<string, number>): string | null {
   const store = read<PatchStore>(PATCHES_KEY) ?? {};
   const list = store[kind] ?? [];
   if (list.length >= MAX_USER_PATCHES) list.shift();
@@ -50,7 +52,7 @@ export function savePatch(kind: SoundKind, values: Record<string, number>, live:
   let n = 1;
   while (used.has(`USER ${n}`)) n++;
   const name = `USER ${n}`;
-  list.push({ name, values: { ...values }, live: [...live], liveFunc: [...liveFunc] });
+  list.push({ name, values: { ...values }, live: [...live], liveFunc: [...liveFunc], trims: { ...trims } });
   store[kind] = list;
   return write(PATCHES_KEY, store) ? name : null;
 }

@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 16;
+export const PROJECT_VERSION = 17;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -98,6 +98,11 @@ export interface ChannelState {
   instrument: InstrumentKind;
   /** Sound per instrument kind, remembered when switching type (param id -> value). */
   sounds: Partial<Record<SoundKind, Record<string, number>>>;
+  /**
+   * SOUND page adjustments on top of TIMBRE / INTENSITY per kind (param id -> trim,
+   * normalised; see instruments/trims.ts). `sounds` holds the resulting values.
+   */
+  trims: Partial<Record<SoundKind, Record<string, number>>>;
   /** Last chosen preset index per kind (for display). */
   presets: Partial<Record<SoundKind, number>>;
   /** The two parameters on this track's live knobs (record/play modes). */
@@ -162,6 +167,7 @@ export function emptyChannel(): ChannelState {
   return {
     instrument: 'none',
     sounds: {},
+    trims: {},
     presets: {},
     live: ['mix:volume', 'mix:pan'],
     liveFunc: ['mix:send', 'mix:pan'],

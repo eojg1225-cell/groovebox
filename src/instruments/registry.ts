@@ -77,7 +77,8 @@ export const LIVE_RANGE = 0.6;
 export const LIVE_TAPER = Math.log(0.4) / Math.log(0.5);
 
 /**
- * LIVE knobs are relative: centred (0) they leave the sound as set on the SOUND page;
+ * LIVE knobs (the top layer: live > SOUND page > TIMBRE / INTENSITY) only push SOUND page
+ * parameters (main or FUNC layer). They are relative: centred (0) they leave the sound as set on the SOUND page;
  * turned they push parameters up / down by up to LIVE_RANGE of their knob range (on each
  * parameter's own curve, with a gentle taper), clamped at its limits. A macro moves several at once.
  * CUTOFF and RESO (and the mixer, LFO) stay absolute.
@@ -118,7 +119,7 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('BRIGHT', [['m_tone', 1], ['c_tone', 1], ['m_noise', 1]]),
   ],
   perc: [
-    macro('DECAY', [['t_decay', 1], ['c_len', 0.5], ['m_decay', 1]]),
+    macro('DECAY', [['t_decay', 1], ['c_len', 0.5], ['ring', 0.5]]),
     macro('TUNE', [['t_pitch', 1], ['m_pitch', 1]]),
   ],
   bass: [macro('ENV', [['fenv', 1], ['fdecay', 1]])],

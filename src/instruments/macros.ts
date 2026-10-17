@@ -2,9 +2,12 @@
  * TIMBRE and INTENSITY: two macro knobs per track type that give the groovebox its own
  * sounds. TIMBRE travels through four designed sounds ("anchors"), blending every
  * parameter between neighbours (on the parameter's own curve, so frequencies and times
- * move musically). INTENSITY then damps (0) or excites (1) the result around a neutral
- * middle (0.5) by scaling brightness, drive, decay and so on. INTENSITY changes
- * character, never loudness: turned down a sound softens but still cuts through.
+ * move musically): the coarse choice of sound. INTENSITY then sets the amount of
+ * modulation / atmosphere around a neutral middle (0.5 = as designed): down, FM, filter
+ * envelope, sweep, noise, click, drive and width converge on a dull floor (keeping a
+ * quarter of the TIMBRE's own character); up, they are excited. Never loudness.
+ * Layers: hidden (these) < design (SOUND page knobs, stored as trims on top, see trims.ts)
+ * < live (relative knobs in the engine).
  *
  * Pure functions: the UI computes the sound and sends the resulting parameters.
  */
@@ -16,12 +19,20 @@ export interface Anchor {
   values: Record<string, number>;
 }
 
-/** INTENSITY scaling: value x low^(1-2i) below the middle, x high^(2i-1) above. */
+/**
+ * INTENSITY (the amount of modulation / atmosphere): below the middle a parameter moves
+ * towards its dull FLOOR - CONVERGE of the way at 0, on its own curve - so every TIMBRE
+ * lands in the same soft area but keeps a quarter of its own character (TIMBRE still
+ * matters at 0). Above the middle it is scaled x high^(2i-1). No floor = unchanged below.
+ */
 export interface Excite {
   id: string;
-  low: number;
+  floor?: number;
   high: number;
 }
+
+/** How far INTENSITY 0 pulls the modulation towards its floor (the rest stays TIMBRE's). */
+export const CONVERGE = 0.75;
 
 export interface MacroDef {
   anchors: readonly Anchor[];
@@ -38,8 +49,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'PSY DOOF', values: { t_level: 1, t_pitch: 58, t_sweep: 80, t_stime: 0.028, t_decay: 0.32, c_level: 1, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 45, crush: 0 } },
     ],
     excite: [
-      { id: 'drive', low: 0.6, high: 2 }, { id: 'c_level', low: 0.6, high: 1.5 }, { id: 't_sweep', low: 0.8, high: 1.15 },
-      { id: 'c_tone', low: 0.7, high: 1.4 }, { id: 't_decay', low: 0.85, high: 1.15 },
+      { id: 'drive', floor: 1, high: 2 }, { id: 'c_level', floor: 0.02, high: 1.5 }, { id: 't_sweep', floor: 2, high: 1.15 },
+      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_noise', floor: 0.05, high: 1.2 }, { id: 'c_reso', floor: 0.05, high: 1.2 }, { id: 't_decay', high: 1.15 },
     ],
   },
   snare: {
@@ -51,8 +62,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'INDUSTRIAL', values: { t_level: 0.7, t_pitch: 150, t_sweep: 18, t_decay: 0.2, m_level: 0.9, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_decay: 0.3, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.35 } },
     ],
     excite: [
-      { id: 'drive', low: 0.7, high: 2 }, { id: 'm_tone', low: 0.6, high: 1.5 }, { id: 'm_decay', low: 0.8, high: 1.3 },
-      { id: 't_sweep', low: 0.7, high: 1.3 }, { id: 'm_noise', low: 0.85, high: 1.1 },
+      { id: 'drive', floor: 1, high: 2 }, { id: 'm_tone', floor: 900, high: 1.5 }, { id: 'm_decay', high: 1.3 },
+      { id: 't_sweep', floor: 1, high: 1.3 }, { id: 'm_noise', floor: 0.2, high: 1.1 }, { id: 'm_fm', floor: 0, high: 1.3 },
     ],
   },
   hat: {
@@ -65,8 +76,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'CHINA', values: { m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_decay: 0.14, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, ring: 1.6, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.05 } },
     ],
     excite: [
-      { id: 'm_tone', low: 0.6, high: 1.5 }, { id: 'm_decay', low: 0.7, high: 1.4 }, { id: 'drive', low: 0.8, high: 2.5 },
-      { id: 'm_noise', low: 0.8, high: 1.3 }, { id: 'c_level', low: 0.6, high: 1.5 },
+      { id: 'm_tone', floor: 2500, high: 1.5 }, { id: 'm_decay', high: 1.4 }, { id: 'drive', floor: 1, high: 2.5 },
+      { id: 'm_noise', floor: 0.1, high: 1.3 }, { id: 'c_level', floor: 0.05, high: 1.5 }, { id: 'm_fm', floor: 0.1, high: 1.3 },
     ],
   },
   perc: {
@@ -78,8 +89,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 2400, t_sweep: 0, t_stime: 0.01, t_decay: 0.045, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.05, m_mode: 0, drive: 1.1 } },
     ],
     excite: [
-      { id: 't_sweep', low: 0.7, high: 1.4 }, { id: 'c_level', low: 0.6, high: 1.5 }, { id: 'drive', low: 0.8, high: 2.2 },
-      { id: 't_decay', low: 0.8, high: 1.25 },
+      { id: 't_sweep', floor: 1, high: 1.4 }, { id: 'c_level', floor: 0.03, high: 1.5 }, { id: 'drive', floor: 1, high: 2.2 },
+      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_reso', floor: 0.1, high: 1.2 }, { id: 'c_noise', floor: 0.05, high: 1.2 }, { id: 't_decay', high: 1.25 },
     ],
   },
   bass: {
@@ -90,8 +101,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, detune: 0, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, decay: 0.5, sustain: 0.25, drive: 2.2, glide: 0.02 } },
     ],
     excite: [
-      { id: 'cutoff', low: 0.5, high: 2 }, { id: 'fenv', low: 0.6, high: 1.4 }, { id: 'drive', low: 0.7, high: 2 },
-      { id: 'fm', low: 0.7, high: 1.3 }, { id: 'reso', low: 0.8, high: 1.2 },
+      { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
+      { id: 'fm', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 }, { id: 'detune', floor: 0.05, high: 1.3 },
     ],
   },
   pad: {
@@ -103,8 +114,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'ETHEREAL', values: { shape: 2, unison: 1, fm: 0.35, fmratio: 1.5, detune: 1.6, cutoff: 7000, reso: 0.15, fattack: 1.5, fenv: 0.3, fdecay: 4, attack: 0.7, decay: 3, attack2: 1.8, decay2: 4, sustain: 0.95, release: 3.5, drive: 1.1 } },
     ],
     excite: [
-      { id: 'cutoff', low: 0.55, high: 1.8 }, { id: 'detune', low: 0.7, high: 1.3 }, { id: 'drive', low: 0.8, high: 2 },
-      { id: 'fm', low: 0.7, high: 1.3 }, { id: 'release', low: 0.8, high: 1.2 }, { id: 'unison', low: 0.6, high: 1.4 },
+      { id: 'cutoff', floor: 400, high: 1.8 }, { id: 'detune', floor: 0.1, high: 1.3 }, { id: 'drive', floor: 1, high: 2 },
+      { id: 'fm', floor: 0, high: 1.3 }, { id: 'unison', floor: 0, high: 1.4 }, { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
     ],
   },
   lead: {
@@ -115,8 +126,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'BELL', values: { shape: 0, fm: 0.85, fmratio: 3, detune: 0, glide: 0.03, cutoff: 6000, reso: 0.1, fenv: 0.4, fdecay: 0.5, attack: 0.002, decay: 0.6, sustain: 0.2, release: 0.5, drive: 1.3 } },
     ],
     excite: [
-      { id: 'cutoff', low: 0.55, high: 1.8 }, { id: 'reso', low: 0.8, high: 1.15 }, { id: 'drive', low: 0.7, high: 2.2 },
-      { id: 'fm', low: 0.7, high: 1.3 }, { id: 'fenv', low: 0.7, high: 1.3 },
+      { id: 'cutoff', floor: 300, high: 1.8 }, { id: 'reso', floor: 0.05, high: 1.15 }, { id: 'drive', floor: 1, high: 2.2 },
+      { id: 'fm', floor: 0, high: 1.3 }, { id: 'fenv', floor: 0.05, high: 1.3 }, { id: 'detune', floor: 0.05, high: 1.3 },
     ],
   },
   pluck: {
@@ -128,8 +139,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, detune: 0.1, unison: 0, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, attack: 0.0005, decay: 0.25, attack2: 0.0005, decay2: 0.18, sustain: 0, release: 0.12, drive: 12 } },
     ],
     excite: [
-      { id: 'cutoff', low: 0.55, high: 1.8 }, { id: 'drive', low: 0.7, high: 2.2 }, { id: 'fm', low: 0.7, high: 1.3 },
-      { id: 'fenv', low: 0.7, high: 1.3 }, { id: 'unison', low: 0.6, high: 1.4 },
+      { id: 'cutoff', floor: 500, high: 1.8 }, { id: 'drive', floor: 1, high: 2.2 }, { id: 'fm', floor: 0, high: 1.3 },
+      { id: 'fenv', floor: 0.1, high: 1.3 }, { id: 'unison', floor: 0, high: 1.4 }, { id: 'reso', floor: 0.05, high: 1.2 }, { id: 'detune', floor: 0.05, high: 1.3 },
     ],
   },
 };
@@ -159,6 +170,17 @@ export function anchorPosition(kind: SoundKind, i: number): number {
  */
 const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release']] as const;
 
+/**
+ * The parameters TIMBRE / INTENSITY set for a type (the hidden layer under the SOUND page):
+ * every anchor's values plus OSC 2's mirrored SUSTAIN / RELEASE.
+ */
+export function macroIds(kind: SoundKind, specs: readonly ParamSpec[]): Set<string> {
+  const ids = new Set<string>();
+  for (const a of MACROS[kind].anchors) for (const id in a.values) if (specs.some((p) => p.id === id)) ids.add(id);
+  for (const [id, from] of MIRRORED) if (ids.has(from) && specs.some((p) => p.id === id)) ids.add(id);
+  return ids;
+}
+
 export function macroSound(kind: SoundKind, timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
   const { anchors, excite } = MACROS[kind];
   const t = Math.min(1, Math.max(0, timbre)) * (anchors.length - 1);
@@ -179,8 +201,13 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
   for (const e of excite) {
     const spec = specs.find((p) => p.id === e.id);
     if (!spec || out[e.id] === undefined) continue;
-    const factor = x < 0.5 ? Math.pow(e.low, 1 - 2 * x) : Math.pow(e.high, 2 * x - 1);
-    out[e.id] = Math.min(spec.max, Math.max(spec.min, out[e.id] * factor));
+    if (x < 0.5) {
+      if (e.floor === undefined) continue;
+      const n = toNorm(spec, out[e.id]);
+      out[e.id] = toValue(spec, n + (toNorm(spec, e.floor) - n) * CONVERGE * (1 - 2 * x));
+    } else {
+      out[e.id] = Math.min(spec.max, Math.max(spec.min, out[e.id] * Math.pow(e.high, 2 * x - 1)));
+    }
   }
   // OSC 2's SUSTAIN / RELEASE follow OSC 1's unless the sounds set their own.
   for (const [id, from] of MIRRORED) {

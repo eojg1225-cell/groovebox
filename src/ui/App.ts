@@ -50,7 +50,8 @@ import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, liveTargets, mirrorOsc2, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { ROLL_DIVS } from '../instruments/Drum';
-import { macroSound, timbreName } from '../instruments/macros';
+import { macroIds, timbreName } from '../instruments/macros';
+import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../instruments/trims';
 import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, SongView } from './views';
@@ -322,6 +323,7 @@ export class App {
       const values = { ...patch.values };
       mirrorOsc2(values);
       c.sounds[kind] = { ...defaults, ...values };
+      c.trims[kind] = patch.trims ? { ...patch.trims } : deriveTrims(kind, c.sounds[kind]!, INSTRUMENTS[kind].params);
       c.presets[kind] = index;
       c.live = [...patch.live];
       if (patch.liveFunc) c.liveFunc = [...patch.liveFunc];
@@ -459,20 +461,53 @@ export class App {
     return {
       label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
-      set: (v) => {
-        const sound = (c.sounds[kind] ??= {});
-        sound[id] = v;
-        this.send({ type: 'setSound', channel: ch, id, value: v });
-        if (id === 'timbre' || id === 'intensity') {
-          // Macro: TIMBRE / INTENSITY set the underlying sound parameters.
-          const macro = macroSound(kind, sound.timbre ?? 0.33, sound.intensity ?? 0.5, INSTRUMENTS[kind].params);
-          for (const pid in macro) {
-            sound[pid] = macro[pid];
-            this.send({ type: 'setSound', channel: ch, id: pid, value: macro[pid] });
-          }
-        }
-      },
+      set: (v) => this.setSoundParam(ch, kind, id, v),
     };
+  }
+
+  /**
+   * The design layer. TIMBRE / INTENSITY recompute the hidden layer and put each trimmed
+   * parameter back on top of it; any other SOUND page knob sets its value, and when the
+   * macros also set that parameter its trim (distance from the macro value) is kept, so
+   * moving TIMBRE / INTENSITY later keeps the adjustment.
+   */
+  private setSoundParam(ch: number, kind: SoundKind, id: string, v: number, recompute = true): void {
+    const c = this.project.channels[ch];
+    const sound = (c.sounds[kind] ??= {});
+    const trims = (c.trims[kind] ??= {});
+    const specs = INSTRUMENTS[kind].params;
+    sound[id] = v;
+    this.send({ type: 'setSound', channel: ch, id, value: v });
+    if (id === 'timbre' || id === 'intensity') {
+      if (!recompute) return;
+      const hidden = hiddenSound(kind, sound, specs);
+      for (const pid in hidden) {
+        const spec = specs.find((p) => p.id === pid);
+        if (!spec) continue;
+        const value = applyTrim(spec, hidden[pid], trims[pid]);
+        sound[pid] = value;
+        this.send({ type: 'setSound', channel: ch, id: pid, value });
+      }
+    } else if (this.macroParams(kind).has(id)) {
+      const spec = specs.find((p) => p.id === id);
+      const hidden = hiddenSound(kind, sound, specs)[id];
+      if (!spec || hidden === undefined) return;
+      const t = trimFor(spec, v, hidden);
+      if (t) trims[id] = t;
+      else delete trims[id];
+    }
+  }
+
+  private readonly macroIdCache = new Map<SoundKind, Set<string>>();
+
+  /** The parameters TIMBRE / INTENSITY set for a type (cached). */
+  private macroParams(kind: SoundKind): Set<string> {
+    let ids = this.macroIdCache.get(kind);
+    if (!ids) {
+      ids = macroIds(kind, INSTRUMENTS[kind].params);
+      this.macroIdCache.set(kind, ids);
+    }
+    return ids;
   }
 
   /** Sound design pages for the selected track: instrument pages, then TRACK, GLOBAL. */
@@ -733,7 +768,7 @@ export class App {
         this.flash('NOTHING TO SAVE');
       } else {
         const kind = c.instrument;
-        const name = savePatch(kind, c.sounds[kind] ?? presetSound(kind, 0), c.live, c.liveFunc);
+        const name = savePatch(kind, c.sounds[kind] ?? presetSound(kind, 0), c.live, c.liveFunc, c.trims[kind] ?? {});
         if (name) {
           c.presets[kind] = this.presetNames(kind).lastIndexOf(name);
           this.save();
@@ -823,10 +858,7 @@ export class App {
         for (const spec of INSTRUMENTS[kind].params) {
           const cur = c.sounds[kind]?.[spec.id] ?? spec.defaultValue;
           const dst = s.sounds[kind]?.[spec.id] ?? spec.defaultValue;
-          add(`${ch}:${spec.id}`, spec, cur, dst, (v) => {
-            (c.sounds[kind] ??= {})[spec.id] = v;
-            this.send({ type: 'setSound', channel: ch, id: spec.id, value: v });
-          });
+          add(`${ch}:${spec.id}`, spec, cur, dst, (v) => this.setSoundParam(ch, kind, spec.id, v, false));
         }
       }
     });
@@ -875,6 +907,10 @@ export class App {
     }
     if (t >= 1) {
       this.glides.clear();
+      // Values and TIMBRE / INTENSITY landed together: re-derive the SOUND page trims.
+      for (const c of this.project.channels) {
+        if (c.instrument !== 'none' && c.sounds[c.instrument]) c.trims[c.instrument] = deriveTrims(c.instrument, c.sounds[c.instrument]!, INSTRUMENTS[c.instrument].params);
+      }
       this.save();
       this.flash('RESET');
     }

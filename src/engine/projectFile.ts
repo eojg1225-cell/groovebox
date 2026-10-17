@@ -13,6 +13,7 @@ import {
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
+import { deriveTrims } from '../instruments/trims';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
@@ -49,6 +50,7 @@ export interface StoredChannel {
   instrument: string;
   sounds: Record<string, Record<string, number>>;
   presets: Record<string, number>;
+  trims?: Record<string, Record<string, number>>;
   live: string[];
   liveFunc?: string[];
   liveOffset?: Record<string, number>;
@@ -96,6 +98,7 @@ export function toStored(p: Project): StoredProject {
       instrument: c.instrument,
       sounds: JSON.parse(JSON.stringify(c.sounds)) as Record<string, Record<string, number>>,
       presets: { ...c.presets } as Record<string, number>,
+      trims: JSON.parse(JSON.stringify(c.trims)) as Record<string, Record<string, number>>,
       live: [...c.live],
       liveFunc: [...c.liveFunc],
       liveOffset: { ...c.liveOffset },
@@ -199,6 +202,14 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       const kept = Object.fromEntries(Object.entries(values).filter(([id]) => known.has(id)));
       if (Object.keys(kept).length) ch.sounds[k] = { ...(ch.sounds[k] ?? presetSound(k, 0)), ...kept };
     }
+  }
+  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves: derived from the
+  // values, so every sound plays exactly as before.
+  for (const k of SOUND_KINDS) {
+    const sound = ch.sounds[k];
+    if (!sound) continue;
+    const stored = version >= 17 && isObj(src.trims) ? src.trims[k] : undefined;
+    ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
   }
   if (isObj(src.presets)) {
     for (const k of SOUND_KINDS) if (typeof src.presets[k] === 'number') ch.presets[k] = src.presets[k] as number;

@@ -10,6 +10,7 @@ import startProject from './startProject.json';
 export function applyPreset(c: ChannelState, kind: SoundKind, index: number): void {
   c.instrument = kind;
   c.sounds[kind] = presetSound(kind, index);
+  c.trims[kind] = {};
   c.presets[kind] = index;
 }
 
