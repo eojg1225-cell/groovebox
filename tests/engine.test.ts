@@ -9,6 +9,7 @@ import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, KICK_PARAMS, PERC_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
 import { Synth, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
+import { midiToHz } from '../src/instruments/dsp';
 import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
 import { MidCut } from '../src/fx/MidCut';
@@ -1793,6 +1794,23 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
       expect(stats(wild).nan).toBe(false);
       expect(edge(wild), `t=${t}`).toBeGreaterThan(edge(plain) * 1.5);
     }
+  });
+
+  it('INTENSITY 0 is one clear note (carrier 1 alone); the stack comes in with INTENSITY', () => {
+    const c = (x: number) => macroSound('lead', 0, x, LEAD_PARAMS).carriers;
+    expect(c(0)).toBeLessThan(0.01);
+    expect(c(0.75)).toBeCloseTo(0.6, 2);
+    expect(c(1)).toBeCloseTo(1, 2);
+    // ODD 2:3 (first): at 0 the wave repeats at the note's period; fully up it does not.
+    const period = SR / midiToHz(45 + 12); // OCTAVE +1
+    const repeat = (l: Float32Array) => {
+      const k = Math.round(period * 7); // an odd number of periods (sub-octave content does not line up)
+      let num = 0, den = 0;
+      for (let i = SR / 10; i < l.length - k; i++) { num += l[i] * l[i + k]; den += l[i] * l[i]; }
+      return num / den;
+    };
+    expect(repeat(leadAt(0, 0))).toBeGreaterThan(0.95);
+    expect(repeat(leadAt(0, 1))).toBeLessThan(repeat(leadAt(0, 0)) - 0.2);
   });
 
   it('TIMBRE steps FM ratios through related ratios between sounds', () => {

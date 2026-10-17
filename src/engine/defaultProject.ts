@@ -27,7 +27,7 @@ export function liveDefaults(c: ChannelState): void {
  * every pattern empty.
  */
 /** Where each track starts along its TIMBRE. */
-const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'SAW 1:1', 'GLASS PLUCK'];
+const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'ODD 2:3', 'GLASS PLUCK'];
 
 export function createDefaultProject(): Project {
   // 4 = toms / percussion (pitched from the sequencer), 8 = a sync pluck with an arp.

@@ -128,16 +128,17 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   lead: {
     // DX7-style: one feedback modulator into three carriers at related ratios (carrier 1 :
-    // carrier 2 : carrier 3, modulator). Simple waves with INTENSITY down; the ratios bite
-    // in the top quarter.
+    // carrier 2 : carrier 3, modulator). ODD (the most chilled) first. With INTENSITY down
+    // carrier 1 alone plays a simple wave - one clear note; carriers 2 / 3 and the
+    // modulation come in as it rises, the ratios biting in the top quarter.
     anchors: [
-      { name: 'SAW 1:1', values: { shape: 2, unison: 0, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, detune: 0.25, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, attack: 0.004, decay: 0.8, sustain: 0.75, release: 0.2, drive: 1.3 } },
-      { name: 'OCT 1:2', values: { shape: 3, unison: 0, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, detune: 0.15, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, attack: 0.004, decay: 0.6, sustain: 0.7, release: 0.18, drive: 1.4 } },
-      { name: 'FIFTH 3:2', values: { shape: 1.5, unison: 0, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, detune: 0.1, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, attack: 0.003, decay: 0.6, sustain: 0.65, release: 0.25, drive: 1.3 } },
-      { name: 'ODD 2:3', values: { shape: 0.7, unison: 0, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, detune: 0.05, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, attack: 0.002, decay: 0.7, sustain: 0.55, release: 0.3, drive: 1.2 } },
+      { name: 'ODD 2:3', values: { shape: 0.7, unison: 0, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, detune: 0.05, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, attack: 0.002, decay: 0.7, sustain: 0.55, release: 0.3, drive: 1.2 } },
+      { name: 'SAW 1:1', values: { shape: 2, unison: 0, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, detune: 0.25, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, attack: 0.004, decay: 0.8, sustain: 0.75, release: 0.2, drive: 1.3 } },
+      { name: 'OCT 1:2', values: { shape: 3, unison: 0, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, detune: 0.15, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, attack: 0.004, decay: 0.6, sustain: 0.7, release: 0.18, drive: 1.4 } },
+      { name: 'FIFTH 3:2', values: { shape: 1.5, unison: 0, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, detune: 0.1, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, attack: 0.003, decay: 0.6, sustain: 0.65, release: 0.25, drive: 1.3 } },
     ],
     excite: [
-      { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 },
+      { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'cutoff', floor: 700, high: 1.4 }, { id: 'reso', floor: 0.05, high: 1.15 }, { id: 'drive', floor: 1, high: 1.5 },
       { id: 'fenv', floor: 0.05, high: 1.3 }, { id: 'detune', floor: 0.05, high: 1.1 },
     ],

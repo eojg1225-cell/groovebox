@@ -84,6 +84,8 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'ratio2', name: 'RATIO 2', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'ratio3', name: 'RATIO 3', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'feedback', name: 'FEEDBACK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // Level of carriers 2 and 3 against carrier 1 (0 = one clear note, 1 = the full stack).
+  { id: 'carriers', name: 'CARRIERS', min: 0, max: 1, defaultValue: 0.35, unit: '', curve: 'linear' },
   // ARP (played by the engine, which reads these two): chord / octave notes in turn while held.
   choice('arp', 'ARP', ARP_MODES),
   choice('arprate', 'ARP RATE', ARP_RATES.map((r) => r.name), 3),
@@ -134,7 +136,7 @@ export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0 };
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback'], { octave: 3, level: 0.55 });
+export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { octave: 3, level: 0.55 });
 export const LEAD_FIXED = { voice: 1, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'arp', 'arprate', 'arpoct'], { level: 0.55 });
@@ -197,7 +199,7 @@ export class Synth implements Instrument {
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
   /** 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three carriers). */
-  private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
+  private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
@@ -302,6 +304,7 @@ export class Synth implements Instrument {
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
       case 'feedback': this.feedback = value; break;
+      case 'carriers': this.carriers = value; break;
       case 'algo': this.algo = Math.round(value); break;
       case 'detune': this.detune = value; break;
       case 'sub': this.sub = value; break;
@@ -394,7 +397,8 @@ export class Synth implements Instrument {
           // 3 CARRIER: one sine modulator with self-feedback (its last two outputs averaged,
           // as on the DX7) phase-modulates three carriers at their own ratios; the carriers
           // play SHAPE's wave, so with no modulation this is a plain lead. Carrier 2 is
-          // detuned by DETUNE. OSC 1 = carriers 1 + 3, OSC 2 = carrier 2.
+          // detuned by DETUNE. CARRIERS sets carriers 2 / 3 against carrier 1 (at 0 one clear
+          // note through both envelopes). OSC 1 = carriers 1 + 3, OSC 2 = carrier 2.
           v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
           const fbIn = (v.fb1 + v.fb2) * 0.5 * this.feedback * MAX_FEEDBACK;
           const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
@@ -406,8 +410,10 @@ export class Synth implements Instrument {
           const d6 = dt1 * this.ratio3;
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
           v.p6 += d6; if (v.p6 >= 1) v.p6 -= 1;
-          o1 = (this.osc(wrap(v.p1 + pm), dt1) + this.osc(wrap(v.p6 + pm), d6)) * 0.6;
-          o2 = this.osc(wrap(v.p5 + pm), d5);
+          const c = this.carriers;
+          const c1 = this.osc(wrap(v.p1 + pm), dt1);
+          o1 = c1 * (1 - 0.4 * c) + this.osc(wrap(v.p6 + pm), d6) * 0.6 * c;
+          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + pm), d5) * c;
         } else {
           o1 = this.osc(v.p1, dt1);
           o2 = this.osc(v.p2, dt2);

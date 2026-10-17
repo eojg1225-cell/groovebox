@@ -76,7 +76,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | PERC (tone + click + metal; pitched per step) | LOW TOM → CONGA → COWBELL → CLAVE | click row / metal row |
 | BASS (mono) | SINE SUB → SOLID → GROWL → FM CLANG | oscillators / glide, envelopes, level |
 | PAD (6 voices) | GLASS → WARM → STRINGS → ETHEREAL (FM supersaw: unison saws, FM at 3:2, swelling) | oscillators / chord, envelopes, level |
-| LEAD (mono; DX7-style: one feedback modulator into three carriers playing simple waves) | SAW 1:1 → OCT 1:2 → FIFTH 3:2 → ODD 2:3 (carrier ratios; plain leads with INTENSITY down, the ratios bite in its top quarter) |
+| LEAD (mono; DX7-style: one feedback modulator into three carriers playing simple waves) | ODD 2:3 → SAW 1:1 → OCT 1:2 → FIFTH 3:2 (carrier ratios). INTENSITY 0 = carrier 1 alone, one clear note; CARRIERS (FUNC column 7 bottom) brings carriers 2 / 3 in under it — at 50 % still a readable lead — and the top quarter turns it into the full stack with the DX7 bite |
 | PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | GLASS PLUCK → SAW PLUCK → SQUARE PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
 
 Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4, 5TH, 5TH+OCT, MAJ11.
