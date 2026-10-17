@@ -136,6 +136,7 @@ export class Engine {
   // note's index, frames until it, and the arp note sounding now (-1 = none).
   private readonly arpMode = new Uint8Array(NUM_CHANNELS);
   private readonly arpSteps = new Float32Array(NUM_CHANNELS).fill(1);
+  private readonly arpOct = new Uint8Array(NUM_CHANNELS).fill(1);
   private readonly arpHeld = new Uint8Array(NUM_CHANNELS);
   private readonly arpRoot = new Float32Array(NUM_CHANNELS);
   private readonly arpVel = new Float32Array(NUM_CHANNELS);
@@ -573,8 +574,7 @@ export class Engine {
     if (this.arpNote[ch] >= 0) inst.noteOff(this.arpNote[ch]);
     const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
     const mode = this.arpMode[ch];
-    const octaves = mode === 5 || intervals.length === 1 ? 2 : 1; // a single note arps octaves
-    const count = intervals.length * octaves;
+    const count = intervals.length * this.arpOct[ch]; // chord tones over ARP OCT octaves
     const i = this.arpIndex[ch]++;
     let k: number;
     if (mode === 2) k = count - 1 - (i % count); // DOWN
@@ -582,8 +582,14 @@ export class Engine {
       const period = Math.max(1, 2 * count - 2);
       const t = i % period;
       k = t < count ? t : period - t;
-    } else if (mode === 4) k = Math.min(count - 1, Math.floor((this.arpNoise.next() * 0.5 + 0.5) * count)); // RANDOM
-    else k = i % count; // UP, UP 2OCT
+    } else if ((mode === 4 || mode === 5) && count >= 3) {
+      // CASCADE: overlapping skips, pairs (k, k + 2): 1 5 3 7 5 9 ... / from the top down.
+      const j = i % (2 * (count - 2));
+      const pair = j >> 1;
+      const skip = (j & 1) * 2;
+      k = mode === 4 ? pair + skip : count - 1 - pair - skip;
+    } else if (mode === 6) k = Math.min(count - 1, Math.floor((this.arpNoise.next() * 0.5 + 0.5) * count)); // RANDOM
+    else k = mode === 5 ? count - 1 - (i % count) : i % count; // UP (short chords cascade as UP / DOWN)
     const n = this.arpRoot[ch] + intervals[k % intervals.length] + 12 * Math.floor(k / intervals.length);
     inst.noteOn(n, this.arpVel[ch], n, false);
     this.arpNote[ch] = n;
@@ -927,6 +933,8 @@ export class Engine {
       if (this.arpMode[ch] === 0 && this.arpHeld[ch]) this.stopArp(ch);
     } else if (id === 'arprate') {
       this.arpSteps[ch] = ARP_RATES[Math.round(value)]?.steps ?? 1;
+    } else if (id === 'arpoct') {
+      this.arpOct[ch] = Math.max(1, Math.min(3, Math.round(value) + 1));
     }
   }
 

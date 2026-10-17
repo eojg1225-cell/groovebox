@@ -122,7 +122,7 @@ describe('instruments', () => {
   it('each type has a 16-knob SOUND page of its own params; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
       expect(entry.layout).toHaveLength(16);
-      for (const id of entry.layout) expect(id !== null && entry.params.some((p) => p.id === id), String(id)).toBe(true);
+      for (const id of entry.layout) expect(id !== null && (id.includes(':') || entry.params.some((p) => p.id === id)), String(id)).toBe(true);
       for (const p of entry.params) if (p.options) expect(p.coarse).toBe(true);
       for (const preset of entry.presets) {
         for (const id in preset.values) expect(entry.params.some((p) => p.id === id)).toBe(true);
@@ -138,7 +138,8 @@ describe('instruments', () => {
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
-    expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['fmratio', 'detune']);
+    expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['glide', 'detune']);
+    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['unison', 'detune']);
   });
 
   it('drum crush and drive keep the output bounded', () => {
@@ -1362,32 +1363,44 @@ describe('drum RING follows the decay knobs', () => {
 });
 
 describe('PLUCK and ARP', () => {
-  it('has its four sounds, from pizzicato to the FM donk, with SYNC and ARP on the SOUND page', () => {
-    expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['PIZZICATO', 'GLASS PLUCK', 'SYNC ZAP', 'RAGE DONK']);
+  it('has its four sounds, from pizzicato to the FM donk, with CHORD and ARP on the SOUND page', () => {
+    expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['PIZZICATO', 'GLASS PLUCK', 'SAW PLUCK', 'RAGE DONK']);
     const l = INSTRUMENTS.pluck.layout;
-    expect([l[6], l[14], l[7], l[15]]).toEqual(['sync', 'fmratio', 'arp', 'arprate']);
-  });
-
-  it('hard sync adds brightness, and the donk renders bounded', () => {
-    const hf = (sync: number) => {
-      const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });
-      for (const [id, v] of Object.entries({ shape: 0, fm: 0, sync, cutoff: 20000, fenv: 0, sustain: 1, decay: 2, decay2: 2 })) s.setParam(id, v);
-      s.noteOn(45, 1, 45);
-      const l = new Float32Array(SR / 4);
-      s.render(l, new Float32Array(SR / 4), 0, l.length);
-      let e = 0;
-      for (let i = 1; i < l.length; i++) e += (l[i] - l[i - 1]) ** 2;
-      return e;
-    };
-    expect(hf(5)).toBeGreaterThan(hf(1) * 4);
+    expect([l[6], l[14], l[7], l[15]]).toEqual(['track:chord', 'arpoct', 'arp', 'arprate']);
     const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });
     const donk = presetSound('pluck', 3);
     for (const id in donk) s.setParam(id, donk[id]);
     s.noteOn(45, 1, 45);
-    const l = new Float32Array(SR);
-    s.render(l, new Float32Array(SR), 0, l.length);
-    expect(stats(l).nan).toBe(false);
-    expect(stats(l).peak).toBeLessThan(2);
+    const out = new Float32Array(SR);
+    s.render(out, new Float32Array(SR), 0, out.length);
+    expect(stats(out).nan).toBe(false);
+    expect(stats(out).peak).toBeLessThan(2);
+  });
+
+  it('GLIDE: fully left is off, with fine control over short glides', () => {
+    const spec = INSTRUMENTS.lead.params.find((p) => p.id === 'glide')!;
+    expect(toValue(spec, 0)).toBe(0);
+    expect(toValue(spec, 0.25)).toBeLessThan(0.2);
+    expect(toNorm(spec, toValue(spec, 0.4))).toBeCloseTo(0.4, 6);
+  });
+
+  it('CASCADE plays overlapping skips up (1 5 3 7) and down from the top', () => {
+    const notesOf = (arp: number, chord: string) => {
+      const p = kickProject([], { bpm: 120 });
+      const t = p.channels[7];
+      t.chord = CHORDS.findIndex((c) => c.name === chord);
+      t.sounds.pluck = { ...t.sounds.pluck!, arp, arprate: 3, arpoct: 0 };
+      const e = engineWith(p);
+      const played: number[] = [];
+      const inst = (e as unknown as { current: { noteOn(n: number): void }[] }).current[7];
+      const orig = inst.noteOn.bind(inst);
+      inst.noteOn = (n: number, ...rest: unknown[]) => { played.push(n); (orig as (...a: unknown[]) => void)(n, ...rest); };
+      e.handleMessage({ type: 'trigger', channel: 7, note: 48, velocity: 0.8 });
+      render(e, 0.95); // 1/16 = 6000 frames: about 8 notes
+      return played.slice(0, 8).map((n) => n - 48);
+    };
+    expect(notesOf(4, 'MAJ7')).toEqual([0, 7, 4, 11, 0, 7, 4, 11]); // 1 5 3 7
+    expect(notesOf(5, 'MIN11')).toEqual([17, 10, 14, 7, 10, 3, 7, 0]); // 11 7 9 5 7 3 5 1
   });
 
   it('ARP steps through the held chord at its rate', () => {

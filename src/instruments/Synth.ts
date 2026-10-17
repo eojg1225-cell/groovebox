@@ -10,9 +10,7 @@ import { MACROS } from './macros';
  * continuous SHAPE (sine -> triangle -> saw -> square) blended by FM with an FM pair (sine
  * carrier, sine modulator at FM RATIO, index following the filter envelope), and each
  * with its own ATTACK / DECAY (shared SUSTAIN / RELEASE); a sine sub joins OSC 1. UNISON
- * adds four more detuned copies (two per element, spread by DETUNE) for supersaws. SYNC (> 1)
- * hard-syncs each oscillator to its own pitch at SYNC x the frequency, the ratio swept down
- * by the filter envelope (the classic sync pluck "zap"). Then a
+ * adds four more detuned copies (two per element, spread by DETUNE) for supersaws. Then a
  * resonant low-pass with its own envelope (ATTACK, DECAY, ENV amount) -> drive, then CRUSH
  * on the summed output. MONO uses one voice with glide. Ranges go far past "sensible" on
  * purpose.
@@ -21,8 +19,11 @@ import { MACROS } from './macros';
 /** Legacy stepped wave (saves before SHAPE): SAW, SQR, TRI, SINE -> shape position. */
 const LEGACY_WAVE_TO_SHAPE = [2, 3, 1, 0];
 const VOICE_MODES = ['POLY', 'MONO'] as const;
-/** ARP: how the held notes (the chord, over octaves) are stepped through. */
-export const ARP_MODES = ['OFF', 'UP', 'DOWN', 'UP/DN', 'RANDOM', 'UP 2OCT'] as const;
+/**
+ * ARP: how the held chord (over ARP OCT octaves) is stepped through. CASCADE goes up (or down)
+ * in overlapping skips: 1 5 3 7 5 9 ... (or from the top: 11 7 9 5 7 3 ...).
+ */
+export const ARP_MODES = ['OFF', 'UP', 'DOWN', 'UP/DN', 'CASC UP', 'CASC DN', 'RANDOM'] as const;
 /** ARP speeds in 16th steps. */
 export const ARP_RATES = [
   { name: '1/4', steps: 4 }, { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 },
@@ -59,13 +60,14 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'detune', name: 'DETUNE', min: 0, max: 4, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'sub', name: 'SUB', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'unison', name: 'UNISON', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'sync', name: 'SYNC', min: 1, max: 16, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 2 },
   // ARP (played by the engine, which reads these two): chord / octave notes in turn while held.
   choice('arp', 'ARP', ARP_MODES),
   choice('arprate', 'ARP RATE', ARP_RATES.map((r) => r.name), 3),
+  choice('arpoct', 'ARP OCT', ['1 OCT', '2 OCT', '3 OCT']),
   choice('octave', 'OCTAVE', OCTAVES, 2),
   choice('voice', 'VOICES', VOICE_MODES),
-  { id: 'glide', name: 'GLIDE', min: 0, max: 3, defaultValue: 0, unit: 'S', curve: 'linear' },
+  // GLIDE: fully left = off; the square curve gives fine control over short glides.
+  { id: 'glide', name: 'GLIDE', min: 0, max: 3, defaultValue: 0, unit: 'S', curve: 'square', decimals: 3 },
   { id: 'cutoff', name: 'FILTER', min: 20, max: 20000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.4, unit: '', curve: 'linear' },
@@ -102,8 +104,8 @@ export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { att
 export const PAD_FIXED = { voice: 0, glide: 0, sub: 0 };
 export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE], { octave: 3, level: 0.55 });
 export const LEAD_FIXED = { voice: 1, sub: 0 };
-/** PLUCK: a polyphonic hard-sync pluck with an ARP. */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'sync', 'octave', ...ENVELOPE, 'arp', 'arprate'], { level: 0.55 });
+/** PLUCK: a polyphonic pluck with an ARP. */
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'arp', 'arprate', 'arpoct'], { level: 0.55 });
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: 0 };
 
 /** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */
@@ -142,8 +144,6 @@ class Voice {
   /** Pitch glide coefficient in use (GLIDE for mono notes, the slide time for slides). */
   glide = 1;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
-  /** SYNC: the slaved oscillators' phases. */
-  s1 = 0; s2 = 0;
   /** UNISON copies' phases. */
   readonly u = new Float64Array(4);
   /** Envelope stage and level per element (OSC 1, OSC 2). */
@@ -161,7 +161,6 @@ export class Synth implements Instrument {
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
-  private sync = 1;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
   private glideCoeff = 1;
@@ -257,7 +256,6 @@ export class Synth implements Instrument {
       case 'detune': this.detune = value; break;
       case 'sub': this.sub = value; break;
       case 'unison': this.unison = value; break;
-      case 'sync': this.sync = value; break;
       case 'octave': this.octave = Math.round(value) - 2; break;
       case 'voice':
         this.mono = Math.round(value) === 1;
@@ -336,28 +334,11 @@ export class Synth implements Instrument {
         }
         const dt1 = (v.freq * this.pitchMod) / sr;
         const dt2 = dt1 * det;
-        v.p1 += dt1;
-        const wrap1 = v.p1 >= 1;
-        if (wrap1) v.p1 -= 1;
-        v.p2 += dt2;
-        const wrap2 = v.p2 >= 1;
-        if (wrap2) v.p2 -= 1;
+        v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;
+        v.p2 += dt2; if (v.p2 >= 1) v.p2 -= 1;
         v.p3 += dt1 * 0.5; if (v.p3 >= 1) v.p3 -= 1;
-        let o1: number;
-        let o2: number;
-        if (this.sync > 1.001) {
-          // Hard sync: each oscillator restarts with its master (the voice's own pitch).
-          const ratio = 1 + (this.sync - 1) * (0.35 + 0.65 * v.fenv);
-          v.s1 += dt1 * ratio; v.s2 += dt2 * ratio;
-          if (wrap1) v.s1 = v.p1 * ratio;
-          if (wrap2) v.s2 = v.p2 * ratio;
-          v.s1 -= Math.floor(v.s1); v.s2 -= Math.floor(v.s2);
-          o1 = this.osc(v.s1, dt1 * ratio);
-          o2 = this.osc(v.s2, dt2 * ratio);
-        } else {
-          o1 = this.osc(v.p1, dt1);
-          o2 = this.osc(v.p2, dt2);
-        }
+        let o1 = this.osc(v.p1, dt1);
+        let o2 = this.osc(v.p2, dt2);
         if (this.fm > 0) {
           // FM pair: the index rises with FM and with the filter envelope (a struck clang).
           v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;

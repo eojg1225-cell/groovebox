@@ -14,6 +14,10 @@ export const CHORDS: readonly { name: string; intervals: readonly number[] }[] =
   { name: 'DOM9', intervals: [0, 4, 7, 10, 14] },
   { name: 'MIN11', intervals: [0, 3, 7, 10, 14, 17] },
   { name: 'SUS4', intervals: [0, 5, 7] },
+  // Added later (kept at the end: chords are stored by index).
+  { name: '5TH', intervals: [0, 7] },
+  { name: '5TH+OCT', intervals: [0, 7, 12] },
+  { name: 'MAJ11', intervals: [0, 4, 7, 11, 14, 17] },
 ];
 
 export const CHORD_NAMES = CHORDS.map((c) => c.name);

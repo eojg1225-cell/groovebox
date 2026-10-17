@@ -4,7 +4,8 @@
  *
  * Controls always speak in normalised 0..1; the engine works in real units.
  */
-export type ParamCurve = 'linear' | 'exp';
+/** linear; exp (frequencies, times; min > 0); square (from 0, fine at the low end: glide). */
+export type ParamCurve = 'linear' | 'exp' | 'square';
 
 export interface ParamSpec {
   /** Stable id, unique within its owner (e.g. "freq"). */
@@ -44,6 +45,7 @@ export function toValue(spec: ParamSpec, norm: number): number {
   const n = clamp(norm, 0, 1);
   if (spec.options) return Math.round(n * (spec.options.length - 1));
   if (spec.curve === 'exp') return spec.min * Math.pow(spec.max / spec.min, n);
+  if (spec.curve === 'square') return spec.min + (spec.max - spec.min) * n * n;
   return spec.min + (spec.max - spec.min) * n;
 }
 
@@ -51,6 +53,7 @@ export function toValue(spec: ParamSpec, norm: number): number {
 export function toNorm(spec: ParamSpec, value: number): number {
   const v = clamp(value, spec.min, spec.max);
   if (spec.curve === 'exp') return Math.log(v / spec.min) / Math.log(spec.max / spec.min);
+  if (spec.curve === 'square') return Math.sqrt((v - spec.min) / (spec.max - spec.min));
   return (v - spec.min) / (spec.max - spec.min);
 }
 

@@ -24,10 +24,10 @@ const ROW = PAGE_SLOTS / 2;
  * module (top knob / bottom knob): 1 TIMBRE / INTENSITY, 2 element 1 ATTACK / DECAY,
  * 3 element 2 ATTACK / DECAY, 4 FILTER / RESO, 5 FILTER ATTACK / DECAY, 6 DRIVE / CRUSH,
  * 7 the type's key tuning pair (`tune`), 8 `last`: FILTER ENV amount / RING LEN (drums) or
- * SUSTAIN (synths); PLUCK: ARP / ARP RATE (tune SYNC / FM RATIO).
+ * SUSTAIN (synths). PLUCK: column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE.
  * Elements: KICK tone + click, SNARE tone + metal, HAT click + metal, PERC tone + click,
  * synths OSC 1 + OSC 2. Tune: KICK / PERC pitch + sweep, SNARE pitch + wire tone, HAT metal
- * pitch + tone, synths FM RATIO + DETUNE.
+ * pitch + tone, BASS / LEAD GLIDE + DETUNE, PAD UNISON + DETUNE.
  */
 export function soundPage(elements: readonly string[], tune: readonly [string, string], last: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;
@@ -37,7 +37,9 @@ export function soundPage(elements: readonly string[], tune: readonly [string, s
   ];
 }
 
-const SYNTH_TUNE = ['fmratio', 'detune'] as const;
+/** Column 7 for the synths: mono ones GLIDE / DETUNE, the pad UNISON / DETUNE. */
+const MONO_TUNE = ['glide', 'detune'] as const;
+const PAD_TUNE = ['unison', 'detune'] as const;
 
 /** A 2 x 6 layout on the 2 x 8 panel: modules 1-6, modules 7-8 empty. */
 export function widen<T>(six: readonly (T | null)[]): (T | null)[] {
@@ -51,7 +53,7 @@ export interface InstrumentEntry {
   name: string;
   /** All of the type's parameters (stored, set by presets, lockable). */
   params: readonly ParamSpec[];
-  /** The SOUND page: 16 knob slots (2 rows of 8), the type's params; null = empty. */
+  /** The SOUND page: 16 knob slots (2 rows of 8): the type's params ("track:chord" = the chord). */
   layout: readonly (string | null)[];
   presets: readonly Preset[];
   /** Drum voices use the step strip when recording; pitched types get a keyboard. */
@@ -68,10 +70,10 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   snare: { name: 'SNARE', params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['t_pitch', 'm_tone'], ['fenv', 'ring']), presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
   hat: { name: 'HAT', params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['m_pitch', 'm_tone'], ['fenv', 'ring']), presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
   perc: { name: 'PERC', params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['t_pitch', 't_sweep'], ['fenv', 'ring']), presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
-  bass: { name: 'BASS', params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, ['fenv', 'sustain']), presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
-  pad: { name: 'PAD', params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, ['fenv', 'sustain']), presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
-  lead: { name: 'LEAD', params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, ['fenv', 'sustain']), presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
-  pluck: { name: 'PLUCK', params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['sync', 'fmratio'], ['arp', 'arprate']), presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
+  bass: { name: 'BASS', params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'sustain']), presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
+  pad: { name: 'PAD', params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'sustain']), presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
+  lead: { name: 'LEAD', params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'sustain']), presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
+  pluck: { name: 'PLUCK', params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']), presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
 };
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];
