@@ -14,6 +14,7 @@ import {
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
 import { deriveTrims } from '../instruments/trims';
+import { remapTimbreV18 } from '../instruments/macros';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
@@ -199,20 +200,28 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       if (version < 13 && values.glide !== undefined) values.glide = Math.max(values.glide, 0.06);
       // Before v14 the synths' OSC 2 shared OSC 1's SUSTAIN / RELEASE.
       mirrorOsc2(values);
+      // v19: a fifth TIMBRE sound per type; older positions move so each sound stays itself.
+      if (version < 19 && values.timbre !== undefined) values.timbre = remapTimbreV18(k, values.timbre);
       const kept = Object.fromEntries(Object.entries(values).filter(([id]) => known.has(id)));
       if (Object.keys(kept).length) ch.sounds[k] = { ...(ch.sounds[k] ?? presetSound(k, 0)), ...kept };
     }
   }
-  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves: derived from the
-  // values, so every sound plays exactly as before.
+  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19, when
+  // the TIMBRE sounds changed): derived from the values, so every sound plays exactly as
+  // before.
   for (const k of SOUND_KINDS) {
     const sound = ch.sounds[k];
     if (!sound) continue;
-    const stored = version >= 17 && isObj(src.trims) ? src.trims[k] : undefined;
+    const stored = version >= 19 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
   }
   if (isObj(src.presets)) {
-    for (const k of SOUND_KINDS) if (typeof src.presets[k] === 'number') ch.presets[k] = src.presets[k] as number;
+    for (const k of SOUND_KINDS) {
+      if (typeof src.presets[k] !== 'number') continue;
+      const index = src.presets[k] as number;
+      // v19: one more factory preset per type, so user patch numbers move up one.
+      ch.presets[k] = version < 19 && index >= 4 ? index + 1 : index;
+    }
   }
   // Before v5 the live knobs followed the preset; from v5 they default to VOLUME/CUTOFF
   // and only a choice made since is kept.

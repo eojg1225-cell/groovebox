@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
 import { toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
-import { emptyPattern, type Project } from '../src/engine/project';
+import { emptyPattern, type Project, type SoundKind } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
@@ -23,7 +23,7 @@ import { LFO_RATES, lfoValue } from '../src/engine/lfo';
 
 /** An LFO rate's index by name. */
 const RATE = (name: string) => LFO_RATES.findIndex((r) => r.name === name);
-import { MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound } from '../src/instruments/macros';
+import { MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound, timbreName } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { soundPage, stepsOnStrip } from '../src/instruments/registry';
@@ -740,11 +740,19 @@ describe('TIMBRE and INTENSITY macros', () => {
     }
   });
 
-  it('the snare starts as a short, high rimshot', () => {
+  it('the snare starts as a high rimshot', () => {
     const rim = macroSound('snare', 0, 0.5, INSTRUMENTS.snare.params);
-    const brk = macroSound('snare', anchorPosition('snare', 2), 0.5, INSTRUMENTS.snare.params);
+    const brk = macroSound('snare', anchorPosition('snare', MACROS.snare.anchors.findIndex((a) => a.name === 'BREAK')), 0.5, INSTRUMENTS.snare.params);
     expect(rim.t_pitch).toBeGreaterThan(brk.t_pitch);
-    expect(rim.m_decay).toBeLessThan(brk.m_decay);
+  });
+
+  it('TIMBRE never changes the tail length: decays, RELEASE and RING LEN are the type\'s own', () => {
+    const tails = ['t_decay', 'm_decay', 'c_len', 'ring', 'decay', 'decay2', 'release', 'release2'].filter((id) => id !== 'c_len');
+    for (const k of SOUND_KINDS) {
+      const ids = macroIds(k, INSTRUMENTS[k].params);
+      for (const id of tails) expect(ids.has(id), `${k} ${id}`).toBe(false);
+      for (const e of MACROS[k].excite) expect(tails.includes(e.id), `${k} INTENSITY ${e.id}`).toBe(false);
+    }
   });
 });
 
@@ -1254,8 +1262,8 @@ describe('hat head and RING LEN', () => {
 
   it('RING adds the sound\'s RING LEN to the decay (not a blown-out multiple)', () => {
     const tail = (l: Float32Array, t: number) => stats(l.subarray(SR * t, SR * t + 2400)).peak;
-    const plain = hat('HAT');
-    const ring = hat('HAT', true);
+    const plain = hat('HAT', false, { ring: 0.5 });
+    const ring = hat('HAT', true, { ring: 0.5 });
     expect(tail(plain, 0.3)).toBeLessThan(1e-3);
     expect(tail(ring, 0.3)).toBeGreaterThan(1e-3); // ~0.5 s open hat
     expect(tail(ring, 1.2)).toBeLessThan(1e-4); // ... and then gone
@@ -1358,10 +1366,10 @@ describe('pattern D', () => {
 });
 
 describe('PERC track', () => {
-  it('is pitched from the sequencer (keyboard step entry) and has its four sounds', () => {
+  it('is pitched from the sequencer (keyboard step entry) and has its five sounds', () => {
     expect(stepsOnStrip('perc')).toBe(false);
     expect(stepsOnStrip('snare')).toBe(true);
-    expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'CONGA', 'COWBELL', 'CLAVE']);
+    expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'SYN DRUM', 'CONGA', 'COWBELL', 'CLAVE']);
     const crossings = (note: number) => {
       const d = new Drum(SR, PERC_PARAMS);
       const sound = presetSound('perc', 0);
@@ -1454,7 +1462,7 @@ describe('drum RING follows the decay knobs', () => {
   it('a longer metal DECAY gives a longer ring tail', () => {
     const tail = (mDecay: number) => {
       const d = new Drum(SR, HAT_PARAMS);
-      const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === 'HAT')), c_level: 0, m_decay: mDecay };
+      const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === 'HAT')), c_level: 0, ring: 0.5, m_decay: mDecay };
       for (const id in sound) d.setParam(id, sound[id]);
       d.noteOn(36, 1, 36, true);
       const l = new Float32Array(SR * 3);
@@ -1467,8 +1475,8 @@ describe('drum RING follows the decay knobs', () => {
 });
 
 describe('PLUCK and ARP', () => {
-  it('has its four sounds, from glass to the FM donk, with CHORD and ARP on the SOUND page', () => {
-    expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['GLASS PLUCK', 'SAW PLUCK', 'SQUARE PLUCK', 'RAGE DONK']);
+  it('has its five sounds, from steel to the FM donk, with CHORD and ARP on the SOUND page', () => {
+    expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['STEEL', 'GLASS PLUCK', 'SAW PLUCK', 'SQUARE PLUCK', 'RAGE DONK']);
     const l = INSTRUMENTS.pluck.layout;
     expect([l[6], l[14], l[7], l[15]]).toEqual(['track:chord', 'arpoct', 'arp', 'arprate']);
     const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });
@@ -1868,5 +1876,31 @@ describe('LFO shapes for stabs', () => {
     for (const shape of [0, 1, 2, 3]) expect(lfoValue(shape, 0, 0), `shape ${shape}`).toBeCloseTo(1);
     expect(lfoValue(4, 0, 0)).toBeCloseTo(-1);
     expect(lfoValue(4, 0.9999, 0)).toBeCloseTo(1, 3);
+  });
+});
+
+describe('a fifth TIMBRE sound (v19)', () => {
+  it('every type has five sounds, the new one where it blends', () => {
+    const names = (k: SoundKind) => MACROS[k].anchors.map((a) => a.name);
+    expect(names('hat')).toEqual(['RIDE', 'HAT', 'SPLASH', 'CRASH', 'CHINA']);
+    expect(names('bass')).toEqual(['SINE SUB', 'SOLID', '303', 'GROWL', 'FM CLANG']);
+    expect(names('snare')[1]).toBe('PICCOLO');
+    expect(names('lead')[1]).toBe('ORGAN');
+    for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
+  });
+
+  it('older saves keep each sound: TIMBRE moves onto the same sound, values play exactly as saved', () => {
+    const p = createDefaultProject();
+    const ch = p.channels[2]; // hat
+    // Saved at old CRASH (2/3 with four sounds) with a tweak.
+    ch.sounds.hat = { ...ch.sounds.hat!, timbre: 2 / 3, m_tone: 3333 };
+    ch.presets.hat = 4; // a user patch (after the four factory presets)
+    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 18 };
+    const q = fromStored(old)!.channels[2];
+    expect(timbreName('hat', q.sounds.hat!.timbre)).toBe('CRASH');
+    expect(q.sounds.hat!.m_tone).toBeCloseTo(3333);
+    expect(q.presets.hat).toBe(5);
+    const hidden = hiddenSound('hat', q.sounds.hat!, INSTRUMENTS.hat.params);
+    expect(applyTrim(paramSpec('hat', 'm_tone')!, hidden.m_tone, q.trims.hat!.m_tone)).toBeCloseTo(3333, 3);
   });
 });

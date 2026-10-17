@@ -49,27 +49,31 @@ export interface MacroDef {
 export const MACROS: Record<SoundKind, MacroDef> = {
   kick: {
     anchors: [
-      { name: 'VINTAGE', values: { t_level: 0.95, t_pitch: 44, t_sweep: 14, t_stime: 0.07, t_decay: 1, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.006, c_noise: 0.3, drive: 1.3, crush: 0 } },
-      { name: 'PUNCH', values: { t_level: 0.95, t_pitch: 52, t_sweep: 30, t_stime: 0.03, t_decay: 0.45, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 } },
-      { name: 'TECHNO', values: { t_level: 0.95, t_pitch: 49, t_sweep: 36, t_stime: 0.022, t_decay: 0.38, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 } },
+      // Dub / jungle: a tuned 808 boom - pure sine, slow drop, no click (RING makes it sing).
+      { name: '808 BOOM', values: { t_level: 1, t_pitch: 41, t_sweep: 12, t_stime: 0.06, c_level: 0, c_tone: 1500, c_reso: 0.1, c_len: 0.004, c_noise: 0.2, drive: 1.1, crush: 0 } },
+      { name: 'VINTAGE', values: { t_level: 0.95, t_pitch: 44, t_sweep: 14, t_stime: 0.07, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.006, c_noise: 0.3, drive: 1.3, crush: 0 } },
+      { name: 'PUNCH', values: { t_level: 0.95, t_pitch: 52, t_sweep: 30, t_stime: 0.03, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 } },
+      { name: 'TECHNO', values: { t_level: 0.95, t_pitch: 49, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 } },
       // Over the top on purpose: a 6-7 octave laser zap down into a square-driven doof.
-      { name: 'PSY DOOF', values: { t_level: 1, t_pitch: 58, t_sweep: 80, t_stime: 0.028, t_decay: 0.32, c_level: 1, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 45, crush: 0 } },
+      { name: 'PSY DOOF', values: { t_level: 1, t_pitch: 58, t_sweep: 80, t_stime: 0.028, c_level: 1, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 45, crush: 0 } },
     ],
     excite: [
       { id: 'drive', floor: 1, high: 2 }, { id: 'c_level', floor: 0.02, high: 1.5 }, { id: 't_sweep', floor: 2, high: 1.15 },
-      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_noise', floor: 0.05, high: 1.2 }, { id: 'c_reso', floor: 0.05, high: 1.2 }, { id: 't_decay', high: 1.15 },
+      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_noise', floor: 0.05, high: 1.2 }, { id: 'c_reso', floor: 0.05, high: 1.2 },
     ],
   },
   snare: {
     anchors: [
       // Jazz rimshot: a woody, high knock with a little wire and a light decay.
-      { name: 'RIMSHOT', values: { t_level: 0.85, t_pitch: 420, t_sweep: 5, t_decay: 0.07, m_level: 0.45, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_decay: 0.09, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0 } },
-      { name: 'TIGHT', values: { t_level: 0.6, t_pitch: 240, t_sweep: 6, t_decay: 0.09, m_level: 0.8, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_decay: 0.12, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0 } },
-      { name: 'BREAK', values: { t_level: 0.6, t_pitch: 195, t_sweep: 10, t_decay: 0.16, m_level: 0.9, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_decay: 0.24, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0 } },
-      { name: 'INDUSTRIAL', values: { t_level: 0.7, t_pitch: 150, t_sweep: 18, t_decay: 0.2, m_level: 0.9, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_decay: 0.3, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.35 } },
+      { name: 'RIMSHOT', values: { t_level: 0.85, t_pitch: 420, t_sweep: 5, m_level: 0.45, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0 } },
+      // Dub piccolo: high, tight and ringing.
+      { name: 'PICCOLO', values: { t_level: 0.7, t_pitch: 330, t_sweep: 4, m_level: 0.7, m_noise: 0.7, m_pitch: 600, m_tone: 4500, m_spread: 0.8, m_mode: 0, m_fm: 0.3, drive: 1.4, crush: 0 } },
+      { name: 'TIGHT', values: { t_level: 0.6, t_pitch: 240, t_sweep: 6, m_level: 0.8, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0 } },
+      { name: 'BREAK', values: { t_level: 0.6, t_pitch: 195, t_sweep: 10, m_level: 0.9, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0 } },
+      { name: 'INDUSTRIAL', values: { t_level: 0.7, t_pitch: 150, t_sweep: 18, m_level: 0.9, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.35 } },
     ],
     excite: [
-      { id: 'drive', floor: 1, high: 2 }, { id: 'm_tone', floor: 900, high: 1.5 }, { id: 'm_decay', high: 1.3 },
+      { id: 'drive', floor: 1, high: 2 }, { id: 'm_tone', floor: 900, high: 1.5 },
       { id: 't_sweep', floor: 1, high: 1.3 }, { id: 'm_noise', floor: 0.2, high: 1.1 }, { id: 'm_fm', floor: 0, high: 1.3 },
     ],
   },
@@ -77,35 +81,41 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // Every hit starts as its HEAD (a hat; at the far left a ride bell) and morphs into the
     // tail, so short hits stay hats and the tail (and RING) decides the cymbal.
     anchors: [
-      { name: 'RIDE', values: { m_level: 0.55, m_pitch: 1150, m_spread: 0.35, m_noise: 0.25, m_tone: 3000, m_decay: 0.45, m_mode: 2, m_fm: 0.45, h_time: 0.06, h_pitch: 1500, h_tone: 6000, h_noise: 0.02, h_mode: 2, h_spread: 0.25, ring: 2.5, c_level: 0.35, c_tone: 6000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.2, crush: 0 } },
-      { name: 'HAT', values: { m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.07, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, ring: 0.45, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0 } },
-      { name: 'CRASH', values: { m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.7, m_tone: 4500, m_decay: 0.14, m_mode: 0.5, m_fm: 0.5, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, ring: 2.2, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0 } },
-      { name: 'CHINA', values: { m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_decay: 0.14, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, ring: 1.6, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.05 } },
+      { name: 'RIDE', values: { m_level: 0.55, m_pitch: 1150, m_spread: 0.35, m_noise: 0.25, m_tone: 3000, m_mode: 2, m_fm: 0.45, h_time: 0.06, h_pitch: 1500, h_tone: 6000, h_noise: 0.02, h_mode: 2, h_spread: 0.25, c_level: 0.35, c_tone: 6000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.2, crush: 0 } },
+      { name: 'HAT', values: { m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0 } },
+      // Splash: a small, bright cymbal - higher and hissier than the crash.
+      { name: 'SPLASH', values: { m_level: 0.7, m_pitch: 620, m_spread: 1, m_noise: 0.55, m_tone: 7000, m_mode: 0.3, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.25, c_tone: 7000, c_reso: 0.3, c_len: 0.003, c_noise: 0.7, drive: 1.2, crush: 0 } },
+      { name: 'CRASH', values: { m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.7, m_tone: 4500, m_mode: 0.5, m_fm: 0.5, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0 } },
+      { name: 'CHINA', values: { m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.05 } },
     ],
     excite: [
-      { id: 'm_tone', floor: 3500, high: 1.5 }, { id: 'm_decay', high: 1.4 }, { id: 'drive', floor: 1, high: 2.5 },
+      { id: 'm_tone', floor: 3500, high: 1.5 }, { id: 'drive', floor: 1, high: 2.5 },
       { id: 'm_noise', floor: 0.1, high: 1.3 }, { id: 'c_level', floor: 0.12, high: 1.5 }, { id: 'm_fm', floor: 0.1, high: 1.3 },
     ],
   },
   perc: {
     // Pitched from the sequencer: toms and congas follow the notes, the bells too.
     anchors: [
-      { name: 'LOW TOM', values: { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.5, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.1, m_mode: 0, drive: 1.3 } },
-      { name: 'CONGA', values: { t_level: 0.9, t_pitch: 210, t_sweep: 4, t_stime: 0.02, t_decay: 0.2, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.1, m_mode: 0, drive: 1.2 } },
-      { name: 'COWBELL', values: { t_level: 0, t_pitch: 210, t_sweep: 0, t_stime: 0.02, t_decay: 0.1, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.22, m_mode: 0, drive: 1.5 } },
-      { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 2400, t_sweep: 0, t_stime: 0.01, t_decay: 0.045, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.05, m_mode: 0, drive: 1.1 } },
+      { name: 'LOW TOM', values: { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.3 } },
+      // Syn drum: the Simmons 'pew' - a deep pitch sweep.
+      { name: 'SYN DRUM', values: { t_level: 0.95, t_pitch: 160, t_sweep: 24, t_stime: 0.12, c_level: 0.1, c_tone: 2500, c_reso: 0.2, c_len: 0.003, c_noise: 0.3, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.3 } },
+      { name: 'CONGA', values: { t_level: 0.9, t_pitch: 210, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.2 } },
+      { name: 'COWBELL', values: { t_level: 0, t_pitch: 210, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.5 } },
+      { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 2400, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.1 } },
     ],
     excite: [
       { id: 't_sweep', floor: 1, high: 1.4 }, { id: 'c_level', floor: 0.03, high: 1.5 }, { id: 'drive', floor: 1, high: 2.2 },
-      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_reso', floor: 0.1, high: 1.2 }, { id: 'c_noise', floor: 0.05, high: 1.2 }, { id: 't_decay', high: 1.25 },
+      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_reso', floor: 0.1, high: 1.2 }, { id: 'c_noise', floor: 0.05, high: 1.2 },
     ],
   },
   bass: {
     anchors: [
-      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, detune: 0, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, decay: 0.7, sustain: 0.8, drive: 1, glide: 0.03 } },
-      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, detune: 0.15, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, decay: 0.5, sustain: 0.45, drive: 1.6, glide: 0.02 } },
-      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, detune: 0.75, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, decay: 1, sustain: 0.9, drive: 3, glide: 0.04 } },
-      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, detune: 0, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, decay: 0.5, sustain: 0.25, drive: 2.2, glide: 0.02 } },
+      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, detune: 0, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, sustain: 0.8, drive: 1, glide: 0.03 } },
+      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, detune: 0.15, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, sustain: 0.45, drive: 1.6, glide: 0.02 } },
+      // 303: square through a resonant filter with a short, snappy envelope (accents and slides).
+      { name: '303', values: { shape: 3, fm: 0, fmratio: 2, detune: 0, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fdecay: 0.18, sustain: 0.6, drive: 1.8, glide: 0.06 } },
+      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, detune: 0.75, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, sustain: 0.9, drive: 3, glide: 0.04 } },
+      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, detune: 0, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, sustain: 0.25, drive: 2.2, glide: 0.02 } },
     ],
     excite: [
       { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
@@ -114,11 +124,13 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   pad: {
     anchors: [
-      { name: 'GLASS', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.75, fmratio: 2, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, attack: 0.02, decay: 1.1, sustain: 0.35, release: 1.8, drive: 1 } },
-      { name: 'WARM', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0, fmratio: 2, detune: 0.4, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.5, decay: 1.2, sustain: 0.8, release: 1.4, drive: 1 } },
-      { name: 'STRINGS', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0, fmratio: 2, detune: 0.75, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, attack: 0.35, decay: 1.5, sustain: 0.85, release: 1.6, drive: 1.2 } },
+      { name: 'GLASS', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.75, fmratio: 2, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, attack: 0.02, sustain: 0.35, drive: 1 } },
+      // Tine: a DX7 electric-piano pad - FM 1:1 struck by the envelope into a soft body.
+      { name: 'TINE', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.85, fmratio: 1, detune: 0.15, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, attack: 0.005, sustain: 0.45, drive: 1.1 } },
+      { name: 'WARM', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0, fmratio: 2, detune: 0.4, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, attack: 0.5, sustain: 0.8, drive: 1 } },
+      { name: 'STRINGS', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0, fmratio: 2, detune: 0.75, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, attack: 0.35, sustain: 0.85, drive: 1.2 } },
       // Euphoric and ethereal: an FM supersaw (unison saws, FM at 3:2) that swells open.
-      { name: 'ETHEREAL', values: { shape: 2, unison: 1, fm: 0.35, fmratio: 1.5, detune: 1.6, cutoff: 7000, reso: 0.15, fattack: 1.5, fenv: 0.3, fdecay: 4, attack: 0.7, decay: 3, attack2: 1.8, decay2: 4, sustain: 0.95, release: 3.5, drive: 1.1 } },
+      { name: 'ETHEREAL', values: { shape: 2, unison: 1, fm: 0.35, fmratio: 1.5, detune: 1.6, cutoff: 7000, reso: 0.15, fattack: 1.5, fenv: 0.3, fdecay: 4, attack: 0.7, attack2: 1.8, sustain: 0.95, drive: 1.1 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
@@ -132,10 +144,12 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // carrier 1 alone plays a simple wave - one clear note; carriers 2 / 3 and the
     // modulation come in as it rises, the ratios biting in the top quarter.
     anchors: [
-      { name: 'ODD 2:3', values: { shape: 0.7, unison: 0, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, detune: 0.05, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, attack: 0.002, decay: 0.7, sustain: 0.55, release: 0.3, drive: 1.2 } },
-      { name: 'SAW 1:1', values: { shape: 2, unison: 0, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, detune: 0.25, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, attack: 0.004, decay: 0.8, sustain: 0.75, release: 0.2, drive: 1.3 } },
-      { name: 'OCT 1:2', values: { shape: 3, unison: 0, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, detune: 0.15, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, attack: 0.004, decay: 0.6, sustain: 0.7, release: 0.18, drive: 1.4 } },
-      { name: 'FIFTH 3:2', values: { shape: 1.5, unison: 0, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, detune: 0.1, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, attack: 0.003, decay: 0.6, sustain: 0.65, release: 0.25, drive: 1.3 } },
+      { name: 'ODD 2:3', values: { shape: 0.7, unison: 0, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, detune: 0.05, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, attack: 0.002, sustain: 0.55, drive: 1.2 } },
+      // Organ: drawbar-style carriers 1 : 2 : 3 on soft waves, full sustain - a bass or a lead.
+      { name: 'ORGAN', values: { shape: 0.6, unison: 0, fm: 0.4, fmratio: 1, ratio2: 2, ratio3: 3, feedback: 0.15, carriers: 0.6, detune: 0.05, glide: 0.06, cutoff: 6000, reso: 0.05, fenv: 0.1, fdecay: 0.1, attack: 0.002, sustain: 1, drive: 1.2 } },
+      { name: 'SAW 1:1', values: { shape: 2, unison: 0, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, detune: 0.25, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, attack: 0.004, sustain: 0.75, drive: 1.3 } },
+      { name: 'OCT 1:2', values: { shape: 3, unison: 0, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, detune: 0.15, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, attack: 0.004, sustain: 0.7, drive: 1.4 } },
+      { name: 'FIFTH 3:2', values: { shape: 1.5, unison: 0, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, detune: 0.1, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, attack: 0.003, sustain: 0.65, drive: 1.3 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
@@ -146,10 +160,12 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   pluck: {
     // Glassy -> a bright saw pluck -> a hollow, buzzy square pluck -> a raging FM donk.
     anchors: [
-      { name: 'GLASS PLUCK', values: { shape: 1, fm: 0.25, fmratio: 3, detune: 0.2, unison: 0, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, attack: 0.001, decay: 0.4, attack2: 0.001, decay2: 0.3, sustain: 0, release: 0.3, drive: 1.2 } },
-      { name: 'SAW PLUCK', values: { shape: 2, fm: 0.05, fmratio: 2, detune: 0.35, unison: 0.5, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, attack: 0.001, decay: 0.4, attack2: 0.001, decay2: 0.35, sustain: 0.05, release: 0.25, drive: 2 } },
-      { name: 'SQUARE PLUCK', values: { shape: 3, fm: 0.1, fmratio: 2, detune: 0.25, unison: 0.2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, attack: 0.001, decay: 0.35, attack2: 0.001, decay2: 0.3, sustain: 0.03, release: 0.22, drive: 2.5 } },
-      { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, detune: 0.1, unison: 0, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, attack: 0.0005, decay: 0.25, attack2: 0.0005, decay2: 0.18, sustain: 0, release: 0.12, drive: 12 } },
+      // Steel: an FM steel-drum pluck (inharmonic 1 : 2.5).
+      { name: 'STEEL', values: { shape: 0, fm: 0.7, fmratio: 2.5, detune: 0.1, unison: 0, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, attack: 0.001, attack2: 0.001, drive: 1.2 } },
+      { name: 'GLASS PLUCK', values: { shape: 1, fm: 0.25, fmratio: 3, detune: 0.2, unison: 0, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, attack: 0.001, attack2: 0.001, drive: 1.2 } },
+      { name: 'SAW PLUCK', values: { shape: 2, fm: 0.05, fmratio: 2, detune: 0.35, unison: 0.5, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, attack: 0.001, attack2: 0.001, drive: 2 } },
+      { name: 'SQUARE PLUCK', values: { shape: 3, fm: 0.1, fmratio: 2, detune: 0.25, unison: 0.2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, attack: 0.001, attack2: 0.001, drive: 2.5 } },
+      { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, detune: 0.1, unison: 0, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, attack: 0.0005, attack2: 0.0005, drive: 12 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'fenv', floor: 0.1, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
@@ -164,6 +180,36 @@ for (const kind of ['bass', 'pad', 'lead'] as const) {
     if (a.values.attack !== undefined) a.values.attack2 ??= a.values.attack;
     if (a.values.decay !== undefined) a.values.decay2 ??= a.values.decay;
   }
+}
+
+/** Each type's four sounds before v19 (a fifth was added; older TIMBRE positions move). */
+const ANCHORS_V18: Record<SoundKind, readonly string[]> = {
+  kick: ['VINTAGE', 'PUNCH', 'TECHNO', 'PSY DOOF'],
+  snare: ['RIMSHOT', 'TIGHT', 'BREAK', 'INDUSTRIAL'],
+  hat: ['RIDE', 'HAT', 'CRASH', 'CHINA'],
+  perc: ['LOW TOM', 'CONGA', 'COWBELL', 'CLAVE'],
+  bass: ['SINE SUB', 'SOLID', 'GROWL', 'FM CLANG'],
+  pad: ['GLASS', 'WARM', 'STRINGS', 'ETHEREAL'],
+  lead: ['ODD 2:3', 'SAW 1:1', 'OCT 1:2', 'FIFTH 3:2'],
+  pluck: ['GLASS PLUCK', 'SAW PLUCK', 'SQUARE PLUCK', 'RAGE DONK'],
+};
+
+/**
+ * A TIMBRE position saved with four sounds, on today's list: each old sound lands on
+ * itself, positions between two sounds keep their share of the way. (Where a new sound now
+ * sits between them the blend differs; the loader re-derives the SOUND page trims, so a
+ * loaded sound still plays exactly as saved.)
+ */
+export function remapTimbreV18(kind: SoundKind, timbre: number): number {
+  const old = ANCHORS_V18[kind];
+  const anchors = MACROS[kind].anchors;
+  const pos = (name: string) => anchors.findIndex((a) => a.name === name);
+  const u = Math.min(1, Math.max(0, timbre)) * (old.length - 1);
+  const i = Math.min(old.length - 2, Math.floor(u));
+  const f = u - i;
+  const a = pos(old[i]);
+  const b = pos(old[i + 1]);
+  return (a + (b - a) * f) / (anchors.length - 1);
 }
 
 /** Name of the anchor nearest a TIMBRE position (for the screen). */

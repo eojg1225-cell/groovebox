@@ -50,7 +50,7 @@ import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, liveTargets, mirrorOsc2, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { ROLL_DIVS } from '../instruments/Drum';
-import { macroIds, timbreName } from '../instruments/macros';
+import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../instruments/trims';
 import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
@@ -322,8 +322,11 @@ export class App {
       for (const p of INSTRUMENTS[kind].params) defaults[p.id] = p.defaultValue;
       const values = { ...patch.values };
       mirrorOsc2(values);
+      // Patches saved with four TIMBRE sounds: move TIMBRE, re-derive the trims.
+      const old = (patch.v ?? 0) < 19;
+      if (old && values.timbre !== undefined) values.timbre = remapTimbreV18(kind, values.timbre);
       c.sounds[kind] = { ...defaults, ...values };
-      c.trims[kind] = patch.trims ? { ...patch.trims } : deriveTrims(kind, c.sounds[kind]!, INSTRUMENTS[kind].params);
+      c.trims[kind] = patch.trims && !old ? { ...patch.trims } : deriveTrims(kind, c.sounds[kind]!, INSTRUMENTS[kind].params);
       c.presets[kind] = index;
       c.live = [...patch.live];
       if (patch.liveFunc) c.liveFunc = [...patch.liveFunc];

@@ -70,14 +70,16 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 
 | Track | TIMBRE: low → high | Detail knobs |
 |---|---|---|
-| KICK (tone + click) | VINTAGE → PUNCH → TECHNO → PSY DOOF (absurd: ~7-octave zap into a square-driven doof) | tone row / click row |
-| SNARE (tone + metal) | RIMSHOT → TIGHT → BREAK → INDUSTRIAL | tone row / metal row |
-| HAT (click + metal; every hit starts as a hat — a ride bell at the far left — and TIMBRE shapes the tail) | RIDE → HAT → CRASH → CHINA |
-| PERC (tone + click + metal; pitched per step) | LOW TOM → CONGA → COWBELL → CLAVE | click row / metal row |
-| BASS (mono) | SINE SUB → SOLID → GROWL → FM CLANG | oscillators / glide, envelopes, level |
-| PAD (6 voices) | GLASS → WARM → STRINGS → ETHEREAL (FM supersaw: unison saws, FM at 3:2, swelling) | oscillators / chord, envelopes, level |
-| LEAD (mono; DX7-style: one feedback modulator into three carriers playing simple waves) | ODD 2:3 → SAW 1:1 → OCT 1:2 → FIFTH 3:2 (carrier ratios). INTENSITY 0 = carrier 1 alone, one clear note; CARRIERS (FUNC column 7 bottom) brings carriers 2 / 3 in under it — at 50 % still a readable lead — and the top quarter turns it into the full stack with the DX7 bite |
-| PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | GLASS PLUCK → SAW PLUCK → SQUARE PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
+| KICK (tone + click) | 808 BOOM → VINTAGE → PUNCH → TECHNO → PSY DOOF (absurd: ~7-octave zap into a square-driven doof) | tone row / click row |
+| SNARE (tone + metal) | RIMSHOT → PICCOLO → TIGHT → BREAK → INDUSTRIAL | tone row / metal row |
+| HAT (click + metal; every hit starts as a hat — a ride bell at the far left — and TIMBRE shapes the tail) | RIDE → HAT → SPLASH → CRASH → CHINA |
+| PERC (tone + click + metal; pitched per step) | LOW TOM → SYN DRUM → CONGA → COWBELL → CLAVE | click row / metal row |
+| BASS (mono) | SINE SUB → SOLID → 303 → GROWL → FM CLANG | oscillators / glide, envelopes, level |
+| PAD (6 voices) | GLASS → TINE → WARM → STRINGS → ETHEREAL (FM supersaw: unison saws, FM at 3:2, swelling) | oscillators / chord, envelopes, level |
+| LEAD (mono; DX7-style: one feedback modulator into three carriers playing simple waves) | ODD 2:3 → ORGAN (drawbar carriers 1 : 2 : 3 — bass or lead) → SAW 1:1 → OCT 1:2 → FIFTH 3:2 (carrier ratios). INTENSITY 0 = carrier 1 alone, one clear note; CARRIERS (FUNC column 7 bottom) brings carriers 2 / 3 in under it — at 50 % still a readable lead — and the top quarter turns it into the full stack with the DX7 bite |
+| PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | STEEL → GLASS PLUCK → SAW PLUCK → SQUARE PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
+
+Five sounds per type. **Tail lengths are the type's own, not TIMBRE's:** decays, RELEASE and RING LEN stay the same whichever sound is chosen (and INTENSITY never changes them), so sounds can be swapped mid-groove and still ring as long; length is the DECAY knobs', the DECAY / LENGTH live knobs' and RING's job.
 
 Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4, 5TH, 5TH+OCT, MAJ11.
 

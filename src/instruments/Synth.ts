@@ -123,23 +123,24 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
 /**
  * Three synth tracks share the engine with different controls: BASS (mono, glide),
  * PAD (polyphonic, chords) and LEAD (mono, glide). Each type's parameters are all set by
- * TIMBRE / INTENSITY; settings outside the list are fixed (*_FIXED).
+ * TIMBRE / INTENSITY, except the tail lengths (DECAY / RELEASE), which are the type's own -
+ * the same for every TIMBRE; settings outside the list are fixed (*_FIXED).
  */
 const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'unison', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
 
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
-export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, release: 0.06, release2: 0.06, level: 0.75 });
+export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, decay: 0.6, decay2: 0.6, release: 0.06, release2: 0.06, level: 0.75 });
 export const BASS_FIXED = { voice: 1 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, release: 1.2, release2: 1.2, level: 0.5 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, decay: 1.5, decay2: 1.5, release: 1.6, release2: 1.6, level: 0.5 });
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { octave: 3, level: 0.55 });
+export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { octave: 3, decay: 0.6, decay2: 0.6, release: 0.2, release2: 0.2, level: 0.55 });
 export const LEAD_FIXED = { voice: 1, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'arp', 'arprate', 'arpoct'], { level: 0.55 });
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'arp', 'arprate', 'arpoct'], { decay: 0.35, decay2: 0.3, sustain: 0, sustain2: 0, release: 0.25, release2: 0.25, level: 0.55 });
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS };
 
 /** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */

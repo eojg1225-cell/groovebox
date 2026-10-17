@@ -93,7 +93,9 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 const WHOLE = ['ring', 'cutoff', 'reso', 'fattack', 'fdecay', 'fenv', 'drive', 'crush', 'rolldiv'];
 
 /*
- * Each drum type: its parameters (all stored, set by TIMBRE / INTENSITY and presets),
+ * Each drum type: its parameters (set by TIMBRE / INTENSITY and presets, except the tail
+ * lengths - layer decays and RING LEN - which are the type's own, the same for every
+ * TIMBRE, so sounds can be swapped without changing how long they ring),
  * and its two elements' ATTACK / DECAY ids (on the SOUND page, see registry). Parameters
  * without a knob are set by TIMBRE / INTENSITY.
  */
@@ -114,7 +116,7 @@ export const HAT_PARAMS = drumParams(
     'timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm',
     'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', ...WHOLE,
   ],
-  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.05, h_time: 0.03, ring: 0.5 },
+  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03, ring: 1.5 },
 );
 export const HAT_ELEMENTS = ['c_attack', 'c_len', 'm_attack', 'm_decay'];
 
@@ -124,7 +126,7 @@ export const PERC_PARAMS = drumParams(
     'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise',
     'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm', ...WHOLE,
   ],
-  { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.5, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
+  { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.3, m_decay: 0.3, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
 );
 export const PERC_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
