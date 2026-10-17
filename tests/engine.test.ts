@@ -1344,3 +1344,19 @@ describe('v10 track order', () => {
     expect(p.song.rows[0].patterns).toEqual([0, 1, 2, 2, 3, 0, 1, 3]);
   });
 });
+
+describe('drum RING follows the decay knobs', () => {
+  it('a longer metal DECAY gives a longer ring tail', () => {
+    const tail = (mDecay: number) => {
+      const d = new Drum(SR, HAT_PARAMS);
+      const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === 'HAT')), c_level: 0, m_decay: mDecay };
+      for (const id in sound) d.setParam(id, sound[id]);
+      d.noteOn(36, 1, 36, true);
+      const l = new Float32Array(SR * 3);
+      d.render(l, new Float32Array(SR * 3), 0, l.length);
+      return stats(l.subarray(SR * 1.2, SR * 1.3)).peak;
+    };
+    expect(tail(0.07)).toBeLessThan(1e-4); // a short hat rings about 0.7 s
+    expect(tail(0.4)).toBeGreaterThan(1e-3); // a longer one rings well past a second
+  });
+});

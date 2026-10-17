@@ -16,7 +16,9 @@ import { MACROS } from './macros';
  * HAT only: the metal starts as its HEAD sound (a hat, or a ride bell at the far left of
  * TIMBRE) and morphs over HEAD time into its tail (the M ... settings), so short hits
  * stay hats and the tail decides the cymbal.
- * RING (the sequencer's sustain) adds RING LEN seconds to the tone / metal decays.
+ * RING (the sequencer's sustain) stretches each layer's own decay x RING_STRETCH and adds
+ * RING LEN seconds (tone and metal; the click only stretches), so ring tails follow the
+ * DECAY knobs.
  * Each layer has its own ATTACK and DECAY. Then a resonant low-pass FILTER with its own
  * envelope (ATTACK, DECAY, ENV amount), DRIVE (tanh) and CRUSH (bit + sample-rate
  * reduction). Ranges go far past "sensible" on purpose.
@@ -129,6 +131,8 @@ export const PERC_PRESETS: readonly Preset[] = anchorPresets('perc');
 /** 808 cymbal oscillator ratios (relative to the lowest). */
 const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];
 const TWO_PI = Math.PI * 2;
+/** RING: each layer's decay x this (plus RING LEN), so longer DECAY knobs mean longer rings. */
+const RING_STRETCH = 3;
 /** A ringing drum is choked (by the next hit or a rest) with this fade. */
 const CHOKE_SECONDS = 0.012;
 const FILTER_UPDATE = 16;
@@ -153,8 +157,8 @@ export class Drum implements Instrument {
   private mLevel = 0; private mPitch = 400; private mSpread = 1; private mNoise = 0.3; private mMode = 0; private mFm = 0.5;
   private fmC = 0; private fmM = 0;
   private tDecayMul = 0; private sweepMul = 0; private mDecayMul = 0; private cDecayMul = 0;
-  private tRingMul = 0; private mRingMul = 0;
-  private tDecay = 0.45; private mDecay = 0.2; private ringLen = 0.6;
+  private tRingMul = 0; private mRingMul = 0; private cRingMul = 0;
+  private tDecay = 0.45; private mDecay = 0.2; private cLen = 0.004; private ringLen = 0.6;
   // HAT head -> tail morph: head values, the tail's own tone, and how fast it morphs.
   private hTime = 0; private hMul = 0; private hPitch = 420; private hTone = 8500; private hNoise = 0.3;
   private hMode = 0; private hSpread = 1; private mTone = 6000;
@@ -165,7 +169,7 @@ export class Drum implements Instrument {
   private filterMod = 0;
   private readonly chokeMul: number;
   /** Decay multipliers in use for the current hit (normal, ring or choke). */
-  private tMul = 0; private mMul = 0;
+  private tMul = 0; private mMul = 0; private cMul = 0;
   private ringing = false;
 
   // Voice state: per layer an envelope value and stage (OFF / ATTACKING / DECAYING).
@@ -194,6 +198,7 @@ export class Drum implements Instrument {
     this.ringing = ring;
     this.tMul = ring ? this.tRingMul : this.tDecayMul;
     this.mMul = ring ? this.mRingMul : this.mDecayMul;
+    this.cMul = ring ? this.cRingMul : this.cDecayMul;
     this.tune = Math.pow(2, (note - 36) / 12);
     this.velocity = velocity;
     this.tPhase = 0;
@@ -215,8 +220,10 @@ export class Drum implements Instrument {
     this.ringing = false;
     this.tMul = this.chokeMul;
     this.mMul = this.chokeMul;
+    this.cMul = this.chokeMul;
     if (this.tStage === ATTACKING) this.tStage = DECAYING;
     if (this.mStage === ATTACKING) this.mStage = DECAYING;
+    if (this.cStage === ATTACKING) this.cStage = DECAYING;
   }
 
   setPitchMod(semitones: number): void {
@@ -243,7 +250,7 @@ export class Drum implements Instrument {
       case 'c_reso': this.cReso = v; this.cFilter.setup(this.cTone, this.cReso, sr); break;
       case 'c_noise': this.cNoise = v; break;
       case 'c_attack': this.cAtk = attackInc(v, sr); break;
-      case 'c_len': this.cDecayMul = decayMul(v, sr); break;
+      case 'c_len': this.cLen = v; this.updateDecays(); break;
       case 'm_level': this.mLevel = v; break;
       case 'm_pitch': this.mPitch = v; break;
       case 'm_spread': this.mSpread = v; break;
@@ -270,13 +277,15 @@ export class Drum implements Instrument {
     }
   }
 
-  /** Normal decays, and RING ones (+ RING LEN). */
+  /** Normal decays, and RING ones (decay x RING_STRETCH + RING LEN). */
   private updateDecays(): void {
     const sr = this.sr;
     this.tDecayMul = decayMul(this.tDecay, sr);
     this.mDecayMul = decayMul(this.mDecay, sr);
-    this.tRingMul = decayMul(this.tDecay + this.ringLen, sr);
-    this.mRingMul = decayMul(this.mDecay + this.ringLen, sr);
+    this.cDecayMul = decayMul(this.cLen, sr);
+    this.tRingMul = decayMul(this.tDecay * RING_STRETCH + this.ringLen, sr);
+    this.mRingMul = decayMul(this.mDecay * RING_STRETCH + this.ringLen, sr);
+    this.cRingMul = decayMul(this.cLen * RING_STRETCH, sr);
   }
 
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
@@ -392,7 +401,7 @@ export class Drum implements Instrument {
           this.cEnv += this.cAtk;
           if (this.cEnv >= 1) { this.cEnv = 1; this.cStage = DECAYING; }
         } else {
-          this.cEnv *= this.cDecayMul;
+          this.cEnv *= this.cMul;
           if (this.cEnv < 1e-5) { this.cEnv = 0; this.cStage = OFF; }
         }
       }

@@ -667,6 +667,9 @@ export class App {
       this.startReset();
     } else if (id === 'saveproject') {
       this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
+    } else if ((id === 'ring' || id === 'dyn:accent' || id === 'dyn:ghost') && this.pitchedStepEntry) {
+      // Pitched step entry: ACCENT / GHOST / RING belong to the step (held key, else cursor).
+      this.toggleStepFlag(id);
     } else if (id === 'ring') {
       this.ring = !this.ring;
     } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
@@ -952,13 +955,13 @@ export class App {
         step.active = true;
         step.note = note;
         step.gate = 1;
-        step.ring = this.ring;
+        step.ring = false; // ACCENT / GHOST / RING are set per step afterwards
         step.rest = false;
         step.slide = slideFrom >= 0;
         delete step.roll;
-        setStepDynamic(step, this.dynamic);
+        setStepDynamic(step, 'normal');
         this.sendStep(index, step);
-        this.send({ type: 'trigger', channel: ch, note, velocity: vel, slideFrom });
+        this.send({ type: 'trigger', channel: ch, note, velocity: DYNAMIC_VELOCITY.normal, slideFrom });
         if (slideFrom >= 0) this.flash(`SLIDE ${noteName(slideFrom)} > ${noteName(note)}`);
         this.entry = { button, index };
         this.save();
@@ -1011,6 +1014,36 @@ export class App {
       // Already a hit: removed when released, unless the hold is used for a roll.
       this.drumHold = { button, index, remove: true, used: false };
       return;
+    }
+    this.sendStep(index, step);
+    this.save();
+  }
+
+  /** RECORD while stopped on a keyboard track: notes are entered step by step. */
+  private get pitchedStepEntry(): boolean {
+    return this.mode === 'record' && !this.playing && !stepsOnStrip(this.channel.instrument) && !this.clearHeld;
+  }
+
+  /** The step ACCENT / GHOST / RING act on in pitched step entry: the held note, else the cursor. */
+  private get flagStep(): { index: number; step: Step } {
+    const index = this.entry ? this.entry.index : this.cursor[this.selected];
+    return { index, step: this.pattern.steps[index] };
+  }
+
+  /** Toggle ACCENT / GHOST (back to normal when it already has it) or RING on that step. */
+  private toggleStepFlag(id: string): void {
+    const { index, step } = this.flagStep;
+    if (!step.active) {
+      this.flash('NO NOTE ON THIS STEP');
+      return;
+    }
+    if (id === 'ring') {
+      step.ring = !step.ring;
+      this.flash(`STEP ${index + 1} ${step.ring ? 'RING' : 'NO RING'}`);
+    } else {
+      const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
+      setStepDynamic(step, stepDynamic(step) === d ? 'normal' : d);
+      this.flash(`STEP ${index + 1} ${stepDynamic(step).toUpperCase()}`);
     }
     this.sendStep(index, step);
     this.save();
@@ -1313,10 +1346,19 @@ export class App {
 
     const rec = this.mode === 'record';
     const kb = this.keyboard;
-    this.panel.setButtonLit('ring', this.ring);
+    if (this.pitchedStepEntry) {
+      // Show the flags of the step they act on.
+      const { step } = this.flagStep;
+      const d = step.active ? stepDynamic(step) : null;
+      this.panel.setButtonLit('ring', step.active && !!step.ring);
+      this.panel.setButtonLit('dyn:accent', d === 'accent');
+      this.panel.setButtonLit('dyn:ghost', d === 'ghost');
+    } else {
+      this.panel.setButtonLit('ring', this.ring);
+      this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent');
+      this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost');
+    }
     this.panel.setButtonEnabled('ring', rec);
-    this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent');
-    this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost');
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
