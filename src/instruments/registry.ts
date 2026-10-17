@@ -128,7 +128,7 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('WIDTH', [['detune', 1], ['unison', 1]]),
   ],
   lead: [
-    macro('GRIT', [['drive', 1], ['fm', 1], ['crush', 1, true]]),
+    macro('GRIT', [['drive', 1], ['fm', 1], ['feedback', 0.6], ['crush', 1, true]]),
     macro('LENGTH', LENGTH_SYNTH),
   ],
   pluck: [
@@ -209,7 +209,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: {
     name: 'LEAD', live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
-    funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'unison', _]),
+    funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), _, _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
   pluck: {
     name: 'PLUCK', live: ['macro:length', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),

@@ -48,6 +48,23 @@ function sustainKeep(decaySeconds: number): number {
   const t = Math.min(1, Math.max(0, Math.log(decaySeconds / STAB_START) / Math.log(STAB_END / STAB_START)));
   return t * t * (3 - 2 * t);
 }
+/**
+ * 3 CARRIER modulation index from FM (0..1) on a DX7-like level curve: like an operator's
+ * OUTPUT LEVEL (FM 1 = 99), about 6 dB per 8 levels, so most of the knob is subtle (FM 0.6
+ * = level 60, index ~0.45) and the last part goes from tasteful to brutal (index ~13).
+ */
+const DX7_MAX_INDEX = 13;
+export function dx7Index(fm: number): number {
+  return fm <= 0 ? 0 : DX7_MAX_INDEX * Math.pow(2, ((fm - 1) * 99) / 8);
+}
+/** Feedback at FEEDBACK 1 (DX7 feedback 7: just short of noise). */
+const MAX_FEEDBACK = 1.6;
+
+/** Phase into 0..1 (modulated phases can leave it by a few cycles). */
+function wrap(p: number): number {
+  return p - Math.floor(p);
+}
+
 /** UNISON copies relative to OSC 1 (x the spread), and their start phases. */
 const UNISON_SPREAD = [-1, -0.4, 0.4, 1];
 const UNISON_PHASE = [0.13, 0.61, 0.37, 0.89];
@@ -62,6 +79,11 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'detune', name: 'DETUNE', min: 0, max: 4, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'sub', name: 'SUB', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'unison', name: 'UNISON', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
+  // 3 CARRIER algorithm (LEAD): carriers 2 and 3's ratios to carrier 1, and the modulator's
+  // self-feedback (FM RATIO is the modulator's ratio). Set by TIMBRE.
+  { id: 'ratio2', name: 'RATIO 2', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
+  { id: 'ratio3', name: 'RATIO 3', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
+  { id: 'feedback', name: 'FEEDBACK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // ARP (played by the engine, which reads these two): chord / octave notes in turn while held.
   choice('arp', 'ARP', ARP_MODES),
   choice('arprate', 'ARP RATE', ARP_RATES.map((r) => r.name), 3),
@@ -108,8 +130,12 @@ export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ..
 export const BASS_FIXED = { voice: 1 };
 export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, release: 1.2, release2: 1.2, level: 0.5 });
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0 };
-export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE], { octave: 3, level: 0.55 });
-export const LEAD_FIXED = { voice: 1, sub: 0 };
+/**
+ * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
+ * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
+ */
+export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback'], { octave: 3, level: 0.55 });
+export const LEAD_FIXED = { voice: 1, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'arp', 'arprate', 'arpoct'], { level: 0.55 });
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS };
@@ -152,6 +178,8 @@ class Voice {
   /** A SLIDE note: its envelopes hold up (SLIDE_SUSTAIN) until the note it slides into. */
   hold = false;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
+  /** 3 CARRIER: carriers 2 / 3 phases and the modulator's last two outputs (feedback). */
+  p5 = 0; p6 = 0; fb1 = 0; fb2 = 0;
   /** UNISON copies' phases. */
   readonly u = new Float64Array(4);
   /** Envelope stage and level per element (OSC 1, OSC 2). */
@@ -167,7 +195,9 @@ class Voice {
 export class Synth implements Instrument {
   private readonly sr: number;
   private readonly voices: Voice[] = [];
-  private shape = 2; private fm = 0; private fmRatio = 2; private detune = 0; private sub = 0; private octave = 0; private mono = false;
+  private shape = 2; private fm = 0; private fmRatio = 2;
+  /** 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three carriers). */
+  private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
@@ -235,7 +265,10 @@ export class Synth implements Instrument {
     v.glide = 1;
     v.hold = slide;
     v.velocity = velocity;
-    if (!sounding(v)) for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
+    if (!sounding(v)) {
+      for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
+      v.fb1 = v.fb2 = 0;
+    }
     v.stage[0] = STAGE_ATTACK;
     v.stage[1] = STAGE_ATTACK;
     v.fattacking = this.fattackInc > 0;
@@ -264,8 +297,12 @@ export class Synth implements Instrument {
     switch (id) {
       case 'shape': this.shape = Math.min(3, Math.max(0, value)); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
-      case 'fm': this.fm = value; break;
       case 'fmratio': this.fmRatio = value; break;
+      case 'fm': this.fm = value; this.fmIndex = dx7Index(value); break;
+      case 'ratio2': this.ratio2 = value; break;
+      case 'ratio3': this.ratio3 = value; break;
+      case 'feedback': this.feedback = value; break;
+      case 'algo': this.algo = Math.round(value); break;
       case 'detune': this.detune = value; break;
       case 'sub': this.sub = value; break;
       case 'unison': this.unison = value; break;
@@ -351,9 +388,31 @@ export class Synth implements Instrument {
         v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;
         v.p2 += dt2; if (v.p2 >= 1) v.p2 -= 1;
         v.p3 += dt1 * 0.5; if (v.p3 >= 1) v.p3 -= 1;
-        let o1 = this.osc(v.p1, dt1);
-        let o2 = this.osc(v.p2, dt2);
-        if (this.fm > 0) {
+        let o1: number;
+        let o2: number;
+        if (this.algo === 1) {
+          // 3 CARRIER: one sine modulator with self-feedback (its last two outputs averaged,
+          // as on the DX7) phase-modulates three carriers at their own ratios; the carriers
+          // play SHAPE's wave, so with no modulation this is a plain lead. Carrier 2 is
+          // detuned by DETUNE. OSC 1 = carriers 1 + 3, OSC 2 = carrier 2.
+          v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
+          const fbIn = (v.fb1 + v.fb2) * 0.5 * this.feedback * MAX_FEEDBACK;
+          const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
+          v.fb2 = v.fb1;
+          v.fb1 = m;
+          // The modulation follows the filter envelope (a struck attack) but sustains.
+          const pm = (m * this.fmIndex * (0.6 + 0.4 * v.fenv)) / (2 * Math.PI);
+          const d5 = dt1 * this.ratio2 * det;
+          const d6 = dt1 * this.ratio3;
+          v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
+          v.p6 += d6; if (v.p6 >= 1) v.p6 -= 1;
+          o1 = (this.osc(wrap(v.p1 + pm), dt1) + this.osc(wrap(v.p6 + pm), d6)) * 0.6;
+          o2 = this.osc(wrap(v.p5 + pm), d5);
+        } else {
+          o1 = this.osc(v.p1, dt1);
+          o2 = this.osc(v.p2, dt2);
+        }
+        if (this.fm > 0 && this.algo === 0) {
           // FM pair: the index rises with FM and with the filter envelope (a struck clang).
           v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
           const index = this.fm * (0.5 + 4.5 * v.fenv);

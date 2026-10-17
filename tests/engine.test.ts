@@ -8,7 +8,7 @@ import { applyPreset, createDefaultProject, createStartProject } from '../src/en
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, KICK_PARAMS, PERC_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
-import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
+import { Synth, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
 import { MidCut } from '../src/fx/MidCut';
@@ -19,7 +19,7 @@ import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { CEILING, Limiter } from '../src/fx/Limiter';
 import { lfoValue } from '../src/engine/lfo';
-import { MACROS, anchorPosition, macroIds, macroSound } from '../src/instruments/macros';
+import { MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { soundPage, stepsOnStrip } from '../src/instruments/registry';
@@ -1752,5 +1752,53 @@ describe('master limiter', () => {
     e.handleMessage({ type: 'loadProject', project: createStartProject() });
     e.handleMessage({ type: 'transport', playing: true });
     expect(stats(render(e, 4).l).peak).toBeLessThanOrEqual(CEILING + 1e-6);
+  });
+});
+
+describe('LEAD: 3 carriers on a feedback modulator', () => {
+  const leadAt = (timbre: number, intensity: number) => {
+    const s = new Synth(SR, LEAD_PARAMS, LEAD_FIXED);
+    const sound = macroSound('lead', timbre, intensity, LEAD_PARAMS);
+    for (const id in sound) s.setParam(id, { ...sound, cutoff: 20000, fenv: 0 }[id]);
+    s.noteOn(45, 1, 45, false);
+    const l = new Float32Array(SR / 4);
+    s.render(l, new Float32Array(l.length), 0, l.length);
+    return l;
+  };
+  /** High-frequency share: energy of the first difference over the energy. */
+  const edge = (l: Float32Array) => {
+    let d = 0, e = 0;
+    for (let i = 1; i < l.length; i++) { d += (l[i] - l[i - 1]) ** 2; e += l[i] ** 2; }
+    return d / e;
+  };
+
+  it('DX7 level curve: subtle for most of FM, brutal at the top', () => {
+    expect(dx7Index(0)).toBe(0);
+    expect(dx7Index(0.6)).toBeGreaterThan(0.3);
+    expect(dx7Index(0.6)).toBeLessThan(0.6);
+    expect(dx7Index(1)).toBeCloseTo(13);
+  });
+
+  it('INTENSITY: 75 % reaches level 60, the top quarter goes on to 99', () => {
+    const fm = (x: number) => macroSound('lead', 0, x, LEAD_PARAMS).fm;
+    expect(fm(0.75)).toBeCloseTo(0.6, 2);
+    expect(fm(1)).toBeCloseTo(1, 2);
+    expect(fm(0)).toBeLessThan(0.02);
+  });
+
+  it('every TIMBRE is a plain lead at INTENSITY 0 and bites at 100 %', () => {
+    for (const t of [0, 1 / 3, 2 / 3, 1]) {
+      const plain = leadAt(t, 0);
+      const wild = leadAt(t, 1);
+      expect(stats(wild).nan).toBe(false);
+      expect(edge(wild), `t=${t}`).toBeGreaterThan(edge(plain) * 1.5);
+    }
+  });
+
+  it('TIMBRE steps FM ratios through related ratios between sounds', () => {
+    for (let t = 0; t <= 1; t += 0.05) {
+      const s = macroSound('lead', t, 0.5, LEAD_PARAMS);
+      for (const id of ['fmratio', 'ratio2', 'ratio3']) expect(RATIO_STEPS.some((r) => Math.abs(r - s[id]) < 1e-9), `${id} @${t}`).toBe(true);
+    }
   });
 });
