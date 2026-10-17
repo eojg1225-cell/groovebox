@@ -73,7 +73,7 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   // RING (sequencer sustain): seconds added to the decay.
   { id: 'ring', name: 'RING LEN', min: 0, max: 10, defaultValue: 0.6, unit: 'S', curve: 'linear' },
   // Whole drum: these sit on top of TIMBRE / INTENSITY (the macros never move them).
-  { id: 'cutoff', name: 'FILTER', min: 20, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'cutoff', name: 'CUTOFF', min: 20, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'fattack', name: 'FLT ATK', ...ATTACK, max: 10 },
   { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'exp' },

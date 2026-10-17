@@ -5,7 +5,7 @@
 import type { InstrumentKind, Project, Song, Step } from './project';
 import type { LfoId } from './lfo';
 
-export type MixParam = 'volume' | 'pan' | 'mute' | 'cutoff' | 'send';
+export type MixParam = 'volume' | 'pan' | 'mute' | 'send';
 export type GlobalParam = 'bpm' | 'swing' | 'master' | 'lofi';
 
 export type MainToWorklet =

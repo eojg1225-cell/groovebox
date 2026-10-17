@@ -461,11 +461,11 @@ describe('send effects', () => {
     expect(stats(render(e, 1).l).nan).toBe(false);
   });
 
-  it('track cutoff darkens the track', () => {
+  it('CUTOFF (the sound filter) darkens the track', () => {
     const bright = (cutoff: number) => {
       const p = kickProject([], { bpm: 120 });
       p.channels[2].patterns[0].steps[0].active = true; // hat
-      p.channels[2].cutoff = cutoff;
+      p.channels[2].sounds.hat = { ...p.channels[2].sounds.hat!, cutoff };
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
       const { l } = render(e, 0.05);
@@ -870,20 +870,24 @@ describe('project', () => {
     expect(p.channels[6].sendLevel).toBe(0.4);
   });
 
-  it('live knobs from before v5 reset to VOLUME/CUTOFF; later choices are kept', () => {
-    const old = { ...toStored(createDefaultProject()), version: 4 };
-    old.channels[0].live = ['t_decay', 't_pitch'];
-    expect(fromStored(old)!.channels[0].live).toEqual(['mix:volume', 'mix:cutoff']);
+  it('projects before v15 take each type\'s default live knobs; later choices are kept', () => {
+    const old = { ...toStored(createDefaultProject()), version: 14 };
+    old.channels[0].live = ['mix:volume', 'mix:cutoff'];
+    old.channels[0].liveFunc = ['mix:pan', 'mix:send'];
+    const k = fromStored(old)!.channels[0];
+    expect(k.live).toEqual(['t_decay', 't_pitch']);
+    expect(k.liveFunc).toEqual(['mix:volume', 'drive']);
     const now = toStored(createDefaultProject());
     now.channels[0].live = ['t_decay', 'mix:pan'];
     expect(fromStored(now)!.channels[0].live).toEqual(['t_decay', 'mix:pan']);
   });
 
-  it('the start project holds the sequence in progress, with VOLUME/CUTOFF live knobs', () => {
+  it('the start project holds the sequence in progress, with each type\'s live knobs (VOLUME on FUNC)', () => {
     const p = createStartProject();
     expect(p.channels[4].patterns[0].length).toBe(64);
     expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
-    expect(p.channels.every((c) => c.live[0] === 'mix:volume' && c.live[1] === 'mix:cutoff')).toBe(true);
+    expect(p.channels[4].live).toEqual(['cutoff', 'reso']);
+    expect(p.channels.every((c) => c.liveFunc[0] === 'mix:volume')).toBe(true);
   });
 
   it('keeps the notes even from an older, different format', () => {

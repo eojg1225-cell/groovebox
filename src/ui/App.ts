@@ -45,7 +45,7 @@ import {
   DYNAMIC_VELOCITY, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
-import { applyPreset } from '../engine/defaultProject';
+import { applyPreset, liveDefaults } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, SOUND_KINDS, isDrum, mirrorOsc2, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
@@ -366,7 +366,7 @@ export class App {
 
   /**
    * What a track's live knobs may control: the non-coarse sound parameters on its sound
-   * page (both layers), the mixer (volume, pan, cutoff, send level) and the LFO rate and depths.
+   * page (both layers), the mixer (volume, pan, send level) and the LFO rate and depths.
    */
   private liveCandidates(c: ChannelState): { id: string; spec: ParamSpec }[] {
     const list: { id: string; spec: ParamSpec }[] = [];
@@ -499,7 +499,7 @@ export class App {
   /**
    * TRACK page. Row 1: type, preset, volume, pan, LIVE 1 and LIVE 2 (which parameters
    * the track's two live knobs control; with FUNC held LIVE 3 / 4, what they control with
-   * FUNC held). Row 2: cutoff, send level, chord (pitched).
+   * FUNC held). Row 2: send level, chord (pitched).
    * The send itself is chosen with FX 1/2/3.
    */
   private trackTargets(): (KnobTarget | null)[] {
@@ -538,7 +538,7 @@ export class App {
     }
     if (this.func) return [null, null, null, null, ...liveTargets];
     targets.push(...liveTargets);
-    targets.push(this.paramTarget(ch, 'mix:cutoff'), this.paramTarget(ch, 'mix:send'));
+    targets.push(this.paramTarget(ch, 'mix:send'));
     if (!isDrum(c.instrument)) {
       targets.push({
         label: 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch,
@@ -554,10 +554,8 @@ export class App {
     if (c.instrument === kind) return;
     if (c.sounds[kind]) c.instrument = kind;
     else applyPreset(c, kind, 0);
-    // Live knobs that pointed at the old instrument's parameters fall back to the defaults.
-    const valid = new Set([...INSTRUMENTS[kind].params.map((p) => p.id), ...MIX_PARAMS.map((p) => MIX_PREFIX + p.id)]);
-    c.live = c.live.map((id, r) => (valid.has(id) ? id : r === 0 ? 'mix:volume' : 'mix:cutoff')) as [string, string];
-    c.liveFunc = c.liveFunc.map((id, r) => (valid.has(id) ? id : r === 0 ? 'mix:pan' : 'mix:send')) as [string, string];
+    // The live knobs take the new type's defaults.
+    liveDefaults(c);
     // Locks belong to the old instrument's parameters.
     for (const p of c.patterns) for (const s of p.steps) delete s.locks;
     this.send({ type: 'setInstrument', channel: this.selected, kind, sound: c.sounds[kind] ?? {} });
@@ -769,7 +767,7 @@ export class App {
       const s = saved.channels[ch];
       if (!s) return;
       for (const spec of MIX_PARAMS) {
-        const field = spec.id === 'send' ? 'sendLevel' : (spec.id as 'volume' | 'pan' | 'cutoff');
+        const field = spec.id === 'send' ? 'sendLevel' : (spec.id as 'volume' | 'pan');
         fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[field]);
       }
       if (!isDrum(c.instrument)) fromTarget(this.paramTarget(ch, 'track:chord'), s.chord);

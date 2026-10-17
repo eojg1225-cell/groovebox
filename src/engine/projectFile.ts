@@ -11,7 +11,7 @@ import {
   MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS,
   type ChannelState, type Project, type SoundKind,
 } from './project';
-import { applyPreset, createDefaultProject } from './defaultProject';
+import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
@@ -54,7 +54,6 @@ export interface StoredChannel {
   chord: number;
   volume: number;
   pan: number;
-  cutoff: number;
   fx1: boolean;
   fxSend: number;
   sendLevel: number;
@@ -101,7 +100,6 @@ export function toStored(p: Project): StoredProject {
       chord: c.chord,
       volume: c.volume,
       pan: c.pan,
-      cutoff: c.cutoff,
       fx1: c.fx1,
       fxSend: c.fxSend,
       sendLevel: c.sendLevel,
@@ -218,7 +216,6 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.volume = num(src.volume, ch.volume, 0, 1);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.mute = src.mute === true;
-  ch.cutoff = num(src.cutoff, ch.cutoff, 20, 20000);
   if (version >= 7) {
     ch.fx1 = src.fx1 === true;
   } else {
@@ -348,10 +345,11 @@ export function fromStored(data: unknown): Project | null {
     const t8 = p.channels[7];
     if (t8 && t8.instrument === 'lead') {
       applyPreset(t8, 'pluck', 0);
-      t8.live = ['mix:volume', 'mix:cutoff'];
-      t8.liveFunc = ['mix:pan', 'mix:send'];
     }
   }
+  // v15: the mixer CUTOFF went (the sound's filter is CUTOFF) and each type got its own
+  // live knobs (two sound controls; VOLUME with FUNC): every track takes its type's.
+  if (version < 15) for (const c of p.channels) liveDefaults(c);
   // Before v8 every track had its own LFO: tracks that used theirs join the shared one,
   // which takes the first such track's settings.
   if (version < 8) {

@@ -152,11 +152,6 @@ export class Engine {
   private readonly scratchL = new Float32Array(CHUNK);
   private readonly scratchR = new Float32Array(CHUNK);
 
-  // Track low-pass (CUTOFF), coefficients refreshed every 16 samples while it moves.
-  private readonly cutoff: Smoother[] = [];
-  private readonly cutL: Svf[] = [];
-  private readonly cutR: Svf[] = [];
-  private readonly cutApplied = new Float32Array(NUM_CHANNELS);
 
   // FX 1, the drum bus: member tracks pass through it instead of going straight out.
   private readonly drumBus: DrumBus;
@@ -207,14 +202,6 @@ export class Engine {
     }
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       this.sendLevel.push(new Smoother(0.5, 0.02, sampleRate));
-      this.cutoff.push(new Smoother(20000, 0.02, sampleRate));
-      const l = new Svf();
-      const r = new Svf();
-      l.setup(20000, 0, sampleRate);
-      r.setup(20000, 0, sampleRate);
-      this.cutL.push(l);
-      this.cutR.push(r);
-      this.cutApplied[ch] = 20000;
     }
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const set: Record<string, Instrument> = {};
@@ -314,7 +301,6 @@ export class Engine {
       this.route[ch] = this.busIndex(c.fxSend);
       this.inDrumBus[ch] = c.fx1 ? 1 : 0;
       this.sendLevel[ch].setImmediate(c.sendLevel);
-      this.cutoff[ch].setImmediate(c.cutoff);
       // A loaded project starts at its values instead of gliding to them.
       this.volume[ch].setImmediate(c.mute ? 0 : c.volume);
       this.pan[ch].setImmediate(c.pan);
@@ -795,9 +781,6 @@ export class Engine {
       const pan = this.pan[ch];
       const tl = this.toneL[ch];
       const tr = this.toneR[ch];
-      const cut = this.cutoff[ch];
-      const cl = this.cutL[ch];
-      const cr = this.cutR[ch];
       const level = this.sendLevel[ch];
       const bus = this.route[ch];
       const bL = bus >= 0 ? this.busL[bus] : null;
@@ -819,18 +802,10 @@ export class Engine {
           pp = pp > 1 ? 1 : pp < -1 ? -1 : pp;
         }
         const a = (pp + 1) * 0.25 * Math.PI;
-        const fc = cut.next();
-        if ((i & 15) === 0 && fc !== this.cutApplied[ch]) {
-          cl.setup(fc, 0.1, this.sampleRate);
-          cr.setup(fc, 0.1, this.sampleRate);
-          this.cutApplied[ch] = fc;
-        }
         tl.process(sl[i]);
         tr.process(sr[i]);
-        cl.process(tl.low);
-        cr.process(tr.low);
-        const l = cl.low * v * Math.cos(a);
-        const r = cr.low * v * Math.sin(a);
+        const l = tl.low * v * Math.cos(a);
+        const r = tr.low * v * Math.sin(a);
         dL[dOff + i] += l;
         dR[dOff + i] += r;
         // Post-fader send, taken before the drum bus (a muted track sends nothing).
@@ -978,7 +953,6 @@ export class Engine {
 
   private setMix(ch: number, id: MixParam, value: number): void {
     if (id === 'send') { this.sendLevel[ch].setTarget(value); return; }
-    if (id === 'cutoff') { this.cutoff[ch].setTarget(value); return; }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);
     else this.muted[ch] = value > 0 ? 1 : 0;

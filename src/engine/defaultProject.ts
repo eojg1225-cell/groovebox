@@ -13,6 +13,13 @@ export function applyPreset(c: ChannelState, kind: SoundKind, index: number): vo
   c.presets[kind] = index;
 }
 
+/** A track's type's default live knobs (LIVE 1 / 2, and 3 / 4 with FUNC). */
+export function liveDefaults(c: ChannelState): void {
+  if (c.instrument === 'none') return;
+  c.live = [...INSTRUMENTS[c.instrument].live];
+  c.liveFunc = [...INSTRUMENTS[c.instrument].liveFunc];
+}
+
 /**
  * A fresh project: six tracks with sounds ready (kick, snare, hat, bass, pad, lead),
  * every pattern empty.
@@ -26,6 +33,7 @@ export function createDefaultProject(): Project {
   const channels = Array.from({ length: NUM_CHANNELS }, (_, i) => {
     const c = emptyChannel();
     applyPreset(c, kinds[i], Math.max(0, INSTRUMENTS[kinds[i]].presets.findIndex((p) => p.name === START_PRESETS[i])));
+    liveDefaults(c);
     // Drum steps play at the designed pitch (note 36); pitched steps start on the keyboard's A.
     const base = INSTRUMENTS[kinds[i]].drum ? 36 : INSTRUMENTS[kinds[i]].baseNote;
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
@@ -49,14 +57,11 @@ export function createDefaultProject(): Project {
 
 /**
  * The start project: the sequence being worked on during development (kept in
- * startProject.json, in the stored format), with live knobs on VOLUME / CUTOFF.
+ * startProject.json, in the stored format), with each type's default live knobs.
  * Used when there is no session or saved project.
  */
 export function createStartProject(): Project {
   const p = fromStored(startProject) ?? createDefaultProject();
-  for (const c of p.channels) {
-    c.live = ['mix:volume', 'mix:cutoff'];
-    c.liveFunc = ['mix:pan', 'mix:send'];
-  }
+  for (const c of p.channels) liveDefaults(c);
   return p;
 }

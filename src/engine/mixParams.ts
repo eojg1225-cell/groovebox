@@ -4,11 +4,10 @@ import type { ParamSpec } from './params';
 export const MIX_PARAMS: readonly ParamSpec[] = [
   { id: 'volume', name: 'VOLUME', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
   { id: 'pan', name: 'PAN', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'cutoff', name: 'CUTOFF', min: 20, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'send', name: 'SEND LVL', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
 ];
 
-export type MixId = 'volume' | 'pan' | 'cutoff' | 'send';
+export type MixId = 'volume' | 'pan' | 'send';
 
 export const BPM_MIN = 40;
 export const BPM_MAX = 300;

@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 14;
+export const PROJECT_VERSION = 15;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -39,7 +39,7 @@ export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'perc' | 'bass'
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
 
 /** Live-knob target: an instrument param id, or a mixer param. */
-export type LiveTarget = string; // e.g. "t_decay", "mix:volume", "mix:cutoff", "mix:send"
+export type LiveTarget = string; // e.g. "t_decay", "cutoff", "mix:volume", "mix:send"
 
 export interface Step {
   active: boolean;
@@ -108,8 +108,6 @@ export interface ChannelState {
   chord: number;
   volume: number; // 0..1
   pan: number; // -1..1
-  /** Low-pass cutoff of the track (Hz; 20000 = open). */
-  cutoff: number;
   /** The track passes through FX 1, the drum bus (independent of its send). */
   fx1: boolean;
   /** Which send the track feeds: 0 = none, 2 or 3 = FX 2 / FX 3. */
@@ -160,12 +158,11 @@ export function emptyChannel(): ChannelState {
     instrument: 'none',
     sounds: {},
     presets: {},
-    live: ['mix:volume', 'mix:cutoff'],
-    liveFunc: ['mix:pan', 'mix:send'],
+    live: ['mix:volume', 'mix:pan'],
+    liveFunc: ['mix:send', 'mix:pan'],
     chord: 0,
     volume: 0.8,
     pan: 0,
-    cutoff: 20000,
     fx1: false,
     fxSend: 0,
     sendLevel: 0.5,

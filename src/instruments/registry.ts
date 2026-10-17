@@ -59,14 +59,14 @@ export function funcPage(top: readonly (string | null)[], bottom: readonly (stri
 }
 const _ = null;
 /*
- * FUNC layers. Synths: column 1 SHAPE / FM RATIO, element columns SUSTAIN / RELEASE (each
+ * FUNC layers. Synths: column 1 SHAPE, element columns SUSTAIN / RELEASE (each
  * oscillator its own), column 7 OCTAVE + SUB / UNISON. Drums: column 1 the tone's wave /
  * sweep time (or the metal's mode / FM), element columns the layer's LEVEL / colour
  * (SWEEP, CLICK TONE, METAL TONE), column 4 the click's reso / noise or the metal's noise /
  * spread, column 7 a third voice (snare metal FM / pitch, hat head, perc metal).
  */
 const SYNTH_FUNC_TOP = ['shape', 'sustain', 'sustain2', _, _, _, 'octave', _];
-const SYNTH_FUNC_BOTTOM = ['fmratio', 'release', 'release2', _, _, _];
+const SYNTH_FUNC_BOTTOM = [_, 'release', 'release2', _, _, _];
 
 export interface InstrumentEntry {
   name: string;
@@ -76,6 +76,12 @@ export interface InstrumentEntry {
   layout: readonly (string | null)[];
   /** The SOUND page's FUNC layer (16 slots, see funcPage). */
   funcLayout: readonly (string | null)[];
+  /**
+   * Default live knobs in RECORD / PLAY: two sound controls, and with FUNC held VOLUME +
+   * one more (param ids or "mix:volume|pan|send").
+   */
+  live: readonly [string, string];
+  liveFunc: readonly [string, string];
   presets: readonly Preset[];
   /** Drum voices use the step strip when recording; pitched types get a keyboard. */
   drum: boolean;
@@ -87,28 +93,36 @@ export interface InstrumentEntry {
 }
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
-  kick: { name: 'KICK', params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
+  kick: {
+    name: 'KICK', live: ['t_decay', 't_pitch'], liveFunc: ['mix:volume', 'drive'], params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', _, _, _, _], ['t_stime', 't_sweep', 'c_tone', 'c_noise', _, _, _, _]),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
-  snare: { name: 'SNARE', params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
+  snare: {
+    name: 'SNARE', live: ['m_decay', 't_pitch'], liveFunc: ['mix:volume', 'mix:send'], params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['t_wave', 't_level', 'm_level', 'm_noise', _, _, 'm_fm', _], ['m_mode', 't_sweep', 'm_tone', 'm_spread', _, _, 'm_pitch', _]),
     presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
-  hat: { name: 'HAT', params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['rolldiv', 'm_pitch'], ['fenv', 'ring']),
+  hat: {
+    name: 'HAT', live: ['m_decay', 'cutoff'], liveFunc: ['mix:volume', 'ring'], params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['rolldiv', 'm_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['m_mode', 'c_level', 'm_level', 'm_noise', _, _, 'h_time', 'h_tone'], ['m_fm', 'c_tone', 'm_tone', 'm_spread', _, _, 'h_pitch', 'h_noise']),
     presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
-  perc: { name: 'PERC', params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
+  perc: {
+    name: 'PERC', live: ['t_decay', 'cutoff'], liveFunc: ['mix:volume', 'mix:send'], params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', _, _, 'm_level', _], ['t_stime', 't_sweep', 'c_tone', 'c_noise', _, _, 'm_pitch', _]),
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
-  bass: { name: 'BASS', params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
+  bass: {
+    name: 'BASS', live: ['cutoff', 'reso'], liveFunc: ['mix:volume', 'fenv'], params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'sub', _]),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
-  pad: { name: 'PAD', params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
+  pad: {
+    name: 'PAD', live: ['cutoff', 'release'], liveFunc: ['mix:volume', 'mix:send'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, _, _]),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
-  lead: { name: 'LEAD', params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
+  lead: {
+    name: 'LEAD', live: ['cutoff', 'drive'], liveFunc: ['mix:volume', 'mix:send'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'unison', _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
-  pluck: { name: 'PLUCK', params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
+  pluck: {
+    name: 'PLUCK', live: ['decay', 'cutoff'], liveFunc: ['mix:volume', 'mix:send'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
     funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 7), 'fenv'], [...SYNTH_FUNC_BOTTOM, 'unison', 'fm']),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
 };
