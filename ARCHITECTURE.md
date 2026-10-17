@@ -31,6 +31,8 @@ Main -> worklet:
 | `setStep` | `channel`, `pattern`, `index`, `step` | Write one step (incl. its locks) |
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's instrument (clears its locks) and set its full sound |
 | `setChord` | `channel`, `chord` | Chord mode index (0 = off) |
+| `setSong` | `song` | Replace the song rows |
+| `songJump` | `row` | While the song plays: go to this row at the next bar line |
 | `setRouting` | `channel`, `send` | Route a track to send FX 2 / FX 3 (0 = none) |
 | `setDrumBus` | `channel`, `on` | Put a track through FX 1, the drum bus |
 | `setDrumBusParam` | `id`, `value` | A drum bus parameter (`DRUM_BUS_PARAMS`, real units) |
@@ -43,7 +45,7 @@ Main -> worklet:
 | `setSound` | `channel`, `id`, `value` | Instrument parameter (real units) |
 | `setMix` | `channel`, `id` (`volume`/`pan`/`mute`/`cutoff`/`send`), `value` | Track mixer: level, pan, mute, low-pass cutoff, send level |
 | `setGlobal` | `id` (`bpm`/`swing`/`master`/`lofi`), `value` | Project-wide settings |
-| `transport` | `playing` | Start (from step 1) / stop |
+| `transport` | `playing`, `song?`, `fromRow?` | Start (from step 1) / stop; song = play the song from row fromRow |
 | `trigger` | `channel`, `note`, `velocity` | Play a note now |
 | `recordNote` | `channel`, `note`, `velocity`, `accent` | Motion record: play now, write to the nearest step (answers `recordedNote`) |
 | `recordLock` | `channel`, `id`, `value` | Motion record: lock a sound param on the step playing now (answers `recordedLock`) |
@@ -53,7 +55,7 @@ Worklet -> main:
 | type | fields | meaning |
 |---|---|---|
 | `ready` | `sampleRate` | Processor constructed |
-| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase` | ~30 Hz: meters, playhead and playing pattern per channel, position in the bar (RESET lands on the next bar line) |
+| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase`, `songRow`, `songBar` | ~30 Hz: meters, playhead and playing pattern per channel, position in the bar (RESET lands on the next bar line) |
 | `pong` | `id` | Answer to `ping` |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate` | A live-recorded note was written (sent again with its length on release) |
 | `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A motion-recorded lock was written |
@@ -64,7 +66,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 ## Project model (`src/engine/project.ts`)
 
-`Project { version: 8, bpm, swing (50-75 %), master, lofi, fx1 {drum bus param: value}, lfo{rate, shape, vol, pitch, filter, pan, phase, smooth, fade, retrig, send, spread}, sendWet[3][6], sendInt[3][6] (rows 1-2 = FX 2/3; row 0 unused), channels[8] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|cutoff|send"), chord, volume, pan, cutoff, fx1 (on the drum bus), fxSend (0, 2 or 3), sendLevel, lfoOn, mute, patterns[4] (A-D), activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide (legato from a note still held into it), accent, ring?, rest?, roll? (hits per step, 2-8), locks? }`. Every save goes through `src/engine/projectFile.ts`: a compact stored format (only steps with notes) whose reader also accepts full project objects from any earlier version and keeps everything it recognises (notes and pattern lengths first, then mixer, sounds, FX), so format changes never lose notes. On claude.ai the working project is also mirrored to the artifact's `db` (`projects/current`).
+`Project { version: 9, bpm, swing (50-75 %), master, lofi, fx1 {drum bus param: value}, lfo{rate, shape, vol, pitch, filter, pan, phase, smooth, fade, retrig, send, spread}, song{rows[{bars, patterns[8] (-1 = off)}]}, sendWet[3][6], sendInt[3][6] (rows 1-2 = FX 2/3; row 0 unused), channels[8] }`; `ChannelState { instrument (type or 'none'), sounds{type: {paramId: value}}, presets{type: index}, live[2] (param id or "mix:volume|pan|cutoff|send"), chord, volume, pan, cutoff, fx1 (on the drum bus), fxSend (0, 2 or 3), sendLevel, lfoOn, mute, patterns[4] (A-D), activePattern }`; `Pattern { length (1-64), steps[64] }`; `Step { active, note, velocity, gate, slide (legato from a note still held into it), accent, ring?, rest?, roll? (hits per step, 2-8), locks? }`. Every save goes through `src/engine/projectFile.ts`: a compact stored format (only steps with notes) whose reader also accepts full project objects from any earlier version and keeps everything it recognises (notes and pattern lengths first, then mixer, sounds, FX), so format changes never lose notes. On claude.ai the working project is also mirrored to the artifact's `db` (`projects/current`).
 
 ## Sequencer
 

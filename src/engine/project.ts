@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 8;
+export const PROJECT_VERSION = 9;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -16,6 +16,22 @@ export const PATTERN_NAMES = ['A', 'B', 'C', 'D'] as const;
 /** Patterns with their own button on the panel; D (and A-D for any track) via hold track + FX 1/2/3/LFO. */
 export const PANEL_PATTERNS = ['A', 'B', 'C'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
+/** Song: up to this many rows, each up to SONG_MAX_BARS bars. */
+export const SONG_MAX_ROWS = 64;
+export const SONG_MAX_BARS = 64;
+
+/**
+ * One song row: how many bars it lasts and, per track, the pattern it plays (0-3 = A-D)
+ * or -1 = the track is silent for the row. Every track restarts its pattern at the row start.
+ */
+export interface SongRow {
+  bars: number;
+  patterns: number[];
+}
+
+export interface Song {
+  rows: SongRow[];
+}
 
 import type { LfoState } from './lfo';
 
@@ -120,6 +136,8 @@ export interface Project {
   sendInt: number[][];
   /** The LFO shared by the tracks with lfoOn. */
   lfo: LfoState;
+  /** Song mode: rows of patterns, played in order (then from the top again). */
+  song: Song;
   /** Master LO-FI (tape saturation + EQ), 0..1. */
   lofi: number;
   channels: ChannelState[];

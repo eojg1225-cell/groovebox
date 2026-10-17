@@ -1,7 +1,7 @@
 import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
-  MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS,
+  MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, type Song,
   type InstrumentKind, type Project, type Step,
 } from './project';
 import { CHORDS } from './chords';
@@ -54,6 +54,9 @@ export class Engine {
   readonly currentStep = new Int16Array(NUM_CHANNELS).fill(-1);
   /** Pattern currently playing per channel. */
   readonly activePattern = new Uint8Array(NUM_CHANNELS);
+  /** Song playback: the row playing (-1 = not playing the song) and the bar within it. */
+  songRow = -1;
+  songBar = 0;
   /** Called when motion recording writes into a pattern (event rate, not per block). */
   onRecorded: ((msg: RecordedMsg) => void) | null = null;
 
@@ -113,6 +116,14 @@ export class Engine {
   private readonly recAccent = new Uint8Array(NUM_CHANNELS);
   private readonly recSlide = new Uint8Array(NUM_CHANNELS);
   private readonly muted = new Uint8Array(NUM_CHANNELS);
+  // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
+  private readonly songBars = new Uint8Array(SONG_MAX_ROWS);
+  private readonly songPatterns = new Int8Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  private songLength = 0;
+  private songOn = false;
+  private songJumpTo = -1;
+  /** Track silent in the current song row. */
+  private readonly songOff = new Uint8Array(NUM_CHANNELS);
   // ROLL: repeats still to play inside the current step, frames until the next one, spacing.
   private readonly rollLeft = new Uint8Array(NUM_CHANNELS);
   private readonly rollAt = new Float64Array(NUM_CHANNELS);
@@ -234,7 +245,16 @@ export class Engine {
         break;
       case 'setLfo': this.setLfo(msg.id, msg.value); break;
       case 'setLfoTrack': this.lfoOn[msg.channel] = msg.on ? 1 : 0; break;
-      case 'transport': this.setPlaying(msg.playing); break;
+      case 'transport':
+        if (msg.playing && !this.playing) {
+          this.songOn = msg.song === true && this.songLength > 0;
+          this.songRow = this.songOn ? Math.max(0, Math.min(this.songLength - 1, msg.fromRow ?? 0)) : -1;
+          this.songBar = -1; // the row is entered on the first step
+        }
+        this.setPlaying(msg.playing);
+        break;
+      case 'setSong': this.setSong(msg.song); break;
+      case 'songJump': if (this.songOn) this.songJumpTo = Math.max(0, Math.min(this.songLength - 1, msg.row)); break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity, false, msg.slideFrom ?? -1); break;
       case 'release': this.release(msg.channel, msg.note); break;
       case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
@@ -260,6 +280,7 @@ export class Engine {
       bus.settle();
     }
     this.tape.setImmediate(p.lofi);
+    this.setSong(p.song ?? { rows: [] });
     for (const id in p.lfo) this.setLfo(id as LfoId, p.lfo[id as LfoId]);
     this.swing = (p.swing - 50) / 50;
     this.master.setImmediate(p.master);
@@ -290,6 +311,12 @@ export class Engine {
   setPlaying(playing: boolean): void {
     if (playing === this.playing) return;
     this.playing = playing;
+    if (!playing) {
+      this.songOn = false;
+      this.songRow = -1;
+      this.songJumpTo = -1;
+      this.songOff.fill(0);
+    }
     this.globalStep = 0;
     this.framesToStep = 0; // first step fires at the next sample
     this.lfoClock = 0; // LFOs restart with the song
@@ -377,6 +404,7 @@ export class Engine {
 
   private fireStep(): void {
     const stepLen = this.stepFrames(this.globalStep);
+    if (this.songOn && this.globalStep % 16 === 0) this.songBarLine();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const inst = this.current[ch];
       if (!inst) continue;
@@ -389,7 +417,7 @@ export class Engine {
       const len = this.patternLength[pat];
       const idx = this.position[ch] % len;
       const s = pat * MAX_STEPS + idx;
-      const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx;
+      const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0;
       // SLIDE: a note still held into this step glides into it instead of ending.
       const slideFrom = hit && this.stepSlide[s] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
       this.rollLeft[ch] = 0;
@@ -428,6 +456,53 @@ export class Engine {
     this.lastStepFrames = this.stepFrames(this.globalStep);
     this.framesToStep += this.lastStepFrames;
     this.globalStep++;
+  }
+
+  /** Song: a bar line. Move on to the next row (or a queued jump) when this row is done. */
+  private songBarLine(): void {
+    if (this.songBar < 0) {
+      this.enterRow(this.songRow);
+      return;
+    }
+    this.songBar++;
+    if (this.songJumpTo >= 0) {
+      this.enterRow(this.songJumpTo);
+      this.songJumpTo = -1;
+    } else if (this.songBar >= this.songBars[this.songRow]) {
+      this.enterRow((this.songRow + 1) % this.songLength); // the end loops to the top
+    }
+  }
+
+  /** Song: start a row. Every track restarts its row pattern (or falls silent). */
+  private enterRow(row: number): void {
+    this.songRow = row;
+    this.songBar = 0;
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      const p = this.songPatterns[row * NUM_CHANNELS + ch];
+      this.pendingPattern[ch] = -1;
+      this.position[ch] = 0;
+      if (p < 0) {
+        if (!this.songOff[ch] && this.gateSteps[ch] > 0) this.releaseGate(ch);
+        this.songOff[ch] = 1;
+      } else {
+        this.songOff[ch] = 0;
+        this.activePattern[ch] = p;
+      }
+    }
+  }
+
+  setSong(song: Song): void {
+    const rows = song.rows.slice(0, SONG_MAX_ROWS);
+    this.songLength = rows.length;
+    rows.forEach((r, i) => {
+      this.songBars[i] = Math.max(1, Math.min(255, Math.round(r.bars)));
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+        const p = r.patterns[ch];
+        this.songPatterns[i * NUM_CHANNELS + ch] = typeof p === 'number' && p >= 0 && p < NUM_PATTERNS ? p : -1;
+      }
+    });
+    if (this.songOn && this.songLength === 0) { this.songOn = false; this.songRow = -1; this.songOff.fill(0); }
+    if (this.songRow >= this.songLength) this.songRow = this.songLength - 1;
   }
 
   /**

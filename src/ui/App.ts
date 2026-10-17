@@ -20,6 +20,11 @@
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
  * Hold a channel button: FX 1 / 2 / 3 / LFO become pattern A / B / C / D for that track.
+ * SONG  arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
+ *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
+ *          OCT -/+ row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
+ *          the next bar), A/B/C or hold track + FX 1-3/LFO = set a cell. PLAY here plays the
+ *          song from the cursor row (it keeps playing in the other modes until STOP).
  * RESET: every parameter returns to the saved project (or, if none was saved, to how the
  * session started): while playing it glides back to land on the next bar line, stopped
  * it jumps. Tempo, master volume, routing, mutes and patterns are left alone.
@@ -37,7 +42,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, STEP_LENGTHS,
+  DYNAMIC_VELOCITY, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
@@ -47,9 +52,9 @@ import { saveSession } from '../storage/session';
 import { macroSound, timbreName } from '../instruments/macros';
 import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
-import type { DesignView, LaneCell, LiveView } from './views';
+import type { DesignView, LaneCell, LiveView, SongView } from './views';
 
-export type Mode = 'record' | 'play' | 'design';
+export type Mode = 'record' | 'play' | 'design' | 'song';
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export function noteName(n: number): string {
@@ -143,6 +148,12 @@ export class App {
   /** Channel button held down (its pattern A-D on the FX 1-3 / LFO buttons), and if it was used. */
   private heldTrack = -1;
   private heldUsed = false;
+  /** SONG cursor: row, and column (0 = BARS, 1-8 = tracks); which 16 rows the strip shows. */
+  private songRow = 0;
+  private songCol = 1;
+  private songPage = 0;
+  /** The transport is playing the song (not the patterns). */
+  private songPlaying = false;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   private entry: { button: number; index: number } | null = null;
   /**
@@ -532,6 +543,7 @@ export class App {
 
   /** The 16 knob targets for the current mode. */
   private computeTargets(): (KnobTarget | null)[] {
+    if (this.mode === 'song') return this.songTargets();
     if (this.mode === 'design') {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
@@ -596,12 +608,23 @@ export class App {
       this.refreshPanel();
       return;
     }
+    if (this.mode === 'song' && this.onSongButton(id)) {
+      this.refreshPanel();
+      return;
+    }
     if (id === 'play') {
       this.playing = !this.playing;
-      this.send({ type: 'transport', playing: this.playing });
+      // PLAY in SONG mode plays the song from the cursor row; elsewhere the patterns.
+      this.songPlaying = this.playing && this.mode === 'song' && this.project.song.rows.length > 0;
+      this.send({ type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: this.songRow });
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
       this.touchedKnob = -1;
+      if (this.mode === 'song' && this.project.song.rows.length === 0) {
+        // A first row from what the tracks play now.
+        this.project.song.rows.push({ bars: 4, patterns: this.project.channels.map((c) => c.activePattern) });
+        this.sendSong();
+      }
     } else if ((m = /^ch(\d)$/.exec(id)) && this.sendOpen) {
       // A bus is open: the channel buttons add / remove tracks from it (on release).
     } else if ((m = /^ch(\d)$/.exec(id))) {
@@ -780,8 +803,110 @@ export class App {
     this.refreshPanel();
   }
 
+  // ---------------------------------------------------------------- song
+
+  private sendSong(): void {
+    this.send({ type: 'setSong', song: this.project.song });
+    this.save();
+  }
+
+  private get songRows() {
+    return this.project.song.rows;
+  }
+
+  /** SONG mode buttons; true when handled. */
+  private onSongButton(id: string): boolean {
+    const rows = this.songRows;
+    let m: RegExpExecArray | null;
+    const moveRow = (row: number) => {
+      this.songRow = Math.max(0, Math.min(rows.length - 1, row));
+      this.songPage = Math.floor(this.songRow / 16);
+    };
+    if (id === 'cur-' || id === 'cur+') {
+      this.songCol = Math.max(0, Math.min(NUM_CHANNELS, this.songCol + (id === 'cur+' ? 1 : -1)));
+      if (this.songCol > 0) this.selected = this.songCol - 1;
+    } else if (id === 'oct-' || id === 'oct+') {
+      moveRow(this.songRow + (id === 'oct+' ? 1 : -1));
+    } else if (id === 'ring') {
+      // INSERT: a copy of the cursor row, after it.
+      if (rows.length >= SONG_MAX_ROWS) { this.flash('SONG FULL'); return true; }
+      const src = rows[this.songRow] ?? { bars: 4, patterns: this.project.channels.map((c) => c.activePattern) };
+      rows.splice(this.songRow + 1, 0, { bars: src.bars, patterns: [...src.patterns] });
+      moveRow(this.songRow + 1);
+      this.sendSong();
+      this.flash(`ROW ${this.songRow + 1} INSERTED`);
+    } else if (id === 'dyn:accent') {
+      if (rows.length <= 1) { this.flash('LAST ROW STAYS'); return true; }
+      rows.splice(this.songRow, 1);
+      moveRow(this.songRow);
+      this.sendSong();
+      this.flash('ROW DELETED');
+    } else if (id === 'steppage') {
+      const pages = Math.max(1, Math.ceil(rows.length / 16));
+      this.songPage = (this.songPage + 1) % pages;
+    } else if ((m = /^step(\d+)$/.exec(id))) {
+      const row = this.songPage * 16 + Number(m[1]) - 1;
+      if (row >= rows.length) return true;
+      moveRow(row);
+      if (this.songPlaying) {
+        this.send({ type: 'songJump', row });
+        this.flash(`ROW ${row + 1} AT NEXT BAR`);
+      }
+    } else if ((m = /^pat([A-D])$/.exec(id))) {
+      if (this.songCol > 0) this.setSongCell(this.songCol - 1, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
+    } else if ((m = /^ch(\d)$/.exec(id))) {
+      this.songCol = Number(m[1]);
+      return false; // and select the track as usual
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  /** Set track ch's pattern in the cursor row (-1 = off). */
+  private setSongCell(ch: number, pattern: number): void {
+    const row = this.songRows[this.songRow];
+    if (!row) return;
+    row.patterns[ch] = pattern;
+    this.sendSong();
+  }
+
+  /** SONG knobs: top = each track's pattern in the cursor row, bottom 1 = BARS, 2 = ROW. */
+  private songTargets(): (KnobTarget | null)[] {
+    const out: (KnobTarget | null)[] = new Array(KNOB_COUNT).fill(null);
+    const row = this.songRows[this.songRow];
+    if (!row) return out;
+    const cell = choice('cell', 'PAT', ['OFF', ...PATTERN_NAMES]);
+    this.project.channels.forEach((c, ch) => {
+      out[ch] = {
+        label: `${ch + 1} ${this.kindName(c)}`, spec: cell, channel: ch, highlight: this.songCol === ch + 1,
+        get: () => row.patterns[ch] + 1,
+        set: (v) => { this.setSongCell(ch, v - 1); },
+      };
+    });
+    out[KNOBS_PER_ROW] = {
+      label: 'BARS', spec: { id: 'bars', name: 'BARS', min: 1, max: SONG_MAX_BARS, defaultValue: 4, unit: '', curve: 'linear', decimals: 0 },
+      channel: this.selected, highlight: this.songCol === 0,
+      get: () => row.bars,
+      set: (v) => { row.bars = Math.max(1, Math.round(v)); this.sendSong(); },
+    };
+    const rows = this.songRows.length;
+    out[KNOBS_PER_ROW + 1] = {
+      label: 'ROW', spec: { id: 'row', name: 'ROW', min: 1, max: Math.max(2, rows), defaultValue: 1, unit: '', curve: 'linear', decimals: 0 },
+      channel: this.selected,
+      get: () => this.songRow + 1,
+      set: (v) => { this.songRow = Math.max(0, Math.min(rows - 1, Math.round(v) - 1)); this.songPage = Math.floor(this.songRow / 16); },
+    };
+    return out;
+  }
+
   /** Switch a track's pattern (at once while building, at its loop end while performing). */
   private selectPattern(ch: number, pattern: number): void {
+    if (this.mode === 'song') {
+      // SONG: the held track's cell in the cursor row.
+      this.setSongCell(ch, pattern);
+      return;
+    }
     const c = this.project.channels[ch];
     c.activePattern = pattern;
     if (ch === this.selected) this.clampCursor();
@@ -1207,11 +1332,64 @@ export class App {
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
     this.panel.root.classList.toggle('keyboard', kb);
+    // SONG: the function row edits the grid.
+    const song = this.mode === 'song';
+    this.panel.setButtonText('ring', song ? 'INSERT<small>ROW</small>' : 'RING');
+    this.panel.setButtonText('dyn:accent', song ? 'DELETE<small>ROW</small>' : 'ACCENT');
+    this.panel.setButtonText('oct-', song ? 'ROW ▲' : 'OCT −');
+    this.panel.setButtonText('oct+', song ? 'ROW ▼' : 'OCT +');
+    if (song) {
+      this.panel.setButtonLit('ring', false);
+      this.panel.setButtonLit('dyn:accent', false);
+      this.panel.setButtonLit('dyn:ghost', false);
+      this.panel.setButtonEnabled('ring', true);
+      this.panel.setButtonEnabled('dyn:accent', true);
+      this.panel.setButtonEnabled('dyn:ghost', false);
+      this.panel.setButtonEnabled('len', false);
+      this.panel.setButtonEnabled('rest', false);
+      this.panel.setButtonEnabled('steppage', this.songRows.length > 16);
+      for (const id of ['oct-', 'oct+', 'cur-', 'cur+']) this.panel.setButtonEnabled(id, true);
+      this.panel.root.classList.toggle('keyboard', false);
+    } else {
+      this.panel.setButtonEnabled('dyn:accent', true);
+      this.panel.setButtonEnabled('dyn:ghost', true);
+      this.panel.setButtonEnabled('len', true);
+    }
+  }
+
+  /** SONG: the strip = 16 rows (lit = row exists, head = playing row, cursor row marked). */
+  private updateSongFrame(): void {
+    const rows = this.songRows.length;
+    const playingRow = this.songPlaying ? (this.status?.songRow ?? -1) : -1;
+    for (let i = 0; i < STEP_BUTTONS; i++) {
+      const id = `step${i + 1}`;
+      const row = this.songPage * 16 + i;
+      const exists = row < rows;
+      this.panel.setButtonText(id, String(row + 1));
+      this.panel.setButtonFlag(id, 'off', !exists);
+      this.panel.setButtonFlag(id, 'lit', exists);
+      this.panel.setButtonFlag(id, 'head', row === playingRow);
+      this.panel.setButtonFlag(id, 'cursor', row === this.songRow);
+      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, row === playingRow ? 'on' : row === this.songRow ? 'cursor' : '');
+    }
+    const start = this.songPage * 16 + 1;
+    this.panel.setButtonText('steppage', `${start}-${start + 15}<small>ROWS</small>`);
+    // A / B / C show the cursor cell's pattern.
+    const cell = this.songCol > 0 ? (this.songRows[this.songRow]?.patterns[this.songCol - 1] ?? -1) : -1;
+    PATTERN_NAMES.forEach((name, p) => {
+      this.panel.setButtonFlag(`pat${name}`, 'lit', p === cell);
+      this.panel.setButtonFlag(`pat${name}`, 'playing', false);
+    });
   }
 
   /** Per-frame updates: strip lights/labels, LEDs, pending pattern blink. */
   updateFrame(now: number): void {
     this.stepGlides(now);
+    if (this.mode === 'song') {
+      this.updateSongFrame();
+      return;
+    }
     const ch = this.selected;
     const c = this.channel;
     const pattern = this.pattern;
@@ -1366,6 +1544,37 @@ export class App {
       dynamicLabel: this.dynamic === 'normal' ? '' : this.dynamic.toUpperCase(),
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
+      peak: audio.peak,
+      footerRight: f.text,
+      footerAlert: f.alert,
+      blink: Math.floor(now / 400) % 2 === 0,
+    };
+  }
+
+  /** SONG: the grid around the cursor row. */
+  songView(now: number, audio: AudioInfo): SongView {
+    const rows = this.songRows;
+    const f = this.footer(audio);
+    const playingRow = this.songPlaying ? (this.status?.songRow ?? -1) : -1;
+    const visible = 11;
+    const first = Math.max(0, Math.min(rows.length - visible, this.songRow - Math.floor(visible / 2)));
+    const totalBars = rows.reduce((n, r) => n + r.bars, 0);
+    const bar = this.status?.songBar ?? 0;
+    return {
+      ...this.header(),
+      channelLabel: 'SONG',
+      patternLabel: `${rows.length} ROWS ${totalBars} BARS`,
+      tracks: this.project.channels.map((c, i) => `${i + 1}${this.kindName(c).slice(0, 3)}`),
+      rows: rows.slice(first, first + visible).map((r, k) => ({
+        index: first + k,
+        bars: r.bars,
+        cells: r.patterns.map((p) => (p < 0 ? '-' : PATTERN_NAMES[p])),
+      })),
+      cursorRow: this.songRow,
+      cursorCol: this.songCol,
+      playingRow,
+      playingBar: bar,
+      footerLeft: playingRow >= 0 ? `ROW ${playingRow + 1} BAR ${bar + 1}/${rows[playingRow]?.bars ?? 0}` : this.playing ? 'PLAYING PATTERNS' : 'PLAY = SONG FROM ROW',
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,

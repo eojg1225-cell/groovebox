@@ -37,6 +37,7 @@ export const MODES = [
   { id: 'record', label: 'RECORD' },
   { id: 'play', label: 'PLAY' },
   { id: 'design', label: 'SOUND DESIGN' },
+  { id: 'song', label: 'SONG' },
 ] as const;
 
 /** Function row: groups of [id, label] (labels may contain <small> lines). */

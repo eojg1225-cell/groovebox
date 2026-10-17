@@ -2,7 +2,7 @@
  * Message protocol between the main thread (UI) and the audio worklet.
  * Plain data only, so it survives structured cloning and can be documented / ported.
  */
-import type { InstrumentKind, Project, Step } from './project';
+import type { InstrumentKind, Project, Song, Step } from './project';
 import type { LfoId } from './lfo';
 
 export type MixParam = 'volume' | 'pan' | 'mute' | 'cutoff' | 'send';
@@ -37,7 +37,12 @@ export type MainToWorklet =
   | { type: 'setLfo'; id: LfoId; value: number }
   /** Put a track on / off the LFO. */
   | { type: 'setLfoTrack'; channel: number; on: boolean }
-  | { type: 'transport'; playing: boolean }
+  /** Start / stop. song = play the song (from row fromRow) instead of the patterns. */
+  | { type: 'transport'; playing: boolean; song?: boolean; fromRow?: number }
+  /** Replace the song (sent after every song edit; small). */
+  | { type: 'setSong'; song: Song }
+  /** While the song plays: go to this row at the next bar line. */
+  | { type: 'songJump'; row: number }
   /** Audition / play a note on a channel now. */
   /** slideFrom: a held note this one glides from (legato), -1 / absent = a new note. */
   | { type: 'trigger'; channel: number; note: number; velocity: number; slideFrom?: number }
@@ -70,6 +75,9 @@ export type WorkletToMain =
       patterns: number[];
       /** Position in the bar (16 steps), 0..1 (0 when stopped). */
       barPhase: number;
+      /** Song playback: the row playing and the bar within it (-1 / 0 when not in song mode). */
+      songRow: number;
+      songBar: number;
     }
   | { type: 'pong'; id: number }
   | {

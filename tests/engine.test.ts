@@ -1089,7 +1089,7 @@ describe('slides and rolls', () => {
     const p = createDefaultProject();
     Object.assign(p.channels[3].patterns[0].steps[2], { active: true, note: 50, slide: true });
     Object.assign(p.channels[1].patterns[0].steps[5], { active: true, roll: 4 });
-    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))).toEqual(p);
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.song).toEqual(p.song);
   });
 });
 
@@ -1286,5 +1286,53 @@ describe('PERC track', () => {
     expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'perc', 'lead']);
     expect(p.channels[6].fx1).toBe(true);
     expect(p.channels[7].fxSend).toBe(2);
+  });
+});
+
+describe('song mode', () => {
+  // 120 BPM: a bar is 16 x 6000 = 96000 frames.
+  const BAR = 96000;
+  const songProject = (rows: { bars: number; patterns: number[] }[]) => {
+    const p = kickProject([], { bpm: 120 });
+    const k = p.channels[0];
+    k.sounds.kick = { ...k.sounds.kick, t_decay: 0.01 };
+    k.patterns[0].steps[0].active = true; // A: hit on step 1
+    k.patterns[1].steps[4].active = true; // B: hit on step 5
+    p.song = { rows: rows.map((r) => ({ bars: r.bars, patterns: [...r.patterns, -1, -1, -1, -1, -1, -1, -1].slice(0, 8) })) };
+    return p;
+  };
+  const play = (p: Project, seconds: number, fromRow = 0) => {
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true, song: true, fromRow });
+    return { e, l: render(e, seconds).l };
+  };
+
+  it('plays its rows in order for their bars, each restarting the row patterns', () => {
+    const { l } = play(songProject([{ bars: 2, patterns: [0] }, { bars: 1, patterns: [1] }]), 6.1); // 2 s per bar
+    near(onsets(l, 0.005, 1000), [0, BAR, 2 * BAR + 24000, 3 * BAR], 8); // A, A, B, then back to the top
+  });
+
+  it('a track set to off is silent for its row', () => {
+    const { l } = play(songProject([{ bars: 1, patterns: [-1] }, { bars: 1, patterns: [0] }]), 2.1);
+    near(onsets(l, 0.005, 1000), [BAR], 8);
+  });
+
+  it('starts from the chosen row and jumps at the next bar line', () => {
+    const p = songProject([{ bars: 4, patterns: [0] }, { bars: 4, patterns: [1] }]);
+    const { e, l } = play(p, 0.6, 1);
+    expect(e.songRow).toBe(1);
+    near(onsets(l, 0.005, 1000), [24000], 8);
+    e.handleMessage({ type: 'songJump', row: 0 });
+    const next = render(e, 1.6).l; // the jump lands at the next bar line (frame 96000)
+    near(onsets(next, 0.005, 1000), [BAR - 28800], 8); // 28800 frames already played
+    expect(e.songRow).toBe(0);
+  });
+
+  it('pattern mode ignores the song; songs survive the stored format', () => {
+    const p = songProject([{ bars: 1, patterns: [1] }]);
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 0.5).l, 0.005, 1000), [0]); // pattern A as usual
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.song).toEqual(p.song);
   });
 });

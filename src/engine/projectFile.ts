@@ -8,7 +8,7 @@
  * because the rest of the format changed.
  */
 import {
-  MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION,
+  MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS,
   type ChannelState, type Project, type SoundKind,
 } from './project';
 import { applyPreset, createDefaultProject } from './defaultProject';
@@ -68,6 +68,7 @@ export interface StoredProject {
   master: number;
   fx1: Record<string, number>;
   lfo: LfoState;
+  song: { rows: { b: number; p: number[] }[] };
   sendWet: number[][];
   sendInt: number[][];
   lofi: number;
@@ -83,6 +84,7 @@ export function toStored(p: Project): StoredProject {
     master: p.master,
     fx1: { ...p.fx1 },
     lfo: { ...p.lfo },
+    song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })) },
     sendWet: p.sendWet.map((row) => [...row]),
     sendInt: p.sendInt.map((row) => [...row]),
     lofi: p.lofi,
@@ -299,6 +301,16 @@ export function fromStored(data: unknown): Project | null {
   readGrid(data.sendWet ?? data.sendFx, p.sendWet);
   readGrid(data.sendInt, p.sendInt);
   readLfo(data.lfo, p.lfo);
+  if (isObj(data.song) && Array.isArray(data.song.rows)) {
+    for (const r of data.song.rows.slice(0, SONG_MAX_ROWS)) {
+      if (!isObj(r)) continue;
+      const pats = Array.isArray(r.p) ? r.p : [];
+      p.song.rows.push({
+        bars: Math.round(num(r.b, 4, 1, SONG_MAX_BARS)),
+        patterns: Array.from({ length: NUM_CHANNELS }, (_, ch) => Math.round(num(pats[ch], -1, -1, NUM_PATTERNS - 1))),
+      });
+    }
+  }
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
     if (isObj(src)) readChannel(src, p.channels[i], version);
