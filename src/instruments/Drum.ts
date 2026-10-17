@@ -7,6 +7,8 @@ import { MACROS } from './macros';
 /**
  * Drum voice built from layers. Each drum type uses two of them (its two "elements"):
  *   KICK  = TONE + CLICK      SNARE = TONE + METAL      HAT = CLICK + METAL
+ *   PERC  = TONE + CLICK (+ METAL for bells): toms, congas, cowbell, clave; pitched from the
+ *           sequencer (step entry on the keyboard)
  *  TONE   pitched oscillator with an exponential pitch sweep
  *  CLICK  very short transient (impulse/noise blend) through a resonant band-pass
  *  METAL  six inharmonic oscillators (square bank, ring-mod pairs or FM) blended with
@@ -117,14 +119,30 @@ export const HAT_DETAIL = [
   'm_level', 'm_pitch', 'm_tone', 'm_noise', 'm_spread', 'm_mode',
 ];
 
+export const PERC_PARAMS = drumParams(
+  [
+    'timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave',
+    'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise',
+    'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm', ...WHOLE,
+  ],
+  { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.5, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
+);
+export const PERC_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
+/** Top: tone and click; bottom: the metal layer (cowbell) and click noise. */
+export const PERC_DETAIL = [
+  't_level', 't_pitch', 't_sweep', 't_stime', 't_wave', 'c_level', 'c_tone', 'c_reso',
+  'm_level', 'm_pitch', 'm_tone', 'm_decay', 'm_noise', 'm_spread', 'm_mode', 'c_noise',
+];
+
 /** Presets = the named TIMBRE points (intensity in the middle). */
-function anchorPresets(kind: 'kick' | 'snare' | 'hat'): Preset[] {
+function anchorPresets(kind: 'kick' | 'snare' | 'hat' | 'perc'): Preset[] {
   const anchors = MACROS[kind].anchors;
   return anchors.map((a, i) => ({ name: a.name, values: { timbre: i / (anchors.length - 1), intensity: 0.5 } }));
 }
 export const KICK_PRESETS: readonly Preset[] = anchorPresets('kick');
 export const SNARE_PRESETS: readonly Preset[] = anchorPresets('snare');
 export const HAT_PRESETS: readonly Preset[] = anchorPresets('hat');
+export const PERC_PRESETS: readonly Preset[] = anchorPresets('perc');
 
 /** 808 cymbal oscillator ratios (relative to the lowest). */
 const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];

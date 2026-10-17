@@ -6,6 +6,7 @@
  * Audio-thread rules: no allocation in process(), no logging, no blocking.
  */
 import { Engine } from '../engine/Engine';
+import { NUM_CHANNELS } from '../engine/project';
 import { STATUS_HZ, type MainToWorklet, type WorkletToMain } from '../engine/protocol';
 
 const PROCESSOR_NAME = 'groovebox-engine';
@@ -17,7 +18,7 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
   // Reused status object; postMessage clones it.
   private readonly status: Extract<WorkletToMain, { type: 'status' }> = {
     type: 'status', peakL: 0, peakR: 0, frame: 0, playing: false,
-    steps: [0, 0, 0, 0, 0, 0], patterns: [0, 0, 0, 0, 0, 0], barPhase: 0,
+    steps: new Array<number>(NUM_CHANNELS).fill(0), patterns: new Array<number>(NUM_CHANNELS).fill(0), barPhase: 0,
   };
   private readonly pong = { type: 'pong', id: 0 } as Extract<WorkletToMain, { type: 'pong' }>;
 

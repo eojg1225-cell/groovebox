@@ -12,8 +12,8 @@
  *
  * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, savepatch,
  * saveproject, reset, dpage0..2, fx1..fx3 + fx4 (LFO), play, clear (held: CLEAR + step / channel),
- * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row, k7..k12
- * bottom row; module i holds k(i+1) and k(i+7)); master knobs mtempo, mlofi.
+ * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
+ * bottom row; module i holds k(i+1) and k(i+9)); master knobs mtempo, mlofi.
  */
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
@@ -22,8 +22,8 @@ import { BPM_MAX, BPM_MIN } from '../engine/mixParams';
 
 export const DESIGN_W = 1200;
 export const DESIGN_H = 760;
-export const KNOB_COUNT = 12;
-export const KNOBS_PER_ROW = 6;
+export const KNOB_COUNT = 16;
+export const KNOBS_PER_ROW = 8;
 export const STEP_BUTTONS = 16;
 export const DESIGN_PAGE_BUTTONS = 3;
 /** FX 1-3 then the LFO (fx4): buses the tracks are put on. */
@@ -277,14 +277,14 @@ export class Panel implements ControlSurface {
   }
 
   /**
-   * Space: play. 1-6: select channel, Shift+1-6: mute.
+   * Space: play. 1-8: select channel, Shift+1-8: mute.
    * Q..I: strip buttons 1-8, A..K: strip buttons 9-16.
    */
   private installKeyboard(): void {
     const stepKeys = 'QWERTYUIASDFGHJK';
     const toId = (e: KeyboardEvent): string | null => {
       if (e.code === 'Space') return 'play';
-      const digit = /^Digit([1-6])$/.exec(e.code);
+      const digit = /^Digit([1-8])$/.exec(e.code);
       if (digit) return e.shiftKey ? `mute${digit[1]}` : `ch${digit[1]}`;
       const key = /^Key([A-Z])$/.exec(e.code);
       if (key) {

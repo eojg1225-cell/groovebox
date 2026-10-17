@@ -18,10 +18,11 @@ export function applyPreset(c: ChannelState, kind: SoundKind, index: number): vo
  * every pattern empty.
  */
 /** Where each track starts along its TIMBRE. */
-const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'SOLID', 'WARM', 'SQUARE'];
+const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'SOLID', 'WARM', 'SQUARE', 'LOW TOM', 'SINE'];
 
 export function createDefaultProject(): Project {
-  const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'bass', 'pad', 'lead'];
+  // 7 = toms / percussion (pitched from the sequencer), 8 = a second synth line.
+  const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'perc', 'lead'];
   const channels = Array.from({ length: NUM_CHANNELS }, (_, i) => {
     const c = emptyChannel();
     applyPreset(c, kinds[i], Math.max(0, INSTRUMENTS[kinds[i]].presets.findIndex((p) => p.name === START_PRESETS[i])));
@@ -30,12 +31,13 @@ export function createDefaultProject(): Project {
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });
-  // Intended routing (a starting point, freely changed): drums through FX 1 (the drum bus),
-  // bass and lead to FX 2 (dub delay), the pad - ready for jungle chords - to FX 3 (reverb).
+  // Intended routing (a starting point, freely changed): drums and percussion through FX 1
+  // (the drum bus), bass and leads to FX 2 (dub delay), the pad - ready for jungle chords - to
+  // FX 3 (reverb).
   channels[4].chord = CHORD_NAMES.indexOf('MIN9');
-  channels.forEach((c, i) => {
-    c.fx1 = i < 3;
-    c.fxSend = i === 4 ? 3 : i >= 3 ? 2 : 0;
+  channels.forEach((c) => {
+    c.fx1 = INSTRUMENTS[c.instrument as SoundKind].drum;
+    c.fxSend = c.instrument === 'pad' ? 3 : c.instrument === 'bass' || c.instrument === 'lead' ? 2 : 0;
   });
   channels[3].sendLevel = 0.25;
   return {

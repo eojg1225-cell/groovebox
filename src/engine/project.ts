@@ -6,7 +6,7 @@ export const PROJECT_VERSION = 8;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
-export const NUM_CHANNELS = 6;
+export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 4;
 export const MAX_STEPS = 64;
 /** Most hits a ROLL step can have. */
@@ -19,7 +19,7 @@ export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 
 import type { LfoState } from './lfo';
 
-export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'bass' | 'pad' | 'lead';
+export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'perc' | 'bass' | 'pad' | 'lead';
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
 
 /** Live-knob target: an instrument param id, or a mixer param. */

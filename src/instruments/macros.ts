@@ -69,6 +69,19 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { id: 'm_noise', low: 0.8, high: 1.3 }, { id: 'c_level', low: 0.6, high: 1.5 },
     ],
   },
+  perc: {
+    // Pitched from the sequencer: toms and congas follow the notes, the bells too.
+    anchors: [
+      { name: 'LOW TOM', values: { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.5, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.1, m_mode: 0, drive: 1.3 } },
+      { name: 'CONGA', values: { t_level: 0.9, t_pitch: 210, t_sweep: 4, t_stime: 0.02, t_decay: 0.2, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.1, m_mode: 0, drive: 1.2 } },
+      { name: 'COWBELL', values: { t_level: 0, t_pitch: 210, t_sweep: 0, t_stime: 0.02, t_decay: 0.1, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.22, m_mode: 0, drive: 1.5 } },
+      { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 2400, t_sweep: 0, t_stime: 0.01, t_decay: 0.045, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_decay: 0.05, m_mode: 0, drive: 1.1 } },
+    ],
+    excite: [
+      { id: 't_sweep', low: 0.7, high: 1.4 }, { id: 'c_level', low: 0.6, high: 1.5 }, { id: 'drive', low: 0.8, high: 2.2 },
+      { id: 't_decay', low: 0.8, high: 1.25 },
+    ],
+  },
   bass: {
     anchors: [
       { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, detune: 0, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, decay: 0.7, sustain: 0.8, drive: 1, glide: 0.03 } },

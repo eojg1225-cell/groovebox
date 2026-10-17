@@ -7,7 +7,7 @@ import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, presetSound } from '../src/instruments/registry';
-import { Drum, HAT_PARAMS, KICK_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
+import { Drum, HAT_PARAMS, KICK_PARAMS, PERC_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
 import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
 import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
@@ -19,7 +19,7 @@ import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { lfoValue } from '../src/engine/lfo';
 import { MACROS, anchorPosition, macroSound } from '../src/instruments/macros';
-import { soundPage } from '../src/instruments/registry';
+import { soundPage, stepsOnStrip } from '../src/instruments/registry';
 import { DrumBus, STUTTER_GRIDS } from '../src/fx/DrumBus';
 
 const SR = 48000;
@@ -119,10 +119,10 @@ describe('instruments', () => {
     }
   }
 
-  it('each type has a 12-knob layout of its own params; coarse params are discrete; presets use real params', () => {
+  it('each type has 16-knob pages of its own params; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
-      expect(entry.layout.length).toBeLessThanOrEqual(12);
-      expect(entry.detail.length).toBeLessThanOrEqual(12);
+      expect(entry.layout.length).toBeLessThanOrEqual(16);
+      expect(entry.detail.length).toBeLessThanOrEqual(16);
       for (const id of [...entry.layout, ...entry.detail]) {
         if (id && !id.includes(':')) expect(entry.params.some((p) => p.id === id)).toBe(true);
       }
@@ -133,17 +133,19 @@ describe('instruments', () => {
     }
   });
 
-  it('sound page columns: TIMBRE/INTENSITY, two element ATTACK/DECAYs, FILTER/RESO, FILTER ATTACK/DECAY, DRIVE/CRUSH', () => {
-    expect(soundPage(['a1', 'd1', 'a2', 'd2'])).toEqual([
-      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive',
-      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush',
+  it('sound page columns: TIMBRE/INTENSITY, two element ATTACK/DECAYs, FILTER/RESO, FILTER ATTACK/DECAY, DRIVE/CRUSH, FLT ENV/hold, VOLUME/PAN', () => {
+    expect(soundPage(['a1', 'd1', 'a2', 'd2'], 'hold')).toEqual([
+      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive', 'fenv', 'mix:volume',
+      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush', 'hold', 'mix:pan',
     ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
-    expect(INSTRUMENTS.hat.layout.slice(7, 9)).toEqual(['c_len', 'm_decay']);
+    expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
-    // Every type really has these parameters; the pad's chord is on its detail page.
+    // Every type really has these parameters (16 slots on both pages); the pad's chord is on DETAIL.
     for (const entry of Object.values(INSTRUMENTS)) {
-      for (const id of entry.layout) if (id) expect(entry.params.some((p) => p.id === id), id).toBe(true);
+      expect(entry.layout).toHaveLength(16);
+      expect(entry.detail).toHaveLength(16);
+      for (const id of [...entry.layout, ...entry.detail]) if (id && !id.includes(':')) expect(entry.params.some((p) => p.id === id), id).toBe(true);
     }
     expect(INSTRUMENTS.pad.detail).toContain('track:chord');
   });
@@ -654,7 +656,7 @@ describe('LFO', () => {
     for (const c of old.channels) { delete c.lfoOn; c.lfo = { rate: 4, shape: 0, vol: 0, pitch: 0 }; }
     old.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 };
     const p = fromStored(old)!;
-    expect(p.channels.map((c) => c.lfoOn)).toEqual([false, false, false, false, false, true]);
+    expect(p.channels.map((c) => c.lfoOn)).toEqual([false, false, false, false, false, true, false, false]);
     expect(p.lfo).toMatchObject({ rate: 7, shape: 5, vol: 0.4, pitch: 3 });
   });
 
@@ -1256,5 +1258,33 @@ describe('pattern D', () => {
     e.handleMessage({ type: 'selectPattern', channel: 0, pattern: 3, immediate: true });
     e.handleMessage({ type: 'transport', playing: true });
     near(onsets(render(e, 0.5).l), [12000]);
+  });
+});
+
+describe('PERC track', () => {
+  it('is pitched from the sequencer (keyboard step entry) and has its four sounds', () => {
+    expect(stepsOnStrip('perc')).toBe(false);
+    expect(stepsOnStrip('snare')).toBe(true);
+    expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'CONGA', 'COWBELL', 'CLAVE']);
+    const crossings = (note: number) => {
+      const d = new Drum(SR, PERC_PARAMS);
+      const sound = presetSound('perc', 0);
+      for (const id in sound) d.setParam(id, sound[id]);
+      d.setParam('c_level', 0);
+      d.noteOn(note, 1, note);
+      const l = new Float32Array(SR / 4);
+      d.render(l, new Float32Array(SR / 4), 0, l.length);
+      let c = 0;
+      for (let i = 1; i < l.length; i++) if ((l[i - 1] < 0) !== (l[i] < 0)) c++;
+      return c;
+    };
+    expect(crossings(48) / crossings(36)).toBeGreaterThan(1.8); // an octave up
+  });
+
+  it('a new project has 8 tracks: track 7 PERC, track 8 a second LEAD', () => {
+    const p = createDefaultProject();
+    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'perc', 'lead']);
+    expect(p.channels[6].fx1).toBe(true);
+    expect(p.channels[7].fxSend).toBe(2);
   });
 });

@@ -13,7 +13,7 @@
  *  DESIGN  sound design for the selected track: its core parameters (SOUND), TRACK
  *          (type, preset, mix, sends, live-knob assignment, chord), FX and GLOBAL.
  *          The strip is an audition keyboard.
- * In RECORD and PLAY the 12 knobs are the live knobs: one module per track, two each,
+ * In RECORD and PLAY the 16 knobs are the live knobs: one module per track, two each,
  * assigned on the TRACK page. Only non-coarse parameters can be assigned.
  * FX 1-3 and LFO (RECORD / PLAY): the knobs and the screen switch to that bus's controls
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
@@ -42,7 +42,7 @@ import {
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { macroSound, timbreName } from '../instruments/macros';
 import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
@@ -223,7 +223,7 @@ export class App {
    */
   private get keyboard(): boolean {
     if (this.clearHeld && this.mode !== 'design') return false;
-    return !isDrum(this.channel.instrument) || this.mode !== 'record';
+    return !stepsOnStrip(this.channel.instrument) || this.mode !== 'record';
   }
 
   /** RECORD / PLAY with a bus open: knobs and screen show that bus. */
@@ -314,7 +314,7 @@ export class App {
     const following = ch !== this.selected || this.mode === 'play' || this.recording;
     let page: number;
     if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
-    else if (!isDrum(c.instrument) && this.mode === 'record') page = Math.floor(this.cursor[ch] / 16);
+    else if (!stepsOnStrip(c.instrument) && this.mode === 'record') page = Math.floor(this.cursor[ch] / 16);
     else page = this.viewPage[ch];
     return Math.min(page, this.pageCount(ch) - 1);
   }
@@ -442,14 +442,14 @@ export class App {
    * labelled with the effect) on top, INTENSITY (how hard it works) below.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
-    if (k === 3) return LFO_LAYOUT.map((id) => this.paramTarget(this.selected, `lfo:${id}`));
+    if (k === 3) return widen(LFO_LAYOUT.map((id) => this.paramTarget(this.selected, `lfo:${id}`)));
     if (k === 0) {
       const fx1 = this.project.fx1;
-      return DRUM_BUS_PARAMS.map((spec): KnobTarget => ({
+      return widen(DRUM_BUS_PARAMS.map((spec): KnobTarget => ({
         label: spec.name, spec, channel: this.selected, key: `fx1:${spec.id}`,
         get: () => fx1[spec.id] ?? spec.defaultValue,
         set: (v: number) => { fx1[spec.id] = v; this.send({ type: 'setDrumBusParam', id: spec.id, value: v }); },
-      }));
+      })));
     }
     const control = (control: 'wet' | 'int') => EFFECTS.map((fx, e): KnobTarget => {
       const grid = control === 'wet' ? this.project.sendWet : this.project.sendInt;
@@ -461,7 +461,7 @@ export class App {
         set: (v: number) => { grid[k][e] = v; this.send({ type: 'setSendFx', send: k, effect: e, control, value: v }); },
       };
     });
-    return [...control('wet'), ...control('int')];
+    return widen([...control('wet'), ...control('int')]);
   }
 
   /**
@@ -530,7 +530,7 @@ export class App {
     }
   }
 
-  /** The 12 knob targets for the current mode. */
+  /** The 16 knob targets for the current mode. */
   private computeTargets(): (KnobTarget | null)[] {
     if (this.mode === 'design') {
       const pages = this.designPages();
@@ -1327,7 +1327,7 @@ export class App {
       const pat = lc.patterns[shown];
       const page = this.visiblePage(i);
       const head = this.playing && shown === heard ? (this.status?.steps[i] ?? -1) : -1;
-      const pitched = !isDrum(lc.instrument);
+      const pitched = !stepsOnStrip(lc.instrument);
       const tied = pitched ? tiedSteps(pat.steps, pat.length) : null;
       const cells: LaneCell[] = [];
       for (let k = 0; k < 16; k++) {

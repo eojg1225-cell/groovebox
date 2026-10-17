@@ -1,7 +1,7 @@
 /**
  * What the pixel screen shows. Pure drawing from plain view-model objects.
- *  - Live view (RECORD / PLAY): six step lanes, then the 12 live knobs (one column per track).
- *  - Design view (SOUND DESIGN): page tabs and the 12 knobs drawn as on the panel.
+ *  - Live view (RECORD / PLAY): eight step lanes, then the 16 live knobs (one column per track).
+ *  - Design view (SOUND DESIGN, and an open FX bus): page tabs and the 16 knobs as on the panel.
  */
 import { INK, PixelScreen, SCREEN_W } from './screen';
 import { textWidth } from './font';
@@ -85,7 +85,10 @@ const GRID_X = 30;
 const CELL = 12;
 const CELL_GAP = 1;
 const GROUP_GAP = 3;
-const SLOT_W = 42;
+/** Knob slots: 2 rows of COLS, as on the panel. */
+const COLS = 8;
+const SLOTS = COLS * 2;
+const SLOT_W = 31;
 const FOOTER_Y = 120;
 /** Hit height encodes dynamics: tall accent, medium normal, short ghost. */
 const DYN_HEIGHT = { ghost: 2, normal: 4, accent: 6 } as const;
@@ -173,19 +176,19 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
   });
 
   // Live knobs: column = track, two rows.
-  const ky = LANE_Y + 6 * (LANE_H + LANE_GAP) + 2;
+  const ky = LANE_Y + v.lanes.length * (LANE_H + LANE_GAP) + 2;
   s.rect(0, ky - 2, SCREEN_W, 1, INK.dim);
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < SLOTS; i++) {
     const slot = v.slots[i];
-    const x = 2 + (i % 6) * SLOT_W;
-    const y = ky + Math.floor(i / 6) * 23;
+    const x = 2 + (i % COLS) * SLOT_W;
+    const y = ky + Math.floor(i / COLS) * 18;
     const touched = i === v.touchedSlot;
-    if (touched || slot?.highlight) s.rect(x - 1, y - 1, SLOT_W - 1, 22, touched ? INK.dim : INK.shade);
+    if (touched || slot?.highlight) s.rect(x - 1, y - 1, SLOT_W - 1, 18, touched ? INK.dim : INK.shade);
     if (!slot) continue;
     s.text(x, y + 1, fit(slot.name, SLOT_W - 3), touched ? INK.hi : INK.mid);
-    s.text(x, y + 8, fit(slot.valueText, SLOT_W - 3), INK.hi);
-    s.rect(x, y + 16, SLOT_W - 5, 2, INK.dim);
-    s.rect(x, y + 16, Math.round((SLOT_W - 5) * slot.norm), 2, touched ? INK.hi : INK.mid);
+    s.text(x, y + 7, fit(slot.valueText, SLOT_W - 3), INK.hi);
+    s.rect(x, y + 14, SLOT_W - 5, 2, INK.dim);
+    s.rect(x, y + 14, Math.round((SLOT_W - 5) * slot.norm), 2, touched ? INK.hi : INK.mid);
   }
 
   drawFooter(s, v, `${v.modeLabel} ${v.keyboardLabel}`, v.dynamicLabel);
@@ -221,22 +224,22 @@ export function drawDesignView(s: PixelScreen, v: DesignView): void {
     tx += w + 3;
   });
 
-  // 12 knobs, laid out like the panel (2 rows of 6).
-  for (let i = 0; i < 12; i++) {
+  // 16 knobs, laid out like the panel (2 rows of 8).
+  for (let i = 0; i < SLOTS; i++) {
     const slot = v.slots[i];
-    const x = 2 + (i % 6) * SLOT_W;
-    const y = 22 + Math.floor(i / 6) * 47;
+    const x = 2 + (i % COLS) * SLOT_W;
+    const y = 22 + Math.floor(i / COLS) * 47;
     const touched = i === v.touchedSlot;
     if (touched) s.rect(x - 1, y - 1, SLOT_W - 1, 45, INK.dim);
     if (!slot) {
-      s.text(x + 17, y + 18, '-', INK.dim);
+      s.text(x + 13, y + 18, '-', INK.dim);
       continue;
     }
-    s.text(x, y + 1, fit(slot.name, SLOT_W - 3), touched ? INK.hi : INK.mid);
-    drawKnob(s, x + 19, y + 19, 9, slot.norm, touched);
-    const big = textWidth(slot.valueText, 2) <= SLOT_W - 9;
+    s.text(x, y + 1, fit(slot.name, SLOT_W - 2), touched ? INK.hi : INK.mid);
+    drawKnob(s, x + 14, y + 19, 9, slot.norm, touched);
+    const big = textWidth(slot.valueText, 2) <= SLOT_W - 3;
     if (big) s.text(x, y + 32, slot.valueText, INK.hi, 2);
-    else s.text(x, y + 35, fit(slot.valueText, SLOT_W - 3), INK.hi);
+    else s.text(x, y + 35, fit(slot.valueText, SLOT_W - 2), INK.hi);
   }
 
   drawFooter(s, v, v.liveLabel, v.chordLabel);
