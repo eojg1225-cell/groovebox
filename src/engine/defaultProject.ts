@@ -18,7 +18,7 @@ export function applyPreset(c: ChannelState, kind: SoundKind, index: number): vo
  * every pattern empty.
  */
 /** Where each track starts along its TIMBRE. */
-const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'SQUARE', 'PIZZICATO'];
+const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'SQUARE', 'GLASS PLUCK'];
 
 export function createDefaultProject(): Project {
   // 4 = toms / percussion (pitched from the sequencer), 8 = a sync pluck with an arp.

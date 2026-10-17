@@ -1363,8 +1363,8 @@ describe('drum RING follows the decay knobs', () => {
 });
 
 describe('PLUCK and ARP', () => {
-  it('has its four sounds, from pizzicato to the FM donk, with CHORD and ARP on the SOUND page', () => {
-    expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['GLASS PLUCK', 'PIZZICATO', 'SAW PLUCK', 'RAGE DONK']);
+  it('has its four sounds, from glass to the FM donk, with CHORD and ARP on the SOUND page', () => {
+    expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['GLASS PLUCK', 'SAW PLUCK', 'SQUARE PLUCK', 'RAGE DONK']);
     const l = INSTRUMENTS.pluck.layout;
     expect([l[6], l[14], l[7], l[15]]).toEqual(['track:chord', 'arpoct', 'arp', 'arprate']);
     const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });

@@ -73,7 +73,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | BASS (mono) | SINE SUB → SOLID → GROWL → FM CLANG | oscillators / glide, envelopes, level |
 | PAD (6 voices) | GLASS → WARM → STRINGS → ETHEREAL (FM supersaw: unison saws, FM at 3:2, swelling) | oscillators / chord, envelopes, level |
 | LEAD (mono) | SINE → SQUARE → SCREAM → BELL |
-| PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | GLASS PLUCK → PIZZICATO → SAW PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
+| PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | GLASS PLUCK → SAW PLUCK → SQUARE PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
 
 Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4, 5TH, 5TH+OCT, MAJ11.
 
