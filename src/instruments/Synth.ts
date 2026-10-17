@@ -23,6 +23,19 @@ const OCTAVES = ['-2', '-1', '0', '+1', '+2'] as const;
 const MAX_VOICES = 6;
 /** Glide time of a SLIDE when the sound's own GLIDE is (near) zero. */
 const SLIDE_SECONDS = 0.06;
+/**
+ * DECAY below STAB_END starts cutting the sustain (and the release) away, so turning DECAY
+ * down takes any sound - a held pad chord too - to a stab, and at the bottom a click.
+ * Fully cut at STAB_START and below.
+ */
+const STAB_START = 0.12;
+const STAB_END = 0.45;
+
+/** 0 at or below STAB_START, 1 at or above STAB_END (smooth, on a log scale). */
+function sustainKeep(decaySeconds: number): number {
+  const t = Math.min(1, Math.max(0, Math.log(decaySeconds / STAB_START) / Math.log(STAB_END / STAB_START)));
+  return t * t * (3 - 2 * t);
+}
 /** UNISON copies relative to OSC 1 (x the spread), and their start phases. */
 const UNISON_SPREAD = [-1, -0.4, 0.4, 1];
 const UNISON_PHASE = [0.13, 0.61, 0.37, 0.89];
@@ -149,6 +162,11 @@ export class Synth implements Instrument {
   private readonly attackInc = new Float64Array([1, 1]);
   private readonly decayMul = new Float64Array(2);
   private sustain = 0.5; private releaseMul = 0;
+  /** Per element: the sustain level in use (SUSTAIN x how much a short DECAY keeps) ... */
+  private readonly sustainLevel = new Float64Array([0.5, 0.5]);
+  /** ... and its release: never slower than its decay once that decay is a stab. */
+  private readonly releaseK = new Float64Array(2);
+  private readonly decayTime = new Float64Array([0.4, 0.4]);
   private ageCounter = 0;
   private pitchMod = 1;
 
@@ -245,11 +263,20 @@ export class Synth implements Instrument {
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
       case 'attack': this.attackInc[0] = 1 / (value * sr); break;
-      case 'decay': this.decayMul[0] = decayMul(value, sr); break;
+      case 'decay': this.decayMul[0] = decayMul(value, sr); this.decayTime[0] = value; this.updateSustain(); break;
       case 'attack2': this.attackInc[1] = 1 / (value * sr); break;
-      case 'decay2': this.decayMul[1] = decayMul(value, sr); break;
-      case 'sustain': this.sustain = value; break;
-      case 'release': this.releaseMul = decayMul(value, sr); break;
+      case 'decay2': this.decayMul[1] = decayMul(value, sr); this.decayTime[1] = value; this.updateSustain(); break;
+      case 'sustain': this.sustain = value; this.updateSustain(); break;
+      case 'release': this.releaseMul = decayMul(value, sr); this.updateSustain(); break;
+    }
+  }
+
+  private updateSustain(): void {
+    for (let k = 0; k < 2; k++) {
+      const keep = sustainKeep(this.decayTime[k]);
+      this.sustainLevel[k] = this.sustain * keep;
+      // A stab ends as fast as it decays, whatever the RELEASE.
+      this.releaseK[k] = keep < 1 ? Math.min(this.releaseMul, this.decayMul[k]) : this.releaseMul;
     }
   }
 
@@ -327,24 +354,25 @@ export class Synth implements Instrument {
         let mix = 0;
         for (let k = 0; k < 2; k++) {
           let a = v.amp[k];
+          const sus = this.sustainLevel[k];
           switch (v.stage[k]) {
             case STAGE_ATTACK:
               a += this.attackInc[k];
               if (a >= 1) { a = 1; v.stage[k] = STAGE_DECAY; }
               break;
             case STAGE_DECAY:
-              a = this.sustain + (a - this.sustain) * this.decayMul[k];
-              if (a - this.sustain < 1e-4) v.stage[k] = STAGE_SUSTAIN;
+              a = sus + (a - sus) * this.decayMul[k];
+              if (a - sus < 1e-4) v.stage[k] = STAGE_SUSTAIN;
               break;
             case STAGE_SUSTAIN:
-              a = this.sustain;
+              a = sus;
               break;
             case STAGE_RELEASE:
-              a *= this.releaseMul;
+              a *= this.releaseK[k];
               if (a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
               break;
           }
-          if (v.stage[k] === STAGE_SUSTAIN && this.sustain === 0 && a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
+          if (v.stage[k] === STAGE_SUSTAIN && sus < 1e-5 && a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
           v.amp[k] = a;
           mix += (k === 0 ? o1 : o2) * a;
         }

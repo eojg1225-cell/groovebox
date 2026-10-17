@@ -1153,3 +1153,35 @@ describe('ETHEREAL pad', () => {
     expect(st.peak).toBeLessThan(3);
   });
 });
+
+describe('short DECAY cuts sustain and release', () => {
+  const padChord = (decay: number, releaseAt = SR) => {
+    const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+    const sound = presetSound('pad', INSTRUMENTS.pad.presets.findIndex((p) => p.name === 'WARM'));
+    for (const id in sound) s.setParam(id, sound[id]);
+    s.setParam('attack', 0.001); s.setParam('attack2', 0.001);
+    s.setParam('decay', decay); s.setParam('decay2', decay);
+    for (const n of [57, 60, 64]) s.noteOn(n, 1, 57);
+    const l = new Float32Array(SR * 2);
+    s.render(l, new Float32Array(SR * 2), 0, releaseAt);
+    s.noteOff(57);
+    s.render(l, new Float32Array(SR * 2), releaseAt, l.length);
+    return l;
+  };
+  const at = (l: Float32Array, t: number) => stats(l.subarray(Math.round(SR * t), Math.round(SR * t) + 960)).peak;
+
+  it('a held pad chord sustains at a long DECAY, becomes a stab when short, a click at the bottom', () => {
+    const held = padChord(1.2);
+    const stab = padChord(0.1);
+    const click = padChord(0.005);
+    expect(at(held, 0.5)).toBeGreaterThan(0.05);
+    expect(at(stab, 0.02)).toBeGreaterThan(0.05);
+    expect(at(stab, 0.5)).toBeLessThan(at(held, 0.5) * 0.05);
+    expect(at(click, 0.03)).toBeLessThan(at(held, 0.03) * 0.05);
+  });
+
+  it('a stab released early does not ring on for the pad\'s long RELEASE', () => {
+    const stab = padChord(0.1, SR * 0.05);
+    expect(at(stab, 0.4)).toBeLessThan(1e-3);
+  });
+});

@@ -72,9 +72,9 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   bass: {
     anchors: [
       { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, detune: 0, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, decay: 0.7, sustain: 0.8, drive: 1, glide: 0.03 } },
-      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, detune: 0.15, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, decay: 0.35, sustain: 0.45, drive: 1.6, glide: 0.02 } },
+      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, detune: 0.15, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, decay: 0.5, sustain: 0.45, drive: 1.6, glide: 0.02 } },
       { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, detune: 0.75, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, decay: 1, sustain: 0.9, drive: 3, glide: 0.04 } },
-      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, detune: 0, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, decay: 0.4, sustain: 0.25, drive: 2.2, glide: 0.02 } },
+      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, detune: 0, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, decay: 0.5, sustain: 0.25, drive: 2.2, glide: 0.02 } },
     ],
     excite: [
       { id: 'cutoff', low: 0.5, high: 2 }, { id: 'fenv', low: 0.6, high: 1.4 }, { id: 'drive', low: 0.7, high: 2 },
@@ -96,8 +96,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   lead: {
     anchors: [
-      { name: 'SINE', values: { shape: 0, fm: 0, fmratio: 2, detune: 0, glide: 0.08, cutoff: 6000, reso: 0.1, fenv: 0, fdecay: 0.3, attack: 0.01, decay: 0.4, sustain: 0.8, release: 0.2, drive: 1.2 } },
-      { name: 'SQUARE', values: { shape: 3, fm: 0, fmratio: 2, detune: 0.15, glide: 0.05, cutoff: 2400, reso: 0.3, fenv: 0.3, fdecay: 0.3, attack: 0.005, decay: 0.3, sustain: 0.6, release: 0.15, drive: 1.5 } },
+      { name: 'SINE', values: { shape: 0, fm: 0, fmratio: 2, detune: 0, glide: 0.08, cutoff: 6000, reso: 0.1, fenv: 0, fdecay: 0.3, attack: 0.01, decay: 0.5, sustain: 0.8, release: 0.2, drive: 1.2 } },
+      { name: 'SQUARE', values: { shape: 3, fm: 0, fmratio: 2, detune: 0.15, glide: 0.05, cutoff: 2400, reso: 0.3, fenv: 0.3, fdecay: 0.3, attack: 0.005, decay: 0.5, sustain: 0.6, release: 0.15, drive: 1.5 } },
       { name: 'SCREAM', values: { shape: 2, fm: 0, fmratio: 2, detune: 0.5, glide: 0.06, cutoff: 900, reso: 0.8, fenv: 0.65, fdecay: 0.4, attack: 0.005, decay: 0.5, sustain: 0.7, release: 0.2, drive: 4 } },
       { name: 'BELL', values: { shape: 0, fm: 0.85, fmratio: 3, detune: 0, glide: 0.03, cutoff: 6000, reso: 0.1, fenv: 0.4, fdecay: 0.5, attack: 0.002, decay: 0.6, sustain: 0.2, release: 0.5, drive: 1.3 } },
     ],
