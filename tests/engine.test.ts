@@ -1212,3 +1212,16 @@ describe('short DECAY cuts sustain and release', () => {
     expect(at(stab, 0.4)).toBeLessThan(1e-3);
   });
 });
+
+describe('bar position (for RESET)', () => {
+  it('runs 0..1 over 16 steps and wraps', () => {
+    const e = engineWith(kickProject([], { bpm: 120 })); // 6000 frames per step
+    expect(e.barPhase).toBe(0);
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 0.25); // 12000 frames = 2 steps
+    expect(e.barPhase).toBeCloseTo(2 / 16, 1);
+    render(e, 1.75); // 96000 frames total = 16 steps
+    const p = e.barPhase; // at the bar line: just before or just after the wrap
+    expect(Math.min(p, 1 - p)).toBeLessThan(0.01);
+  });
+});

@@ -11,7 +11,7 @@
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
  * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, savepatch,
- * saveproject, dpage0..2, fx1..fx3 + fx4 (LFO), play, clear (held: CLEAR + step / channel),
+ * saveproject, reset, dpage0..2, fx1..fx3 + fx4 (LFO), play, clear (held: CLEAR + step / channel),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k12 (k1..k6 top row, k7..k12
  * bottom row; module i holds k(i+1) and k(i+7)); master knobs mtempo, mlofi.
  */
@@ -103,6 +103,7 @@ export class Panel implements ControlSurface {
     for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     q('.patterns').appendChild(this.makeButton('savepatch', 'SAVE<small>PATCH</small>', 'btn save'));
     q('.patterns').appendChild(this.makeButton('saveproject', 'SAVE<small>PROJECT</small>', 'btn save'));
+    q('.patterns').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
     for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
 

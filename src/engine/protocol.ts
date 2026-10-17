@@ -68,6 +68,8 @@ export type WorkletToMain =
       playing: boolean;
       steps: number[];
       patterns: number[];
+      /** Position in the bar (16 steps), 0..1 (0 when stopped). */
+      barPhase: number;
     }
   | { type: 'pong'; id: number }
   | {

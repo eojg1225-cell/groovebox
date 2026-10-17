@@ -349,6 +349,14 @@ export class Engine {
     this.finishBlock(outL, outR, frames);
   }
 
+  /** Position in the current bar (16 steps), 0..1; 0 when stopped. */
+  get barPhase(): number {
+    if (!this.playing || this.globalStep === 0) return 0;
+    const inStep = Math.min(1, Math.max(0, (this.lastStepFrames - this.framesToStep) / this.lastStepFrames));
+    const pos = (this.globalStep - 1 + inStep) / 16;
+    return pos - Math.floor(pos);
+  }
+
   resetPeaks(): void {
     this.peakL = 0;
     this.peakR = 0;

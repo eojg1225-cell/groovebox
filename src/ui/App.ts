@@ -19,6 +19,9 @@
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
+ * RESET: every parameter returns to the saved project (or, if none was saved, to how the
+ * session started): while playing it glides back to land on the next bar line, stopped
+ * it jumps. Tempo, master volume, routing, mutes and patterns are left alone.
  * SLIDE: in step entry, holding a key and pressing another enters the new note on the step
  * after the held one, sliding into it (legato). Bass / lead also slide when played legato.
  * ROLL (drum steps): hold a step and press ▶ / ◀ for more / fewer hits inside it; hold a
@@ -41,7 +44,7 @@ import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { macroSound, timbreName } from '../instruments/macros';
-import { savePatch, saveProject, userPatches } from '../storage/saved';
+import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView } from './views';
 
@@ -89,6 +92,17 @@ interface KnobTarget {
   get(): number;
   set(value: number): void;
   highlight?: boolean;
+  /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "fx1:id" ... */
+  key?: string;
+}
+
+/** One parameter gliding back to its saved value (RESET). */
+interface Glide {
+  spec: ParamSpec;
+  from: number; // normalised
+  to: number; // normalised
+  target: number; // real value to land on
+  set(value: number): void;
 }
 
 const MIX_PREFIX = 'mix:';
@@ -131,6 +145,12 @@ export class App {
   private touchedKnob = -1;
   private touchedAt = 0;
   private status: Status | null = null;
+  private statusAt = 0;
+  /** State RESET returns to when nothing has been saved: the project as the session began. */
+  private readonly baseline: Project;
+  private glides = new Map<string, Glide>();
+  private glideStart = 0;
+  private glideEnd = 0;
   private targets: (KnobTarget | null)[] = [];
 
   constructor(
@@ -138,6 +158,7 @@ export class App {
     private readonly panel: Panel,
     private send: (msg: MainToWorklet) => void,
   ) {
+    this.baseline = JSON.parse(JSON.stringify(project)) as Project;
     this.octave = project.channels.map((c) => (c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote));
     panel.subscribe((e) => this.onControl(e));
     this.refreshPanel();
@@ -145,6 +166,7 @@ export class App {
 
   setStatus(s: Status): void {
     this.status = s;
+    this.statusAt = performance.now();
   }
 
   /** Messages that bring a freshly started engine in line with the UI. */
@@ -320,14 +342,14 @@ export class App {
       const lfoId = id.slice(4) as LfoId;
       const spec = LFO_PARAMS[lfoId];
       return {
-        label: label ?? spec.name, spec, channel: ch, highlight,
+        label: label ?? spec.name, spec, channel: ch, highlight, key: id,
         get: () => this.project.lfo[lfoId],
         set: (v) => { this.project.lfo[lfoId] = v; this.send({ type: 'setLfo', id: lfoId, value: v }); },
       };
     }
     if (id === 'track:chord') {
       return {
-        label: label ?? 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch, highlight,
+        label: label ?? 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch, highlight, key: `${ch}:${id}`,
         get: () => c.chord,
         set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
       };
@@ -338,7 +360,7 @@ export class App {
       if (!spec) return null;
       const field = mixId === 'send' ? 'sendLevel' : mixId;
       return {
-        label: label ?? spec.name, spec, channel: ch, highlight,
+        label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
         get: () => c[field],
         set: (v) => {
           c[field] = v;
@@ -351,7 +373,7 @@ export class App {
     const spec = paramSpec(kind, id);
     if (!spec) return null;
     return {
-      label: label ?? spec.name, spec, channel: ch, highlight,
+      label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
       set: (v) => {
         const sound = (c.sounds[kind] ??= {});
@@ -384,7 +406,7 @@ export class App {
     pages.push({
       name: 'GLOBAL',
       targets: () => GLOBAL_PARAMS.map((spec) => ({
-        label: spec.name, spec, channel: ch,
+        label: spec.name, spec, channel: ch, key: `global:${spec.id}`,
         get: () => this.getGlobal(spec.id as GlobalId),
         set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
       })),
@@ -411,7 +433,7 @@ export class App {
     if (k === 0) {
       const fx1 = this.project.fx1;
       return DRUM_BUS_PARAMS.map((spec): KnobTarget => ({
-        label: spec.name, spec, channel: this.selected,
+        label: spec.name, spec, channel: this.selected, key: `fx1:${spec.id}`,
         get: () => fx1[spec.id] ?? spec.defaultValue,
         set: (v: number) => { fx1[spec.id] = v; this.send({ type: 'setDrumBusParam', id: spec.id, value: v }); },
       }));
@@ -419,7 +441,7 @@ export class App {
     const control = (control: 'wet' | 'int') => EFFECTS.map((fx, e): KnobTarget => {
       const grid = control === 'wet' ? this.project.sendWet : this.project.sendInt;
       return {
-        label: control === 'wet' ? fx.name : 'INTENSITY',
+        label: control === 'wet' ? fx.name : 'INTENSITY', key: `send:${k}:${e}:${control}`,
         spec: control === 'wet' ? EFFECT_WET : EFFECT_INTENSITY,
         channel: this.selected,
         get: () => grid[k][e],
@@ -600,6 +622,8 @@ export class App {
           this.flash('SAVE FAILED');
         }
       }
+    } else if (id === 'reset') {
+      this.startReset();
     } else if (id === 'saveproject') {
       this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
     } else if (id === 'ring') {
@@ -640,6 +664,93 @@ export class App {
       this.save();
     } else if ((m = /^step(\d+)$/.exec(id))) {
       this.onStrip(Number(m[1]) - 1);
+    }
+    this.refreshPanel();
+  }
+
+  /**
+   * RESET: every parameter that differs from the saved project glides back (on its own
+   * curve), landing on the next bar line; stopped, it jumps there now.
+   */
+  private startReset(): void {
+    const saved = loadSavedProject() ?? this.baseline;
+    const glides = new Map<string, Glide>();
+    const add = (key: string, spec: ParamSpec, current: number, target: number, set: (v: number) => void) => {
+      if (Math.abs(current - target) < 1e-9) return;
+      glides.set(key, { spec, from: toNorm(spec, current), to: toNorm(spec, target), target, set });
+    };
+    const fromTarget = (t: KnobTarget | null, target: number) => {
+      if (t?.key) add(t.key, t.spec, t.get(), target, (v) => t.set(v));
+    };
+    this.project.channels.forEach((c, ch) => {
+      const s = saved.channels[ch];
+      if (!s) return;
+      for (const spec of MIX_PARAMS) {
+        const field = spec.id === 'send' ? 'sendLevel' : (spec.id as 'volume' | 'pan' | 'cutoff');
+        fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[field]);
+      }
+      if (!isDrum(c.instrument)) fromTarget(this.paramTarget(ch, 'track:chord'), s.chord);
+      // The sound, value by value (not through TIMBRE / INTENSITY, which would recompute
+      // the rest mid-glide). Only when the track is still the same type.
+      if (c.instrument !== 'none' && c.instrument === s.instrument) {
+        const kind = c.instrument;
+        for (const spec of INSTRUMENTS[kind].params) {
+          const cur = c.sounds[kind]?.[spec.id] ?? spec.defaultValue;
+          const dst = s.sounds[kind]?.[spec.id] ?? spec.defaultValue;
+          add(`${ch}:${spec.id}`, spec, cur, dst, (v) => {
+            (c.sounds[kind] ??= {})[spec.id] = v;
+            this.send({ type: 'setSound', channel: ch, id: spec.id, value: v });
+          });
+        }
+      }
+    });
+    for (const id of Object.keys(LFO_PARAMS) as LfoId[]) fromTarget(this.paramTarget(this.selected, `lfo:${id}`), saved.lfo[id]);
+    for (const t of this.sendTargets(0)) if (t?.key) fromTarget(t, saved.fx1[t.key.slice(4)] ?? t.spec.defaultValue);
+    for (const k of [1, 2]) {
+      for (const t of this.sendTargets(k)) {
+        if (!t?.key) continue;
+        const [, , e, control] = t.key.split(':');
+        fromTarget(t, (control === 'wet' ? saved.sendWet : saved.sendInt)[k]?.[Number(e)] ?? t.get());
+      }
+    }
+    for (const gid of ['swing', 'lofi'] as const) {
+      const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
+      add(`global:${gid}`, spec, this.project[gid], saved[gid], (v) => this.setGlobal(gid, v));
+    }
+    if (glides.size === 0) {
+      this.flash('NOTHING TO RESET');
+      return;
+    }
+    this.glides = glides;
+    const now = performance.now();
+    this.glideStart = now;
+    if (this.playing && this.status?.playing) {
+      // Land on the next bar line (if it is under a step away, the one after).
+      const bar = (60000 / this.project.bpm) * 4;
+      const phase = this.status.barPhase + (now - this.statusAt) / bar;
+      let left = (1 - (phase - Math.floor(phase))) * bar;
+      if (left < bar / 16) left += bar;
+      this.glideEnd = now + left;
+      this.flash('RESET AT NEXT BAR');
+    } else {
+      this.glideEnd = now;
+    }
+    this.stepGlides(now);
+  }
+
+  /** Move the RESET glides on (called every frame). */
+  private stepGlides(now: number): void {
+    if (this.glides.size === 0) return;
+    const span = this.glideEnd - this.glideStart;
+    const t = span <= 0 ? 1 : Math.min(1, (now - this.glideStart) / span);
+    for (const g of this.glides.values()) {
+      if (t >= 1) g.set(g.target);
+      else if (!g.spec.options) g.set(toValue(g.spec, g.from + (g.to - g.from) * t));
+    }
+    if (t >= 1) {
+      this.glides.clear();
+      this.save();
+      this.flash('RESET');
     }
     this.refreshPanel();
   }
@@ -935,6 +1046,7 @@ export class App {
     const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
     let value = toValue(spec, norm);
     if (spec.decimals !== undefined) value = Math.round(value * 10 ** spec.decimals) / 10 ** spec.decimals;
+    this.glides.delete(`global:${gid}`);
     this.setGlobal(gid, value);
     this.flash(`${spec.name} ${formatValue(spec, value)}`);
     this.save();
@@ -950,6 +1062,7 @@ export class App {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       const step = gid === 'bpm' ? 0.1 : 1 / 127;
       const value = Math.min(spec.max, Math.max(spec.min, Math.round((this.project[gid] + delta * step) * 1000) / 1000));
+      this.glides.delete(`global:${gid}`);
       this.setGlobal(gid, value);
       this.flash(`${spec.name} ${formatValue(spec, value)}`);
       this.save();
@@ -979,6 +1092,7 @@ export class App {
       value = Math.round(value * f) / f;
     }
     if (t.spec.options && value === t.get()) return; // detent: nothing changed
+    if (t.key) this.glides.delete(t.key); // a hand on the knob wins over RESET
     t.set(value);
     this.touchedKnob = slot;
     this.touchedAt = performance.now();
@@ -1029,6 +1143,7 @@ export class App {
       this.panel.setButtonLit(`dpage${i}`, !!page && i === this.designPage);
     }
     this.panel.setButtonLit('clear', this.clearHeld);
+    this.panel.setButtonLit('reset', this.glides.size > 0);
     this.panel.setButtonEnabled('clear', this.mode !== 'design');
     this.panel.setButtonLit('play', this.playing);
     this.panel.setButtonText('play', this.playing ? 'STOP' : 'PLAY');
@@ -1051,6 +1166,7 @@ export class App {
 
   /** Per-frame updates: strip lights/labels, LEDs, pending pattern blink. */
   updateFrame(now: number): void {
+    this.stepGlides(now);
     const ch = this.selected;
     const c = this.channel;
     const pattern = this.pattern;
