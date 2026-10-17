@@ -88,13 +88,17 @@ export function lfoValue(shape: number, phase: number, held: number, morph = 0):
   return a + (baseShape((shape + 1) % LFO_SHAPES.length, phase, held) - a) * morph;
 }
 
+/**
+ * Shapes for stabs: each starts at its peak (+1 = full volume, open filter ...) so a
+ * retriggered LFO hits with the note - except SAW UP, which rises to end at its peak.
+ */
 function baseShape(shape: number, phase: number, held: number): number {
   switch (shape) {
     case 1: return phase < 0.5 ? 1 : -1;
-    case 2: return 1 - 4 * Math.abs(phase - 0.5);
+    case 2: return 4 * Math.abs(phase - 0.5) - 1;
     case 3: return 1 - 2 * phase;
     case 4: return 2 * phase - 1;
     case 5: return held;
-    default: return Math.sin(2 * Math.PI * phase);
+    default: return Math.cos(2 * Math.PI * phase);
   }
 }

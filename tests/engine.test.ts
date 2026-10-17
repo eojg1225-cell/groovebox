@@ -1862,3 +1862,11 @@ describe('LFO: odd rates, MORPH, FM MOD', () => {
     expect(stats(b).nan).toBe(false);
   });
 });
+
+describe('LFO shapes for stabs', () => {
+  it('every shape starts at its peak, except SAW UP which ends there', () => {
+    for (const shape of [0, 1, 2, 3]) expect(lfoValue(shape, 0, 0), `shape ${shape}`).toBeCloseTo(1);
+    expect(lfoValue(4, 0, 0)).toBeCloseTo(-1);
+    expect(lfoValue(4, 0.9999, 0)).toBeCloseTo(1, 3);
+  });
+});
