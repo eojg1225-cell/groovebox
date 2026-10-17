@@ -217,13 +217,13 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       for (const id in hidden) if (typeof saved[id] !== 'number') sound[id] = hidden[id];
     }
   }
-  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19, when
-  // the TIMBRE sounds changed): derived from the values, so every sound plays exactly as
+  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19 / v20,
+  // when the TIMBRE sounds and the FLT DEC curve changed): derived from the values, so every sound plays exactly as
   // before.
   for (const k of SOUND_KINDS) {
     const sound = ch.sounds[k];
     if (!sound) continue;
-    const stored = version >= 19 && isObj(src.trims) ? src.trims[k] : undefined;
+    const stored = version >= 20 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
   }
   if (isObj(src.presets)) {
@@ -251,6 +251,9 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.chord = version < 6 ? Math.max(0, CHORD_NAMES.indexOf(CHORD_NAMES_V5[chord] ?? 'OFF')) : Math.min(chord, CHORD_NAMES.length - 1);
   ch.lfoOn = src.lfoOn === true;
   ch.volume = num(src.volume, ch.volume, 0, 1);
+  // v20: CHORD / LEAD / PLUCK got a -14 dB output trim; scale the volume up to match.
+  const trim = ch.instrument === 'none' ? 1 : INSTRUMENTS[ch.instrument].gain ?? 1;
+  if (version < 20 && trim < 1) ch.volume = Math.min(1, ch.volume / trim);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.mute = src.mute === true;
   if (version >= 7) {

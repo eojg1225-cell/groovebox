@@ -555,7 +555,7 @@ describe('note lengths', () => {
     const e = engineWith(leadProject(1));
     e.handleMessage({ type: 'transport', playing: true });
     const { l } = render(e, 0.3); // steps are 6000 frames
-    expect(level(l, 4000, 5900)).toBeGreaterThan(0.05);
+    expect(level(l, 4000, 5900)).toBeGreaterThan(0.01);
     expect(level(l, 7000, 11000)).toBeLessThan(0.002);
   });
 
@@ -563,7 +563,7 @@ describe('note lengths', () => {
     const e = engineWith(leadProject(3));
     e.handleMessage({ type: 'transport', playing: true });
     const { l } = render(e, 0.5);
-    expect(level(l, 16000, 17900)).toBeGreaterThan(0.05); // still in step 2
+    expect(level(l, 16000, 17900)).toBeGreaterThan(0.01); // still in step 2
     expect(level(l, 19000, 23000)).toBeLessThan(0.002); // released at step 3
   });
 
@@ -639,9 +639,9 @@ describe('LFO', () => {
     const peak = (a: number, b: number) => stats(l.subarray(a, b)).peak;
     // Square starts high: first half-cycle (0-12000) loud, second (12000-24000) silent,
     // allowing ~1 ms for the track filters to ring out after the edge.
-    expect(peak(6000, 12000)).toBeGreaterThan(0.05);
+    expect(peak(6000, 12000)).toBeGreaterThan(0.01);
     expect(peak(13000, 24000)).toBeLessThan(1e-3);
-    expect(peak(24000, 30000)).toBeGreaterThan(0.05); // next cycle
+    expect(peak(24000, 30000)).toBeGreaterThan(0.01); // next cycle
   });
 
   it('pitch modulation moves the pitch up and down', () => {
@@ -657,7 +657,7 @@ describe('LFO', () => {
 
   it('only tracks put on the LFO are modulated', () => {
     const l = padWithLfo({ rate: RATE('1/4'), shape: 1, vol: 1, pitch: 0 }, 1, false);
-    expect(stats(l.subarray(13000, 24000)).peak).toBeGreaterThan(0.05);
+    expect(stats(l.subarray(13000, 24000)).peak).toBeGreaterThan(0.01);
   });
 
   it('old per-track LFOs become the shared LFO with those tracks on it', () => {
@@ -792,7 +792,7 @@ describe('RING and REST', () => {
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
     const { l } = render(e, 0.8);
-    expect(level(l, 26000, 29900)).toBeGreaterThan(0.05); // still ringing in step 4
+    expect(level(l, 26000, 29900)).toBeGreaterThan(0.01); // still ringing in step 4
     expect(level(l, 31000, 40000)).toBeLessThan(0.002); // stopped by the rest at step 5
   });
 });
@@ -1230,11 +1230,11 @@ describe('LFO options', () => {
 
   it('RETRIG NOTE restarts the LFO on each note', () => {
     expect(peak(pad({ retrig: 0 }, [0, 2]), 13000, 23000)).toBeLessThan(1e-3); // song-locked: low half
-    expect(peak(pad({ retrig: 1 }, [0, 2]), 13000, 23000)).toBeGreaterThan(0.05); // restarted: high half
+    expect(peak(pad({ retrig: 1 }, [0, 2]), 13000, 23000)).toBeGreaterThan(0.01); // restarted: high half
   });
 
   it('FADE IN brings the modulation in gradually', () => {
-    expect(peak(pad({ fade: 4 }, [0, 2]), 13000, 23000)).toBeGreaterThan(0.05);
+    expect(peak(pad({ fade: 4 }, [0, 2]), 13000, 23000)).toBeGreaterThan(0.01);
   });
 });
 
@@ -1293,6 +1293,7 @@ describe('short DECAY cuts sustain and release', () => {
     const sound = presetSound('pad', INSTRUMENTS.pad.presets.findIndex((p) => p.name === 'WARM'));
     for (const id in sound) s.setParam(id, sound[id]);
     s.setParam('attack', 0.001); s.setParam('attack2', 0.001);
+    s.setParam('sustain', 0.8); s.setParam('sustain2', 0.8); // a held pad (CHORD defaults to stabs)
     s.setParam('decay', decay); s.setParam('decay2', decay);
     for (const n of [57, 60, 64]) s.noteOn(n, 1, 57);
     const l = new Float32Array(SR * 2);
@@ -1931,5 +1932,35 @@ describe('PAD on the 3 carrier engine', () => {
     const q = fromStored(stored)!.channels[5].sounds.pad!;
     expect(q.ratio3).toBe(0.5);
     expect(q.carriers).toBeCloseTo(0.45);
+  });
+});
+
+describe('CHORD / LEAD / PLUCK level, CHORD stabs, FLT DEC curve', () => {
+  it('the sustained synths sit -14 dB; older saves scale VOLUME up so the mix is unchanged', () => {
+    for (const k of ['pad', 'lead', 'pluck'] as const) expect(INSTRUMENTS[k].gain).toBeCloseTo(0.2);
+    expect(INSTRUMENTS.bass.gain ?? 1).toBe(1);
+    const p = createDefaultProject();
+    expect(p.channels[5].volume).toBe(0.5);
+    p.channels[6].volume = 0.1; // LEAD at 10 % before the trim
+    p.channels[0].volume = 0.8;
+    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 19 };
+    const q = fromStored(old)!;
+    expect(q.channels[6].volume).toBeCloseTo(0.5);
+    expect(q.channels[0].volume).toBeCloseTo(0.8);
+  });
+
+  it('CHORD (the pad track) is set up for stabs', () => {
+    expect(INSTRUMENTS.pad.name).toBe('CHORD');
+    const s = presetSound('pad', 0);
+    expect(s.sustain).toBe(0);
+    expect(s.attack).toBeLessThan(0.01);
+  });
+
+  it('FLT DEC: 1 s sits at the middle of the knob, the range is unchanged', () => {
+    const spec = paramSpec('pad', 'fdecay')!;
+    expect(toValue(spec, 0.5)).toBeCloseTo(1, 3);
+    expect(toValue(spec, 0)).toBeCloseTo(0.002);
+    expect(toValue(spec, 1)).toBeCloseTo(10);
+    expect(toNorm(spec, 1)).toBeCloseTo(0.5, 3);
   });
 });

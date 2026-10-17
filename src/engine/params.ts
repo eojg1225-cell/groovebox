@@ -4,8 +4,11 @@
  *
  * Controls always speak in normalised 0..1; the engine works in real units.
  */
-/** linear; exp (frequencies, times; min > 0); square (from 0, fine at the low end: glide). */
-export type ParamCurve = 'linear' | 'exp' | 'square';
+/**
+ * linear; exp (frequencies, times; min > 0); square (from 0, fine at the low end: glide);
+ * power (min + range x n^power: like exp, a chosen value at the knob's middle).
+ */
+export type ParamCurve = 'linear' | 'exp' | 'square' | 'power';
 
 export interface ParamSpec {
   /** Stable id, unique within its owner (e.g. "freq"). */
@@ -18,6 +21,8 @@ export interface ParamSpec {
   readonly unit: string;
   /** "exp" for frequencies and times (min must be > 0). */
   readonly curve: ParamCurve;
+  /** The exponent of a 'power' curve. */
+  readonly power?: number;
   /** Decimal places for display; automatic when omitted. */
   readonly decimals?: number;
   /**
@@ -40,12 +45,16 @@ export function clamp(x: number, lo: number, hi: number): number {
   return x < lo ? lo : x > hi ? hi : x;
 }
 
+/** FILTER DECAY's curve: 2 ms .. 10 s with 1 s at the middle of the knob. */
+export const FDECAY_POWER = Math.log((1 - 0.002) / (10 - 0.002)) / Math.log(0.5);
+
 /** Normalised 0..1 -> real value. */
 export function toValue(spec: ParamSpec, norm: number): number {
   const n = clamp(norm, 0, 1);
   if (spec.options) return Math.round(n * (spec.options.length - 1));
   if (spec.curve === 'exp') return spec.min * Math.pow(spec.max / spec.min, n);
   if (spec.curve === 'square') return spec.min + (spec.max - spec.min) * n * n;
+  if (spec.curve === 'power') return spec.min + (spec.max - spec.min) * Math.pow(n, spec.power ?? 2);
   return spec.min + (spec.max - spec.min) * n;
 }
 
@@ -54,6 +63,7 @@ export function toNorm(spec: ParamSpec, value: number): number {
   const v = clamp(value, spec.min, spec.max);
   if (spec.curve === 'exp') return Math.log(v / spec.min) / Math.log(spec.max / spec.min);
   if (spec.curve === 'square') return Math.sqrt((v - spec.min) / (spec.max - spec.min));
+  if (spec.curve === 'power') return Math.pow((v - spec.min) / (spec.max - spec.min), 1 / (spec.power ?? 2));
   return (v - spec.min) / (spec.max - spec.min);
 }
 

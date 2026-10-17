@@ -123,8 +123,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   pad: {
-    // The 3 CARRIER engine, polyphonic (chords): carriers at related ratios on one feedback
-    // modulator (carrier 1 : 2 : 3, modulator). INTENSITY 0 = carrier 1 alone, a plain pad;
+    // CHORD (kind "pad", geared for stabs): the 3 CARRIER engine, polyphonic, carriers at
+    // related ratios on one feedback modulator (carrier 1 : 2 : 3, modulator). INTENSITY 0 = carrier 1 alone, a plain pad;
     // the stack and the DX7-style FM come in as it rises, biting in the top quarter.
     anchors: [
       { name: 'GLASS', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.72, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.4, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, drive: 1 } },
@@ -132,8 +132,8 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'TINE', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.78, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.2, carriers: 0.3, detune: 0.15, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, drive: 1.1 } },
       { name: 'WARM', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.3, carriers: 0.45, detune: 0.4, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, drive: 1 } },
       { name: 'STRINGS', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0.5, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, detune: 0.75, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, drive: 1.2 } },
-      // Euphoric and ethereal: unison saws with carriers on 3:2 and 3, swelling open.
-      { name: 'ETHEREAL', values: { shape: 2, unison: 1, fm: 0.6, fmratio: 1.5, ratio2: 1.5, ratio3: 3, feedback: 0.25, carriers: 0.5, detune: 1.6, cutoff: 7000, reso: 0.15, fattack: 1.5, fenv: 0.3, fdecay: 4, drive: 1.1 } },
+      // Euphoric and ethereal: unison saws with carriers on 3:2 and 3.
+      { name: 'ETHEREAL', values: { shape: 2, unison: 1, fm: 0.6, fmratio: 1.5, ratio2: 1.5, ratio3: 3, feedback: 0.25, carriers: 0.5, detune: 1.6, cutoff: 7000, reso: 0.15, fattack: 0.0005, fenv: 0.45, fdecay: 0.8, drive: 1.1 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },

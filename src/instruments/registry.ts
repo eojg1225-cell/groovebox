@@ -124,6 +124,7 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
   ],
   bass: [macro('ENV', [['fenv', 1], ['fdecay', 1]])],
   pad: [
+    macro('LENGTH', LENGTH_SYNTH),
     macro('SWELL', [['attack', 1], ['attack2', 1], ['release', 1], ['release2', 1]]),
     macro('WIDTH', [['detune', 1], ['unison', 1]]),
   ],
@@ -158,6 +159,9 @@ export function liveContribution(t: LiveTarget, offset: number): number {
   return offset < 0 ? -shaped : shaped;
 }
 
+/** CHORD / LEAD / PLUCK output trim (-14 dB). */
+export const SYNTH_TRIM = 0.2;
+
 export interface InstrumentEntry {
   name: string;
   /** All of the type's parameters (stored, set by presets, lockable). */
@@ -172,6 +176,11 @@ export interface InstrumentEntry {
    */
   live: readonly [string, string];
   liveFunc: readonly [string, string];
+  /**
+   * Output trim of the type (applied with the track volume): the sustained synths (CHORD,
+   * LEAD, PLUCK) sit -14 dB so they don't swamp the drums; full VOLUME = the old 20 %.
+   */
+  gain?: number;
   presets: readonly Preset[];
   /** Drum voices use the step strip when recording; pitched types get a keyboard. */
   drum: boolean;
@@ -204,15 +213,15 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'sub', _]),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
   pad: {
-    name: 'PAD', live: ['cutoff', 'macro:swell'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
+    name: 'CHORD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'carriers', _]),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: {
-    name: 'LEAD', live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
+    name: 'LEAD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'carriers', _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
   pluck: {
-    name: 'PLUCK', live: ['macro:length', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
+    name: 'PLUCK', gain: SYNTH_TRIM, live: ['macro:length', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
     funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 7), 'fenv'], [...SYNTH_FUNC_BOTTOM, 'unison', 'fm']),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
 };

@@ -118,6 +118,8 @@ export class Engine {
   private readonly toneL: Svf[] = [];
   private readonly toneR: Svf[] = [];
   private readonly volumeValue = new Float32Array(NUM_CHANNELS).fill(0.8);
+  /** The track type's output trim (InstrumentEntry.gain), applied with the volume. */
+  private readonly typeGain = new Float32Array(NUM_CHANNELS).fill(1);
   /** Chord mode per channel (index into CHORDS). */
   private readonly chord = new Uint8Array(NUM_CHANNELS);
   /** Steps until the sequenced note on a channel is released (0 = none held). */
@@ -693,6 +695,7 @@ export class Engine {
     this.gateSteps[ch] = 0;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
     this.kind[ch] = kind;
+    this.typeGain[ch] = kind === 'none' ? 1 : INSTRUMENTS[kind].gain ?? 1;
     // Live offsets belong to the old type's knobs.
     this.liveOffsets[ch].clear();
     this.offsetNorm.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
@@ -848,6 +851,7 @@ export class Engine {
       const panDepth = lfo ? this.lfoPan : 0;
       const sendDepth = lfo ? this.lfoSend : 0;
       const vol = this.volume[ch];
+      const tg = this.typeGain[ch];
       const pan = this.pan[ch];
       const tl = this.toneL[ch];
       const tr = this.toneR[ch];
@@ -860,7 +864,7 @@ export class Engine {
       const dR = this.inDrumBus[ch] ? this.busR[0] : outR;
       const dOff = this.inDrumBus[ch] ? 0 : off;
       for (let i = 0; i < n; i++) {
-        let v = vol.next();
+        let v = vol.next() * tg;
         if (volDepth > 0) {
           // Tremolo: the LFO dips the level by up to VOL MOD (full depth = silent at the bottom).
           v *= 1 - volDepth * (0.5 - 0.5 * this.lfoBuf[lb + i]);

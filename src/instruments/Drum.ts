@@ -1,5 +1,5 @@
 import type { Instrument, Preset } from './Instrument';
-import { choice, type ParamSpec } from '../engine/params';
+import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
 import { decayMul, Noise, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE } from './macroParams';
 import { MACROS } from './macros';
@@ -76,7 +76,7 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'cutoff', name: 'CUTOFF', min: 20, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'fattack', name: 'FLT ATK', ...ATTACK, max: 10 },
-  { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'exp' },
+  { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'power', power: FDECAY_POWER },
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'drive', name: 'DRIVE', min: 1, max: 200, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },

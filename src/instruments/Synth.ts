@@ -1,5 +1,5 @@
 import type { Instrument, Preset } from './Instrument';
-import { choice, type ParamSpec } from '../engine/params';
+import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
 import { decayMul, midiToHz, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE } from './macroParams';
 import { MACROS } from './macros';
@@ -99,7 +99,7 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.4, unit: '', curve: 'linear' },
   { id: 'fattack', name: 'FLT ATK', min: 0.0005, max: 10, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 },
-  { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'exp' },
+  { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'power', power: FDECAY_POWER },
   { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
@@ -121,8 +121,8 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
 }
 
 /**
- * Three synth tracks share the engine with different controls: BASS (mono, glide),
- * PAD (polyphonic, chords) and LEAD (mono, glide). Each type's parameters are all set by
+ * The synth tracks share the engine with different controls: BASS (mono, glide), CHORD
+ * (kind "pad": polyphonic chords, an envelope for stabs by default) and LEAD (mono, glide). Each type's parameters are all set by
  * TIMBRE / INTENSITY, except the amp envelopes (ATTACK / DECAY / SUSTAIN / RELEASE of both
  * oscillators), which are the type's own - the same for every TIMBRE; settings outside the list are fixed (*_FIXED).
  */
@@ -131,7 +131,7 @@ const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'uni
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, decay: 0.6, decay2: 0.6, sustain: 0.6, sustain2: 0.6, release: 0.06, release2: 0.06, level: 0.75 });
 export const BASS_FIXED = { voice: 1 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { attack: 0.45, attack2: 0.45, decay: 1.5, decay2: 1.5, sustain: 0.8, sustain2: 0.8, release: 1.6, release2: 1.6, level: 0.5 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3, level: 0.5 });
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three

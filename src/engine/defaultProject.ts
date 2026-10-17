@@ -51,6 +51,8 @@ export function createDefaultProject(): Project {
     c.fxSend = c.instrument === 'pad' ? 3 : c.instrument === 'bass' || c.instrument === 'lead' || c.instrument === 'pluck' ? 2 : 0;
   });
   of('bass').sendLevel = 0.25;
+  // The sustained synths' trimmed output: half VOLUME sits with the drums.
+  for (const kind of ['pad', 'lead', 'pluck'] as const) of(kind).volume = 0.5;
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
     fx1: defaultDrumBus(), lfo: defaultLfo(), song: { rows: [] }, sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels,
