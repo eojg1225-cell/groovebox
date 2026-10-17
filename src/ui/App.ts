@@ -56,6 +56,9 @@ import type { DesignView, LaneCell, LiveView, SongView } from './views';
 
 export type Mode = 'record' | 'play' | 'design' | 'song';
 
+/** Hold ACCENT / GHOST / RING this long (keyboard tracks, RECORD) to paint them onto steps. */
+const FLAG_HOLD_MS = 1000;
+
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export function noteName(n: number): string {
   return `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
@@ -146,6 +149,9 @@ export class App {
   /** Channel button held down (its pattern A-D on the FX 1-3 / LFO buttons), and if it was used. */
   private heldTrack = -1;
   private heldUsed = false;
+  /** ACCENT / GHOST / RING held down (timer to start painting), and those painting steps. */
+  private readonly flagHeld = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly flagPaint = new Set<string>();
   /** SONG cursor: row, and column (0 = BARS, 1-8 = tracks); which 16 rows the strip shows. */
   private songRow = 0;
   private songCol = 1;
@@ -232,6 +238,7 @@ export class App {
    */
   private get keyboard(): boolean {
     if (this.clearHeld && this.mode !== 'design') return false;
+    if (this.flagPaint.size > 0 && this.mode === 'record') return false;
     return !stepsOnStrip(this.channel.instrument) || this.mode !== 'record';
   }
 
@@ -575,6 +582,10 @@ export class App {
         this.heldTrack = -1;
         this.refreshPanel();
       }
+      if (this.flagHeld.has(id)) {
+        this.flagUp(id);
+        this.refreshPanel();
+      }
       if (id === 'clear') {
         this.clearHeld = false;
         if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK');
@@ -667,9 +678,8 @@ export class App {
       this.startReset();
     } else if (id === 'saveproject') {
       this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
-    } else if ((id === 'ring' || id === 'dyn:accent' || id === 'dyn:ghost') && this.pitchedStepEntry) {
-      // Pitched step entry: ACCENT / GHOST / RING belong to the step (held key, else cursor).
-      this.toggleStepFlag(id);
+    } else if ((id === 'ring' || id === 'dyn:accent' || id === 'dyn:ghost') && this.flagPaintable) {
+      this.flagDown(id); // tap = arm (on release), hold = paint steps
     } else if (id === 'ring') {
       this.ring = !this.ring;
     } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
@@ -922,6 +932,11 @@ export class App {
       if (index < this.pattern.length) this.clearStep(index);
       return;
     }
+    if (this.flagPaint.size > 0 && this.mode === 'record') {
+      const index = this.visiblePage(ch) * 16 + button;
+      if (index < this.pattern.length) this.paintStep(index);
+      return;
+    }
     if (this.keyboard) {
       this.stopPreview(); // a played key never gets cut off by a preview's release
       const note = this.octave[ch] + button;
@@ -955,13 +970,13 @@ export class App {
         step.active = true;
         step.note = note;
         step.gate = 1;
-        step.ring = false; // ACCENT / GHOST / RING are set per step afterwards
+        step.ring = this.ring;
         step.rest = false;
         step.slide = slideFrom >= 0;
         delete step.roll;
-        setStepDynamic(step, 'normal');
+        setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
-        this.send({ type: 'trigger', channel: ch, note, velocity: DYNAMIC_VELOCITY.normal, slideFrom });
+        this.send({ type: 'trigger', channel: ch, note, velocity: vel, slideFrom });
         if (slideFrom >= 0) this.flash(`SLIDE ${noteName(slideFrom)} > ${noteName(note)}`);
         this.entry = { button, index };
         this.save();
@@ -1019,31 +1034,53 @@ export class App {
     this.save();
   }
 
-  /** RECORD while stopped on a keyboard track: notes are entered step by step. */
-  private get pitchedStepEntry(): boolean {
-    return this.mode === 'record' && !this.playing && !stepsOnStrip(this.channel.instrument) && !this.clearHeld;
+  /**
+   * RECORD on a keyboard track: ACCENT / GHOST / RING tapped = armed for the notes played;
+   * held for a second = the strip shows the steps and tapping one paints the flag onto its
+   * note (the drum rules: another dynamic -> the held one, the same one -> back to normal;
+   * RING toggles).
+   */
+  private get flagPaintable(): boolean {
+    return this.mode === 'record' && !stepsOnStrip(this.channel.instrument);
   }
 
-  /** The step ACCENT / GHOST / RING act on in pitched step entry: the held note, else the cursor. */
-  private get flagStep(): { index: number; step: Step } {
-    const index = this.entry ? this.entry.index : this.cursor[this.selected];
-    return { index, step: this.pattern.steps[index] };
+  private flagDown(id: string): void {
+    const timer = setTimeout(() => {
+      if (!this.flagHeld.has(id)) return;
+      this.flagPaint.add(id);
+      this.flash(`TAP STEPS: ${id === 'ring' ? 'RING' : id.slice(4).toUpperCase()}`);
+      this.refreshPanel();
+    }, FLAG_HOLD_MS);
+    this.flagHeld.set(id, timer);
   }
 
-  /** Toggle ACCENT / GHOST (back to normal when it already has it) or RING on that step. */
-  private toggleStepFlag(id: string): void {
-    const { index, step } = this.flagStep;
+  private flagUp(id: string): void {
+    const timer = this.flagHeld.get(id);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.flagHeld.delete(id);
+    if (this.flagPaint.delete(id)) return; // it was painting: just stop
+    // A tap: arm / disarm for the notes played.
+    if (id === 'ring') this.ring = !this.ring;
+    else {
+      const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
+      this.dynamic = this.dynamic === d ? 'normal' : d;
+    }
+  }
+
+  /** Paint the held flags onto the note on a step. */
+  private paintStep(index: number): void {
+    const step = this.pattern.steps[index];
     if (!step.active) {
       this.flash('NO NOTE ON THIS STEP');
       return;
     }
-    if (id === 'ring') {
-      step.ring = !step.ring;
-      this.flash(`STEP ${index + 1} ${step.ring ? 'RING' : 'NO RING'}`);
-    } else {
-      const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
-      setStepDynamic(step, stepDynamic(step) === d ? 'normal' : d);
-      this.flash(`STEP ${index + 1} ${stepDynamic(step).toUpperCase()}`);
+    for (const id of this.flagPaint) {
+      if (id === 'ring') step.ring = !step.ring;
+      else {
+        const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
+        setStepDynamic(step, stepDynamic(step) === d ? 'normal' : d);
+      }
     }
     this.sendStep(index, step);
     this.save();
@@ -1346,18 +1383,9 @@ export class App {
 
     const rec = this.mode === 'record';
     const kb = this.keyboard;
-    if (this.pitchedStepEntry) {
-      // Show the flags of the step they act on.
-      const { step } = this.flagStep;
-      const d = step.active ? stepDynamic(step) : null;
-      this.panel.setButtonLit('ring', step.active && !!step.ring);
-      this.panel.setButtonLit('dyn:accent', d === 'accent');
-      this.panel.setButtonLit('dyn:ghost', d === 'ghost');
-    } else {
-      this.panel.setButtonLit('ring', this.ring);
-      this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent');
-      this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost');
-    }
+    this.panel.setButtonLit('ring', this.ring || this.flagPaint.has('ring'));
+    this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent' || this.flagPaint.has('dyn:accent'));
+    this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost' || this.flagPaint.has('dyn:ghost'));
     this.panel.setButtonEnabled('ring', rec);
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);

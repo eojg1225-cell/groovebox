@@ -119,6 +119,19 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { id: 'fm', low: 0.7, high: 1.3 }, { id: 'fenv', low: 0.7, high: 1.3 },
     ],
   },
+  pluck: {
+    // Soft, bowed-string pizzicato -> glassy -> sync zap -> a raging FM donk.
+    anchors: [
+      { name: 'PIZZICATO', values: { shape: 2.2, fm: 0, fmratio: 2, detune: 0.12, unison: 0, sync: 1, cutoff: 1600, reso: 0.15, fenv: 0.35, fdecay: 0.1, fattack: 0.0005, attack: 0.002, decay: 0.3, attack2: 0.004, decay2: 0.22, sustain: 0, release: 0.25, drive: 1.1 } },
+      { name: 'GLASS PLUCK', values: { shape: 1, fm: 0.25, fmratio: 3, detune: 0.2, unison: 0, sync: 2, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, attack: 0.001, decay: 0.4, attack2: 0.001, decay2: 0.3, sustain: 0, release: 0.3, drive: 1.2 } },
+      { name: 'SYNC ZAP', values: { shape: 2, fm: 0.1, fmratio: 2, detune: 0.3, unison: 0.3, sync: 4.5, cutoff: 5000, reso: 0.3, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, attack: 0.001, decay: 0.35, attack2: 0.001, decay2: 0.35, sustain: 0.05, release: 0.2, drive: 2.5 } },
+      { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, detune: 0.1, unison: 0, sync: 6, cutoff: 8000, reso: 0.4, fenv: 0.9, fdecay: 0.12, fattack: 0.0005, attack: 0.0005, decay: 0.25, attack2: 0.0005, decay2: 0.18, sustain: 0, release: 0.12, drive: 12 } },
+    ],
+    excite: [
+      { id: 'cutoff', low: 0.55, high: 1.8 }, { id: 'drive', low: 0.7, high: 2.2 }, { id: 'fm', low: 0.7, high: 1.3 },
+      { id: 'sync', low: 0.8, high: 1.3 }, { id: 'fenv', low: 0.7, high: 1.3 },
+    ],
+  },
 };
 
 // Synth anchors design one envelope; OSC 2 starts with the same ATTACK / DECAY as OSC 1.

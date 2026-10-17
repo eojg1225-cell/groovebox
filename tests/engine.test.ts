@@ -131,9 +131,9 @@ describe('instruments', () => {
   });
 
   it('sound page columns: TIMBRE/INTENSITY, element ATK/DECs, FILTER/RESO, FILTER ATK/DEC, DRIVE/CRUSH, tune pair, FLT ENV/hold', () => {
-    expect(soundPage(['a1', 'd1', 'a2', 'd2'], ['t1', 't2'], 'hold')).toEqual([
-      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive', 't1', 'fenv',
-      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush', 't2', 'hold',
+    expect(soundPage(['a1', 'd1', 'a2', 'd2'], ['t1', 't2'], ['l1', 'l2'])).toEqual([
+      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive', 't1', 'l1',
+      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush', 't2', 'l2',
     ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
@@ -1272,9 +1272,9 @@ describe('PERC track', () => {
     expect(crossings(48) / crossings(36)).toBeGreaterThan(1.8); // an octave up
   });
 
-  it('a new project has 8 tracks: track 4 PERC, track 8 a second LEAD', () => {
+  it('a new project has 8 tracks: track 4 PERC, track 8 PLUCK', () => {
     const p = createDefaultProject();
-    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'lead']);
+    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']);
     expect(p.channels[3].fx1).toBe(true);
     expect(p.channels[7].fxSend).toBe(2);
   });
@@ -1339,7 +1339,7 @@ describe('v10 track order', () => {
     });
     old.song = { rows: [{ b: 2, p: [0, 1, 2, 3, 0, 1, 2, 3] }] };
     const p = fromStored(old)!;
-    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'lead']);
+    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']); // track 8 became the PLUCK (v11)
     expect(p.channels.map((c) => c.patterns[0].length)).toEqual([16, 17, 18, 22, 19, 20, 21, 23]);
     expect(p.song.rows[0].patterns).toEqual([0, 1, 2, 2, 3, 0, 1, 3]);
   });
@@ -1358,5 +1358,48 @@ describe('drum RING follows the decay knobs', () => {
     };
     expect(tail(0.07)).toBeLessThan(1e-4); // a short hat rings about 0.7 s
     expect(tail(0.4)).toBeGreaterThan(1e-3); // a longer one rings well past a second
+  });
+});
+
+describe('PLUCK and ARP', () => {
+  it('has its four sounds, from pizzicato to the FM donk, with SYNC and ARP on the SOUND page', () => {
+    expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['PIZZICATO', 'GLASS PLUCK', 'SYNC ZAP', 'RAGE DONK']);
+    const l = INSTRUMENTS.pluck.layout;
+    expect([l[6], l[14], l[7], l[15]]).toEqual(['sync', 'fmratio', 'arp', 'arprate']);
+  });
+
+  it('hard sync adds brightness, and the donk renders bounded', () => {
+    const hf = (sync: number) => {
+      const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });
+      for (const [id, v] of Object.entries({ shape: 0, fm: 0, sync, cutoff: 20000, fenv: 0, sustain: 1, decay: 2, decay2: 2 })) s.setParam(id, v);
+      s.noteOn(45, 1, 45);
+      const l = new Float32Array(SR / 4);
+      s.render(l, new Float32Array(SR / 4), 0, l.length);
+      let e = 0;
+      for (let i = 1; i < l.length; i++) e += (l[i] - l[i - 1]) ** 2;
+      return e;
+    };
+    expect(hf(5)).toBeGreaterThan(hf(1) * 4);
+    const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });
+    const donk = presetSound('pluck', 3);
+    for (const id in donk) s.setParam(id, donk[id]);
+    s.noteOn(45, 1, 45);
+    const l = new Float32Array(SR);
+    s.render(l, new Float32Array(SR), 0, l.length);
+    expect(stats(l).nan).toBe(false);
+    expect(stats(l).peak).toBeLessThan(2);
+  });
+
+  it('ARP steps through the held chord at its rate', () => {
+    const p = kickProject([], { bpm: 120 }); // 1/16 = 6000 frames
+    const t = p.channels[7];
+    t.fxSend = 0;
+    t.chord = CHORDS.findIndex((c) => c.name === 'MAJOR');
+    t.sounds.pluck = { ...t.sounds.pluck!, arp: 1, arprate: 3, decay: 0.03, decay2: 0.03, release: 0.01 };
+    Object.assign(t.patterns[0].steps[0], { active: true, note: 45, gate: 4 });
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const l = render(e, 0.5).l;
+    near(onsets(l, 0.005, 1500), [0, 6000, 12000, 18000], 40); // three chord notes, then round again; stops with the gate
   });
 });

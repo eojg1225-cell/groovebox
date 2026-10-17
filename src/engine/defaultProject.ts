@@ -18,11 +18,11 @@ export function applyPreset(c: ChannelState, kind: SoundKind, index: number): vo
  * every pattern empty.
  */
 /** Where each track starts along its TIMBRE. */
-const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'SQUARE', 'SINE'];
+const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'SQUARE', 'PIZZICATO'];
 
 export function createDefaultProject(): Project {
-  // 4 = toms / percussion (pitched from the sequencer), 8 = a second synth line.
-  const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'lead'];
+  // 4 = toms / percussion (pitched from the sequencer), 8 = a sync pluck with an arp.
+  const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck'];
   const channels = Array.from({ length: NUM_CHANNELS }, (_, i) => {
     const c = emptyChannel();
     applyPreset(c, kinds[i], Math.max(0, INSTRUMENTS[kinds[i]].presets.findIndex((p) => p.name === START_PRESETS[i])));
@@ -38,7 +38,7 @@ export function createDefaultProject(): Project {
   of('pad').chord = CHORD_NAMES.indexOf('MIN9');
   channels.forEach((c) => {
     c.fx1 = INSTRUMENTS[c.instrument as SoundKind].drum;
-    c.fxSend = c.instrument === 'pad' ? 3 : c.instrument === 'bass' || c.instrument === 'lead' ? 2 : 0;
+    c.fxSend = c.instrument === 'pad' ? 3 : c.instrument === 'bass' || c.instrument === 'lead' || c.instrument === 'pluck' ? 2 : 0;
   });
   of('bass').sendLevel = 0.25;
   return {

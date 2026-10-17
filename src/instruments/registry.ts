@@ -11,7 +11,7 @@ import {
   PERC_ELEMENTS, PERC_PARAMS, PERC_PRESETS, SNARE_ELEMENTS, SNARE_PARAMS, SNARE_PRESETS,
 } from './Drum';
 import {
-  BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS,
+  BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS, PLUCK_FIXED, PLUCK_PARAMS, PLUCK_PRESETS,
   PAD_FIXED, PAD_PARAMS, PAD_PRESETS, SYNTH_ELEMENTS, Synth,
 } from './Synth';
 
@@ -23,17 +23,17 @@ const ROW = PAGE_SLOTS / 2;
  * The SOUND page (the only sound page), the same shape for every track type. One column per
  * module (top knob / bottom knob): 1 TIMBRE / INTENSITY, 2 element 1 ATTACK / DECAY,
  * 3 element 2 ATTACK / DECAY, 4 FILTER / RESO, 5 FILTER ATTACK / DECAY, 6 DRIVE / CRUSH,
- * 7 the type's key tuning pair (`tune`), 8 FILTER ENV amount / `hold` (drums RING LEN,
- * synths SUSTAIN).
+ * 7 the type's key tuning pair (`tune`), 8 `last`: FILTER ENV amount / RING LEN (drums) or
+ * SUSTAIN (synths); PLUCK: ARP / ARP RATE (tune SYNC / FM RATIO).
  * Elements: KICK tone + click, SNARE tone + metal, HAT click + metal, PERC tone + click,
  * synths OSC 1 + OSC 2. Tune: KICK / PERC pitch + sweep, SNARE pitch + wire tone, HAT metal
  * pitch + tone, synths FM RATIO + DETUNE.
  */
-export function soundPage(elements: readonly string[], tune: readonly [string, string], hold: string): string[] {
+export function soundPage(elements: readonly string[], tune: readonly [string, string], last: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;
   return [
-    'timbre', a1, a2, 'cutoff', 'fattack', 'drive', tune[0], 'fenv',
-    'intensity', d1, d2, 'reso', 'fdecay', 'crush', tune[1], hold,
+    'timbre', a1, a2, 'cutoff', 'fattack', 'drive', tune[0], last[0],
+    'intensity', d1, d2, 'reso', 'fdecay', 'crush', tune[1], last[1],
   ];
 }
 
@@ -64,13 +64,14 @@ export interface InstrumentEntry {
 }
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
-  kick: { name: 'KICK', params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['t_pitch', 't_sweep'], 'ring'), presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
-  snare: { name: 'SNARE', params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['t_pitch', 'm_tone'], 'ring'), presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
-  hat: { name: 'HAT', params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['m_pitch', 'm_tone'], 'ring'), presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
-  perc: { name: 'PERC', params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['t_pitch', 't_sweep'], 'ring'), presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
-  bass: { name: 'BASS', params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, 'sustain'), presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
-  pad: { name: 'PAD', params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, 'sustain'), presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
-  lead: { name: 'LEAD', params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, 'sustain'), presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
+  kick: { name: 'KICK', params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['t_pitch', 't_sweep'], ['fenv', 'ring']), presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
+  snare: { name: 'SNARE', params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['t_pitch', 'm_tone'], ['fenv', 'ring']), presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
+  hat: { name: 'HAT', params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['m_pitch', 'm_tone'], ['fenv', 'ring']), presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
+  perc: { name: 'PERC', params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['t_pitch', 't_sweep'], ['fenv', 'ring']), presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
+  bass: { name: 'BASS', params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, ['fenv', 'sustain']), presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
+  pad: { name: 'PAD', params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, ['fenv', 'sustain']), presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
+  lead: { name: 'LEAD', params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, SYNTH_TUNE, ['fenv', 'sustain']), presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
+  pluck: { name: 'PLUCK', params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['sync', 'fmratio'], ['arp', 'arprate']), presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
 };
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];

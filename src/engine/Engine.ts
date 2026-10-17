@@ -7,6 +7,7 @@ import {
 import { CHORDS } from './chords';
 import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
+import { ARP_RATES } from '../instruments/Synth';
 import { Noise, Svf } from '../instruments/dsp';
 import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { SendBus } from '../fx/SendBus';
@@ -130,6 +131,18 @@ export class Engine {
   private readonly rollEvery = new Float64Array(NUM_CHANNELS);
   private readonly rollNote = new Float32Array(NUM_CHANNELS);
   private readonly rollVel = new Float32Array(NUM_CHANNELS);
+  // ARP (sound params "arp" / "arprate"): while a note is held its chord tones are played in
+  // turn. Mode (0 = off), rate in steps, and per track the held root, its velocity, the next
+  // note's index, frames until it, and the arp note sounding now (-1 = none).
+  private readonly arpMode = new Uint8Array(NUM_CHANNELS);
+  private readonly arpSteps = new Float32Array(NUM_CHANNELS).fill(1);
+  private readonly arpHeld = new Uint8Array(NUM_CHANNELS);
+  private readonly arpRoot = new Float32Array(NUM_CHANNELS);
+  private readonly arpVel = new Float32Array(NUM_CHANNELS);
+  private readonly arpIndex = new Int32Array(NUM_CHANNELS);
+  private readonly arpAt = new Float64Array(NUM_CHANNELS);
+  private readonly arpNote = new Float32Array(NUM_CHANNELS).fill(-1);
+  private readonly arpNoise = new Noise(0xa29);
   private readonly scratchL = new Float32Array(CHUNK);
   private readonly scratchR = new Float32Array(CHUNK);
 
@@ -331,6 +344,7 @@ export class Engine {
         this.pendingPattern[ch] = -1;
       }
       if (!playing) {
+        if (this.arpHeld[ch]) this.stopArp(ch);
         this.current[ch]?.noteOff(-1);
         this.gateSteps[ch] = 0;
         this.recNote[ch] = -1;
@@ -351,6 +365,14 @@ export class Engine {
       }
       let n = frames - pos;
       if (n > CHUNK) n = CHUNK;
+      // ARP notes land on their exact sample (also while stopped: live playing).
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+        if (!this.arpHeld[ch]) continue;
+        if (this.arpAt[ch] <= 0) this.arpStep(ch);
+        const a = Math.ceil(this.arpAt[ch]);
+        if (a < n) n = a;
+      }
+      if (n < 1) n = 1;
       if (this.playing) {
         const until = Math.ceil(this.framesToStep);
         if (until < n) n = until;
@@ -368,6 +390,7 @@ export class Engine {
       }
       this.renderChunk(outL, outR, pos, n);
       pos += n;
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.arpHeld[ch]) this.arpAt[ch] -= n;
       if (this.playing) {
         this.framesToStep -= n;
         for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.rollLeft[ch] > 0) this.rollAt[ch] -= n;
@@ -516,8 +539,18 @@ export class Engine {
     const fc = hitToneCutoff(velocity);
     this.toneL[ch].setup(fc, 0, this.sampleRate);
     this.toneR[ch].setup(fc, 0, this.sampleRate);
-    const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
-    for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note, ring, slideFrom);
+    if (this.arpMode[ch] > 0) {
+      // ARP: start stepping through the chord from its first note.
+      this.stopArp(ch);
+      this.arpHeld[ch] = 1;
+      this.arpRoot[ch] = note;
+      this.arpVel[ch] = velocity;
+      this.arpIndex[ch] = 0;
+      this.arpStep(ch);
+    } else {
+      const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
+      for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note, ring, slideFrom);
+    }
     // RETRIG NOTE: the LFO restarts with each new note (not on slides).
     if (slideFrom < 0) this.lfoTrig[ch] = this.lfoClock;
   }
@@ -533,7 +566,39 @@ export class Engine {
     for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], this.rollVel[ch], note, this.ringing[ch] === 1);
   }
 
+  /** ARP: play the next note of the held chord (and schedule the one after). */
+  private arpStep(ch: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    if (this.arpNote[ch] >= 0) inst.noteOff(this.arpNote[ch]);
+    const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
+    const mode = this.arpMode[ch];
+    const octaves = mode === 5 || intervals.length === 1 ? 2 : 1; // a single note arps octaves
+    const count = intervals.length * octaves;
+    const i = this.arpIndex[ch]++;
+    let k: number;
+    if (mode === 2) k = count - 1 - (i % count); // DOWN
+    else if (mode === 3) { // UP/DN
+      const period = Math.max(1, 2 * count - 2);
+      const t = i % period;
+      k = t < count ? t : period - t;
+    } else if (mode === 4) k = Math.min(count - 1, Math.floor((this.arpNoise.next() * 0.5 + 0.5) * count)); // RANDOM
+    else k = i % count; // UP, UP 2OCT
+    const n = this.arpRoot[ch] + intervals[k % intervals.length] + 12 * Math.floor(k / intervals.length);
+    inst.noteOn(n, this.arpVel[ch], n, false);
+    this.arpNote[ch] = n;
+    this.arpAt[ch] += this.arpSteps[ch] * (60 / this.bpm / 4) * this.sampleRate;
+  }
+
+  private stopArp(ch: number): void {
+    if (this.arpNote[ch] >= 0) this.current[ch]?.noteOff(this.arpNote[ch]);
+    this.arpNote[ch] = -1;
+    this.arpHeld[ch] = 0;
+    this.arpAt[ch] = 0;
+  }
+
   private releaseGate(ch: number): void {
+    if (this.arpHeld[ch]) this.stopArp(ch);
     this.current[ch]?.noteOff(this.gateGroup[ch]);
     this.gateSteps[ch] = 0;
     this.ringing[ch] = 0;
@@ -541,6 +606,7 @@ export class Engine {
 
   /** Live note released. If it was being recorded, its length becomes the step's gate. */
   private release(ch: number, note: number): void {
+    if (this.arpHeld[ch] && this.arpRoot[ch] === note) this.stopArp(ch);
     this.current[ch]?.noteOff(note);
     if (this.recNote[ch] !== note) return;
     this.recNote[ch] = -1;
@@ -559,6 +625,8 @@ export class Engine {
   }
 
   private setInstrument(ch: number, kind: InstrumentKind, sound: Record<string, number>): void {
+    if (this.arpHeld[ch]) this.stopArp(ch);
+    this.arpMode[ch] = 0;
     this.current[ch]?.noteOff(-1);
     this.gateSteps[ch] = 0;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
@@ -854,6 +922,12 @@ export class Engine {
     const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
     if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
     inst.setParam(id, value);
+    if (id === 'arp') {
+      this.arpMode[ch] = Math.max(0, Math.round(value));
+      if (this.arpMode[ch] === 0 && this.arpHeld[ch]) this.stopArp(ch);
+    } else if (id === 'arprate') {
+      this.arpSteps[ch] = ARP_RATES[Math.round(value)]?.steps ?? 1;
+    }
   }
 
   private writeStep(ch: number, pattern: number, index: number, step: Step): void {

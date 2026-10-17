@@ -320,6 +320,14 @@ export function fromStored(data: unknown): Project | null {
     const src = data.channels[i];
     if (isObj(src)) readChannel(src, p.channels[slot(i)], version);
   }
+  // v11: track 8 (a second LEAD until then) became the PLUCK, keeping its patterns.
+  if (version < 11) {
+    const t8 = p.channels[7];
+    if (t8 && t8.instrument === 'lead') {
+      applyPreset(t8, 'pluck', 0);
+      t8.live = ['mix:volume', 'mix:cutoff'];
+    }
+  }
   // Before v8 every track had its own LFO: tracks that used theirs join the shared one,
   // which takes the first such track's settings.
   if (version < 8) {

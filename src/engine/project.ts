@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 10;
+export const PROJECT_VERSION = 11;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -35,7 +35,7 @@ export interface Song {
 
 import type { LfoState } from './lfo';
 
-export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'perc' | 'bass' | 'pad' | 'lead';
+export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'perc' | 'bass' | 'pad' | 'lead' | 'pluck';
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
 
 /** Live-knob target: an instrument param id, or a mixer param. */
