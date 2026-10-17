@@ -1759,7 +1759,7 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
   const leadAt = (timbre: number, intensity: number) => {
     const s = new Synth(SR, LEAD_PARAMS, LEAD_FIXED);
     const sound = macroSound('lead', timbre, intensity, LEAD_PARAMS);
-    for (const id in sound) s.setParam(id, { ...sound, cutoff: 20000, fenv: 0 }[id]);
+    for (const id in sound) s.setParam(id, id === 'cutoff' ? 20000 : id === 'fenv' ? 0 : sound[id]);
     s.noteOn(45, 1, 45, false);
     const l = new Float32Array(SR / 4);
     s.render(l, new Float32Array(l.length), 0, l.length);
