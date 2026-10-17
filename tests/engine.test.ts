@@ -6,7 +6,7 @@ import { emptyPattern, type Project } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
-import { INSTRUMENTS, SOUND_KINDS, presetSound } from '../src/instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveTargets, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, KICK_PARAMS, PERC_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
 import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
 import { Delay } from '../src/fx/Delay';
@@ -873,10 +873,11 @@ describe('project', () => {
   it('projects before v15 take each type\'s default live knobs; later choices are kept', () => {
     const old = { ...toStored(createDefaultProject()), version: 14 };
     old.channels[0].live = ['mix:volume', 'mix:cutoff'];
+    old.channels[0].liveOffset = { t_decay: 0.5 };
     old.channels[0].liveFunc = ['mix:pan', 'mix:send'];
     const k = fromStored(old)!.channels[0];
-    expect(k.live).toEqual(['t_decay', 't_pitch']);
-    expect(k.liveFunc).toEqual(['mix:volume', 'drive']);
+    expect(k.live).toEqual(['macro:decay', 'macro:punch']);
+    expect(k.liveFunc).toEqual(['mix:volume', 'macro:tune']);
     const now = toStored(createDefaultProject());
     now.channels[0].live = ['t_decay', 'mix:pan'];
     expect(fromStored(now)!.channels[0].live).toEqual(['t_decay', 'mix:pan']);
@@ -1570,5 +1571,65 @@ describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
     const old = fromStored(stored)!.channels[4].sounds.bass!;
     expect(old.sustain2).toBe(0.2);
     expect(old.release2).toBe(3);
+  });
+});
+
+describe('relative live knobs', () => {
+  const kickTail = (offset: number, viaProject = false) => {
+    const p = kickProject([0], { bpm: 120 });
+    p.channels[0].fx1 = false;
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick!, t_decay: 0.3 };
+    if (viaProject && offset) p.channels[0].liveOffset = { 'macro:decay': offset };
+    const e = engineWith(p);
+    if (!viaProject) e.handleMessage({ type: 'setOffset', channel: 0, id: 'macro:decay', value: offset });
+    e.handleMessage({ type: 'transport', playing: true });
+    return stats(render(e, 0.3).l.subarray(8000, 14000)).peak;
+  };
+
+  it('every macro target is a parameter of its type; CUTOFF / RESO / mixer stay absolute', () => {
+    for (const k of SOUND_KINDS) {
+      for (const m of LIVE_MACROS[k]) for (const t of m.targets) expect(INSTRUMENTS[k].params.some((p) => p.id === t.id), `${k} ${m.id} ${t.id}`).toBe(true);
+      expect(liveTargets(k, 'cutoff')).toEqual([]);
+      expect(liveTargets(k, 'reso')).toEqual([]);
+      expect(liveTargets(k, 'mix:volume')).toEqual([]);
+      for (const id of [...INSTRUMENTS[k].live, ...INSTRUMENTS[k].liveFunc]) {
+        if (id.startsWith('macro:')) expect(LIVE_MACROS[k].some((m) => m.id === id), `${k} ${id}`).toBe(true);
+      }
+    }
+  });
+
+  it('DECAY pushes the kick longer / shorter around the sound as set', () => {
+    const centre = kickTail(0);
+    expect(kickTail(1)).toBeGreaterThan(centre * 1.5);
+    expect(kickTail(-1)).toBeLessThan(centre * 0.5);
+  });
+
+  it('offsets load with the project, clamp at the limits and clear on a type change', () => {
+    expect(kickTail(1, true)).toBeCloseTo(kickTail(1), 3);
+    const p = kickProject([0], { bpm: 120 });
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick!, t_decay: 20 }; // at the top already
+    p.channels[0].liveOffset = { 'macro:decay': 1, 'macro:punch': -1 };
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    expect(stats(render(e, 0.3).l).nan).toBe(false);
+    const sound = { ...p.channels[0].sounds.kick!, t_decay: 0.3 };
+    e.handleMessage({ type: 'setInstrument', channel: 0, kind: 'kick', sound });
+    e.handleMessage({ type: 'transport', playing: false });
+    e.handleMessage({ type: 'transport', playing: true });
+    const after = stats(render(e, 0.3).l.subarray(8000, 14000)).peak;
+    const q = kickProject([0], { bpm: 120 });
+    q.channels[0].sounds.kick = sound;
+    const fresh = engineWith(q);
+    fresh.handleMessage({ type: 'transport', playing: true });
+    expect(after).toBeCloseTo(stats(render(fresh, 0.3).l.subarray(8000, 14000)).peak, 3); // centred again
+  });
+
+  it('live offsets are saved; projects before v16 take the new defaults', () => {
+    const p = createDefaultProject();
+    expect(p.channels[0].live).toEqual(['macro:decay', 'macro:punch']);
+    p.channels[0].liveOffset = { 'macro:decay': 0.4 };
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[0].liveOffset).toEqual({ 'macro:decay': 0.4 });
+    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 15 };
+    expect(fromStored(old)!.channels[0].liveOffset).toEqual({});
   });
 });

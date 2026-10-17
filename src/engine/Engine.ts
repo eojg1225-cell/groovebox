@@ -6,7 +6,8 @@ import {
 } from './project';
 import { CHORDS } from './chords';
 import type { Instrument } from '../instruments/Instrument';
-import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, liveContribution, liveTargets } from '../instruments/registry';
+import { toNorm, toValue } from './params';
 import { ARP_RATES } from '../instruments/Synth';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { Noise, Svf } from '../instruments/dsp';
@@ -93,10 +94,18 @@ export class Engine {
   // Channels
   private readonly instruments: Record<string, Instrument>[] = [];
   private readonly current: (Instrument | null)[] = [];
+  private readonly kind: InstrumentKind[] = new Array(NUM_CHANNELS).fill('none');
   /** Channel's own sound values per param slot (what applies when no lock). */
   private readonly baseValue = new Float32Array(NUM_CHANNELS * LOCK_SLOTS);
   /** Whether a lock is currently applied per channel/param slot. */
   private readonly lockApplied = new Uint8Array(NUM_CHANNELS * LOCK_SLOTS);
+  /**
+   * Relative LIVE knobs: each channel's offsets (live id -> -1..1), and their summed push
+   * per param slot in normalised units, added on top of the base (or locked) value.
+   */
+  private readonly liveOffsets: Map<string, number>[] = Array.from({ length: NUM_CHANNELS }, () => new Map());
+  private readonly offsetNorm = new Float32Array(NUM_CHANNELS * LOCK_SLOTS);
+  private readonly prevOffset = new Float32Array(LOCK_SLOTS);
   private readonly volume: Smoother[] = [];
   private readonly pan: Smoother[] = [];
   private readonly toneL: Svf[] = [];
@@ -235,6 +244,7 @@ export class Engine {
         }
         break;
       case 'setSound': this.setSound(msg.channel, msg.id, msg.value); break;
+      case 'setOffset': this.setOffset(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setGlobal':
         if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); }
@@ -293,6 +303,7 @@ export class Engine {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const c = p.channels[ch];
       this.setInstrument(ch, c.instrument, c.instrument === 'none' ? {} : (c.sounds[c.instrument] ?? {}));
+      for (const id in c.liveOffset) this.setOffset(ch, id, c.liveOffset[id]);
       this.chord[ch] = c.chord;
       this.lfoOn[ch] = c.lfoOn ? 1 : 0;
       this.setMix(ch, 'volume', c.volume);
@@ -627,6 +638,42 @@ export class Engine {
     });
   }
 
+  /** A slot's value with the relative LIVE knobs' push added (clamped to its range). */
+  private withOffset(ch: number, slot: number, value: number): number {
+    const off = this.offsetNorm[ch * LOCK_SLOTS + slot];
+    if (off === 0) return value;
+    const spec = this.current[ch]!.params[slot];
+    const n = toNorm(spec, value) + off;
+    return toValue(spec, n < 0 ? 0 : n > 1 ? 1 : n);
+  }
+
+  /**
+   * A relative LIVE knob moved (value -1..1, 0 = centred). Re-sums the channel's push per
+   * slot and re-applies the slots whose push changed (UI rate, not per block).
+   */
+  private setOffset(ch: number, id: string, value: number): void {
+    const inst = this.current[ch];
+    const offsets = this.liveOffsets[ch];
+    if (value === 0) offsets.delete(id);
+    else offsets.set(id, Math.max(-1, Math.min(1, value)));
+    if (!inst) return;
+    const kind = this.kind[ch];
+    const base = ch * LOCK_SLOTS;
+    const n = Math.min(inst.params.length, LOCK_SLOTS);
+    for (let k = 0; k < n; k++) this.prevOffset[k] = this.offsetNorm[base + k];
+    this.offsetNorm.fill(0, base, base + LOCK_SLOTS);
+    for (const [key, v] of offsets) {
+      for (const t of liveTargets(kind, key)) {
+        const slot = this.slotOf(inst, t.id);
+        if (slot >= 0) this.offsetNorm[base + slot] += liveContribution(t, v);
+      }
+    }
+    for (let k = 0; k < n; k++) {
+      if (this.offsetNorm[base + k] === this.prevOffset[k] || this.lockApplied[base + k]) continue;
+      inst.setParam(inst.params[k].id, this.withOffset(ch, k, this.baseValue[base + k]));
+    }
+  }
+
   private setInstrument(ch: number, kind: InstrumentKind, sound: Record<string, number>): void {
     if (this.arpHeld[ch]) this.stopArp(ch);
     this.arpMode[ch] = 0;
@@ -634,6 +681,10 @@ export class Engine {
     this.current[ch]?.noteOff(-1);
     this.gateSteps[ch] = 0;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
+    this.kind[ch] = kind;
+    // Live offsets belong to the old type's knobs.
+    this.liveOffsets[ch].clear();
+    this.offsetNorm.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
     this.lockApplied.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
     // Locks are stored by parameter slot, which means something else on another instrument.
     const from = ch * NUM_PATTERNS * MAX_STEPS * LOCK_SLOTS;
@@ -651,10 +702,10 @@ export class Engine {
       const v = this.locks[stepSlot * LOCK_SLOTS + k];
       const applied = ch * LOCK_SLOTS + k;
       if (v === v) { // not NaN
-        inst.setParam(inst.params[k].id, v);
+        inst.setParam(inst.params[k].id, this.withOffset(ch, k, v));
         this.lockApplied[applied] = 1;
       } else if (this.lockApplied[applied]) {
-        inst.setParam(inst.params[k].id, this.baseValue[applied]);
+        inst.setParam(inst.params[k].id, this.withOffset(ch, k, this.baseValue[applied]));
         this.lockApplied[applied] = 0;
       }
     }
@@ -665,7 +716,7 @@ export class Engine {
     if (!inst) return;
     for (let k = 0; k < Math.min(inst.params.length, LOCK_SLOTS); k++) {
       if (this.lockApplied[ch * LOCK_SLOTS + k]) {
-        inst.setParam(inst.params[k].id, this.baseValue[ch * LOCK_SLOTS + k]);
+        inst.setParam(inst.params[k].id, this.withOffset(ch, k, this.baseValue[ch * LOCK_SLOTS + k]));
         this.lockApplied[ch * LOCK_SLOTS + k] = 0;
       }
     }
@@ -729,7 +780,7 @@ export class Engine {
     if (!inst) return;
     const slot = this.slotOf(inst, id);
     if (slot < 0) return;
-    inst.setParam(id, value); // hear it now
+    inst.setParam(id, this.withOffset(ch, slot, value)); // hear it now
     if (!this.playing || this.currentStep[ch] < 0) return;
     const pattern = this.activePattern[ch];
     const index = this.currentStep[ch];
@@ -916,7 +967,7 @@ export class Engine {
     if (!inst) return;
     const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
     if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
-    inst.setParam(id, value);
+    inst.setParam(id, slot >= 0 ? this.withOffset(ch, slot, value) : value);
     if (id === 'arp') {
       this.arpMode[ch] = Math.max(0, Math.round(value));
       if (this.arpMode[ch] === 0 && this.arpHeld[ch]) this.stopArp(ch);

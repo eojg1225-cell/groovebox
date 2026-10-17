@@ -68,6 +68,86 @@ const _ = null;
 const SYNTH_FUNC_TOP = ['shape', 'sustain', 'sustain2', _, _, _, 'octave', _];
 const SYNTH_FUNC_BOTTOM = [_, 'release', 'release2', _, _, _];
 
+/**
+ * LIVE knobs are relative: centred (0) they leave the sound as set on the SOUND page;
+ * turned they push parameters up / down by up to half their knob range (on each
+ * parameter's own curve), clamped at its limits. A macro moves several at once.
+ * CUTOFF and RESO (and the mixer, LFO) stay absolute.
+ */
+export interface LiveTarget {
+  id: string;
+  /** Share of the push (negative = moves the other way). */
+  amount: number;
+  /** Only the top quarter of the knob moves it (e.g. CRUSH on GRIT). */
+  top?: boolean;
+}
+
+export interface LiveMacro {
+  /** "macro:<name>" */
+  id: string;
+  name: string;
+  targets: readonly LiveTarget[];
+}
+
+const macro = (name: string, targets: [string, number, boolean?][]): LiveMacro => ({
+  id: `macro:${name.toLowerCase()}`, name, targets: targets.map(([id, amount, top]) => ({ id, amount, top })),
+});
+const LENGTH_SYNTH: [string, number][] = [['decay', 1], ['decay2', 1], ['release', 1], ['release2', 1]];
+
+export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
+  kick: [
+    macro('DECAY', [['t_decay', 1], ['c_len', 0.5], ['ring', 1]]),
+    macro('PUNCH', [['t_sweep', 1], ['c_level', 1], ['drive', 1]]),
+    macro('TUNE', [['t_pitch', 1]]),
+  ],
+  snare: [
+    macro('DECAY', [['t_decay', 1], ['m_decay', 1], ['ring', 1]]),
+    macro('SNAP', [['m_level', 1], ['m_tone', 1], ['t_level', -1]]),
+    macro('TUNE', [['t_pitch', 1], ['m_pitch', 1]]),
+  ],
+  hat: [
+    macro('DECAY', [['m_decay', 1], ['c_len', 0.5], ['ring', 1]]),
+    macro('BRIGHT', [['m_tone', 1], ['c_tone', 1], ['m_noise', 1]]),
+  ],
+  perc: [
+    macro('DECAY', [['t_decay', 1], ['c_len', 0.5], ['m_decay', 1]]),
+    macro('TUNE', [['t_pitch', 1], ['m_pitch', 1]]),
+  ],
+  bass: [macro('ENV', [['fenv', 1], ['fdecay', 1]])],
+  pad: [
+    macro('SWELL', [['attack', 1], ['attack2', 1], ['release', 1], ['release2', 1]]),
+    macro('WIDTH', [['detune', 1], ['unison', 1]]),
+  ],
+  lead: [
+    macro('GRIT', [['drive', 1], ['fm', 1], ['crush', 1, true]]),
+    macro('LENGTH', LENGTH_SYNTH),
+  ],
+  pluck: [
+    macro('LENGTH', [...LENGTH_SYNTH, ['fdecay', 1]]),
+    macro('BITE', [['fenv', 1], ['drive', 1], ['fm', 1]]),
+  ],
+};
+
+/** Live knob ids that stay absolute: the main filter (and the mixer / LFO ids). */
+const ABSOLUTE_LIVE = new Set(['cutoff', 'reso', 'track:chord']);
+
+/**
+ * What a relative live knob moves on this type: a macro's targets, a single (non-coarse)
+ * sound parameter, or nothing (absolute ids, unknown ids).
+ */
+export function liveTargets(kind: InstrumentKind, id: string): readonly LiveTarget[] {
+  if (kind === 'none' || ABSOLUTE_LIVE.has(id) || id.includes(':') && !id.startsWith('macro:')) return [];
+  if (id.startsWith('macro:')) return LIVE_MACROS[kind].find((m) => m.id === id)?.targets ?? [];
+  const spec = INSTRUMENTS[kind].params.find((p) => p.id === id);
+  return spec && !spec.coarse ? [{ id, amount: 1 }] : [];
+}
+
+/** How far a relative live knob at `offset` (-1..1) pushes one target (normalised units). */
+export function liveContribution(t: LiveTarget, offset: number): number {
+  if (t.top) return offset > 0.5 ? (offset - 0.5) * t.amount : 0;
+  return offset * 0.5 * t.amount;
+}
+
 export interface InstrumentEntry {
   name: string;
   /** All of the type's parameters (stored, set by presets, lockable). */
@@ -94,35 +174,35 @@ export interface InstrumentEntry {
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
-    name: 'KICK', live: ['t_decay', 't_pitch'], liveFunc: ['mix:volume', 'drive'], params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
+    name: 'KICK', live: ['macro:decay', 'macro:punch'], liveFunc: ['mix:volume', 'macro:tune'], params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', _, _, _, _], ['t_stime', 't_sweep', 'c_tone', 'c_noise', _, _, _, _]),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
   snare: {
-    name: 'SNARE', live: ['m_decay', 't_pitch'], liveFunc: ['mix:volume', 'mix:send'], params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
+    name: 'SNARE', live: ['macro:decay', 'macro:snap'], liveFunc: ['mix:volume', 'macro:tune'], params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['t_wave', 't_level', 'm_level', 'm_noise', _, _, 'm_fm', _], ['m_mode', 't_sweep', 'm_tone', 'm_spread', _, _, 'm_pitch', _]),
     presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
   hat: {
-    name: 'HAT', live: ['m_decay', 'cutoff'], liveFunc: ['mix:volume', 'ring'], params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['rolldiv', 'm_pitch'], ['fenv', 'ring']),
+    name: 'HAT', live: ['macro:decay', 'cutoff'], liveFunc: ['mix:volume', 'macro:bright'], params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['rolldiv', 'm_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['m_mode', 'c_level', 'm_level', 'm_noise', _, _, 'h_time', 'h_tone'], ['m_fm', 'c_tone', 'm_tone', 'm_spread', _, _, 'h_pitch', 'h_noise']),
     presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
   perc: {
-    name: 'PERC', live: ['t_decay', 'cutoff'], liveFunc: ['mix:volume', 'mix:send'], params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
+    name: 'PERC', live: ['macro:decay', 'cutoff'], liveFunc: ['mix:volume', 'macro:tune'], params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
     funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', _, _, 'm_level', _], ['t_stime', 't_sweep', 'c_tone', 'c_noise', _, _, 'm_pitch', _]),
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
   bass: {
-    name: 'BASS', live: ['cutoff', 'reso'], liveFunc: ['mix:volume', 'fenv'], params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
+    name: 'BASS', live: ['cutoff', 'reso'], liveFunc: ['mix:volume', 'macro:env'], params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'sub', _]),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
   pad: {
-    name: 'PAD', live: ['cutoff', 'release'], liveFunc: ['mix:volume', 'mix:send'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
+    name: 'PAD', live: ['cutoff', 'macro:swell'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, _, _]),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: {
-    name: 'LEAD', live: ['cutoff', 'drive'], liveFunc: ['mix:volume', 'mix:send'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
+    name: 'LEAD', live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'unison', _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
   pluck: {
-    name: 'PLUCK', live: ['decay', 'cutoff'], liveFunc: ['mix:volume', 'mix:send'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
+    name: 'PLUCK', live: ['macro:length', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
     funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 7), 'fenv'], [...SYNTH_FUNC_BOTTOM, 'unison', 'fm']),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
 };

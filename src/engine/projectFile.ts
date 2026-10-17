@@ -51,6 +51,7 @@ export interface StoredChannel {
   presets: Record<string, number>;
   live: string[];
   liveFunc?: string[];
+  liveOffset?: Record<string, number>;
   chord: number;
   volume: number;
   pan: number;
@@ -97,6 +98,7 @@ export function toStored(p: Project): StoredProject {
       presets: { ...c.presets } as Record<string, number>,
       live: [...c.live],
       liveFunc: [...c.liveFunc],
+      liveOffset: { ...c.liveOffset },
       chord: c.chord,
       volume: c.volume,
       pan: c.pan,
@@ -208,6 +210,10 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   }
   if (Array.isArray(src.liveFunc) && src.liveFunc.length === 2 && src.liveFunc.every((x) => typeof x === 'string')) {
     ch.liveFunc = [src.liveFunc[0] as string, src.liveFunc[1] as string];
+  }
+  if (isObj(src.liveOffset)) {
+    const offsets = numbers(src.liveOffset);
+    for (const id in offsets) if (offsets[id] !== 0) ch.liveOffset[id] = Math.max(-1, Math.min(1, offsets[id]));
   }
   // Chords are stored by index; before v6 the list had no MAJOR/MINOR, so map by name.
   const chord = Math.round(num(src.chord, ch.chord, 0, 64));
@@ -348,8 +354,9 @@ export function fromStored(data: unknown): Project | null {
     }
   }
   // v15: the mixer CUTOFF went (the sound's filter is CUTOFF) and each type got its own
-  // live knobs (two sound controls; VOLUME with FUNC): every track takes its type's.
-  if (version < 15) for (const c of p.channels) liveDefaults(c);
+  // live knobs (two sound controls; VOLUME with FUNC); v16: they became relative, with
+  // macros. Every track takes its type's.
+  if (version < 16) for (const c of p.channels) liveDefaults(c);
   // Before v8 every track had its own LFO: tracks that used theirs join the shared one,
   // which takes the first such track's settings.
   if (version < 8) {

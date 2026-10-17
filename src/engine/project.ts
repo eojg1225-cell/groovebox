@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 15;
+export const PROJECT_VERSION = 16;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 6;
@@ -104,6 +104,11 @@ export interface ChannelState {
   live: [LiveTarget, LiveTarget];
   /** The two parameters on the live knobs while FUNC is held (LIVE 3 / LIVE 4). */
   liveFunc: [LiveTarget, LiveTarget];
+  /**
+   * Relative live knobs' positions (live id -> -1..1, 0 = centred = the sound as set on the
+   * SOUND page). Absent ids are centred.
+   */
+  liveOffset: Record<string, number>;
   /** Chord mode index into CHORDS (0 = off). */
   chord: number;
   volume: number; // 0..1
@@ -160,6 +165,7 @@ export function emptyChannel(): ChannelState {
     presets: {},
     live: ['mix:volume', 'mix:pan'],
     liveFunc: ['mix:send', 'mix:pan'],
+    liveOffset: {},
     chord: 0,
     volume: 0.8,
     pan: 0,

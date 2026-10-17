@@ -23,6 +23,8 @@ export type MainToWorklet =
   | { type: 'release'; channel: number; note: number }
   /** Instrument parameter in real units. */
   | { type: 'setSound'; channel: number; id: string; value: number }
+  /** A relative LIVE knob (id = macro or sound param), -1..1 (0 = centred). */
+  | { type: 'setOffset'; channel: number; id: string; value: number }
   | { type: 'setMix'; channel: number; id: MixParam; value: number }
   | { type: 'setGlobal'; id: GlobalParam; value: number }
   /** Route a track to send FX 2 or FX 3 (0 = none). */

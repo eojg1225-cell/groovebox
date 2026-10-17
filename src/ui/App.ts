@@ -47,7 +47,7 @@ import {
 } from '../engine/project';
 import { applyPreset, liveDefaults } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, SOUND_KINDS, isDrum, mirrorOsc2, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, liveTargets, mirrorOsc2, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroSound, timbreName } from '../instruments/macros';
@@ -59,6 +59,8 @@ export type Mode = 'record' | 'play' | 'design' | 'song';
 
 /** Hold ACCENT / GHOST / RING this long (keyboard tracks, RECORD) to paint them onto steps. */
 const FLAG_HOLD_MS = 1000;
+/** A relative live knob: -100..+100 % around the sound as set (centre). */
+const OFFSET_SPEC: ParamSpec = { id: 'offset', name: 'OFFSET', min: -100, max: 100, defaultValue: 0, unit: '%', curve: 'linear', decimals: 0 };
 /** FUNC released sooner than this, with no knob turned = a tap (latches FUNC on / off). */
 const FUNC_TAP_MS = 350;
 
@@ -365,12 +367,13 @@ export class App {
   // ---------------------------------------------------------------- knob targets
 
   /**
-   * What a track's live knobs may control: the non-coarse sound parameters on its sound
-   * page (both layers), the mixer (volume, pan, send level) and the LFO rate and depths.
+   * What a track's live knobs may control: its type's macros, the non-coarse sound
+   * parameters on its sound page (both layers), the mixer (volume, pan, send level) and the LFO rate and depths.
    */
   private liveCandidates(c: ChannelState): { id: string; spec: ParamSpec }[] {
     const list: { id: string; spec: ParamSpec }[] = [];
     if (c.instrument !== 'none') {
+      for (const m of LIVE_MACROS[c.instrument]) list.push({ id: m.id, spec: { ...OFFSET_SPEC, name: m.name } });
       const entry = INSTRUMENTS[c.instrument];
       for (const id of [...entry.layout, ...entry.funcLayout]) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
@@ -380,6 +383,36 @@ export class App {
     for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
     for (const id of ['rate', 'vol', 'pitch', 'filter', 'pan', 'send', 'phase', 'smooth'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
     return list;
+  }
+
+  /** A live knob's name (macro, sound param, mixer, LFO). */
+  private liveName(c: ChannelState, id: string): string {
+    if (id.startsWith('macro:')) return c.instrument === 'none' ? '-' : LIVE_MACROS[c.instrument].find((m) => m.id === id)?.name ?? '-';
+    if (id.startsWith('lfo:')) return LFO_PARAMS[id.slice(4) as LfoId]?.name ?? '-';
+    if (id.startsWith(MIX_PREFIX)) return MIX_PARAMS.find((p) => MIX_PREFIX + p.id === id)?.name ?? '-';
+    return paramSpec(c.instrument, id)?.name ?? '-';
+  }
+
+  /**
+   * A live knob (RECORD / PLAY): relative for macros and sound parameters (centred = the
+   * sound as set; -100..+100 % = half the parameters' range down / up), absolute for
+   * CUTOFF, RESO, the mixer and the LFO.
+   */
+  private liveKnob(ch: number, id: string, highlight: boolean): KnobTarget | null {
+    const c = this.project.channels[ch];
+    if (c.instrument === 'none' || liveTargets(c.instrument, id).length === 0) return this.paramTarget(ch, id, undefined, highlight);
+    return {
+      label: this.liveName(c, id), spec: OFFSET_SPEC, channel: ch, highlight, key: `${ch}:off:${id}`,
+      get: () => (c.liveOffset[id] ?? 0) * 100,
+      set: (v) => this.setLiveOffset(ch, id, v / 100),
+    };
+  }
+
+  private setLiveOffset(ch: number, id: string, value: number): void {
+    const c = this.project.channels[ch];
+    if (Math.abs(value) < 1e-6) delete c.liveOffset[id];
+    else c.liveOffset[id] = value;
+    this.send({ type: 'setOffset', channel: ch, id, value: c.liveOffset[id] ?? 0 });
   }
 
   private paramTarget(ch: number, id: string, label?: string, highlight?: boolean): KnobTarget | null {
@@ -533,7 +566,12 @@ export class App {
       liveTargets.push({
         label: `LIVE ${n}`, spec, channel: ch,
         get: () => Math.max(0, candidates.findIndex((x) => x.id === live[r])),
-        set: (v) => { live[r] = candidates[v].id; },
+        set: (v) => {
+          const old = live[r];
+          live[r] = candidates[v].id;
+          // A knob given another job comes back centred.
+          if (![...c.live, ...c.liveFunc].includes(old) && c.liveOffset[old] !== undefined) this.setLiveOffset(ch, old, 0);
+        },
       });
     }
     if (this.func) return [null, null, null, null, ...liveTargets];
@@ -583,7 +621,7 @@ export class App {
     for (let row = 0; row < 2; row++) {
       for (let ch = 0; ch < KNOBS_PER_ROW; ch++) {
         const c = this.project.channels[ch];
-        out.push(this.paramTarget(ch, (this.func ? c.liveFunc : c.live)[row], undefined, ch === this.selected));
+        out.push(this.liveKnob(ch, (this.func ? c.liveFunc : c.live)[row], ch === this.selected));
       }
     }
     return out;
@@ -771,6 +809,8 @@ export class App {
         fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[field]);
       }
       if (!isDrum(c.instrument)) fromTarget(this.paramTarget(ch, 'track:chord'), s.chord);
+      // Relative live knobs glide back to the centre (the sound as set).
+      for (const id of Object.keys(c.liveOffset)) fromTarget(this.liveKnob(ch, id, false), 0);
       // The sound, value by value (not through TIMBRE / INTENSITY, which would recompute
       // the rest mid-glide). Only when the track is still the same type.
       if (c.instrument !== 'none' && c.instrument === s.instrument) {
@@ -1611,6 +1651,10 @@ export class App {
   private valueText(t: KnobTarget): string {
     const kind = this.project.channels[t.channel]?.instrument;
     if (t.spec.id === 'timbre' && kind && kind !== 'none') return timbreName(kind, t.get());
+    if (t.spec === OFFSET_SPEC) {
+      const v = Math.round(t.get());
+      return v === 0 ? 'SET' : `${v > 0 ? '+' : ''}${v}%`;
+    }
     return formatValue(t.spec, t.get());
   }
 
@@ -1750,9 +1794,7 @@ export class App {
     const c = this.channel;
     const pages = this.designPages();
     const f = this.footer(audio);
-    const liveName = (id: string) => (id.startsWith(MIX_PREFIX)
-      ? MIX_PARAMS.find((p) => MIX_PREFIX + p.id === id)?.name
-      : paramSpec(c.instrument, id)?.name) ?? '-';
+    const liveName = (id: string) => this.liveName(c, id);
     return {
       ...this.header(),
       kindLabel: c.instrument !== 'none' && c.sounds[c.instrument]?.timbre !== undefined

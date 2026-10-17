@@ -18,6 +18,7 @@ export function liveDefaults(c: ChannelState): void {
   if (c.instrument === 'none') return;
   c.live = [...INSTRUMENTS[c.instrument].live];
   c.liveFunc = [...INSTRUMENTS[c.instrument].liveFunc];
+  c.liveOffset = {};
 }
 
 /**
