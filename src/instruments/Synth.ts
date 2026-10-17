@@ -199,7 +199,8 @@ export class Synth implements Instrument {
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
   /** 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three carriers). */
-  private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35; private detune = 0; private sub = 0; private octave = 0; private mono = false;
+  private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35;
+  private fmMod = 0; private fmEff = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
@@ -287,6 +288,18 @@ export class Synth implements Instrument {
     this.filterMod = octaves;
   }
 
+  setFmMod(amount: number): void {
+    this.fmMod = amount;
+    this.updateFm();
+  }
+
+  /** FM in use: the set level plus the LFO's push, clamped. */
+  private updateFm(): void {
+    const f = this.fm + this.fmMod;
+    this.fmEff = f < 0 ? 0 : f > 1 ? 1 : f;
+    this.fmIndex = dx7Index(this.fmEff);
+  }
+
   noteOff(group: number): void {
     for (const v of this.voices) {
       if (!held(v) || (group >= 0 && v.group !== group)) continue;
@@ -300,7 +313,7 @@ export class Synth implements Instrument {
       case 'shape': this.shape = Math.min(3, Math.max(0, value)); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
-      case 'fm': this.fm = value; this.fmIndex = dx7Index(value); break;
+      case 'fm': this.fm = value; this.updateFm(); break;
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
       case 'feedback': this.feedback = value; break;
@@ -418,13 +431,14 @@ export class Synth implements Instrument {
           o1 = this.osc(v.p1, dt1);
           o2 = this.osc(v.p2, dt2);
         }
-        if (this.fm > 0 && this.algo === 0) {
+        if (this.fmEff > 0 && this.algo === 0) {
           // FM pair: the index rises with FM and with the filter envelope (a struck clang).
           v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
-          const index = this.fm * (0.5 + 4.5 * v.fenv);
+          const fm = this.fmEff;
+          const index = fm * (0.5 + 4.5 * v.fenv);
           const fmOut = Math.sin(2 * Math.PI * v.p1 + index * Math.sin(2 * Math.PI * v.p4));
-          o1 = o1 * (1 - this.fm) + fmOut * this.fm;
-          o2 = o2 * (1 - this.fm) + fmOut * this.fm;
+          o1 = o1 * (1 - fm) + fmOut * fm;
+          o2 = o2 * (1 - fm) + fmOut * fm;
         }
         if (uni > 0) {
           // UNISON: two detuned copies join each element.

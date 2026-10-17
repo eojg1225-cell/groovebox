@@ -17,7 +17,7 @@ import { deriveTrims } from '../instruments/trims';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
-import { LFO_RATES, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
+import { LFO_RATES, LFO_RATES_V17, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
 
@@ -297,9 +297,15 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   }
 }
 
-function readLfo(src: unknown, lfo: LfoState): void {
+function readLfo(src: unknown, lfo: LfoState, version: number): void {
   if (!isObj(src)) return;
-  lfo.rate = Math.round(num(src.rate, lfo.rate, 0, LFO_RATES.length - 1));
+  const rate = Math.round(num(src.rate, lfo.rate, 0, 63));
+  // Before v18 the rate list had no odd / dotted rates: map the old index by name.
+  lfo.rate = version < 18
+    ? Math.max(0, LFO_RATES.findIndex((r) => r.name === (LFO_RATES_V17[rate] ?? '1/4')))
+    : Math.min(rate, LFO_RATES.length - 1);
+  lfo.morph = num(src.morph, lfo.morph, 0, 1);
+  lfo.fm = num(src.fm, lfo.fm, 0, 1);
   lfo.shape = Math.round(num(src.shape, lfo.shape, 0, LFO_SHAPES.length - 1));
   lfo.vol = num(src.vol, lfo.vol, 0, 1);
   lfo.pitch = num(src.pitch, lfo.pitch, 0, 48);
@@ -340,7 +346,7 @@ export function fromStored(data: unknown): Project | null {
   }
   readGrid(data.sendWet ?? data.sendFx, p.sendWet);
   readGrid(data.sendInt, p.sendInt);
-  readLfo(data.lfo, p.lfo);
+  readLfo(data.lfo, p.lfo, version);
   // Before v10 the tracks were KICK SNARE HAT BASS PAD LEAD PERC LEAD; PERC is now track 4,
   // so stored track i goes to slot(i) (patterns, sounds and song cells move with it).
   const slot = (i: number) => (version < 10 ? (V9_TO_V10[i] ?? i) : i);
@@ -376,7 +382,7 @@ export function fromStored(data: unknown): Project | null {
       if (i >= NUM_CHANNELS || !isObj(src) || !isObj(src.lfo)) return;
       if (num(src.lfo.vol, 0) <= 0 && num(src.lfo.pitch, 0) <= 0) return;
       p.channels[slot(i)].lfoOn = true;
-      if (first) readLfo(src.lfo, p.lfo);
+      if (first) readLfo(src.lfo, p.lfo, version);
       first = false;
     });
   }

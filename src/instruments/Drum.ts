@@ -240,6 +240,10 @@ export class Drum implements Instrument {
     this.pitchMod = semitones === 0 ? 1 : Math.pow(2, semitones / 12);
   }
 
+  setFmMod(_amount: number): void {
+    // Drums have no FM level to modulate.
+  }
+
   setFilterMod(octaves: number): void {
     this.filterMod = octaves;
     this.filterOn = this.cutoff < 19990 || this.reso > 0 || octaves !== 0;

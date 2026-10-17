@@ -22,6 +22,8 @@ export interface Instrument {
   setPitchMod(semitones: number): void;
   /** Filter cutoff modulation in octaves (LFO). Block rate. */
   setFilterMod(octaves: number): void;
+  /** FM level modulation (LFO FM MOD), added to FM (0..1 units). Block rate; drums ignore it. */
+  setFmMod(amount: number): void;
   /** Value in real units (see ParamSpec). Unknown ids are ignored. */
   setParam(id: string, value: number): void;
   /** ADD output into outL/outR for frames [start, end). */

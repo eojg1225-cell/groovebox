@@ -184,6 +184,8 @@ export class Engine {
   private lfoClock = 0;
   private lfoSteps = 4;
   private lfoShape = 0;
+  private lfoMorph = 0;
+  private lfoFm = 0;
   private lfoVol = 0;
   private lfoPitch = 0;
   private lfoFilter = 0;
@@ -204,6 +206,7 @@ export class Engine {
   private readonly lfoOn = new Uint8Array(NUM_CHANNELS);
   private readonly pitchModOn = new Uint8Array(NUM_CHANNELS);
   private readonly filterModOn = new Uint8Array(NUM_CHANNELS);
+  private readonly fmModOn = new Uint8Array(NUM_CHANNELS);
   private readonly lfoNoise = new Noise(0x1f0);
 
   constructor(sampleRate: number) {
@@ -808,7 +811,7 @@ export class Engine {
       this.busL[k].fill(0, 0, n);
       this.busR[k].fill(0, 0, n);
     }
-    const lfoActive = this.lfoVol > 0 || this.lfoPitch > 0 || this.lfoFilter > 0 || this.lfoPan > 0 || this.lfoSend > 0;
+    const lfoActive = this.lfoVol > 0 || this.lfoPitch > 0 || this.lfoFilter > 0 || this.lfoPan > 0 || this.lfoSend > 0 || this.lfoFm > 0;
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const inst = this.current[ch];
       if (!inst) continue;
@@ -831,6 +834,14 @@ export class Engine {
       } else if (this.filterModOn[ch]) {
         inst.setFilterMod(0);
         this.filterModOn[ch] = 0;
+      }
+      // FM MOD: the synths' modulation level swings by up to ±depth (one value per chunk).
+      if (lfo && this.lfoFm > 0) {
+        inst.setFmMod(this.lfoFm * this.lfoBuf[lb]);
+        this.fmModOn[ch] = 1;
+      } else if (this.fmModOn[ch]) {
+        inst.setFmMod(0);
+        this.fmModOn[ch] = 0;
       }
       inst.render(sl, sr, 0, n);
       const volDepth = lfo ? this.lfoVol : 0;
@@ -915,7 +926,7 @@ export class Engine {
         this.lfoCycle[ch] = cycle;
         this.lfoHeld[ch] = this.lfoNoise.next();
       }
-      y += (lfoValue(this.lfoShape, pos - cycle, this.lfoHeld[ch]) - y) * k;
+      y += (lfoValue(this.lfoShape, pos - cycle, this.lfoHeld[ch], this.lfoMorph) - y) * k;
       const fade = this.lfoFade > 0 ? Math.min(1, Math.max(0, t) / this.lfoFade) : 1;
       buf[base + i] = y * fade;
     }
@@ -926,6 +937,8 @@ export class Engine {
     switch (id) {
       case 'rate': this.lfoSteps = LFO_RATES[Math.round(value)]?.steps ?? 4; this.lfoCycle.fill(-1); break;
       case 'shape': this.lfoShape = Math.round(value); break;
+      case 'morph': this.lfoMorph = value; break;
+      case 'fm': this.lfoFm = value; break;
       case 'vol': this.lfoVol = value; break;
       case 'pitch': this.lfoPitch = value; break;
       case 'filter': this.lfoFilter = value; break;

@@ -19,7 +19,10 @@ import { Reverb } from '../src/fx/Reverb';
 import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { CEILING, Limiter } from '../src/fx/Limiter';
-import { lfoValue } from '../src/engine/lfo';
+import { LFO_RATES, lfoValue } from '../src/engine/lfo';
+
+/** An LFO rate's index by name. */
+const RATE = (name: string) => LFO_RATES.findIndex((r) => r.name === name);
 import { MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
@@ -632,7 +635,7 @@ describe('LFO', () => {
   };
 
   it('volume modulation follows the tempo-synced rate (square, 1/4 = 24000 frames at 120 BPM)', () => {
-    const l = padWithLfo({ rate: 4, shape: 1, vol: 1, pitch: 0 }, 1);
+    const l = padWithLfo({ rate: RATE('1/4'), shape: 1, vol: 1, pitch: 0 }, 1);
     const peak = (a: number, b: number) => stats(l.subarray(a, b)).peak;
     // Square starts high: first half-cycle (0-12000) loud, second (12000-24000) silent,
     // allowing ~1 ms for the track filters to ring out after the edge.
@@ -642,7 +645,7 @@ describe('LFO', () => {
   });
 
   it('pitch modulation moves the pitch up and down', () => {
-    const l = padWithLfo({ rate: 4, shape: 1, vol: 0, pitch: 12 }, 0.5);
+    const l = padWithLfo({ rate: RATE('1/4'), shape: 1, vol: 0, pitch: 12 }, 0.5);
     const zc = (a: number, b: number) => {
       let n = 0;
       for (let i = a + 1; i < b; i++) if (l[i - 1] < 0 && l[i] >= 0) n++;
@@ -653,7 +656,7 @@ describe('LFO', () => {
   });
 
   it('only tracks put on the LFO are modulated', () => {
-    const l = padWithLfo({ rate: 4, shape: 1, vol: 1, pitch: 0 }, 1, false);
+    const l = padWithLfo({ rate: RATE('1/4'), shape: 1, vol: 1, pitch: 0 }, 1, false);
     expect(stats(l.subarray(13000, 24000)).peak).toBeGreaterThan(0.05);
   });
 
@@ -665,7 +668,7 @@ describe('LFO', () => {
     old.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 }; // old layout: track 6 = LEAD
     const p = fromStored(old)!;
     expect(p.channels.map((c) => c.lfoOn)).toEqual([false, false, false, false, false, false, true, false]); // now track 7
-    expect(p.lfo).toMatchObject({ rate: 7, shape: 5, vol: 0.4, pitch: 3 });
+    expect(p.lfo).toMatchObject({ rate: RATE('1/8T'), shape: 5, vol: 0.4, pitch: 3 }); // old index 7 = 1/8T
   });
 
   it('every shape stays within -1..1', () => {
@@ -824,7 +827,7 @@ describe('project', () => {
     p.fx1.rev_len = 3;
     p.fx1.lp_cutoff = 800;
     p.channels[4].fx1 = true;
-    p.lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
+    p.lfo = { rate: 7, shape: 5, morph: 0.3, fm: 0.4, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
     p.channels[6].lfoOn = true;
     p.channels[2].patterns[0].steps[6].active = true;
     p.channels[2].patterns[0].steps[6].ring = true;
@@ -1209,7 +1212,7 @@ describe('LFO options', () => {
     c.chord = 0;
     c.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, sustain2: 1, release: 0.01, release2: 0.01 };
     for (const s of notes) Object.assign(c.patterns[0].steps[s], { active: true, gate: 2 });
-    p.lfo = { ...p.lfo, rate: 4, shape: 1, vol: 1, ...lfo }; // square, 1/4 = 24000 frames
+    p.lfo = { ...p.lfo, rate: RATE('1/4'), shape: 1, vol: 1, ...lfo }; // square, 1/4 = 24000 frames
     c.lfoOn = true;
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
@@ -1818,5 +1821,44 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
       const s = macroSound('lead', t, 0.5, LEAD_PARAMS);
       for (const id of ['fmratio', 'ratio2', 'ratio3']) expect(RATIO_STEPS.some((r) => Math.abs(r - s[id]) < 1e-9), `${id} @${t}`).toBe(true);
     }
+  });
+});
+
+describe('LFO: odd rates, MORPH, FM MOD', () => {
+  it('has odd and dotted rates; older saves keep their rate by name', () => {
+    for (const n of ['3 BAR', '1.5 BAR', '3/4', '3/8', '5/16', '3/16']) expect(RATE(n), n).toBeGreaterThanOrEqual(0);
+    const p = createDefaultProject();
+    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 17 };
+    old.lfo.rate = 4; // '1/4' in the old list
+    expect(LFO_RATES[fromStored(old)!.lfo.rate].name).toBe('1/4');
+  });
+
+  it('MORPH blends the shape into the next one', () => {
+    const at = 0.1;
+    const half = lfoValue(0, at, 0, 0.5);
+    expect(half).toBeCloseTo((lfoValue(0, at, 0) + lfoValue(1, at, 0)) / 2);
+    expect(lfoValue(5, at, 0.3, 1)).toBeCloseTo(lfoValue(0, at, 0)); // S+H wraps to SINE
+  });
+
+  it('FM MOD swings the synths modulation level', () => {
+    const render1 = (fmMod: number) => {
+      const p = kickProject([], { bpm: 120 });
+      const c = p.channels[6]; // LEAD
+      c.fxSend = 0;
+      c.sounds.lead = { ...presetSound('lead', 0), fm: 0.5 };
+      c.patterns[0].steps[0].active = true;
+      c.patterns[0].steps[0].gate = 16;
+      c.lfoOn = true;
+      p.lfo = { ...p.lfo, rate: RATE('1 BAR'), shape: 1, fm: fmMod };
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return render(e, 0.4).l;
+    };
+    const a = render1(0);
+    const b = render1(0.5);
+    let diff = 0;
+    for (let i = 2000; i < a.length; i++) diff += Math.abs(a[i] - b[i]);
+    expect(diff / a.length).toBeGreaterThan(0.01);
+    expect(stats(b).nan).toBe(false);
   });
 });
