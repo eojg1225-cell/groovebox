@@ -54,6 +54,9 @@ export function createDefaultProject(): Project {
  */
 export function createStartProject(): Project {
   const p = fromStored(startProject) ?? createDefaultProject();
-  for (const c of p.channels) c.live = ['mix:volume', 'mix:cutoff'];
+  for (const c of p.channels) {
+    c.live = ['mix:volume', 'mix:cutoff'];
+    c.liveFunc = ['mix:pan', 'mix:send'];
+  }
   return p;
 }

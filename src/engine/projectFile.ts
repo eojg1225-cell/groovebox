@@ -12,7 +12,7 @@ import {
   type ChannelState, type Project, type SoundKind,
 } from './project';
 import { applyPreset, createDefaultProject } from './defaultProject';
-import { INSTRUMENTS, SOUND_KINDS, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
@@ -50,6 +50,7 @@ export interface StoredChannel {
   sounds: Record<string, Record<string, number>>;
   presets: Record<string, number>;
   live: string[];
+  liveFunc?: string[];
   chord: number;
   volume: number;
   pan: number;
@@ -96,6 +97,7 @@ export function toStored(p: Project): StoredProject {
       sounds: JSON.parse(JSON.stringify(c.sounds)) as Record<string, Record<string, number>>,
       presets: { ...c.presets } as Record<string, number>,
       live: [...c.live],
+      liveFunc: [...c.liveFunc],
       chord: c.chord,
       volume: c.volume,
       pan: c.pan,
@@ -192,6 +194,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       // Before v13 GLIDE also glided every mono note and slides took at least 60 ms; now
       // it is SLIDE (slides only) and left is instant, so keep old slides sounding the same.
       if (version < 13 && values.glide !== undefined) values.glide = Math.max(values.glide, 0.06);
+      // Before v14 the synths' OSC 2 shared OSC 1's SUSTAIN / RELEASE.
+      mirrorOsc2(values);
       const kept = Object.fromEntries(Object.entries(values).filter(([id]) => known.has(id)));
       if (Object.keys(kept).length) ch.sounds[k] = { ...(ch.sounds[k] ?? presetSound(k, 0)), ...kept };
     }
@@ -203,6 +207,9 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   // and only a choice made since is kept.
   if (version >= 5 && Array.isArray(src.live) && src.live.length === 2 && src.live.every((x) => typeof x === 'string')) {
     ch.live = [src.live[0] as string, src.live[1] as string];
+  }
+  if (Array.isArray(src.liveFunc) && src.liveFunc.length === 2 && src.liveFunc.every((x) => typeof x === 'string')) {
+    ch.liveFunc = [src.liveFunc[0] as string, src.liveFunc[1] as string];
   }
   // Chords are stored by index; before v6 the list had no MAJOR/MINOR, so map by name.
   const chord = Math.round(num(src.chord, ch.chord, 0, 64));
@@ -342,6 +349,7 @@ export function fromStored(data: unknown): Project | null {
     if (t8 && t8.instrument === 'lead') {
       applyPreset(t8, 'pluck', 0);
       t8.live = ['mix:volume', 'mix:cutoff'];
+      t8.liveFunc = ['mix:pan', 'mix:send'];
     }
   }
   // Before v8 every track had its own LFO: tracks that used theirs join the shared one,

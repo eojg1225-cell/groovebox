@@ -253,7 +253,9 @@ html, body {
 .panel.keyboard .step.cursor { box-shadow: inset 0 0 0 3px var(--hot); }
 
 .play-area { width: 170px; flex: none; display: flex; flex-direction: column; gap: 6px; }
-.btn.play { height: 86px; font-size: 22px; flex: none; }
+.play-row { display: flex; gap: 6px; }
+.btn.play { height: 86px; font-size: 22px; flex: 1; }
+.btn.func { height: 86px; width: 56px; flex: none; font-size: 13px; }
 .master-knobs {
   flex: 1; display: flex; justify-content: space-around; align-items: center;
   border-radius: 12px; background: #171b1f;

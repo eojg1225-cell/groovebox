@@ -157,6 +157,8 @@ export function anchorPosition(kind: SoundKind, i: number): number {
  * The parameters a TIMBRE / INTENSITY position produces for a track type.
  * `specs` = that type's parameter list (for ranges and curves).
  */
+const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release']] as const;
+
 export function macroSound(kind: SoundKind, timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
   const { anchors, excite } = MACROS[kind];
   const t = Math.min(1, Math.max(0, timbre)) * (anchors.length - 1);
@@ -179,6 +181,10 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
     if (!spec || out[e.id] === undefined) continue;
     const factor = x < 0.5 ? Math.pow(e.low, 1 - 2 * x) : Math.pow(e.high, 2 * x - 1);
     out[e.id] = Math.min(spec.max, Math.max(spec.min, out[e.id] * factor));
+  }
+  // OSC 2's SUSTAIN / RELEASE follow OSC 1's unless the sounds set their own.
+  for (const [id, from] of MIRRORED) {
+    if (out[from] !== undefined && a[id] === undefined && b[id] === undefined && specs.some((p) => p.id === id)) out[id] = out[from];
   }
   return out;
 }

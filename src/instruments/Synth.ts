@@ -9,7 +9,7 @@ import { MACROS } from './macros';
  * Per voice two elements, OSC 1 and OSC 2 (OSC 2 detuned by DETUNE), each with a
  * continuous SHAPE (sine -> triangle -> saw -> square) blended by FM with an FM pair (sine
  * carrier, sine modulator at FM RATIO, index following the filter envelope), and each
- * with its own ATTACK / DECAY (shared SUSTAIN / RELEASE); a sine sub joins OSC 1. UNISON
+ * with its own ATTACK / DECAY / SUSTAIN / RELEASE; a sine sub joins OSC 1. UNISON
  * adds four more detuned copies (two per element, spread by DETUNE) for supersaws. Then a
  * resonant low-pass with its own envelope (ATTACK, DECAY, ENV amount) -> drive, then CRUSH
  * on the summed output. MONO uses one voice with glide. Ranges go far past "sensible" on
@@ -83,8 +83,11 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'decay', name: 'OSC1 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
   { id: 'attack2', name: 'OSC2 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'decay2', name: 'OSC2 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
-  { id: 'sustain', name: 'SUSTAIN', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
-  { id: 'release', name: 'RELEASE', min: 0.005, max: 20, defaultValue: 0.15, unit: 'S', curve: 'exp' },
+  // Each oscillator has its own SUSTAIN / RELEASE ("sustain" / "release" = OSC 1).
+  { id: 'sustain', name: 'OSC1 SUS', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
+  { id: 'release', name: 'OSC1 REL', min: 0.005, max: 20, defaultValue: 0.15, unit: 'S', curve: 'exp' },
+  { id: 'sustain2', name: 'OSC2 SUS', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
+  { id: 'release2', name: 'OSC2 REL', min: 0.005, max: 20, defaultValue: 0.15, unit: 'S', curve: 'exp' },
 ];
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
@@ -100,10 +103,10 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
  */
 const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'unison', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
 
-const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level'];
-export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, release: 0.06, level: 0.75 });
+const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
+export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, release: 0.06, release2: 0.06, level: 0.75 });
 export const BASS_FIXED = { voice: 1 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, release: 1.2, level: 0.5 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, release: 1.2, release2: 1.2, level: 0.5 });
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0 };
 export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE], { octave: 3, level: 0.55 });
 export const LEAD_FIXED = { voice: 1, sub: 0 };
@@ -176,7 +179,9 @@ export class Synth implements Instrument {
   /** Per element (OSC 1, OSC 2). */
   private readonly attackInc = new Float64Array([1, 1]);
   private readonly decayMul = new Float64Array(2);
-  private sustain = 0.5; private releaseMul = 0;
+  /** Per element: SUSTAIN and the RELEASE multiplier. */
+  private readonly sustain = new Float64Array([0.5, 0.5]);
+  private readonly releaseMul = new Float64Array(2);
   /** Per element: the sustain level in use (SUSTAIN x how much a short DECAY keeps) ... */
   private readonly sustainLevel = new Float64Array([0.5, 0.5]);
   /** ... and its release: never slower than its decay once that decay is a stab. */
@@ -284,17 +289,19 @@ export class Synth implements Instrument {
       case 'decay': this.decayMul[0] = decayMul(value, sr); this.decayTime[0] = value; this.updateSustain(); break;
       case 'attack2': this.attackInc[1] = 1 / (value * sr); break;
       case 'decay2': this.decayMul[1] = decayMul(value, sr); this.decayTime[1] = value; this.updateSustain(); break;
-      case 'sustain': this.sustain = value; this.updateSustain(); break;
-      case 'release': this.releaseMul = decayMul(value, sr); this.updateSustain(); break;
+      case 'sustain': this.sustain[0] = value; this.updateSustain(); break;
+      case 'sustain2': this.sustain[1] = value; this.updateSustain(); break;
+      case 'release': this.releaseMul[0] = decayMul(value, sr); this.updateSustain(); break;
+      case 'release2': this.releaseMul[1] = decayMul(value, sr); this.updateSustain(); break;
     }
   }
 
   private updateSustain(): void {
     for (let k = 0; k < 2; k++) {
       const keep = sustainKeep(this.decayTime[k]);
-      this.sustainLevel[k] = this.sustain * keep;
+      this.sustainLevel[k] = this.sustain[k] * keep;
       // A stab ends as fast as it decays, whatever the RELEASE.
-      this.releaseK[k] = keep < 1 ? Math.min(this.releaseMul, this.decayMul[k]) : this.releaseMul;
+      this.releaseK[k] = keep < 1 ? Math.min(this.releaseMul[k], this.decayMul[k]) : this.releaseMul[k];
     }
   }
 
@@ -368,7 +375,7 @@ export class Synth implements Instrument {
         }
         o1 += Math.sin(2 * Math.PI * v.p3) * this.sub * 2; // x2: the element mix halves it
 
-        // Each element through its own envelope (ADSR with shared sustain / release).
+        // Each element through its own envelope (its own ADSR).
         let mix = 0;
         for (let k = 0; k < 2; k++) {
           let a = v.amp[k];

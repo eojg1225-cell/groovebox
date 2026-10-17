@@ -6,7 +6,7 @@ import { emptyPattern, type Project } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
-import { INSTRUMENTS, presetSound } from '../src/instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, KICK_PARAMS, PERC_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
 import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
 import { Delay } from '../src/fx/Delay';
@@ -321,6 +321,7 @@ describe('chords and gates', () => {
     const p = kickProject([]);
     applyPreset(p.channels[5], 'pad', INSTRUMENTS.pad.presets.findIndex((x) => x.name === 'WARM'));
     p.channels[5].sounds.pad!.release = 0.02;
+    p.channels[5].sounds.pad!.release2 = 0.02;
     p.channels[5].sounds.pad!.attack = 0.002;
     p.channels[5].fxSend = 0;
     p.channels[5].chord = 0;
@@ -525,7 +526,7 @@ describe('note lengths', () => {
     const p = kickProject([]);
     p.channels.forEach((c) => (c.fxSend = 0));
     const lead = p.channels[6];
-    lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, release: 0.005 };
+    lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, sustain2: 1, release: 0.005, release2: 0.005 };
     lead.patterns[0].steps[0].active = true;
     lead.patterns[0].steps[0].gate = gate;
     return p;
@@ -605,7 +606,7 @@ describe('LFO', () => {
     const pad = p.channels[5];
     pad.fxSend = 0;
     pad.chord = 0;
-    pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, sustain: 1, release: 0.01 };
+    pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, sustain: 1, sustain2: 1, release: 0.01, release2: 0.01 };
     pad.patterns[0].steps[0].active = true;
     pad.patterns[0].steps[0].gate = 16;
     p.lfo = { ...p.lfo, ...lfo };
@@ -758,7 +759,7 @@ describe('RING and REST', () => {
     const p = kickProject([], { bpm: 120 });
     p.channels.forEach((c) => (c.fxSend = 0));
     const lead = p.channels[6];
-    lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, release: 0.005 };
+    lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, sustain2: 1, release: 0.005, release2: 0.005 };
     lead.patterns[0].steps[0].active = true;
     lead.patterns[0].steps[0].ring = true;
     lead.patterns[0].steps[5].rest = true;
@@ -1186,7 +1187,7 @@ describe('LFO options', () => {
     const c = p.channels[5];
     c.fxSend = 0;
     c.chord = 0;
-    c.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, release: 0.01 };
+    c.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, sustain2: 1, release: 0.01, release2: 0.01 };
     for (const s of notes) Object.assign(c.patterns[0].steps[s], { active: true, gate: 2 });
     p.lfo = { ...p.lfo, rate: 4, shape: 1, vol: 1, ...lfo }; // square, 1/4 = 24000 frames
     c.lfoOn = true;
@@ -1305,7 +1306,7 @@ describe('notes held past the loop end', () => {
     const p = kickProject([], { bpm: 120 }); // 6000 frames per step, loop = 96000
     const b = p.channels[4];
     b.fxSend = 0;
-    b.sounds.bass = { ...b.sounds.bass!, attack: 0.002, attack2: 0.002, decay: 5, decay2: 5, sustain: 1, release: 0.005 };
+    b.sounds.bass = { ...b.sounds.bass!, attack: 0.002, attack2: 0.002, decay: 5, decay2: 5, sustain: 1, sustain2: 1, release: 0.005, release2: 0.005 };
     Object.assign(b.patterns[0].steps[14], { active: true, note: 45, gate: 4 }); // steps 14, 15, 0, 1
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
@@ -1488,7 +1489,7 @@ describe('PLUCK and ARP', () => {
     const t = p.channels[7];
     t.fxSend = 0;
     t.chord = CHORDS.findIndex((c) => c.name === 'MAJOR');
-    t.sounds.pluck = { ...t.sounds.pluck!, arp: 1, arprate: 3, decay: 0.03, decay2: 0.03, release: 0.01 };
+    t.sounds.pluck = { ...t.sounds.pluck!, arp: 1, arprate: 3, decay: 0.03, decay2: 0.03, release: 0.01, release2: 0.01 };
     Object.assign(t.patterns[0].steps[0], { active: true, note: 45, gate: 4 });
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
@@ -1514,12 +1515,56 @@ describe('v12 slide flag', () => {
     const p = kickProject([], { bpm: 120 });
     const b = p.channels[4];
     b.fxSend = 0;
-    b.sounds.bass = { ...b.sounds.bass!, sustain: 1, decay: 2, decay2: 2, release: 0.005 };
+    b.sounds.bass = { ...b.sounds.bass!, sustain: 1, sustain2: 1, decay: 2, decay2: 2, release: 0.005, release2: 0.005 };
     Object.assign(b.patterns[0].steps[0], { active: true, note: 45, gate: 1, slide: true });
     Object.assign(b.patterns[0].steps[3], { active: true, note: 52, gate: 1 });
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
     const l = render(e, 0.4).l;
     expect(stats(l.subarray(9000, 15000)).peak).toBeGreaterThan(0.05); // held through steps 2-3
+  });
+});
+
+describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
+  it('every FUNC slot names a parameter of its type (16 slots)', () => {
+    for (const k of SOUND_KINDS) {
+      const entry = INSTRUMENTS[k];
+      expect(entry.funcLayout.length).toBe(16);
+      for (const id of entry.funcLayout) if (id) expect(entry.params.some((p) => p.id === id), `${k}:${id}`).toBe(true);
+    }
+  });
+
+  it('each oscillator releases on its own RELEASE', () => {
+    const tail = (release2: number) => {
+      const s = new Synth(SR, INSTRUMENTS.bass.params, { voice: 1 });
+      for (const [id, v] of Object.entries({ shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, sustain2: 1, release: 0.005, release2, drive: 1 })) s.setParam(id, v);
+      s.noteOn(45, 1, 45);
+      const n = SR / 10;
+      s.render(new Float32Array(n), new Float32Array(n), 0, n);
+      s.noteOff(45);
+      const l = new Float32Array(n);
+      s.render(l, new Float32Array(n), 0, n);
+      return stats(l.subarray(2000, 3000)).peak;
+    };
+    expect(tail(0.005)).toBeLessThan(1e-3);
+    expect(tail(2)).toBeGreaterThan(0.05);
+  });
+
+  it('presets and older projects give OSC 2 the OSC 1 SUSTAIN / RELEASE; LIVE 3 / 4 are saved', () => {
+    const bass = presetSound('bass', 1);
+    expect(bass.sustain2).toBe(bass.sustain);
+    expect(bass.release2).toBe(bass.release);
+    const p = createDefaultProject();
+    p.channels[4].sounds.bass = { ...p.channels[4].sounds.bass!, sustain: 0.2, release: 3 };
+    p.channels[4].liveFunc = ['fm', 'mix:pan'];
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    const q = fromStored(stored)!;
+    expect(q.channels[4].liveFunc).toEqual(['fm', 'mix:pan']);
+    delete stored.channels[4].sounds.bass.sustain2;
+    delete stored.channels[4].sounds.bass.release2;
+    stored.version = 13;
+    const old = fromStored(stored)!.channels[4].sounds.bass!;
+    expect(old.sustain2).toBe(0.2);
+    expect(old.release2).toBe(3);
   });
 });

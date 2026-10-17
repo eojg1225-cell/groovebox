@@ -143,7 +143,11 @@ export class Panel implements ControlSurface {
       if ((i - 1) % 4 === 0) b.classList.add('beat');
       steps.appendChild(b);
     }
-    q('.play-area').prepend(this.makeButton('play', 'PLAY', 'btn play'));
+    // FUNC (hold: the knobs' second layer; tap: latch) beside PLAY.
+    const playRow = document.createElement('div');
+    playRow.className = 'play-row';
+    playRow.append(this.makeButton('func', 'FUNC', 'btn func'), this.makeButton('play', 'PLAY', 'btn play'));
+    q('.play-area').prepend(playRow);
     for (const m of MASTER_KNOBS) {
       // TEMPO moves in 0.1 BPM steps; everything else is 0-127.
       const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, m.id === 'mtempo' ? (BPM_MAX - BPM_MIN) * 10 : 127);
@@ -278,13 +282,14 @@ export class Panel implements ControlSurface {
   }
 
   /**
-   * Space: play. 1-8: select channel, Shift+1-8: mute.
+   * Space: play. Z: FUNC (hold). 1-8: select channel, Shift+1-8: mute.
    * Q..I: strip buttons 1-8, A..K: strip buttons 9-16.
    */
   private installKeyboard(): void {
     const stepKeys = 'QWERTYUIASDFGHJK';
     const toId = (e: KeyboardEvent): string | null => {
       if (e.code === 'Space') return 'play';
+      if (e.code === 'KeyZ') return 'func';
       const digit = /^Digit([1-8])$/.exec(e.code);
       if (digit) return e.shiftKey ? `mute${digit[1]}` : `ch${digit[1]}`;
       const key = /^Key([A-Z])$/.exec(e.code);

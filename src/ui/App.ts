@@ -47,7 +47,7 @@ import {
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, isDrum, mirrorOsc2, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroSound, timbreName } from '../instruments/macros';
@@ -59,6 +59,8 @@ export type Mode = 'record' | 'play' | 'design' | 'song';
 
 /** Hold ACCENT / GHOST / RING this long (keyboard tracks, RECORD) to paint them onto steps. */
 const FLAG_HOLD_MS = 1000;
+/** FUNC released sooner than this, with no knob turned = a tap (latches FUNC on / off). */
+const FUNC_TAP_MS = 350;
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export function noteName(n: number): string {
@@ -137,6 +139,15 @@ export class App {
   slideArm = false;
   /** REST armed (drum tracks): tapping a step places / removes a rest marker. */
   restArm = false;
+  /**
+   * FUNC: while held (or latched by a tap) every page shows its second layer: SOUND the
+   * FUNC parameters, RECORD / PLAY the tracks' LIVE 3 / 4, TRACK where LIVE 3 / 4 point.
+   */
+  private funcHeld = false;
+  private funcLatched = false;
+  /** A knob was turned while FUNC was down (so its release is not a latching tap). */
+  private funcUsed = false;
+  private funcDownAt = 0;
   dynamic: Dynamic = 'normal';
   playing = false;
   private readonly viewPage: number[] = new Array(NUM_CHANNELS).fill(0);
@@ -306,9 +317,12 @@ export class App {
       if (!patch) return;
       const defaults: Record<string, number> = {};
       for (const p of INSTRUMENTS[kind].params) defaults[p.id] = p.defaultValue;
-      c.sounds[kind] = { ...defaults, ...patch.values };
+      const values = { ...patch.values };
+      mirrorOsc2(values);
+      c.sounds[kind] = { ...defaults, ...values };
       c.presets[kind] = index;
       c.live = [...patch.live];
+      if (patch.liveFunc) c.liveFunc = [...patch.liveFunc];
     }
     const sound = c.sounds[kind] ?? {};
     for (const id in sound) this.send({ type: 'setSound', channel: ch, id, value: sound[id] });
@@ -352,15 +366,15 @@ export class App {
 
   /**
    * What a track's live knobs may control: the non-coarse sound parameters on its sound
-   * page, the mixer (volume, pan, cutoff, send level) and the LFO rate and depths.
+   * page (both layers), the mixer (volume, pan, cutoff, send level) and the LFO rate and depths.
    */
   private liveCandidates(c: ChannelState): { id: string; spec: ParamSpec }[] {
     const list: { id: string; spec: ParamSpec }[] = [];
     if (c.instrument !== 'none') {
       const entry = INSTRUMENTS[c.instrument];
-      for (const id of entry.layout) {
+      for (const id of [...entry.layout, ...entry.funcLayout]) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
-        if (spec && !spec.coarse) list.push({ id: spec.id, spec });
+        if (spec && !spec.coarse && !list.some((x) => x.id === spec.id)) list.push({ id: spec.id, spec });
       }
     }
     for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
@@ -429,13 +443,14 @@ export class App {
     const c = this.channel;
     const pages: { name: string; targets: () => (KnobTarget | null)[] }[] = [];
     if (c.instrument !== 'none') {
-      const layout = INSTRUMENTS[c.instrument].layout;
+      const entry = INSTRUMENTS[c.instrument];
+      const layout = this.func ? entry.funcLayout : entry.layout;
       pages.push({ name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) });
     }
     pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
     pages.push({
       name: 'GLOBAL',
-      targets: () => GLOBAL_PARAMS.map((spec) => ({
+      targets: () => this.func ? [] : GLOBAL_PARAMS.map((spec) => ({
         label: spec.name, spec, channel: ch, key: `global:${spec.id}`,
         get: () => this.getGlobal(spec.id as GlobalId),
         set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
@@ -483,7 +498,8 @@ export class App {
 
   /**
    * TRACK page. Row 1: type, preset, volume, pan, LIVE 1 and LIVE 2 (which parameters
-   * the track's two live knobs control). Row 2: cutoff, send level, chord (pitched).
+   * the track's two live knobs control; with FUNC held LIVE 3 / 4, what they control with
+   * FUNC held). Row 2: cutoff, send level, chord (pitched).
    * The send itself is chosen with FX 1/2/3.
    */
   private trackTargets(): (KnobTarget | null)[] {
@@ -509,14 +525,18 @@ export class App {
     targets.push(this.paramTarget(ch, 'mix:volume'), this.paramTarget(ch, 'mix:pan'));
     const candidates = this.liveCandidates(c);
     const liveTargets: KnobTarget[] = [];
+    // FUNC held: the same two knobs choose LIVE 3 / 4 (the live knobs with FUNC held).
+    const live = this.func ? c.liveFunc : c.live;
     for (let r = 0; r < 2; r++) {
-      const spec = choice(`live${r}`, `LIVE ${r + 1}`, candidates.map((x) => x.spec.name));
+      const n = this.func ? r + 3 : r + 1;
+      const spec = choice(`live${n}`, `LIVE ${n}`, candidates.map((x) => x.spec.name));
       liveTargets.push({
-        label: `LIVE ${r + 1}`, spec, channel: ch,
-        get: () => Math.max(0, candidates.findIndex((x) => x.id === c.live[r])),
-        set: (v) => { c.live[r] = candidates[v].id; },
+        label: `LIVE ${n}`, spec, channel: ch,
+        get: () => Math.max(0, candidates.findIndex((x) => x.id === live[r])),
+        set: (v) => { live[r] = candidates[v].id; },
       });
     }
+    if (this.func) return [null, null, null, null, ...liveTargets];
     targets.push(...liveTargets);
     targets.push(this.paramTarget(ch, 'mix:cutoff'), this.paramTarget(ch, 'mix:send'));
     if (!isDrum(c.instrument)) {
@@ -537,6 +557,7 @@ export class App {
     // Live knobs that pointed at the old instrument's parameters fall back to the defaults.
     const valid = new Set([...INSTRUMENTS[kind].params.map((p) => p.id), ...MIX_PARAMS.map((p) => MIX_PREFIX + p.id)]);
     c.live = c.live.map((id, r) => (valid.has(id) ? id : r === 0 ? 'mix:volume' : 'mix:cutoff')) as [string, string];
+    c.liveFunc = c.liveFunc.map((id, r) => (valid.has(id) ? id : r === 0 ? 'mix:pan' : 'mix:send')) as [string, string];
     // Locks belong to the old instrument's parameters.
     for (const p of c.patterns) for (const s of p.steps) delete s.locks;
     this.send({ type: 'setInstrument', channel: this.selected, kind, sound: c.sounds[kind] ?? {} });
@@ -549,20 +570,22 @@ export class App {
 
   /** The 16 knob targets for the current mode. */
   private computeTargets(): (KnobTarget | null)[] {
-    if (this.mode === 'song') return this.songTargets();
+    // FUNC layers exist for the SOUND / TRACK pages and the live knobs; elsewhere FUNC
+    // leaves the knobs empty.
+    if (this.mode === 'song') return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
     if (this.mode === 'design') {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
       const t = pages[this.designPage].targets();
       return Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null);
     }
-    if (this.fxView > 0) return this.sendTargets(this.fxView - 1);
-    // Live knobs: column = track, rows = live knob 1 / 2.
+    if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1);
+    // Live knobs: column = track, rows = live knob 1 / 2 (FUNC: 3 / 4).
     const out: (KnobTarget | null)[] = [];
     for (let row = 0; row < 2; row++) {
       for (let ch = 0; ch < KNOBS_PER_ROW; ch++) {
         const c = this.project.channels[ch];
-        out.push(this.paramTarget(ch, c.live[row], undefined, ch === this.selected));
+        out.push(this.paramTarget(ch, (this.func ? c.liveFunc : c.live)[row], undefined, ch === this.selected));
       }
     }
     return out;
@@ -577,6 +600,7 @@ export class App {
     if (e.type !== 'button') return;
     const id = e.id;
     let m: RegExpExecArray | null;
+    if (id === 'func') return this.onFunc(e.pressed);
     if (!e.pressed) {
       if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
       if ((m = /^ch(\d)$/.exec(id)) && this.heldTrack === Number(m[1]) - 1) {
@@ -668,7 +692,7 @@ export class App {
         this.flash('NOTHING TO SAVE');
       } else {
         const kind = c.instrument;
-        const name = savePatch(kind, c.sounds[kind] ?? presetSound(kind, 0), c.live);
+        const name = savePatch(kind, c.sounds[kind] ?? presetSound(kind, 0), c.live, c.liveFunc);
         if (name) {
           c.presets[kind] = this.presetNames(kind).lastIndexOf(name);
           this.save();
@@ -1335,7 +1359,26 @@ export class App {
     this.applyKnob(slot, t, toValue(t.spec, norm));
   }
 
+  /** FUNC layer showing (held or latched). */
+  private get func(): boolean {
+    return this.funcHeld || this.funcLatched;
+  }
+
+  /** FUNC: hold = second layer while held; a quick tap with no knob turned = latch / unlatch. */
+  private onFunc(pressed: boolean): void {
+    if (pressed) {
+      this.funcHeld = true;
+      this.funcUsed = false;
+      this.funcDownAt = performance.now();
+    } else {
+      this.funcHeld = false;
+      if (!this.funcUsed && performance.now() - this.funcDownAt < FUNC_TAP_MS) this.funcLatched = !this.funcLatched;
+    }
+    this.refreshPanel();
+  }
+
   private applyKnob(slot: number, t: KnobTarget, raw: number): void {
+    if (this.funcHeld) this.funcUsed = true;
     let value = raw;
     if (t.spec.decimals !== undefined && !t.spec.options) {
       const f = Math.pow(10, t.spec.decimals);
@@ -1410,6 +1453,7 @@ export class App {
 
     const rec = this.mode === 'record';
     const kb = this.keyboard;
+    this.panel.setButtonLit('func', this.func);
     this.panel.setButtonLit('ring', this.ring || this.flagPaint.has('ring'));
     this.panel.setButtonLit('slide', this.slideArm || this.flagPaint.has('slide'));
     // Synths: SLIDE; drums: ROLL (same button, same step flag).
@@ -1635,7 +1679,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
+      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
@@ -1716,11 +1760,13 @@ export class App {
       kindLabel: c.instrument !== 'none' && c.sounds[c.instrument]?.timbre !== undefined
         ? timbreName(c.instrument, c.sounds[c.instrument]!.timbre)
         : this.presetName(c),
-      pages: pages.map((p) => p.name),
+      pages: pages.map((p, i) => (this.func && i === this.designPage ? `${p.name} FN` : p.name)),
       page: this.designPage,
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
-      liveLabel: `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
+      liveLabel: this.func
+        ? `FN LIVE ${liveName(c.liveFunc[0])} + ${liveName(c.liveFunc[1])}`
+        : `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
       chordLabel: [c.fx1 ? 'FX1' : '', c.fxSend ? `FX${c.fxSend}` : '', c.lfoOn ? 'LFO' : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
       peak: audio.peak,
       footerRight: f.text,
