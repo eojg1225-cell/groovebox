@@ -8,6 +8,7 @@ import { CHORDS } from './chords';
 import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS, SOUND_KINDS } from '../instruments/registry';
 import { ARP_RATES } from '../instruments/Synth';
+import { ROLL_DIVS } from '../instruments/Drum';
 import { Noise, Svf } from '../instruments/dsp';
 import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { SendBus } from '../fx/SendBus';
@@ -118,6 +119,8 @@ export class Engine {
   private readonly recSlide = new Uint8Array(NUM_CHANNELS);
   /** The held note came from a SLIDE step: the next note glides out of it. */
   private readonly sliding = new Uint8Array(NUM_CHANNELS);
+  /** Drum tracks: hits per step of a ROLL step (ROLL DIV; the SLIDE flag). 0 = not a drum. */
+  private readonly rollDiv = new Uint8Array(NUM_CHANNELS);
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
   private readonly songBars = new Uint8Array(SONG_MAX_ROWS);
@@ -462,14 +465,16 @@ export class Engine {
       this.applyLocks(ch, s);
       if (hit) {
         const ring = this.stepRing[s] === 1;
+        // On drum tracks the SLIDE flag is ROLL: the hit repeats at ROLL DIV.
+        const drumRoll = this.rollDiv[ch] > 0 && this.stepSlide[s] === 1;
         // A SLIDE note is held (like RING) until the next note, which it glides into.
-        const slide = this.stepSlide[s] === 1;
-        this.noteOn(ch, this.stepNote[s], this.stepVel[s], ring, slideFrom);
+        const slide = this.rollDiv[ch] === 0 && this.stepSlide[s] === 1;
+        this.noteOn(ch, this.stepNote[s], this.stepVel[s], ring, slideFrom, slide);
         this.gateGroup[ch] = this.stepNote[s];
         this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
         this.ringing[ch] = ring || slide ? 1 : 0;
         this.sliding[ch] = slide ? 1 : 0;
-        const roll = this.stepRoll[s];
+        const roll = drumRoll ? this.rollDiv[ch] : this.stepRoll[s];
         if (roll > 1) {
           this.rollLeft[ch] = roll - 1;
           this.rollEvery[ch] = stepLen / roll;
@@ -538,7 +543,7 @@ export class Engine {
    * Play a note (as a chord when chord mode is on); voices are grouped by the root note.
    * slideFrom >= 0: legato from that still-sounding root (no release, no new attack).
    */
-  private noteOn(ch: number, note: number, velocity: number, ring = false, slideFrom = -1): void {
+  private noteOn(ch: number, note: number, velocity: number, ring = false, slideFrom = -1, slide = false): void {
     const inst = this.current[ch];
     if (!inst) return;
     if (this.gateSteps[ch] > 0 && slideFrom < 0) this.releaseGate(ch);
@@ -555,7 +560,7 @@ export class Engine {
       this.arpStep(ch);
     } else {
       const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
-      for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note, ring, slideFrom);
+      for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note, ring, slideFrom, slide);
     }
     // RETRIG NOTE: the LFO restarts with each new note (not on slides).
     if (slideFrom < 0) this.lfoTrig[ch] = this.lfoClock;
@@ -639,6 +644,7 @@ export class Engine {
   private setInstrument(ch: number, kind: InstrumentKind, sound: Record<string, number>): void {
     if (this.arpHeld[ch]) this.stopArp(ch);
     this.arpMode[ch] = 0;
+    this.rollDiv[ch] = 0;
     this.current[ch]?.noteOff(-1);
     this.gateSteps[ch] = 0;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
@@ -941,6 +947,8 @@ export class Engine {
       if (this.arpMode[ch] === 0 && this.arpHeld[ch]) this.stopArp(ch);
     } else if (id === 'arprate') {
       this.arpSteps[ch] = ARP_RATES[Math.round(value)]?.steps ?? 1;
+    } else if (id === 'rolldiv') {
+      this.rollDiv[ch] = ROLL_DIVS[Math.round(value)]?.hits ?? 2;
     } else if (id === 'arpoct') {
       this.arpOct[ch] = Math.max(1, Math.min(3, Math.round(value) + 1));
     }

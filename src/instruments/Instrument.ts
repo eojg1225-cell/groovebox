@@ -12,8 +12,10 @@ export interface Instrument {
    * `ring` = a RING step: drums use their long, chokeable decay.
    * `slideFrom` >= 0: a SLIDE (legato) from the still-sounding group `slideFrom` - synths
    * glide that voice to the new pitch without restarting its envelopes; drums ignore it.
+   * `slide` = this note is a SLIDE note (it will glide into the next one): synths hold its
+   * envelopes up until then; drums ignore it.
    */
-  noteOn(note: number, velocity: number, group: number, ring: boolean, slideFrom?: number): void;
+  noteOn(note: number, velocity: number, group: number, ring: boolean, slideFrom?: number, slide?: boolean): void;
   /** Release voices of a group; -1 releases everything. Percussive voices may ignore it. */
   noteOff(group: number): void;
   /** Pitch modulation in semitones (LFO), applied to sounding voices. Block rate. */

@@ -28,6 +28,14 @@ import { MACROS } from './macros';
 const T_WAVES = ['SINE', 'TRI', 'SAW', 'SQR'];
 const ATTACK = { min: 0.0005, max: 2, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 } as const;
 
+/**
+ * ROLL DIV: hits per step of a ROLL step (the SLIDE button is ROLL on drum tracks), named
+ * as note values at 16th-note steps.
+ */
+export const ROLL_DIVS = [
+  { name: '1/32', hits: 2 }, { name: '1/32T', hits: 3 }, { name: '1/64', hits: 4 }, { name: '1/64T', hits: 6 }, { name: '1/128', hits: 8 },
+] as const;
+
 /** Every drum parameter; each drum type exposes a subset with its own defaults. */
 const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   TIMBRE,
@@ -72,6 +80,8 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'drive', name: 'DRIVE', min: 1, max: 200, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // ROLL DIV: how fast a ROLL step repeats (read by the engine; the voice ignores it).
+  choice('rolldiv', 'ROLL DIV', ROLL_DIVS.map((r) => r.name), 0),
 ] as ParamSpec[]).map((p) => [p.id, p]));
 
 /** Build a drum type's parameter list (in knob order) with per-type defaults. */
@@ -80,7 +90,7 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /** Controls every drum has (after its layer parameters). */
-const WHOLE = ['ring', 'cutoff', 'reso', 'fattack', 'fdecay', 'fenv', 'drive', 'crush'];
+const WHOLE = ['ring', 'cutoff', 'reso', 'fattack', 'fdecay', 'fenv', 'drive', 'crush', 'rolldiv'];
 
 /*
  * Each drum type: its parameters (all stored, set by TIMBRE / INTENSITY and presets),

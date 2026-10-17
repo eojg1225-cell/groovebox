@@ -31,8 +31,10 @@ export const ARP_RATES = [
 ] as const;
 const OCTAVES = ['-2', '-1', '0', '+1', '+2'] as const;
 const MAX_VOICES = 6;
-/** Glide time of a SLIDE when the sound's own GLIDE is (near) zero. */
+/** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
+/** A SLIDE note's envelopes hold at least this level until the slide ends (added sustain). */
+const SLIDE_SUSTAIN = 0.75;
 /**
  * DECAY below STAB_END starts cutting the sustain (and the release) away, so turning DECAY
  * down takes any sound - a held pad chord too - to a stab, and at the bottom a click.
@@ -66,8 +68,9 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   choice('arpoct', 'ARP OCT', ['1 OCT', '2 OCT', '3 OCT']),
   choice('octave', 'OCTAVE', OCTAVES, 2),
   choice('voice', 'VOICES', VOICE_MODES),
-  // GLIDE: fully left = off; the square curve gives fine control over short glides.
-  { id: 'glide', name: 'GLIDE', min: 0, max: 3, defaultValue: 0, unit: 'S', curve: 'square', decimals: 3 },
+  // SLIDE (id "glide" for old projects): how long a SLIDE note takes to glide into the next;
+  // fully left = an instant jump. Only slides glide; other notes start on pitch.
+  { id: 'glide', name: 'SLIDE', min: 0, max: 3, defaultValue: SLIDE_SECONDS, unit: 'S', curve: 'square', decimals: 3 },
   { id: 'cutoff', name: 'FILTER', min: 20, max: 20000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.4, unit: '', curve: 'linear' },
@@ -101,12 +104,12 @@ const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 
 export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, release: 0.06, level: 0.75 });
 export const BASS_FIXED = { voice: 1 };
 export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, release: 1.2, level: 0.5 });
-export const PAD_FIXED = { voice: 0, glide: 0, sub: 0 };
+export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0 };
 export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE], { octave: 3, level: 0.55 });
 export const LEAD_FIXED = { voice: 1, sub: 0 };
 /** PLUCK: a polyphonic pluck with an ARP. */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'arp', 'arprate', 'arpoct'], { level: 0.55 });
-export const PLUCK_FIXED = { voice: 0, sub: 0, glide: 0 };
+export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS };
 
 /** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */
 export const SYNTH_ELEMENTS = ['attack', 'decay', 'attack2', 'decay2'];
@@ -141,8 +144,10 @@ class Voice {
   freq = 110;
   targetFreq = 110;
   velocity = 1;
-  /** Pitch glide coefficient in use (GLIDE for mono notes, the slide time for slides). */
+  /** Pitch glide coefficient in use (1 = on pitch; the SLIDE time while sliding). */
   glide = 1;
+  /** A SLIDE note: its envelopes hold up (SLIDE_SUSTAIN) until the note it slides into. */
+  hold = false;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
   /** UNISON copies' phases. */
   readonly u = new Float64Array(4);
@@ -163,7 +168,6 @@ export class Synth implements Instrument {
   private unison = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
-  private glideCoeff = 1;
   private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
   private filterMod = 0;
@@ -189,7 +193,7 @@ export class Synth implements Instrument {
     for (const p of params) this.setParam(p.id, p.defaultValue);
   }
 
-  noteOn(note: number, velocity: number, group: number, _ring = false, slideFrom = -1): void {
+  noteOn(note: number, velocity: number, group: number, _ring = false, slideFrom = -1, slide = false): void {
     const n = note + this.octave * 12;
     const freq = midiToHz(n);
     if (slideFrom >= 0) {
@@ -206,6 +210,9 @@ export class Synth implements Instrument {
         s.targetFreq = freq;
         s.glide = this.slideCoeff;
         s.velocity = velocity;
+        // The slide has landed: unless this note slides on too, decay back to SUSTAIN.
+        s.hold = slide;
+        if (!slide) for (let k = 0; k < 2; k++) if (s.stage[k] === STAGE_SUSTAIN) s.stage[k] = STAGE_DECAY;
         return;
       }
     }
@@ -220,7 +227,8 @@ export class Synth implements Instrument {
     v.note = note;
     v.group = group;
     v.targetFreq = freq;
-    v.glide = this.glideCoeff;
+    v.glide = 1;
+    v.hold = slide;
     v.velocity = velocity;
     if (!sounding(v)) for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
     v.stage[0] = STAGE_ATTACK;
@@ -262,8 +270,7 @@ export class Synth implements Instrument {
         if (this.mono) for (let i = 1; i < MAX_VOICES; i++) this.voices[i].stage.fill(STAGE_OFF);
         break;
       case 'glide':
-        this.glideCoeff = value <= 0.001 ? 1 : 1 - Math.exp(-1 / (value * sr));
-        this.slideCoeff = 1 - Math.exp(-1 / (Math.max(value, SLIDE_SECONDS) * sr));
+        this.slideCoeff = value <= 0.0005 ? 1 : 1 - Math.exp(-1 / (value * sr));
         break;
       case 'cutoff': this.cutoff = value; break;
       case 'reso': this.reso = value; break;
@@ -365,7 +372,7 @@ export class Synth implements Instrument {
         let mix = 0;
         for (let k = 0; k < 2; k++) {
           let a = v.amp[k];
-          const sus = this.sustainLevel[k];
+          const sus = v.hold ? Math.max(this.sustainLevel[k], SLIDE_SUSTAIN) : this.sustainLevel[k];
           switch (v.stage[k]) {
             case STAGE_ATTACK:
               a += this.attackInc[k];

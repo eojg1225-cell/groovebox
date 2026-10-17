@@ -189,6 +189,9 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       if (values.wave !== undefined && values.shape === undefined && known.has('shape')) {
         values.shape = [2, 3, 1, 0][Math.round(values.wave)] ?? 2;
       }
+      // Before v13 GLIDE also glided every mono note and slides took at least 60 ms; now
+      // it is SLIDE (slides only) and left is instant, so keep old slides sounding the same.
+      if (version < 13 && values.glide !== undefined) values.glide = Math.max(values.glide, 0.06);
       const kept = Object.fromEntries(Object.entries(values).filter(([id]) => known.has(id)));
       if (Object.keys(kept).length) ch.sounds[k] = { ...(ch.sounds[k] ?? presetSound(k, 0)), ...kept };
     }

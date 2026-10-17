@@ -1050,7 +1050,7 @@ describe('slides and rolls', () => {
 
   const bass = () => {
     const s = new Synth(SR, INSTRUMENTS.bass.params, { voice: 1 });
-    for (const [id, v] of Object.entries({ shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0, drive: 1 })) s.setParam(id, v);
+    for (const [id, v] of Object.entries({ shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0.06, drive: 1 })) s.setParam(id, v);
     return s;
   };
   const crossings = (s: Synth, seconds: number) => {
@@ -1079,7 +1079,7 @@ describe('slides and rolls', () => {
   it('a sequenced SLIDE glides from the held note into the next step', () => {
     const p = kickProject([], { bpm: 120 });
     const b = p.channels[4];
-    b.sounds.bass = { ...b.sounds.bass!, shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0, drive: 1 };
+    b.sounds.bass = { ...b.sounds.bass!, shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0.06, drive: 1 };
     const pat = b.patterns[0];
     Object.assign(pat.steps[0], { active: true, note: 45, gate: 1, slide: true }); // slides into step 2
     Object.assign(pat.steps[1], { active: true, note: 57, gate: 1 });
@@ -1094,6 +1094,67 @@ describe('slides and rolls', () => {
       return c;
     };
     expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
+  });
+
+  it('on drum tracks the SLIDE flag is ROLL at the sound\'s ROLL DIV (a count is overridden)', () => {
+    const p = kickProject([0, 4], { bpm: 120 });
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 1 }; // 1/32T
+    Object.assign(p.channels[0].patterns[0].steps[0], { slide: true, roll: 2 });
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 0.6).l, 0.005, 1500), [0, 2000, 4000, 24000]);
+    // ROLL DIV is live: turning it changes the next roll.
+    e.handleMessage({ type: 'setSound', channel: 0, id: 'rolldiv', value: 0 }); // 1/32
+    e.handleMessage({ type: 'transport', playing: false });
+    e.handleMessage({ type: 'transport', playing: true });
+    const o2 = onsets(render(e, 0.6).l, 0.005, 1500);
+    near(o2, [0, 3000, 24000]);
+  });
+
+  it('a mono note that is not a SLIDE starts on pitch (SLIDE time only applies to slides)', () => {
+    const slow = bass();
+    slow.setParam('glide', 0.5);
+    slow.noteOn(45, 1, 45);
+    crossings(slow, 0.2);
+    slow.noteOn(57, 1, 57);
+    const fast = bass();
+    fast.noteOn(45, 1, 45);
+    crossings(fast, 0.2);
+    fast.noteOn(57, 1, 57);
+    expect(Math.abs(crossings(slow, 0.05) - crossings(fast, 0.05))).toBeLessThanOrEqual(1);
+  });
+
+  it('a SLIDE note holds its envelopes up (added sustain), then decays after landing', () => {
+    const stab = () => {
+      const s = bass();
+      s.setParam('decay', 0.05);
+      s.setParam('decay2', 0.05);
+      s.setParam('sustain', 0);
+      return s;
+    };
+    const level = (s: Synth, seconds: number) => {
+      const n = Math.round(SR * seconds);
+      const l = new Float32Array(n);
+      s.render(l, new Float32Array(n), 0, n);
+      return stats(l.subarray(n - 2000)).peak;
+    };
+    const plain = stab();
+    plain.noteOn(45, 1, 45);
+    const held = stab();
+    held.noteOn(45, 1, 45, false, -1, true);
+    expect(level(plain, 0.3)).toBeLessThan(0.02);
+    expect(level(held, 0.3)).toBeGreaterThan(0.2);
+    held.noteOn(52, 1, 52, false, 45); // lands, not sliding on
+    expect(level(held, 0.4)).toBeLessThan(0.02);
+  });
+
+  it('older projects keep their slide time (GLIDE 0 used to mean a 60 ms slide)', () => {
+    const p = createDefaultProject();
+    p.channels[4].sounds.bass = { ...p.channels[4].sounds.bass!, glide: 0 };
+    const old = JSON.parse(JSON.stringify(toStored(p)));
+    old.version = 12;
+    expect(fromStored(old)!.channels[4].sounds.bass!.glide).toBeCloseTo(0.06);
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[4].sounds.bass!.glide).toBe(0);
   });
 
   it('slides and rolls survive the stored format', () => {

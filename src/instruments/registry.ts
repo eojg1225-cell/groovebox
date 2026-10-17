@@ -26,8 +26,9 @@ const ROW = PAGE_SLOTS / 2;
  * 7 the type's key tuning pair (`tune`), 8 `last`: FILTER ENV amount / RING LEN (drums) or
  * SUSTAIN (synths). PLUCK: column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE.
  * Elements: KICK tone + click, SNARE tone + metal, HAT click + metal, PERC tone + click,
- * synths OSC 1 + OSC 2. Tune: KICK / PERC pitch + sweep, SNARE pitch + wire tone, HAT metal
- * pitch + tone, BASS / LEAD GLIDE + DETUNE, PAD UNISON + DETUNE.
+ * synths OSC 1 + OSC 2. Column 7: drums ROLL DIV + pitch (KICK / SNARE / PERC tone pitch,
+ * HAT metal pitch; sweep and wire / metal tone follow TIMBRE / INTENSITY), BASS / LEAD
+ * SLIDE + DETUNE, PAD UNISON + DETUNE.
  */
 export function soundPage(elements: readonly string[], tune: readonly [string, string], last: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;
@@ -37,7 +38,7 @@ export function soundPage(elements: readonly string[], tune: readonly [string, s
   ];
 }
 
-/** Column 7 for the synths: mono ones GLIDE / DETUNE, the pad UNISON / DETUNE. */
+/** Column 7 for the synths: mono ones SLIDE (time) / DETUNE, the pad UNISON / DETUNE. */
 const MONO_TUNE = ['glide', 'detune'] as const;
 const PAD_TUNE = ['unison', 'detune'] as const;
 
@@ -66,10 +67,10 @@ export interface InstrumentEntry {
 }
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
-  kick: { name: 'KICK', params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['t_pitch', 't_sweep'], ['fenv', 'ring']), presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
-  snare: { name: 'SNARE', params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['t_pitch', 'm_tone'], ['fenv', 'ring']), presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
-  hat: { name: 'HAT', params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['m_pitch', 'm_tone'], ['fenv', 'ring']), presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
-  perc: { name: 'PERC', params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['t_pitch', 't_sweep'], ['fenv', 'ring']), presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
+  kick: { name: 'KICK', params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']), presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
+  snare: { name: 'SNARE', params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']), presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
+  hat: { name: 'HAT', params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['rolldiv', 'm_pitch'], ['fenv', 'ring']), presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
+  perc: { name: 'PERC', params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']), presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
   bass: { name: 'BASS', params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'sustain']), presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
   pad: { name: 'PAD', params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'sustain']), presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: { name: 'LEAD', params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'sustain']), presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },

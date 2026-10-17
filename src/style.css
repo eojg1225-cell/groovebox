@@ -236,7 +236,6 @@ html, body {
 /* RING hits: a bar along the bottom; REST markers: a dark bar across the middle. */
 .step.lit.ring { box-shadow: inset 0 -8px 0 var(--hot); }
 /* A hit without the flag being shown (RING / SLIDE view): outlined only. */
-.step.hit { border-color: var(--accent); }
 .step.lit.ring.head { box-shadow: inset 0 0 0 3px var(--hot), inset 0 -8px 0 var(--accent-ink); }
 .step.rest::after {
   content: ''; position: absolute; left: 22%; right: 22%; top: 46%; height: 5px;

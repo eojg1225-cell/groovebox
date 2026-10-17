@@ -49,6 +49,7 @@ import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, SOUND_KINDS, isDrum, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
+import { ROLL_DIVS } from '../instruments/Drum';
 import { macroSound, timbreName } from '../instruments/macros';
 import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
@@ -968,10 +969,13 @@ export class App {
             this.flash('NO ROOM TO SLIDE');
             return;
           }
-          slideFrom = prev.note;
-          // The held note slides into this one: it carries the SLIDE flag.
-          prev.slide = true;
-          this.sendStep(this.entry.index, prev);
+          // The held note slides into this one: it carries the SLIDE flag (synths only;
+          // on PERC the flag is ROLL).
+          if (!isDrum(this.channel.instrument)) {
+            slideFrom = prev.note;
+            prev.slide = true;
+            this.sendStep(this.entry.index, prev);
+          }
         }
         const step = this.pattern.steps[index];
         step.active = true;
@@ -979,7 +983,7 @@ export class App {
         step.gate = 1;
         step.ring = this.ring;
         step.rest = false;
-        step.slide = this.slideArm && !isDrum(this.channel.instrument);
+        step.slide = this.slideArm; // ROLL on PERC
         delete step.roll;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
@@ -996,16 +1000,17 @@ export class App {
 
     // Drum lane. REST armed: toggle a rest marker. Otherwise a new hit takes the armed
     // flags; with any flag armed a hit is never removed: ACCENT / GHOST (exclusive) turn
-    // another dynamic into the armed one or the same one back to normal, RING toggles - each
-    // on its own. Nothing armed: a hit is removed (on release).
+    // another dynamic into the armed one or the same one back to normal, RING and ROLL (the
+    // SLIDE button) toggle - each on its own. Nothing armed: a hit is removed (on release).
     const index = this.visiblePage(ch) * 16 + button;
     if (index >= this.pattern.length) return;
     const step = this.pattern.steps[index];
-    const armed = this.dynamic !== 'normal' || this.ring;
+    const armed = this.dynamic !== 'normal' || this.ring || this.slideArm;
     if (this.restArm) {
       step.rest = !step.rest;
       step.active = false;
       step.ring = false;
+      step.slide = false;
       delete step.roll;
       delete step.locks;
     } else if (this.drumHold && this.drumHold.button !== button) {
@@ -1017,6 +1022,7 @@ export class App {
       step.active = true;
       step.rest = false;
       step.ring = this.ring;
+      step.slide = this.slideArm;
       delete step.roll;
       setStepDynamic(step, this.dynamic);
       if (!this.playing) this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
@@ -1024,6 +1030,10 @@ export class App {
     } else if (armed) {
       if (this.dynamic !== 'normal') setStepDynamic(step, stepDynamic(step) === this.dynamic ? 'normal' : this.dynamic);
       if (this.ring) step.ring = !step.ring;
+      if (this.slideArm) {
+        step.slide = !step.slide;
+        if (step.slide) delete step.roll; // ROLL DIV replaces a ▶ / ◀ count
+      }
       this.drumHold = { button, index, remove: false, used: false };
     } else {
       // Already a hit: removed when released, unless the hold is used for a roll.
@@ -1048,7 +1058,7 @@ export class App {
     const timer = setTimeout(() => {
       if (!this.flagHeld.has(id)) return;
       this.flagPaint.add(id);
-      this.flash(`TAP STEPS: ${id === 'ring' || id === 'slide' ? id.toUpperCase() : id.slice(4).toUpperCase()}`);
+      this.flash(`TAP STEPS: ${id === 'ring' ? 'RING' : id === 'slide' ? this.slideName : id.slice(4).toUpperCase()}`);
       this.refreshPanel();
     }, FLAG_HOLD_MS);
     this.flagHeld.set(id, timer);
@@ -1078,14 +1088,27 @@ export class App {
     }
     for (const id of this.flagPaint) {
       if (id === 'ring') step.ring = !step.ring;
-      else if (id === 'slide') step.slide = !step.slide;
-      else {
+      else if (id === 'slide') {
+        step.slide = !step.slide;
+        if (step.slide) delete step.roll;
+      } else {
         const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
         setStepDynamic(step, stepDynamic(step) === d ? 'normal' : d);
       }
     }
     this.sendStep(index, step);
     this.save();
+  }
+
+  /** Hits per step of a ROLL-flagged drum step on this channel (its sound's ROLL DIV). */
+  private rollHits(c: ChannelState): number {
+    const v = c.instrument === 'none' ? 0 : c.sounds[c.instrument]?.rolldiv ?? 0;
+    return ROLL_DIVS[Math.round(v)]?.hits ?? 2;
+  }
+
+  /** The SLIDE button's job on this track: ROLL on drums. */
+  private get slideName(): string {
+    return isDrum(this.channel.instrument) ? 'ROLL' : 'SLIDE';
   }
 
   private isMono(c: ChannelState): boolean {
@@ -1100,6 +1123,7 @@ export class App {
     const roll = Math.max(1, Math.min(MAX_ROLL, (step.active ? step.roll ?? 1 : 0) + delta));
     step.active = true;
     step.rest = false;
+    step.slide = false; // a count replaces the ROLL flag
     if (roll > 1) step.roll = roll;
     else delete step.roll;
     hold.used = true;
@@ -1118,6 +1142,7 @@ export class App {
       step.active = true;
       step.rest = false;
       step.ring = false;
+      step.slide = false;
       step.roll = 2;
       step.velocity = DYNAMIC_VELOCITY.ghost + ((1 - DYNAMIC_VELOCITY.ghost) * k) / n;
       step.accent = k === n;
@@ -1387,8 +1412,9 @@ export class App {
     const kb = this.keyboard;
     this.panel.setButtonLit('ring', this.ring || this.flagPaint.has('ring'));
     this.panel.setButtonLit('slide', this.slideArm || this.flagPaint.has('slide'));
-    // SLIDE is a synth thing (drums don't glide).
-    this.panel.setButtonEnabled('slide', !isDrum(this.channel.instrument) && this.mode !== 'song');
+    // Synths: SLIDE; drums: ROLL (same button, same step flag).
+    this.panel.setButtonText('slide', this.slideName);
+    this.panel.setButtonEnabled('slide', rec);
     this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent' || this.flagPaint.has('dyn:accent'));
     this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost' || this.flagPaint.has('dyn:ghost'));
     this.panel.setButtonEnabled('ring', rec);
@@ -1438,7 +1464,7 @@ export class App {
       this.panel.setButtonFlag(id, 'lit', exists);
       this.panel.setButtonFlag(id, 'head', row === playingRow);
       this.panel.setButtonFlag(id, 'cursor', row === this.songRow);
-      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'hit']) this.panel.setButtonFlag(id, f, false);
+      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
       this.panel.setLed(i, row === playingRow ? 'on' : row === this.songRow ? 'cursor' : '');
     }
     const start = this.songPage * 16 + 1;
@@ -1492,11 +1518,11 @@ export class App {
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding);
         this.panel.setButtonFlag(id, 'cursor', note === cursorNote);
-        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'hit']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
       }
     } else {
-      // RING or SLIDE armed (or painting): only notes with that flag light up; the other
-      // hits are outlined and ACCENT / GHOST are not shown.
+      // RING or SLIDE / ROLL armed (or painting): every hit is dim (like a ghost note) and
+      // the ones with that flag light up fully; the other flags are not shown.
       const view = this.ring || this.flagPaint.has('ring') ? 'ring'
         : this.slideArm || this.flagPaint.has('slide') ? 'slide' : null;
       for (let i = 0; i < STEP_BUTTONS; i++) {
@@ -1506,15 +1532,14 @@ export class App {
         const step = pattern.steps[index];
         const d = step.active && !off ? stepDynamic(step) : null;
         const flagged = d !== null && (view === 'ring' ? !!step.ring : view === 'slide' ? !!step.slide : true);
-        const roll = d !== null && step.roll && step.roll > 1 ? step.roll : 0;
+        const roll = d === null ? 0 : step.slide && isDrum(c.instrument) ? this.rollHits(c) : step.roll && step.roll > 1 ? step.roll : 0;
         this.panel.setButtonText(id, roll ? `${index + 1}<small>×${roll}</small>` : String(index + 1));
         this.panel.setButtonFlag(id, 'off', off);
-        this.panel.setButtonFlag(id, 'lit', flagged);
-        this.panel.setButtonFlag(id, 'hit', d !== null && !flagged);
+        this.panel.setButtonFlag(id, 'lit', d !== null);
         this.panel.setButtonFlag(id, 'accent', !view && d === 'accent');
-        this.panel.setButtonFlag(id, 'ghost', !view && d === 'ghost');
+        this.panel.setButtonFlag(id, 'ghost', view ? d !== null && !flagged : d === 'ghost');
         this.panel.setButtonFlag(id, 'head', head === index);
-        this.panel.setButtonFlag(id, 'ring', view !== 'slide' && d !== null && !!step.ring);
+        this.panel.setButtonFlag(id, 'ring', !view && d !== null && !!step.ring);
         this.panel.setButtonFlag(id, 'rest', !off && !step.active && !!step.rest);
         for (const f of ['black', 'cursor']) this.panel.setButtonFlag(id, f, false);
       }
@@ -1592,8 +1617,8 @@ export class App {
           locked: !!step.locks && Object.keys(step.locks).length > 0,
           ring: step.active && !!step.ring,
           rest: !step.active && !!step.rest,
-          slide: step.active && step.slide,
-          roll: step.active ? step.roll ?? 1 : 0,
+          slide: step.active && step.slide && !isDrum(lc.instrument),
+          roll: !step.active ? 0 : step.slide && isDrum(lc.instrument) ? this.rollHits(lc) : step.roll ?? 1,
         });
       }
       return {
