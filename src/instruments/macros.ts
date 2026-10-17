@@ -5,7 +5,7 @@
  * move musically): the coarse choice of sound. INTENSITY then sets the amount of
  * modulation / atmosphere around a neutral middle (0.5 = as designed): down, FM, filter
  * envelope, sweep, noise, click, drive and width converge on a dull floor (keeping a
- * quarter of the TIMBRE's own character); up, they are excited. Never loudness.
+ * tenth of the TIMBRE's own character); up, they are excited. Never loudness.
  * Layers: hidden (these) < design (SOUND page knobs, stored as trims on top, see trims.ts)
  * < live (relative knobs in the engine).
  *
@@ -22,7 +22,7 @@ export interface Anchor {
 /**
  * INTENSITY (the amount of modulation / atmosphere): below the middle a parameter moves
  * towards its dull FLOOR - CONVERGE of the way at 0, on its own curve - so every TIMBRE
- * lands in the same soft area but keeps a quarter of its own character (TIMBRE still
+ * lands in the same soft area but keeps a tenth of its own character (TIMBRE still
  * matters at 0). Above the middle it is scaled x high^(2i-1). No floor = unchanged below.
  */
 export interface Excite {
@@ -32,7 +32,7 @@ export interface Excite {
 }
 
 /** How far INTENSITY 0 pulls the modulation towards its floor (the rest stays TIMBRE's). */
-export const CONVERGE = 0.75;
+export const CONVERGE = 0.9;
 
 export interface MacroDef {
   anchors: readonly Anchor[];

@@ -1667,9 +1667,9 @@ describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => 
   it('INTENSITY 0 pulls SAW PLUCK and GLASS PLUCK together without making them the same', () => {
     const mid = octaves(at('pluck', 'SAW PLUCK', 0.5).cutoff, at('pluck', 'GLASS PLUCK', 0.5).cutoff);
     const low = octaves(at('pluck', 'SAW PLUCK', 0).cutoff, at('pluck', 'GLASS PLUCK', 0).cutoff);
-    expect(low).toBeLessThan(mid * 0.3 + 1e-9);
+    expect(low).toBeLessThan(mid * 0.12 + 1e-9);
     expect(at('pluck', 'SAW PLUCK', 0).drive).toBeLessThan(at('pluck', 'SAW PLUCK', 0.5).drive);
-    // TIMBRE still matters at 0: FM keeps a quarter of each sound's own amount.
+    // TIMBRE still matters at 0: FM keeps a tenth of each sound's own amount.
     expect(at('pluck', 'RAGE DONK', 0).fm).toBeGreaterThan(at('pluck', 'GLASS PLUCK', 0).fm);
     expect(at('pluck', 'RAGE DONK', 0).fm).toBeGreaterThan(0);
   });
