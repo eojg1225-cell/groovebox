@@ -1422,6 +1422,7 @@ export class App {
     const gid: GlobalId = id === 'mtempo' ? 'bpm' : 'lofi';
     const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
     let value = toValue(spec, this.fromKnob(spec, `global.${gid}`, norm));
+    this.calibKnob = id === 'mtempo' ? KNOB_COUNT : KNOB_COUNT + 1;
     if (spec.decimals !== undefined) value = Math.round(value * 10 ** spec.decimals) / 10 ** spec.decimals;
     this.glides.delete(`global:${gid}`);
     this.setGlobal(gid, value);
@@ -1435,6 +1436,7 @@ export class App {
    */
   private onEncoder(id: string, delta: number): void {
     if (id === 'mtempo' || id === 'mlofi') {
+      this.calibKnob = id === 'mtempo' ? KNOB_COUNT : KNOB_COUNT + 1;
       const gid: GlobalId = id === 'mtempo' ? 'bpm' : 'lofi';
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       const step = gid === 'bpm' ? 0.1 : 1 / 127;
@@ -1487,6 +1489,9 @@ export class App {
     const k = this.warp(spec, ckey);
     return k === 1 ? norm : Math.pow(Math.min(1, Math.max(0, norm)), 1 / k);
   }
+
+  /** The knob last moved (0-15, then 16 TEMPO, 17 LO-FI; -1 = none yet), for the window. */
+  calibKnob = -1;
 
   /** The calibration window's rows: the 16 knobs on show, then TEMPO and LO-FI. */
   calibrationRows(): { label: string; where: string; value: string; centre: string | null; settable: boolean }[] {
@@ -1563,6 +1568,7 @@ export class App {
     if (t.key) this.glides.delete(t.key); // a hand on the knob wins over RESET
     t.set(value);
     this.touchedKnob = slot;
+    this.calibKnob = slot;
     this.touchedAt = performance.now();
     this.save();
     // Discrete choices can change what other knobs mean (type, preset, live assignment).

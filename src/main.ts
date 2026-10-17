@@ -42,7 +42,7 @@ let host: AudioHost | null = null;
 const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
 // The calibration window (knob centres), beside the groovebox.
-new Calibrate(app, panel);
+new Calibrate(app);
 
 // ------------------------------------------------------------------ audio unlock
 
