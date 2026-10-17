@@ -43,7 +43,7 @@ Main -> worklet:
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-64 steps |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern; quantised to the channel's loop end unless `immediate` or stopped |
 | `setSound` | `channel`, `id`, `value` | Instrument parameter (real units; the base value) |
-| `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred): the engine sums each knob's push per param slot (`liveTargets` / `liveContribution` in the registry: up to ±half the knob range, normalised) and adds it to the base or locked value |
+| `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred): the engine sums each knob's push per param slot (`liveTargets` / `liveContribution` in the registry: up to ±60 % of the knob range with a gentle log taper, normalised) and adds it to the base or locked value |
 | `setMix` | `channel`, `id` (`volume`/`pan`/`mute`/`send`), `value` | Track mixer: level, pan, mute, send level |
 | `setGlobal` | `id` (`bpm`/`swing`/`master`/`lofi`), `value` | Project-wide settings |
 | `transport` | `playing`, `song?`, `fromRow?` | Start (from step 1) / stop; song = play the song from row fromRow |
@@ -58,6 +58,7 @@ Worklet -> main:
 | `ready` | `sampleRate` | Processor constructed |
 | `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase`, `songRow`, `songBar` | ~30 Hz: meters, playhead and playing pattern per channel, position in the bar (RESET lands on the next bar line) |
 | `pong` | `id` | Answer to `ping` |
+| `engineReset` | — | The engine's output went non-finite (NaN / infinity): the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host also re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate` | A live-recorded note was written (sent again with its length on release) |
 | `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A motion-recorded lock was written |
 

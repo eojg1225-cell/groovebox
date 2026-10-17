@@ -12,7 +12,9 @@ import { STATUS_HZ, type MainToWorklet, type WorkletToMain } from '../engine/pro
 const PROCESSOR_NAME = 'groovebox-engine';
 
 class GrooveboxProcessor extends AudioWorkletProcessor {
-  private readonly engine = new Engine(sampleRate);
+  private engine = new Engine(sampleRate);
+  /** Frames since the last engine reset (resets are rate-limited to one a second). */
+  private framesSinceReset = sampleRate;
   private readonly statusInterval = Math.round(sampleRate / STATUS_HZ);
   private framesSinceStatus = 0;
   // Reused status object; postMessage clones it.
@@ -21,6 +23,7 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
     steps: new Array<number>(NUM_CHANNELS).fill(0), patterns: new Array<number>(NUM_CHANNELS).fill(0), barPhase: 0, songRow: -1, songBar: 0,
   };
   private readonly pong = { type: 'pong', id: 0 } as Extract<WorkletToMain, { type: 'pong' }>;
+  private readonly resetMsg: WorkletToMain = { type: 'engineReset' };
 
   constructor() {
     super();
@@ -44,6 +47,22 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
     const left = out[0];
     const right = out.length > 1 ? out[1] : out[0];
     this.engine.process(left, right, left.length);
+    // Safety net: a NaN / infinity anywhere in the engine would silence it for good (filters
+    // and effects keep it). Mute the block and start a fresh engine; the main thread resends
+    // the project. Allocates, but only in this failure case, at most once a second.
+    let sum = 0;
+    for (let i = 0; i < left.length; i++) sum += left[i] + right[i];
+    this.framesSinceReset += left.length;
+    if (sum - sum !== 0) {
+      left.fill(0);
+      right.fill(0);
+      if (this.framesSinceReset >= sampleRate) {
+        this.framesSinceReset = 0;
+        this.engine = new Engine(sampleRate);
+        this.engine.onRecorded = (msg) => this.port.postMessage(msg);
+        this.port.postMessage(this.resetMsg);
+      }
+    }
 
     this.framesSinceStatus += left.length;
     if (this.framesSinceStatus >= this.statusInterval) {

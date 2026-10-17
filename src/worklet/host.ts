@@ -31,6 +31,8 @@ export class AudioHost {
   onStatus: ((s: StatusMsg) => void) | null = null;
   /** Motion-record results written by the worklet. */
   onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>) => void) | null = null;
+  /** The worklet replaced a failed engine (non-finite output): send it the state again. */
+  onEngineReset: (() => void) | null = null;
 
   /** Must be called synchronously inside a user gesture handler. */
   constructor() {
@@ -71,6 +73,9 @@ export class AudioHost {
    * (e.g. some embedded/sandboxed hosts), fetch the same file and load it as a blob.
    */
   private async loadWorklet(): Promise<void> {
+    // The worklet keeps one file name across builds, so a browser may still hold an older
+    // copy: refresh the cached file first (a mismatched engine can silence everything).
+    await fetch(workletUrl, { cache: 'reload' }).catch(() => null);
     try {
       await this.ctx.audioWorklet.addModule(workletUrl);
     } catch (err) {
@@ -126,6 +131,7 @@ export class AudioHost {
       case 'recordedLock':
         this.onRecorded?.(msg);
         break;
+      case 'engineReset': this.onEngineReset?.(); break;
       case 'ready': break;
     }
   }

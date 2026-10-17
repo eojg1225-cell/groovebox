@@ -63,6 +63,8 @@ export type MainToWorklet =
 
 export type WorkletToMain =
   | { type: 'ready'; sampleRate: number }
+  /** The engine's output went non-finite: the worklet started a fresh engine (resend state). */
+  | { type: 'engineReset' }
   /**
    * ~30 Hz. steps[ch] is the step index last played (-1 when stopped);
    * patterns[ch] is the pattern currently playing.

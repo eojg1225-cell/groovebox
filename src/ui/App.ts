@@ -330,6 +330,11 @@ export class App {
     for (const id in sound) this.send({ type: 'setSound', channel: ch, id, value: sound[id] });
   }
 
+  /** A short message on the screen (from outside the app, e.g. the audio host). */
+  notify(text: string): void {
+    this.flash(text);
+  }
+
   private flash(text: string): void {
     this.message = text;
     this.messageUntil = performance.now() + 2500;

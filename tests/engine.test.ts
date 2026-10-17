@@ -6,7 +6,7 @@ import { emptyPattern, type Project } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveTargets, presetSound } from '../src/instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, KICK_PARAMS, PERC_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
 import { Synth, PAD_FIXED, PAD_PARAMS } from '../src/instruments/Synth';
 import { Delay } from '../src/fx/Delay';
@@ -1596,6 +1596,15 @@ describe('relative live knobs', () => {
         if (id.startsWith('macro:')) expect(LIVE_MACROS[k].some((m) => m.id === id), `${k} ${id}`).toBe(true);
       }
     }
+  });
+
+  it('a full turn reaches 60 % of the range; halfway gives 40 % of that (gentle log taper)', () => {
+    const t = { id: 'x', amount: 1 };
+    expect(liveContribution(t, 1)).toBeCloseTo(0.6);
+    expect(liveContribution(t, -1)).toBeCloseTo(-0.6);
+    expect(liveContribution(t, 0.5)).toBeCloseTo(0.24);
+    expect(liveContribution({ ...t, top: true }, 0.5)).toBe(0);
+    expect(liveContribution({ ...t, top: true }, 1)).toBeCloseTo(0.6);
   });
 
   it('DECAY pushes the kick longer / shorter around the sound as set', () => {

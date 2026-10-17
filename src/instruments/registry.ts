@@ -68,10 +68,18 @@ const _ = null;
 const SYNTH_FUNC_TOP = ['shape', 'sustain', 'sustain2', _, _, _, 'octave', _];
 const SYNTH_FUNC_BOTTOM = [_, 'release', 'release2', _, _, _];
 
+/** How far a relative live knob reaches at full turn: this share of each parameter's range. */
+export const LIVE_RANGE = 0.6;
+/**
+ * The relative knobs' gentle log taper: halfway to either end gives 40 % of the push
+ * (|x|^LIVE_TAPER, 0.5^LIVE_TAPER = 0.4), so the area around the centre is finer.
+ */
+export const LIVE_TAPER = Math.log(0.4) / Math.log(0.5);
+
 /**
  * LIVE knobs are relative: centred (0) they leave the sound as set on the SOUND page;
- * turned they push parameters up / down by up to half their knob range (on each
- * parameter's own curve), clamped at its limits. A macro moves several at once.
+ * turned they push parameters up / down by up to LIVE_RANGE of their knob range (on each
+ * parameter's own curve, with a gentle taper), clamped at its limits. A macro moves several at once.
  * CUTOFF and RESO (and the mixer, LFO) stay absolute.
  */
 export interface LiveTarget {
@@ -144,8 +152,9 @@ export function liveTargets(kind: InstrumentKind, id: string): readonly LiveTarg
 
 /** How far a relative live knob at `offset` (-1..1) pushes one target (normalised units). */
 export function liveContribution(t: LiveTarget, offset: number): number {
-  if (t.top) return offset > 0.5 ? (offset - 0.5) * t.amount : 0;
-  return offset * 0.5 * t.amount;
+  if (t.top) return offset > 0.5 ? Math.pow((offset - 0.5) * 2, LIVE_TAPER) * LIVE_RANGE * t.amount : 0;
+  const shaped = Math.pow(Math.abs(offset), LIVE_TAPER) * LIVE_RANGE * t.amount;
+  return offset < 0 ? -shaped : shaped;
 }
 
 export interface InstrumentEntry {
