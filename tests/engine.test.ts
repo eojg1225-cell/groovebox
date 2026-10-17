@@ -2044,14 +2044,12 @@ describe('send bus compressor', () => {
   });
 });
 
-describe('PERC: one note whatever the TIMBRE', () => {
-  it('every position (on and between sounds) is tuned to a C', () => {
+describe('PERC: one octave whatever the TIMBRE', () => {
+  it('every sound (and every position between) has the same pitch, so a line keeps its notes', () => {
     for (let t = 0; t <= 1.0001; t += 0.05) {
       const s = macroSound('perc', t, 0.5, PERC_PARAMS);
-      for (const id of ['t_pitch', 'm_pitch']) {
-        const oct = Math.log2(s[id] / 130.81);
-        expect(Math.abs(oct - Math.round(oct)), `${id} @${t.toFixed(2)}`).toBeLessThan(1e-6);
-      }
+      expect(s.t_pitch, `@${t.toFixed(2)}`).toBeCloseTo(130.81, 2);
+      expect(s.m_pitch, `@${t.toFixed(2)}`).toBeCloseTo(261.62, 2);
     }
   });
 });

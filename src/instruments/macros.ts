@@ -94,16 +94,16 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   perc: {
-    // Pitched from the sequencer: toms and congas follow the notes, the bells too. Every
-    // sound sits on the same note (C: toms C3, conga C4, cowbell metal C5, clave C7), so
-    // TIMBRE never changes the pitch of a line; positions between sounds snap to a C too.
+    // Pitched from the sequencer: the step's note sets the pitch. Every sound sits in the
+    // same octave (tone layer on the note, metal an octave above), so switching TIMBRE
+    // never moves a line up or down - only its character changes.
     anchors: [
-      { name: 'LOW TOM', values: { t_level: 0.95, t_pitch: 130.81, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_pitch: 523.24, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
+      { name: 'LOW TOM', values: { t_level: 0.95, t_pitch: 130.81, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_pitch: 261.62, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
       // Syn drum: the Simmons 'pew' - a deep pitch sweep.
-      { name: 'SYN DRUM', values: { t_level: 0.95, t_pitch: 130.81, t_sweep: 24, t_stime: 0.12, c_level: 0.1, c_tone: 2500, c_reso: 0.2, c_len: 0.003, c_noise: 0.3, m_level: 0, m_pitch: 523.24, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
-      { name: 'CONGA', values: { t_level: 0.9, t_pitch: 261.62, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_pitch: 523.24, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.2 } },
-      { name: 'COWBELL', values: { t_level: 0, t_pitch: 261.62, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_pitch: 523.24, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.5 } },
-      { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 2092.96, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2092.96, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 523.24, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.1 } },
+      { name: 'SYN DRUM', values: { t_level: 0.95, t_pitch: 130.81, t_sweep: 24, t_stime: 0.12, c_level: 0.1, c_tone: 2500, c_reso: 0.2, c_len: 0.003, c_noise: 0.3, m_level: 0, m_pitch: 261.62, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
+      { name: 'CONGA', values: { t_level: 0.9, t_pitch: 130.81, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_pitch: 261.62, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.2 } },
+      { name: 'COWBELL', values: { t_level: 0, t_pitch: 130.81, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_pitch: 261.62, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.5 } },
+      { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 130.81, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 261.62, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.1 } },
     ],
     excite: [
       // The top quarter turns any of them into a warped clang: the metal layer comes in,
@@ -239,14 +239,6 @@ const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release']] as const;
 const RATIO_IDS = new Set(['fmratio', 'ratio2', 'ratio3']);
 export const RATIO_STEPS = [0.25, 1 / 3, 0.5, 2 / 3, 0.75, 1, 4 / 3, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8];
 
-/** PERC's note: every sound is tuned to a C (this one, C3, or octaves of it). */
-export const PERC_NOTE_HZ = 130.81;
-
-/** The nearest octave of `base` to `hz`. */
-export function snapOctave(hz: number, base: number): number {
-  return base * Math.pow(2, Math.round(Math.log2(hz / base)));
-}
-
 /** The nearest related ratio (on a log scale). */
 export function snapRatio(r: number): number {
   let best = RATIO_STEPS[0];
@@ -283,8 +275,6 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
     // FM ratios step through related ratios between sounds instead of smearing through
     // inharmonic ones (1 -> 4/3 -> 3/2 -> 2 ...).
     if (RATIO_IDS.has(id)) out[id] = snapRatio(out[id]);
-    // PERC keeps one note whatever the TIMBRE: its pitches land on a C.
-    if (kind === 'perc' && (id === 't_pitch' || id === 'm_pitch')) out[id] = snapOctave(out[id], PERC_NOTE_HZ);
   }
   const x = Math.min(1, Math.max(0, intensity));
   for (const e of excite) {

@@ -220,12 +220,12 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     }
   }
   // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19 / v20 /
-  // v21, when the TIMBRE sounds, the FLT DEC curve and PERC's tuning changed): derived from the values, so every sound plays exactly as
+  // v21 / v22, when the TIMBRE sounds, the FLT DEC curve and PERC's tuning changed): derived from the values, so every sound plays exactly as
   // before.
   for (const k of SOUND_KINDS) {
     const sound = ch.sounds[k];
     if (!sound) continue;
-    const stored = version >= 21 && isObj(src.trims) ? src.trims[k] : undefined;
+    const stored = version >= 22 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
   }
   if (isObj(src.presets)) {
