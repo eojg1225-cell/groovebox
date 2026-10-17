@@ -96,16 +96,21 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   perc: {
     // Pitched from the sequencer: toms and congas follow the notes, the bells too.
     anchors: [
-      { name: 'LOW TOM', values: { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.3 } },
+      { name: 'LOW TOM', values: { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
       // Syn drum: the Simmons 'pew' - a deep pitch sweep.
-      { name: 'SYN DRUM', values: { t_level: 0.95, t_pitch: 160, t_sweep: 24, t_stime: 0.12, c_level: 0.1, c_tone: 2500, c_reso: 0.2, c_len: 0.003, c_noise: 0.3, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.3 } },
-      { name: 'CONGA', values: { t_level: 0.9, t_pitch: 210, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.2 } },
-      { name: 'COWBELL', values: { t_level: 0, t_pitch: 210, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.5 } },
-      { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 2400, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, drive: 1.1 } },
+      { name: 'SYN DRUM', values: { t_level: 0.95, t_pitch: 160, t_sweep: 24, t_stime: 0.12, c_level: 0.1, c_tone: 2500, c_reso: 0.2, c_len: 0.003, c_noise: 0.3, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
+      { name: 'CONGA', values: { t_level: 0.9, t_pitch: 210, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.2 } },
+      { name: 'COWBELL', values: { t_level: 0, t_pitch: 210, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.5 } },
+      { name: 'CLAVE', values: { t_level: 0.85, t_pitch: 2400, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_pitch: 540, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.1 } },
     ],
     excite: [
-      { id: 't_sweep', floor: 1, high: 1.4 }, { id: 'c_level', floor: 0.03, high: 1.5 }, { id: 'drive', floor: 1, high: 2.2 },
-      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_reso', floor: 0.1, high: 1.2 }, { id: 'c_noise', floor: 0.05, high: 1.2 },
+      // The top quarter turns any of them into a warped clang: the metal layer comes in,
+      // goes ring-mod -> FM and spreads, the sweep and the click resonance run wild, drive.
+      { id: 't_sweep', floor: 1, knee: 12, top: 60 }, { id: 'drive', floor: 1, knee: 2.5, top: 20 },
+      { id: 'c_reso', floor: 0.1, knee: 0.6, top: 0.95 }, { id: 'c_level', floor: 0.03, high: 1.5 },
+      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_noise', floor: 0.05, high: 1.2 },
+      { id: 'm_level', floor: 0, knee: 0.15, top: 0.8 }, { id: 'm_mode', knee: 0.5, top: 1.7 },
+      { id: 'm_fm', floor: 0, knee: 0.6, top: 3.5 }, { id: 'm_spread', knee: 0.5, top: 2.2 },
     ],
   },
   bass: {

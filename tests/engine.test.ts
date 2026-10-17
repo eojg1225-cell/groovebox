@@ -1964,3 +1964,33 @@ describe('CHORD / LEAD / PLUCK level, CHORD stabs, FLT DEC curve', () => {
     expect(toNorm(spec, 1)).toBeCloseTo(0.5, 3);
   });
 });
+
+describe('PERC: INTENSITY at the top makes warped clangs', () => {
+  const hit = (t: number, x: number) => {
+    const d = new Drum(SR, PERC_PARAMS);
+    const sound = { ...presetSound('perc', 0), ...macroSound('perc', t, x, PERC_PARAMS) };
+    for (const id in sound) d.setParam(id, sound[id]);
+    d.noteOn(36, 1, 36);
+    const l = new Float32Array(SR / 2);
+    d.render(l, new Float32Array(l.length), 0, l.length);
+    return l;
+  };
+  const edge = (l: Float32Array) => {
+    let d = 0, e = 0;
+    for (let i = 1; i < l.length; i++) { d += (l[i] - l[i - 1]) ** 2; e += l[i] ** 2; }
+    return d / (e || 1);
+  };
+
+  it('every sound turns metallic and wild in the top quarter, and renders cleanly', () => {
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const top = macroSound('perc', t, 1, PERC_PARAMS);
+      expect(top.m_level, `t=${t}`).toBeGreaterThanOrEqual(0.8 - 1e-9);
+      expect(top.t_sweep, `t=${t}`).toBeGreaterThan(50);
+      const wild = hit(t, 1);
+      expect(stats(wild).nan).toBe(false);
+      expect(edge(wild), `t=${t}`).toBeGreaterThan(edge(hit(t, 0.5)) * 2);
+    }
+    // ... but up to 75 % it stays close to the designed sound.
+    expect(macroSound('perc', 0, 0.75, PERC_PARAMS).m_level).toBeCloseTo(0.15, 2);
+  });
+});
