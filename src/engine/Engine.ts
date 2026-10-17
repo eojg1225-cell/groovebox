@@ -268,6 +268,7 @@ export class Engine {
       case 'setRouting': this.route[msg.channel] = this.busIndex(msg.send); break;
       case 'setDrumBus': this.inDrumBus[msg.channel] = msg.on ? 1 : 0; break;
       case 'setDrumBusParam': this.drumBus.setParam(msg.id, msg.value); break;
+      case 'setSendComp': this.sends[msg.send]?.comp.setParam(msg.id, msg.value); break;
       case 'setSendFx':
         if (msg.control === 'wet') this.sends[msg.send]?.setWet(msg.effect, msg.value);
         else this.sends[msg.send]?.setIntensity(msg.effect, msg.value);
@@ -306,6 +307,7 @@ export class Engine {
         bus.setWet(e, p.sendWet[k]?.[e] ?? 0);
         bus.setIntensity(e, p.sendInt[k]?.[e] ?? 0.5);
       }
+      for (const id in p.sendComp[k] ?? {}) bus.comp.setParam(id, p.sendComp[k][id]);
       bus.settle();
     }
     this.tape.setImmediate(p.lofi);

@@ -51,17 +51,6 @@ async function flush(): Promise<void> {
   }
 }
 
-/** One document written to the artifact store (claude.ai only; best effort). */
-export function writeCloudDoc(path: string, data: Record<string, unknown>): void {
-  resolveDb();
-  const attempt = (tries: number): void => {
-    if (db) { db.doc(path).set(data).catch(() => { /* offline: the local copy has it */ }); return; }
-    if (db === null || tries <= 0) return;
-    window.setTimeout(() => attempt(tries - 1), 500); // still resolving
-  };
-  attempt(10);
-}
-
 /** Debounced copy of the project to the artifact store (no-op outside claude.ai). */
 export function mirrorToCloud(project: Project): void {
   pending = project;

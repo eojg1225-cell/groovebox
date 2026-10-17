@@ -1,6 +1,7 @@
 import type { ParamSpec } from '../engine/params';
 import { Smoother } from '../engine/smoother';
 import { Svf } from '../instruments/dsp';
+import { COMP_PARAMS, Compressor } from './Compressor';
 
 /** REVERSE slice lengths, in 16th steps. */
 export const REVERSE_LENGTHS = [
@@ -26,17 +27,14 @@ export const DRUM_BUS_PARAMS: readonly ParamSpec[] = [
   { id: 'dst_level', name: 'DST LEVEL', min: 0, max: 2, defaultValue: 1, unit: 'X', curve: 'linear' },
   { id: 'lp_env', name: 'LP ENV', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'lp_release', name: 'LP REL', min: 0.005, max: 2, defaultValue: 0.15, unit: 'S', curve: 'exp', decimals: 3 },
-  // COMP: bus glue at the end of the chain (0 = off).
-  { id: 'cmp_amount', name: 'COMP', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'cmp_mix', name: 'CMP MIX', min: 0, max: 1, defaultValue: 1, unit: '', curve: 'linear' },
-  { id: 'cmp_attack', name: 'CMP ATK', min: 0.0001, max: 0.05, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
-  { id: 'cmp_release', name: 'CMP REL', min: 0.02, max: 1, defaultValue: 0.12, unit: 'S', curve: 'exp', decimals: 3 },
+  // COMP (series, for an even level): THRESH / RATIO / ATTACK / RELEASE; 1:1 = off.
+  ...COMP_PARAMS,
 ];
 
 /** FX 1 knobs, 2 x 8: REVERSE, DISTORT, LOW-PASS (two modules each), COMP (modules 7-8). */
 export const DRUM_BUS_LAYOUT: readonly string[] = [
-  'rev_mix', 'rev_len', 'dst_drive', 'dst_tone', 'lp_cutoff', 'lp_reso', 'cmp_amount', 'cmp_mix',
-  'rev_smear', 'rev_fdbk', 'dst_crush', 'dst_level', 'lp_env', 'lp_release', 'cmp_attack', 'cmp_release',
+  'rev_mix', 'rev_len', 'dst_drive', 'dst_tone', 'lp_cutoff', 'lp_reso', 'cmp_thresh', 'cmp_attack',
+  'rev_smear', 'rev_fdbk', 'dst_crush', 'dst_level', 'lp_env', 'lp_release', 'cmp_ratio', 'cmp_release',
 ];
 
 export function defaultDrumBus(): Record<string, number> {
@@ -73,8 +71,8 @@ class Allpass {
  *  DISTORT  DRIVE (dB into tanh), TONE (low-pass after it), CRUSH (bits + sample rate), LEVEL.
  *  LOW-PASS CUTOFF, RESO (to self-oscillation), ENV (an envelope follower opens (+) or
  *           closes (-) it on every hit, up to 8 octaves), REL (how fast the follower falls).
- *  COMP     bus compressor (glue): COMP = how hard (threshold -6 .. -30 dB, ratio 2 .. 8
- *           with make-up), MIX (parallel blend), ATTACK, RELEASE. 0 = off.
+ *  COMP     bus compressor in series, for an even level: THRESH / RATIO / ATTACK /
+ *           RELEASE with automatic make-up (see Compressor). RATIO 1:1 = off.
  */
 export class DrumBus {
   private readonly sr: number;
@@ -110,12 +108,7 @@ export class DrumBus {
   private counter = 0;
   private readonly lpL = new Svf();
   private readonly lpR = new Svf();
-  // Compressor
-  private cmpAmount = 0;
-  private cmpMix = 1;
-  private cmpAtk = 0;
-  private cmpRel = 0;
-  private cmpEnv = 0;
+  private readonly comp: Compressor;
 
   constructor(sampleRate: number) {
     this.sr = sampleRate;
@@ -127,6 +120,7 @@ export class DrumBus {
     this.mix = new Smoother(0, 0.01, sampleRate);
     this.level = new Smoother(1, 0.02, sampleRate);
     this.cutoff = new Smoother(20000, 0.02, sampleRate);
+    this.comp = new Compressor(sampleRate);
     for (const p of DRUM_BUS_PARAMS) this.setParam(p.id, p.defaultValue);
   }
 
@@ -148,10 +142,7 @@ export class DrumBus {
       case 'lp_cutoff': this.cutoffTarget = v; this.cutoff.setTarget(v); break;
       case 'lp_reso': this.reso = v; this.counter = 0; break;
       case 'lp_env': this.env = v; break;
-      case 'cmp_amount': this.cmpAmount = v; break;
-      case 'cmp_mix': this.cmpMix = v; break;
-      case 'cmp_attack': this.cmpAtk = 1 - Math.exp(-1 / (v * this.sr)); break;
-      case 'cmp_release': this.cmpRel = 1 - Math.exp(-1 / (v * this.sr)); break;
+      case 'cmp_thresh': case 'cmp_ratio': case 'cmp_attack': case 'cmp_release': this.comp.setParam(id, v); break;
       case 'lp_release': this.releaseMul = Math.exp(-1 / (v * this.sr)); break;
     }
   }
@@ -174,12 +165,7 @@ export class DrumBus {
     const len = Math.max(256, Math.min(Math.floor(this.bufL.length / 2) - 2, Math.round(this.lenSteps * stepFrames)));
     const size = this.bufL.length;
     const g = this.smear > 0 ? 0.45 + 0.3 * this.smear : 0;
-    const cmp = this.cmpAmount;
-    // Glue, in series: threshold -6 .. -30 dB, ratio 2 .. 8, a third of a full-scale hit's
-    // reduction made up (the master limiter catches the transients that beat the attack).
-    const thr = -6 - 24 * cmp;
-    const slope = 1 - 1 / (2 + 6 * cmp);
-    const makeup = cmp > 0 ? Math.pow(10, (-thr * slope) / 60) : 1;
+    const comp = this.comp.active ? this.comp : null;
     for (let i = 0; i < n; i++) {
       let l = inL[i];
       let r = inR[i];
@@ -273,16 +259,9 @@ export class DrumBus {
         r = this.lpR.low;
       }
 
-      // ---- COMP: stereo-linked peak compressor, blended in parallel by MIX.
-      if (cmp > 0) {
-        const pk = Math.max(l < 0 ? -l : l, r < 0 ? -r : r);
-        this.cmpEnv += (pk - this.cmpEnv) * (pk > this.cmpEnv ? this.cmpAtk : this.cmpRel);
-        let gr = 1;
-        if (this.cmpEnv > 1e-6) {
-          const db = 20 * Math.log10(this.cmpEnv);
-          if (db > thr) gr = Math.pow(10, ((thr - db) * slope) / 20);
-        }
-        const k = 1 + (gr * makeup - 1) * this.cmpMix;
+      // ---- COMP (series)
+      if (comp) {
+        const k = comp.gain(l, r);
         l *= k;
         r *= k;
       }
@@ -293,6 +272,5 @@ export class DrumBus {
     if (Math.abs(this.toneL) < 1e-15) this.toneL = 0;
     if (Math.abs(this.toneR) < 1e-15) this.toneR = 0;
     if (this.follow < 1e-9) this.follow = 0;
-    if (this.cmpEnv < 1e-9) this.cmpEnv = 0;
   }
 }

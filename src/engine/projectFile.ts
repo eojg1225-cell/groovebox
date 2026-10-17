@@ -15,7 +15,7 @@ import { applyPreset, liveDefaults, createDefaultProject } from './defaultProjec
 import { INSTRUMENTS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
 import { deriveTrims, hiddenSound } from '../instruments/trims';
 import { remapTimbreV18 } from '../instruments/macros';
-import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
+import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
 import { LFO_RATES, LFO_RATES_V17, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
@@ -78,6 +78,7 @@ export interface StoredProject {
   song: { rows: { b: number; p: number[] }[] };
   sendWet: number[][];
   sendInt: number[][];
+  sendComp?: Record<string, number>[];
   lofi: number;
   channels: StoredChannel[];
 }
@@ -94,6 +95,7 @@ export function toStored(p: Project): StoredProject {
     song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })) },
     sendWet: p.sendWet.map((row) => [...row]),
     sendInt: p.sendInt.map((row) => [...row]),
+    sendComp: p.sendComp.map((row) => ({ ...row })),
     lofi: p.lofi,
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
@@ -217,13 +219,13 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       for (const id in hidden) if (typeof saved[id] !== 'number') sound[id] = hidden[id];
     }
   }
-  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19 / v20,
-  // when the TIMBRE sounds and the FLT DEC curve changed): derived from the values, so every sound plays exactly as
+  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19 / v20 /
+  // v21, when the TIMBRE sounds, the FLT DEC curve and PERC's tuning changed): derived from the values, so every sound plays exactly as
   // before.
   for (const k of SOUND_KINDS) {
     const sound = ch.sounds[k];
     if (!sound) continue;
-    const stored = version >= 20 && isObj(src.trims) ? src.trims[k] : undefined;
+    const stored = version >= 21 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
   }
   if (isObj(src.presets)) {
@@ -369,6 +371,12 @@ export function fromStored(data: unknown): Project | null {
   }
   readGrid(data.sendWet ?? data.sendFx, p.sendWet);
   readGrid(data.sendInt, p.sendInt);
+  if (Array.isArray(data.sendComp)) {
+    data.sendComp.forEach((row, k) => {
+      if (k >= p.sendComp.length || !isObj(row)) return;
+      for (const spec of COMP_PARAMS) p.sendComp[k][spec.id] = num(row[spec.id], p.sendComp[k][spec.id], spec.min, spec.max);
+    });
+  }
   readLfo(data.lfo, p.lfo, version);
   // Before v10 the tracks were KICK SNARE HAT BASS PAD LEAD PERC LEAD; PERC is now track 4,
   // so stored track i goes to slot(i) (patterns, sounds and song cells move with it).

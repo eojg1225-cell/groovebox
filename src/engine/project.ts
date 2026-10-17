@@ -2,10 +2,10 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 20;
+export const PROJECT_VERSION = 21;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
-export const NUM_EFFECTS = 6;
+export const NUM_EFFECTS = 5;
 export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 4;
 export const MAX_STEPS = 64;
@@ -146,6 +146,8 @@ export interface Project {
   sendWet: number[][];
   /** ... and INTENSITY = how hard the effect works (feedback, drive, depth, size ...). */
   sendInt: number[][];
+  /** Each send's bus compressor (COMP_PARAMS ids), [bus]; row 0 unused (FX 1 keeps its own in fx1). */
+  sendComp: Record<string, number>[];
   /** The LFO shared by the tracks with lfoOn. */
   lfo: LfoState;
   /** Song mode: rows of patterns, played in order (then from the top again). */

@@ -6,14 +6,19 @@ import { Reverb } from './Reverb';
 import { Compressor } from './Compressor';
 import { EFFECTS } from './index';
 
+/** Largest block the engine hands a send (it renders in 64-frame chunks). */
+const MAX_BLOCK = 256;
+
 /** Delay division (index into DELAY_DIVISIONS) per bus: FX 2 3/16 (dub), FX 3 1/4. */
 const SEND_DELAY_DIVISION = [2, 2, 3];
 
 /**
- * One send: a bus feeding six effects in parallel. Each effect has two controls:
+ * One send: a bus feeding five effects in parallel, their returns summed and then held
+ * level by the bus COMPRESSOR (series: THRESH / RATIO / ATTACK / RELEASE) before the mix.
+ * Each effect has two controls:
  *  WET        how much of its output returns to the mix (0 = off)
  *  INTENSITY  how hard it works: DELAY feedback, DISTORT drive, MID CUT depth,
- *             CHORUS depth, REVERB size, COMP squash (threshold + ratio)
+ *             CHORUS depth, REVERB size
  */
 export class SendBus {
   private readonly delay: Delay;
@@ -21,7 +26,10 @@ export class SendBus {
   private readonly mid: MidCut;
   private readonly chorus: Chorus;
   private readonly reverb: Reverb;
-  private readonly comp: Compressor;
+  /** The bus compressor on the summed returns. */
+  readonly comp: Compressor;
+  private readonly retL = new Float32Array(MAX_BLOCK);
+  private readonly retR = new Float32Array(MAX_BLOCK);
 
   constructor(sampleRate: number, index: number) {
     this.delay = new Delay(sampleRate);
@@ -55,7 +63,6 @@ export class SendBus {
       case 'midcut': this.mid.setParam('mid_return', a); break;
       case 'chorus': this.chorus.setParam('cho_return', a); break;
       case 'reverb': this.reverb.setParam('rev_return', a); break;
-      case 'comp': this.comp.setParam('cmp_return', a); break;
     }
   }
 
@@ -73,19 +80,24 @@ export class SendBus {
         this.reverb.setParam('rev_size', 0.5 + 0.48 * a);
         this.reverb.setParam('rev_damp', 0.7 - 0.5 * a);
         break;
-      case 'comp':
-        this.comp.setParam('cmp_threshold', -6 - 36 * a);
-        this.comp.setParam('cmp_ratio', 2 + 14 * a);
-        break;
     }
   }
 
+  /** Reads the bus input and ADDS the (compressed) returns into out[off, off + n). */
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, off: number, n: number): void {
-    this.delay.process(inL, inR, outL, outR, off, n);
-    this.dist.process(inL, inR, outL, outR, off, n);
-    this.mid.process(inL, inR, outL, outR, off, n);
-    this.chorus.process(inL, inR, outL, outR, off, n);
-    this.reverb.process(inL, inR, outL, outR, off, n);
-    this.comp.process(inL, inR, outL, outR, off, n);
+    const l = this.retL;
+    const r = this.retR;
+    l.fill(0, 0, n);
+    r.fill(0, 0, n);
+    this.delay.process(inL, inR, l, r, 0, n);
+    this.dist.process(inL, inR, l, r, 0, n);
+    this.mid.process(inL, inR, l, r, 0, n);
+    this.chorus.process(inL, inR, l, r, 0, n);
+    this.reverb.process(inL, inR, l, r, 0, n);
+    this.comp.process(l, r, 0, n);
+    for (let i = 0; i < n; i++) {
+      outL[off + i] += l[i];
+      outR[off + i] += r[i];
+    }
   }
 }

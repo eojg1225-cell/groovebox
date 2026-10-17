@@ -16,7 +16,6 @@ import { MidCut } from '../src/fx/MidCut';
 
 import { Chorus } from '../src/fx/Chorus';
 import { Reverb } from '../src/fx/Reverb';
-import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
 import { CEILING, Limiter } from '../src/fx/Limiter';
 import { LFO_RATES, lfoValue } from '../src/engine/lfo';
@@ -28,6 +27,7 @@ import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments
 import { paramSpec } from '../src/instruments/registry';
 import { soundPage, stepsOnStrip } from '../src/instruments/registry';
 import { DrumBus, REVERSE_LENGTHS } from '../src/fx/DrumBus';
+import { SendBus } from '../src/fx/SendBus';
 
 const SR = 48000;
 const BLOCK = 128;
@@ -606,12 +606,10 @@ describe('more send effects', () => {
     expect(diff).toBeGreaterThan(0); // stereo
   });
 
-  it('chorus and compressor stay bounded', () => {
+  it('chorus stays bounded', () => {
     const ch = new Chorus(SR);
     ch.setParam('cho_return', 1);
-    const cmp = new Compressor(SR);
-    cmp.setParam('cmp_return', 1);
-    for (const out of [run(ch), run(cmp)]) {
+    for (const out of [run(ch)]) {
       expect(stats(out.l).nan).toBe(false);
       expect(stats(out.l).peak).toBeGreaterThan(0.1);
       expect(stats(out.l).peak).toBeLessThan(2);
@@ -832,7 +830,9 @@ describe('project', () => {
     p.channels[5].fxSend = 3;
     p.channels[5].sendLevel = 0.7;
     p.lofi = 0.4;
-    p.sendWet[2][5] = 0.9;
+    p.sendWet[2][4] = 0.9;
+    p.sendComp[1].cmp_ratio = 4;
+    p.sendComp[2].cmp_thresh = -30;
     p.sendInt[1][0] = 0.8;
     p.fx1.rev_len = 3;
     p.fx1.lp_cutoff = 800;
@@ -1997,10 +1997,12 @@ describe('PERC: INTENSITY at the top makes warped clangs', () => {
   });
 });
 
-describe('FX 1 compressor', () => {
+describe('bus compressors (FX 1 shown; FX 2 / 3 use the same one)', () => {
   const run = (amount: number) => {
     const bus = new DrumBus(SR);
-    bus.setParam('cmp_amount', amount);
+    bus.setParam('cmp_thresh', -30);
+    bus.setParam('cmp_ratio', 1 + 7 * amount);
+    bus.setParam('cmp_attack', 0.0005);
     const n = SR;
     // Loud hits with quiet tails: compression brings the tail up against the peak.
     const inL = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.05) * ((i % 12000) < 600 ? 0.9 : 0.1));
@@ -2019,5 +2021,37 @@ describe('FX 1 compressor', () => {
     const range = (l: Float32Array) => stats(l.subarray(24000, 24500)).peak / stats(l.subarray(30000, 36000)).peak;
     expect(range(on)).toBeLessThan(range(off.outL) * 0.8);
     expect(stats(on).nan).toBe(false);
+  });
+});
+
+describe('send bus compressor', () => {
+  const level = (bus: SendBus, amp: number) => {
+    const n = SR / 2;
+    const l = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.05) * amp);
+    const r = l.slice();
+    bus.comp.process(l, r, 0, n);
+    return 20 * Math.log10(stats(l.subarray(n / 2)).peak); // settled
+  };
+
+  it('evens out levels: two tones 20 dB apart come out much closer (1:1 = untouched)', () => {
+    const bus = new SendBus(SR, 1);
+    expect(level(bus, 0.5) - level(bus, 0.05)).toBeCloseTo(20, 1);
+    bus.comp.setParam('cmp_ratio', 10);
+    bus.comp.setParam('cmp_thresh', -30);
+    const spread = level(bus, 0.5) - level(bus, 0.05);
+    expect(spread).toBeLessThan(6);
+    expect(spread).toBeGreaterThan(0);
+  });
+});
+
+describe('PERC: one note whatever the TIMBRE', () => {
+  it('every position (on and between sounds) is tuned to a C', () => {
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      const s = macroSound('perc', t, 0.5, PERC_PARAMS);
+      for (const id of ['t_pitch', 'm_pitch']) {
+        const oct = Math.log2(s[id] / 130.81);
+        expect(Math.abs(oct - Math.round(oct)), `${id} @${t.toFixed(2)}`).toBeLessThan(1e-6);
+      }
+    }
   });
 });

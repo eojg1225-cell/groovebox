@@ -31,6 +31,8 @@ export type MainToWorklet =
   | { type: 'setRouting'; channel: number; send: number }
   /** Pass a track through FX 1, the drum bus, or not. */
   | { type: 'setDrumBus'; channel: number; on: boolean }
+  /** A send bus's compressor parameter (COMP_PARAMS id), real units. */
+  | { type: 'setSendComp'; send: number; id: string; value: number }
   /** A drum bus parameter in real units (DRUM_BUS_PARAMS). */
   | { type: 'setDrumBusParam'; id: string; value: number }
   /** WET or INTENSITY 0..1 of effect `effect` (EFFECTS order) inside send bus `send` (1-2). */

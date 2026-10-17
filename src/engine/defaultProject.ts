@@ -1,7 +1,7 @@
 import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
 import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
-import { defaultDrumBus, defaultSendInt, defaultSendWet } from '../fx';
+import { defaultDrumBus, defaultSendComp, defaultSendInt, defaultSendWet } from '../fx';
 import { fromStored } from './projectFile';
 import { defaultLfo } from './lfo';
 import startProject from './startProject.json';
@@ -55,7 +55,7 @@ export function createDefaultProject(): Project {
   for (const kind of ['pad', 'lead', 'pluck'] as const) of(kind).volume = 0.5;
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
-    fx1: defaultDrumBus(), lfo: defaultLfo(), song: { rows: [] }, sendWet: defaultSendWet(), sendInt: defaultSendInt(), lofi: 0, channels,
+    fx1: defaultDrumBus(), lfo: defaultLfo(), song: { rows: [] }, sendWet: defaultSendWet(), sendInt: defaultSendInt(), sendComp: defaultSendComp(), lofi: 0, channels,
   };
 }
 
