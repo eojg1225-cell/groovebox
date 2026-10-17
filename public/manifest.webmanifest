@@ -1,6 +1,6 @@
 {
-  "name": "Groovebox",
-  "short_name": "Groovebox",
+  "name": "GrooveAccess",
+  "short_name": "GrooveAccess",
   "description": "Web groovebox for techno, DnB, dub and jungle.",
   "start_url": "./",
   "scope": "./",

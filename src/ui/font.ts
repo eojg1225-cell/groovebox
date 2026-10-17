@@ -19,17 +19,30 @@ const GLYPHS: Record<string, string> = {
   '!': '010010010000010', '#': '101111101111101', '?': '110001010000010', ' ': '000000000000000',
 };
 
+/**
+ * Lowercase (only where text asks for mixed case, e.g. the title screen); letters without
+ * a lowercase glyph use the capital.
+ */
+const LOWER: Record<string, string> = {
+  a: '000011101101011', b: '100100110101110', c: '000011100100011', d: '001001011101011',
+  e: '000011111100011', i: '010000010010010', l: '010010010010001', n: '000110101101101',
+  o: '000010101101010', r: '000101110100100', s: '000011100001110', t: '010111010010001',
+  u: '000101101101011', v: '000101101101010',
+};
+
 export const GLYPH_W = 3;
 export const GLYPH_H = 5;
 export const ADVANCE = 4;
 
+const toBits = (s: string) => Uint8Array.from(s, (c) => (c === '1' ? 1 : 0));
 const BITS: Record<string, Uint8Array> = {};
-for (const [ch, s] of Object.entries(GLYPHS)) {
-  BITS[ch] = Uint8Array.from(s, (c) => (c === '1' ? 1 : 0));
-}
+for (const [ch, s] of Object.entries(GLYPHS)) BITS[ch] = toBits(s);
+const LOWER_BITS: Record<string, Uint8Array> = {};
+for (const [ch, s] of Object.entries(LOWER)) LOWER_BITS[ch] = toBits(s);
 
-export function glyphBits(ch: string): Uint8Array {
-  return BITS[ch.toUpperCase()] ?? BITS['?'];
+/** Glyph for a character; text is shown in capitals unless mixedCase is asked for. */
+export function glyphBits(ch: string, mixedCase = false): Uint8Array {
+  return (mixedCase ? LOWER_BITS[ch] : undefined) ?? BITS[ch.toUpperCase()] ?? BITS['?'];
 }
 
 export function textWidth(text: string, scale = 1): number {

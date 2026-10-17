@@ -52,12 +52,12 @@ export class PixelScreen {
     this.rect(x + w - 1, y, 1, h, color);
   }
 
-  text(x: number, y: number, text: string, color: string, scale = 1): void {
+  text(x: number, y: number, text: string, color: string, scale = 1, mixedCase = false): void {
     this.g.fillStyle = color;
     let cx = Math.round(x);
     const cy = Math.round(y);
     for (const ch of text) {
-      const bits = glyphBits(ch);
+      const bits = glyphBits(ch, mixedCase);
       for (let row = 0; row < GLYPH_H; row++) {
         for (let col = 0; col < GLYPH_W; col++) {
           if (bits[row * GLYPH_W + col]) this.g.fillRect(cx + col * scale, cy + row * scale, scale, scale);

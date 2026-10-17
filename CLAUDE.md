@@ -1,4 +1,4 @@
-# Groovebox
+# GrooveAccess (repo: groovebox)
 
 Web-first groovebox (techno, DnB, dub, jungle). Full spec: `groovebox-brief.md` (read it first).
 

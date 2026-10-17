@@ -101,9 +101,12 @@ for (const t of UNLOCK_EVENTS) window.addEventListener(t, unlockAudio, true);
 const title = document.getElementById('title') as HTMLElement;
 const titleScreen = new PixelScreen(title.querySelector('canvas') as HTMLCanvasElement, 160, 48);
 titleScreen.clear(INK.bg);
-titleScreen.text((160 - textWidth('GROOVEBOX', 4)) / 2, 8, 'GROOVEBOX', INK.hi, 4);
+const NAME = 'GrooveAccess';
+const CREDIT = 'A Garibaldi Production';
+titleScreen.text(Math.round((160 - textWidth(NAME, 3)) / 2), 4, NAME, INK.hi, 3, true);
+titleScreen.text(Math.round((160 - textWidth(CREDIT)) / 2), 25, CREDIT, INK.mid, 1, true);
 const tagline = 'TECHNO - DNB - DUB - JUNGLE';
-titleScreen.text((160 - textWidth(tagline)) / 2, 36, tagline, INK.mid);
+titleScreen.text((160 - textWidth(tagline)) / 2, 37, tagline, INK.dim);
 
 let titleGone = false;
 function dismissTitle(): void {

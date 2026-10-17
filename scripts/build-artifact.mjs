@@ -16,7 +16,7 @@ const js = readFileSync(`dist/assets/${pick(/^index-.*\.js$/)}`, 'utf8')
 const html = readFileSync('dist/index.html', 'utf8');
 const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('</body>')).trim();
 
-const page = `<title>Groovebox</title>
+const page = `<title>GrooveAccess</title>
 <meta name="theme-color" content="#111417">
 <style>
 :root { color-scheme: dark; }
