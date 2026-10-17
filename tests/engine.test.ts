@@ -17,6 +17,7 @@ import { Chorus } from '../src/fx/Chorus';
 import { Reverb } from '../src/fx/Reverb';
 import { Compressor } from '../src/fx/Compressor';
 import { Tape } from '../src/fx/Tape';
+import { CEILING, Limiter } from '../src/fx/Limiter';
 import { lfoValue } from '../src/engine/lfo';
 import { MACROS, anchorPosition, macroIds, macroSound } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
@@ -27,7 +28,18 @@ import { DrumBus, REVERSE_LENGTHS } from '../src/fx/DrumBus';
 const SR = 48000;
 const BLOCK = 128;
 
+const primed = new WeakSet<Engine>();
+
+/**
+ * Render from where the engine is. The first render of an engine first drops the master
+ * limiter's look-ahead, so frame 0 of the result is musical time 0.
+ */
 function render(engine: Engine, seconds: number): { l: Float32Array; r: Float32Array } {
+  if (!primed.has(engine)) {
+    primed.add(engine);
+    const n = engine.latency;
+    engine.process(new Float32Array(n), new Float32Array(n), n);
+  }
   const total = Math.floor((seconds * SR) / BLOCK) * BLOCK;
   const l = new Float32Array(total);
   const r = new Float32Array(total);
@@ -1111,11 +1123,11 @@ describe('slides and rolls', () => {
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
     near(onsets(render(e, 0.6).l, 0.005, 1500), [0, 2000, 4000, 24000]);
-    // ROLL DIV is live: turning it changes the next roll.
-    e.handleMessage({ type: 'setSound', channel: 0, id: 'rolldiv', value: 0 }); // 1/32
-    e.handleMessage({ type: 'transport', playing: false });
-    e.handleMessage({ type: 'transport', playing: true });
-    const o2 = onsets(render(e, 0.6).l, 0.005, 1500);
+    // ROLL DIV changes the roll.
+    const e2 = engineWith(p);
+    e2.handleMessage({ type: 'setSound', channel: 0, id: 'rolldiv', value: 0 }); // 1/32
+    e2.handleMessage({ type: 'transport', playing: true });
+    const o2 = onsets(render(e2, 0.6).l, 0.005, 1500);
     near(o2, [0, 3000, 24000]);
   });
 
@@ -1632,7 +1644,7 @@ describe('relative live knobs', () => {
     q.channels[0].sounds.kick = sound;
     const fresh = engineWith(q);
     fresh.handleMessage({ type: 'transport', playing: true });
-    expect(after).toBeCloseTo(stats(render(fresh, 0.3).l.subarray(8000, 14000)).peak, 3); // centred again
+    expect(after).toBeCloseTo(stats(render(fresh, 0.3).l.subarray(8000, 14000)).peak, 2); // centred again (within the limiter's look-ahead)
   });
 
   it('live offsets are saved; projects before v16 take the new defaults', () => {
@@ -1704,5 +1716,41 @@ describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => 
       const page = new Set([...INSTRUMENTS[k].layout, ...INSTRUMENTS[k].funcLayout]);
       for (const m of LIVE_MACROS[k]) for (const t of m.targets) expect(page.has(t.id), `${k} ${m.id} ${t.id}`).toBe(true);
     }
+  });
+});
+
+describe('master limiter', () => {
+  const sine = (amp: number, n: number) => {
+    const l = new Float32Array(n);
+    for (let i = 0; i < n; i++) l[i] = amp * Math.sin((2 * Math.PI * 110 * i) / SR);
+    return l;
+  };
+
+  it('leaves a signal under the ceiling untouched (only delayed by the look-ahead)', () => {
+    const lim = new Limiter(SR);
+    const src = sine(0.8, SR);
+    const l = src.slice();
+    const r = src.slice();
+    lim.process(l, r, l.length);
+    let err = 0;
+    for (let i = lim.len; i < l.length; i++) err = Math.max(err, Math.abs(l[i] - src[i - lim.len]));
+    expect(err).toBeLessThan(1e-6);
+  });
+
+  it('holds a hot signal at the ceiling without overshoot', () => {
+    const lim = new Limiter(SR);
+    const l = sine(3, SR);
+    const r = sine(3, SR);
+    for (let i = 20000; i < 20100; i++) l[i] = 8; // a spike
+    lim.process(l, r, l.length);
+    expect(Math.max(...Array.from(l, Math.abs))).toBeLessThanOrEqual(CEILING + 1e-6);
+    expect(lim.reduction).toBeLessThan(0.2);
+  });
+
+  it('the start project never goes over the ceiling', () => {
+    const e = new Engine(SR);
+    e.handleMessage({ type: 'loadProject', project: createStartProject() });
+    e.handleMessage({ type: 'transport', playing: true });
+    expect(stats(render(e, 4).l).peak).toBeLessThanOrEqual(CEILING + 1e-6);
   });
 });

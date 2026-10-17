@@ -15,6 +15,7 @@ import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { SendBus } from '../fx/SendBus';
 import { DrumBus } from '../fx/DrumBus';
 import { Tape } from '../fx/Tape';
+import { Limiter } from '../fx/Limiter';
 import { EFFECTS, SEND_BUSES } from '../fx';
 import type { MixParam } from './protocol';
 import { NUM_SENDS } from './project';
@@ -66,6 +67,12 @@ export class Engine {
   private bpm = 128;
   private swing = 0; // 0..0.5 fraction of a step
   private readonly master: Smoother;
+  private readonly limiter: Limiter;
+
+  /** Output latency in frames (the master limiter's look-ahead). */
+  get latency(): number {
+    return this.limiter.len;
+  }
 
   // Step data: index = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + step
   private readonly stepActive = new Uint8Array(STEP_SLOTS);
@@ -202,6 +209,7 @@ export class Engine {
   constructor(sampleRate: number) {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
+    this.limiter = new Limiter(sampleRate);
     this.tape = new Tape(sampleRate);
     this.drumBus = new DrumBus(sampleRate);
     for (let k = 0; k < NUM_SENDS; k++) {
@@ -934,16 +942,18 @@ export class Engine {
 
   private finishBlock(outL: Float32Array, outR: Float32Array, frames: number): void {
     this.tape.process(outL, outR, frames);
+    // MASTER (the pan law gives -3 dB at centre; compensated), then the look-ahead limiter.
+    for (let i = 0; i < frames; i++) {
+      const g = this.master.next() * Math.SQRT2;
+      outL[i] *= g;
+      outR[i] *= g;
+    }
+    this.limiter.process(outL, outR, frames);
     let pL = this.peakL;
     let pR = this.peakR;
     for (let i = 0; i < frames; i++) {
-      const g = this.master.next();
-      // Pan law gives -3 dB at centre; compensate, then safety soft-clip
-      // (a real limiter arrives with the mixer milestone).
-      const l = Math.tanh(outL[i] * g * Math.SQRT2);
-      const r = Math.tanh(outR[i] * g * Math.SQRT2);
-      outL[i] = l;
-      outR[i] = r;
+      const l = outL[i];
+      const r = outR[i];
       const al = l < 0 ? -l : l;
       const ar = r < 0 ? -r : r;
       if (al > pL) pL = al;
