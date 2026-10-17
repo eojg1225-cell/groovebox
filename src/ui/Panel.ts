@@ -233,8 +233,17 @@ export class Panel implements ControlSurface {
   }
 
   /** Scale (and on portrait screens rotate) the fixed design box to fit the viewport. */
+  /** Width (px) kept free at the right of the window (the calibration window), 0 = none. */
+  private reservedRight = 0;
+
+  /** Keep `px` free at the right edge (only when the screen is wide enough) and refit. */
+  reserveRight(px: number): void {
+    this.reservedRight = px;
+    this.fit();
+  }
+
   fit(): void {
-    const vw = window.innerWidth;
+    const vw = window.innerWidth - (window.innerWidth >= 900 ? this.reservedRight : 0);
     const vh = window.innerHeight;
     const portrait = vh > vw;
     setRotated(portrait);

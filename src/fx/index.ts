@@ -37,4 +37,4 @@ export function defaultSendInt(): number[][] {
   ];
 }
 
-export { DRUM_BUS_PARAMS, defaultDrumBus } from './DrumBus';
+export { DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, defaultDrumBus } from './DrumBus';

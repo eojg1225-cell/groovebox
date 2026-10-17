@@ -8,6 +8,7 @@ import { Panel } from './ui/Panel';
 import { INK, PixelScreen } from './ui/screen';
 import { drawDesignView, drawLiveView, drawSongView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
+import { Calibrate } from './ui/Calibrate';
 import { NUM_CHANNELS, PANEL_PATTERNS } from './engine/project';
 import { createStartProject } from './engine/defaultProject';
 import { loadSession } from './storage/session';
@@ -40,6 +41,8 @@ const screen = new PixelScreen(panel.screenCanvas);
 let host: AudioHost | null = null;
 const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
+// The calibration window (knob centres), beside the groovebox.
+new Calibrate(app, panel);
 
 // ------------------------------------------------------------------ audio unlock
 

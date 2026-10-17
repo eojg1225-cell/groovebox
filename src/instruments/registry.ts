@@ -38,9 +38,9 @@ export function soundPage(elements: readonly string[], tune: readonly [string, s
   ];
 }
 
-/** Column 7 for the synths: mono ones SLIDE (time) / DETUNE, the pad UNISON / DETUNE. */
+/** Column 7 for the synths: mono ones SLIDE (time) / DETUNE, CHORD (the pad track) CHORD / DETUNE. */
 const MONO_TUNE = ['glide', 'detune'] as const;
-const PAD_TUNE = ['unison', 'detune'] as const;
+const PAD_TUNE = ['track:chord', 'detune'] as const;
 
 /** A 2 x 6 layout on the 2 x 8 panel: modules 1-6, modules 7-8 empty. */
 export function widen<T>(six: readonly (T | null)[]): (T | null)[] {
@@ -214,7 +214,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
   pad: {
     name: 'CHORD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
-    funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'carriers', _]),
+    funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 3), 'unison', ...SYNTH_FUNC_TOP.slice(4)], ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'carriers', _]),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: {
     name: 'LEAD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),

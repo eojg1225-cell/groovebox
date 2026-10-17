@@ -39,7 +39,7 @@ import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
+import { DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
@@ -49,6 +49,7 @@ import { applyPreset, liveDefaults } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, liveTargets, mirrorOsc2, paramSpec, presetSound, stepsOnStrip, widen } from '../instruments/registry';
 import { saveSession } from '../storage/session';
+import { loadCentres, saveCentres, type Centres } from '../storage/calibration';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../instruments/trims';
@@ -118,6 +119,11 @@ interface KnobTarget {
   highlight?: boolean;
   /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "fx1:id" ... */
   key?: string;
+  /**
+   * The knob's identity for calibration, the same on every track of a type / project
+   * ("pad.cutoff", "mix.volume", "lfo.rate", "fx1.cmp_amount", "send.delay.wet" ...).
+   */
+  ckey?: string;
 }
 
 /** One parameter gliding back to its saved value (RESET). */
@@ -431,7 +437,7 @@ export class App {
       const lfoId = id.slice(4) as LfoId;
       const spec = LFO_PARAMS[lfoId];
       return {
-        label: label ?? spec.name, spec, channel: ch, highlight, key: id,
+        label: label ?? spec.name, spec, channel: ch, highlight, key: id, ckey: `lfo.${lfoId}`,
         get: () => this.project.lfo[lfoId],
         set: (v) => { this.project.lfo[lfoId] = v; this.send({ type: 'setLfo', id: lfoId, value: v }); },
       };
@@ -449,7 +455,7 @@ export class App {
       if (!spec) return null;
       const field = mixId === 'send' ? 'sendLevel' : mixId;
       return {
-        label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
+        label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`, ckey: `mix.${mixId}`,
         get: () => c[field],
         set: (v) => {
           c[field] = v;
@@ -462,7 +468,7 @@ export class App {
     const spec = paramSpec(kind, id);
     if (!spec) return null;
     return {
-      label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
+      label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`, ckey: `${kind}.${id}`,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
       set: (v) => this.setSoundParam(ch, kind, id, v),
     };
@@ -527,7 +533,7 @@ export class App {
     pages.push({
       name: 'GLOBAL',
       targets: () => this.func ? [] : GLOBAL_PARAMS.map((spec) => ({
-        label: spec.name, spec, channel: ch, key: `global:${spec.id}`,
+        label: spec.name, spec, channel: ch, key: `global:${spec.id}`, ckey: `global.${spec.id}`,
         get: () => this.getGlobal(spec.id as GlobalId),
         set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
       })),
@@ -553,16 +559,19 @@ export class App {
     if (k === 3) return LFO_LAYOUT.map((id) => (id ? this.paramTarget(this.selected, `lfo:${id}`) : null));
     if (k === 0) {
       const fx1 = this.project.fx1;
-      return widen(DRUM_BUS_PARAMS.map((spec): KnobTarget => ({
-        label: spec.name, spec, channel: this.selected, key: `fx1:${spec.id}`,
-        get: () => fx1[spec.id] ?? spec.defaultValue,
-        set: (v: number) => { fx1[spec.id] = v; this.send({ type: 'setDrumBusParam', id: spec.id, value: v }); },
-      })));
+      return DRUM_BUS_LAYOUT.map((id): KnobTarget => {
+        const spec = DRUM_BUS_PARAMS.find((p) => p.id === id)!;
+        return {
+          label: spec.name, spec, channel: this.selected, key: `fx1:${spec.id}`, ckey: `fx1.${spec.id}`,
+          get: () => fx1[spec.id] ?? spec.defaultValue,
+          set: (v: number) => { fx1[spec.id] = v; this.send({ type: 'setDrumBusParam', id: spec.id, value: v }); },
+        };
+      });
     }
     const control = (control: 'wet' | 'int') => EFFECTS.map((fx, e): KnobTarget => {
       const grid = control === 'wet' ? this.project.sendWet : this.project.sendInt;
       return {
-        label: control === 'wet' ? fx.name : 'INTENSITY', key: `send:${k}:${e}:${control}`,
+        label: control === 'wet' ? fx.name : 'INTENSITY', key: `send:${k}:${e}:${control}`, ckey: `send.${fx.id}.${control}`,
         spec: control === 'wet' ? EFFECT_WET : EFFECT_INTENSITY,
         channel: this.selected,
         get: () => grid[k][e],
@@ -683,8 +692,19 @@ export class App {
     if (!e.pressed) {
       if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
       if ((m = /^ch(\d)$/.exec(id)) && this.heldTrack === Number(m[1]) - 1) {
-        // A bus is open: a plain tap (no pattern picked meanwhile) adds / removes the track.
-        if (this.sendOpen && !this.heldUsed && !this.clearHeld) this.toggleBus(this.heldTrack, this.fxView);
+        // A bus is open, a plain tap (no pattern picked meanwhile): with FUNC held it adds /
+        // removes the track; otherwise it goes back to the tracks, on that one.
+        if (this.sendOpen && !this.heldUsed && !this.clearHeld) {
+          if (this.func) {
+            this.toggleBus(this.heldTrack, this.fxView);
+            if (this.funcHeld) this.funcUsed = true; // not a latching tap
+          } else {
+            this.selected = this.heldTrack;
+            this.designPage = 0;
+            this.fxView = 0;
+            this.touchedKnob = -1;
+          }
+        }
         this.heldTrack = -1;
         this.refreshPanel();
       }
@@ -739,7 +759,8 @@ export class App {
         this.sendSong();
       }
     } else if ((m = /^ch(\d)$/.exec(id)) && this.sendOpen) {
-      // A bus is open: the channel buttons add / remove tracks from it (on release).
+      // A bus is open: the channel buttons act on release (FUNC + tap = on / off the bus,
+      // a tap = back to that track).
     } else if ((m = /^ch(\d)$/.exec(id))) {
       this.selected = Number(m[1]) - 1;
       this.designPage = 0;
@@ -1400,7 +1421,7 @@ export class App {
   private onMasterKnob(id: string, norm: number): void {
     const gid: GlobalId = id === 'mtempo' ? 'bpm' : 'lofi';
     const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
-    let value = toValue(spec, norm);
+    let value = toValue(spec, this.fromKnob(spec, `global.${gid}`, norm));
     if (spec.decimals !== undefined) value = Math.round(value * 10 ** spec.decimals) / 10 ** spec.decimals;
     this.glides.delete(`global:${gid}`);
     this.setGlobal(gid, value);
@@ -1430,7 +1451,7 @@ export class App {
     if (!t) return;
     const value = t.spec.options
       ? Math.min(t.spec.options.length - 1, Math.max(0, t.get() + delta))
-      : toValue(t.spec, Math.min(1, Math.max(0, Math.round(toNorm(t.spec, t.get()) * 127 + delta) / 127)));
+      : toValue(t.spec, this.fromKnob(t.spec, t.ckey, Math.min(1, Math.max(0, Math.round(this.toKnob(t.spec, t.ckey, toNorm(t.spec, t.get())) * 127 + delta) / 127))));
     this.applyKnob(slot, t, value);
     this.refreshPanel();
   }
@@ -1438,7 +1459,79 @@ export class App {
   private onKnob(slot: number, norm: number): void {
     const t = this.targets[slot];
     if (!t) return;
-    this.applyKnob(slot, t, toValue(t.spec, norm));
+    this.applyKnob(slot, t, toValue(t.spec, this.fromKnob(t.spec, t.ckey, norm)));
+  }
+
+  // ---------------------------------------------------------------- calibration
+
+  /** Knob centres (calibration): parameter key -> the value at the middle of the travel. */
+  private centres: Centres = loadCentres();
+
+  /** The curve exponent that puts a parameter's saved centre at the knob's middle. */
+  private warp(spec: ParamSpec, ckey: string | undefined): number {
+    if (!ckey || spec.options || spec === OFFSET_SPEC) return 1;
+    const c = this.centres[ckey];
+    if (c === undefined) return 1;
+    const n = toNorm(spec, c);
+    return n > 0.001 && n < 0.999 ? Math.log(n) / Math.log(0.5) : 1;
+  }
+
+  /** Knob position -> the parameter's normalised value (through its saved centre). */
+  private fromKnob(spec: ParamSpec, ckey: string | undefined, pos: number): number {
+    const k = this.warp(spec, ckey);
+    return k === 1 ? pos : Math.pow(Math.min(1, Math.max(0, pos)), k);
+  }
+
+  /** The parameter's normalised value -> knob position. */
+  private toKnob(spec: ParamSpec, ckey: string | undefined, norm: number): number {
+    const k = this.warp(spec, ckey);
+    return k === 1 ? norm : Math.pow(Math.min(1, Math.max(0, norm)), 1 / k);
+  }
+
+  /** The calibration window's rows: the 16 knobs on show, then TEMPO and LO-FI. */
+  calibrationRows(): { label: string; where: string; value: string; centre: string | null; settable: boolean }[] {
+    const rows = this.targets.map((t, i) => {
+      if (!t) return { label: '-', where: `KNOB ${i + 1}`, value: '', centre: null, settable: false };
+      const c = t.ckey !== undefined ? this.centres[t.ckey] : undefined;
+      const group = t.ckey?.split('.')[0] ?? '';
+      const where = group in INSTRUMENTS ? INSTRUMENTS[group as SoundKind].name : t.spec === OFFSET_SPEC ? 'LIVE (RELATIVE)' : group.toUpperCase();
+      return {
+        label: t.label, where: `KNOB ${i + 1} · ${where}`, value: this.valueText(t),
+        centre: c !== undefined ? formatValue(t.spec, c) : null,
+        settable: !!t.ckey && !t.spec.options && t.spec !== OFFSET_SPEC,
+      };
+    });
+    for (const gid of ['bpm', 'lofi'] as const) {
+      const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
+      const c = this.centres[`global.${gid}`];
+      rows.push({ label: spec.name, where: 'MASTER', value: formatValue(spec, this.project[gid]), centre: c !== undefined ? formatValue(spec, c) : null, settable: true });
+    }
+    return rows;
+  }
+
+  /** Row i (see calibrationRows): its current value becomes the knob's centre (or none). */
+  setKnobCentre(i: number, clear = false): void {
+    let ckey: string | undefined;
+    let value = 0;
+    if (i < this.targets.length) {
+      const t = this.targets[i];
+      if (!t?.ckey || t.spec.options || t.spec === OFFSET_SPEC) return;
+      ckey = t.ckey;
+      value = t.get();
+    } else {
+      const gid = i === this.targets.length ? 'bpm' : 'lofi';
+      ckey = `global.${gid}`;
+      value = this.project[gid];
+    }
+    if (clear) delete this.centres[ckey];
+    else this.centres[ckey] = value;
+    saveCentres(this.centres);
+    this.refreshPanel();
+  }
+
+  /** All saved centres (for copying out). */
+  centresJson(): string {
+    return JSON.stringify(this.centres, null, 1);
   }
 
   /** FUNC layer showing (held or latched). */
@@ -1488,7 +1581,7 @@ export class App {
     this.targets.forEach((t, i) => {
       this.panel.configureKnob(
         i,
-        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.spec.defaultValue), highlight: t.highlight } : null,
+        t ? { label: t.label, value: this.toKnob(t.spec, t.ckey, toNorm(t.spec, t.get())), defaultValue: this.toKnob(t.spec, t.ckey, toNorm(t.spec, t.spec.defaultValue)), highlight: t.highlight } : null,
       );
     });
 
@@ -1505,7 +1598,7 @@ export class App {
     }
     for (const [id, gid] of [['mtempo', 'bpm'], ['mlofi', 'lofi']] as const) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
-      this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, spec.defaultValue));
+      this.panel.configureMaster(id, this.toKnob(spec, `global.${gid}`, toNorm(spec, this.project[gid])), this.toKnob(spec, `global.${gid}`, toNorm(spec, spec.defaultValue)));
     }
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       const id = `fx${n}`;
@@ -1706,7 +1799,7 @@ export class App {
     return this.targets.map((t) => (t ? {
       name: t.label,
       valueText: this.valueText(t),
-      norm: toNorm(t.spec, t.get()),
+      norm: this.toKnob(t.spec, t.ckey, toNorm(t.spec, t.get())),
       highlight: !!t.highlight,
     } : null));
   }

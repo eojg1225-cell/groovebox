@@ -74,7 +74,7 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   TIMBRE,
   INTENSITY,
   { id: 'shape', name: 'SHAPE', min: 0, max: 3, defaultValue: 2, unit: '', curve: 'linear' },
-  { id: 'fm', name: 'FM', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'fm', name: 'FM LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'fmratio', name: 'FM RATIO', min: 0.25, max: 16, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
   { id: 'detune', name: 'DETUNE', min: 0, max: 4, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'sub', name: 'SUB', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },

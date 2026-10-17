@@ -157,7 +157,9 @@ describe('instruments', () => {
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
     expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['glide', 'detune']);
-    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['unison', 'detune']);
+    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['track:chord', 'detune']); // CHORD: chord select on the page
+    expect(INSTRUMENTS.pad.funcLayout).toContain('unison');
+    expect(INSTRUMENTS.pad.layout).not.toContain('fmratio');
   });
 
   it('drum crush and drive keep the output bounded', () => {
@@ -1992,5 +1994,30 @@ describe('PERC: INTENSITY at the top makes warped clangs', () => {
     }
     // ... but up to 75 % it stays close to the designed sound.
     expect(macroSound('perc', 0, 0.75, PERC_PARAMS).m_level).toBeCloseTo(0.15, 2);
+  });
+});
+
+describe('FX 1 compressor', () => {
+  const run = (amount: number) => {
+    const bus = new DrumBus(SR);
+    bus.setParam('cmp_amount', amount);
+    const n = SR;
+    // Loud hits with quiet tails: compression brings the tail up against the peak.
+    const inL = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.05) * ((i % 12000) < 600 ? 0.9 : 0.1));
+    const outL = new Float32Array(n);
+    const outR = new Float32Array(n);
+    bus.process(inL, inL.slice(), outL, outR, 0, n);
+    return { inL, outL };
+  };
+
+  it('is transparent at 0 and squeezes the dynamics when turned up', () => {
+    const off = run(0);
+    let err = 0;
+    for (let i = 0; i < off.outL.length; i++) err = Math.max(err, Math.abs(off.outL[i] - off.inL[i]));
+    expect(err).toBeLessThan(1e-6);
+    const on = run(1).outL;
+    const range = (l: Float32Array) => stats(l.subarray(24000, 24500)).peak / stats(l.subarray(30000, 36000)).peak;
+    expect(range(on)).toBeLessThan(range(off.outL) * 0.8);
+    expect(stats(on).nan).toBe(false);
   });
 });
