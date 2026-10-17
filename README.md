@@ -75,7 +75,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | HAT (click + metal; every hit starts as a hat — a ride bell at the far left — and TIMBRE shapes the tail) | RIDE → HAT → SPLASH → CRASH → CHINA |
 | PERC (tone + click + metal; pitched per step) | LOW TOM → SYN DRUM → CONGA → COWBELL → CLAVE | click row / metal row |
 | BASS (mono) | SINE SUB → SOLID → 303 → GROWL → FM CLANG | oscillators / glide, envelopes, level |
-| PAD (6 voices) | GLASS → TINE → WARM → STRINGS → ETHEREAL (FM supersaw: unison saws, FM at 3:2, swelling) | oscillators / chord, envelopes, level |
+| PAD (6 voices, chords; the same 3-carrier engine as the LEAD) | GLASS (1 : 2 : 3) → TINE (1 : 1 : 4, DX7 e-piano) → WARM (1 : 1 : ½, saws) → STRINGS (1 : 3/2 : 2) → ETHEREAL (unison saws, 1 : 3/2 : 3, swelling). INTENSITY 0 = carrier 1 alone, a plain pad; the stack and the DX7-style FM come in as it rises | oscillators / chord, envelopes, level |
 | LEAD (mono; DX7-style: one feedback modulator into three carriers playing simple waves) | ODD 2:3 → ORGAN (drawbar carriers 1 : 2 : 3 — bass or lead) → SAW 1:1 → OCT 1:2 → FIFTH 3:2 (carrier ratios). INTENSITY 0 = carrier 1 alone, one clear note; CARRIERS (FUNC column 7 bottom) brings carriers 2 / 3 in under it — at 50 % still a readable lead — and the top quarter turns it into the full stack with the DX7 bite |
 | PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | STEEL → GLASS PLUCK → SAW PLUCK → SQUARE PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
 

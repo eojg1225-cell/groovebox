@@ -1904,3 +1904,32 @@ describe('a fifth TIMBRE sound (v19)', () => {
     expect(applyTrim(paramSpec('hat', 'm_tone')!, hidden.m_tone, q.trims.hat!.m_tone)).toBeCloseTo(3333, 3);
   });
 });
+
+describe('PAD on the 3 carrier engine', () => {
+  it('plays chords cleanly on every sound; INTENSITY 0 is carrier 1 alone', () => {
+    for (let i = 0; i < 5; i++) {
+      const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+      const sound = presetSound('pad', i);
+      for (const id in sound) s.setParam(id, sound[id]);
+      for (const n of [57, 60, 64, 67, 71]) s.noteOn(n, 0.8, 57);
+      const l = new Float32Array(SR);
+      s.render(l, new Float32Array(SR), 0, l.length);
+      const st = stats(l);
+      expect(st.nan, `pad ${i}`).toBe(false);
+      expect(st.peak, `pad ${i}`).toBeGreaterThan(0.02);
+    }
+    expect(macroSound('pad', 0.5, 0, PAD_PARAMS).carriers).toBeLessThan(0.01);
+  });
+
+  it('older saves take the new carrier ratios of their own TIMBRE position', () => {
+    const p = createDefaultProject();
+    const warm = MACROS.pad.anchors.findIndex((a) => a.name === 'WARM') / 4;
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    const sound = stored.channels[5].sounds.pad;
+    sound.timbre = warm;
+    for (const id of ['ratio2', 'ratio3', 'feedback', 'carriers']) delete sound[id];
+    const q = fromStored(stored)!.channels[5].sounds.pad!;
+    expect(q.ratio3).toBe(0.5);
+    expect(q.carriers).toBeCloseTo(0.45);
+  });
+});

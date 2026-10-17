@@ -205,7 +205,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
   pad: {
     name: 'PAD', live: ['cutoff', 'macro:swell'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
-    funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, _, _]),
+    funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'carriers', _]),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: {
     name: 'LEAD', live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),

@@ -13,7 +13,7 @@ import {
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
-import { deriveTrims } from '../instruments/trims';
+import { deriveTrims, hiddenSound } from '../instruments/trims';
 import { remapTimbreV18 } from '../instruments/macros';
 import { DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
@@ -204,6 +204,17 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       if (version < 19 && values.timbre !== undefined) values.timbre = remapTimbreV18(k, values.timbre);
       const kept = Object.fromEntries(Object.entries(values).filter(([id]) => known.has(id)));
       if (Object.keys(kept).length) ch.sounds[k] = { ...(ch.sounds[k] ?? presetSound(k, 0)), ...kept };
+    }
+  }
+  // Parameters a sound did not have when it was saved (an engine gained them, e.g. the PAD's
+  // carrier ratios): take what TIMBRE / INTENSITY give them at the saved position.
+  if (isObj(src.sounds)) {
+    for (const k of SOUND_KINDS) {
+      const sound = ch.sounds[k];
+      const saved = isObj(src.sounds[k]) ? (src.sounds[k] as Obj) : null;
+      if (!sound || !saved) continue;
+      const hidden = hiddenSound(k, sound, INSTRUMENTS[k].params);
+      for (const id in hidden) if (typeof saved[id] !== 'number') sound[id] = hidden[id];
     }
   }
   // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19, when

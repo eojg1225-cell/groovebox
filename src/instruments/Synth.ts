@@ -131,8 +131,8 @@ const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'uni
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, decay: 0.6, decay2: 0.6, sustain: 0.6, sustain2: 0.6, release: 0.06, release2: 0.06, level: 0.75 });
 export const BASS_FIXED = { voice: 1 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE], { attack: 0.45, attack2: 0.45, decay: 1.5, decay2: 1.5, sustain: 0.8, sustain2: 0.8, release: 1.6, release2: 1.6, level: 0.5 });
-export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0 };
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { attack: 0.45, attack2: 0.45, decay: 1.5, decay2: 1.5, sustain: 0.8, sustain2: 0.8, release: 1.6, release2: 1.6, level: 0.5 });
+export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
