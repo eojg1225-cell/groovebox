@@ -53,7 +53,7 @@ Worklet -> main:
 | type | fields | meaning |
 |---|---|---|
 | `ready` | `sampleRate` | Processor constructed |
-| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[6]`, `patterns[6]` | ~30 Hz: meters, playhead and playing pattern per channel |
+| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[6]`, `patterns[6]`, `barPhase` | ~30 Hz: meters, playhead and playing pattern per channel, position in the bar (RESET lands on the next bar line) |
 | `pong` | `id` | Answer to `ping` |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate` | A live-recorded note was written (sent again with its length on release) |
 | `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A motion-recorded lock was written |
