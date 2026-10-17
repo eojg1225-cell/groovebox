@@ -746,8 +746,8 @@ describe('TIMBRE and INTENSITY macros', () => {
     expect(rim.t_pitch).toBeGreaterThan(brk.t_pitch);
   });
 
-  it('TIMBRE never changes the tail length: decays, RELEASE and RING LEN are the type\'s own', () => {
-    const tails = ['t_decay', 'm_decay', 'c_len', 'ring', 'decay', 'decay2', 'release', 'release2'].filter((id) => id !== 'c_len');
+  it('TIMBRE never changes tail lengths or the synths\' amp ADSR: they are the type\'s own', () => {
+    const tails = ['t_decay', 'm_decay', 'ring', 'attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2'];
     for (const k of SOUND_KINDS) {
       const ids = macroIds(k, INSTRUMENTS[k].params);
       for (const id of tails) expect(ids.has(id), `${k} ${id}`).toBe(false);

@@ -79,7 +79,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | LEAD (mono; DX7-style: one feedback modulator into three carriers playing simple waves) | ODD 2:3 → ORGAN (drawbar carriers 1 : 2 : 3 — bass or lead) → SAW 1:1 → OCT 1:2 → FIFTH 3:2 (carrier ratios). INTENSITY 0 = carrier 1 alone, one clear note; CARRIERS (FUNC column 7 bottom) brings carriers 2 / 3 in under it — at 50 % still a readable lead — and the top quarter turns it into the full stack with the DX7 bite |
 | PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | STEEL → GLASS PLUCK → SAW PLUCK → SQUARE PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
 
-Five sounds per type. **Tail lengths are the type's own, not TIMBRE's:** decays, RELEASE and RING LEN stay the same whichever sound is chosen (and INTENSITY never changes them), so sounds can be swapped mid-groove and still ring as long; length is the DECAY knobs', the DECAY / LENGTH live knobs' and RING's job.
+Five sounds per type. **Envelopes are the type's own, not TIMBRE's:** the drums' decays and RING LEN and the synths' whole amp ADSR (ATTACK / DECAY / SUSTAIN / RELEASE of both oscillators) stay as you set them whichever sound is chosen (INTENSITY never changes them either), so sounds can be swapped mid-groove without the envelope going out of whack. TIMBRE still shapes the filter envelope (part of each sound's character).
 
 Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4, 5TH, 5TH+OCT, MAJ11.
 
