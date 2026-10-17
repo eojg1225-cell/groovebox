@@ -7,8 +7,8 @@ import type { InstrumentKind, SoundKind } from '../engine/project';
 import type { ParamSpec } from '../engine/params';
 import { macroSound } from './macros';
 import {
-  Drum, HAT_ELEMENTS, HAT_PARAMS, HAT_PRESETS, KICK_ELEMENTS, KICK_PARAMS, KICK_PRESETS,
-  PERC_ELEMENTS, PERC_PARAMS, PERC_PRESETS, SNARE_ELEMENTS, SNARE_PARAMS, SNARE_PRESETS,
+  Drum, HAT_ELEMENTS, HAT_PARAMS, HAT_PRESETS, HAT_VOICE, KICK_ELEMENTS, KICK_PARAMS, KICK_PRESETS, KICK_VOICE,
+  PERC_ELEMENTS, PERC_PARAMS, PERC_PRESETS, PERC_VOICE, SNARE_ELEMENTS, SNARE_PARAMS, SNARE_PRESETS, SNARE_VOICE,
 } from './Drum';
 import {
   BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS, PLUCK_FIXED, PLUCK_PARAMS, PLUCK_PRESETS,
@@ -20,21 +20,32 @@ export const PAGE_SLOTS = 16;
 const ROW = PAGE_SLOTS / 2;
 
 /**
- * The SOUND page (the only sound page), the same shape for every track type. One column per
- * module (top knob / bottom knob): 1 TIMBRE / INTENSITY, 2 element 1 ATTACK / DECAY,
- * 3 element 2 ATTACK / DECAY, 4 FILTER / RESO, 5 FILTER ATTACK / DECAY, 6 DRIVE / CRUSH,
- * 7 the type's key tuning pair (`tune`), 8 `last`: FILTER ENV amount / RING LEN (drums) or
- * FM (synths). PLUCK: column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE.
- * Elements: KICK tone + click, SNARE tone + metal, HAT click + metal, PERC tone + click,
- * synths OSC 1 + OSC 2. Column 7: drums ROLL DIV + pitch (KICK / SNARE / PERC tone pitch,
- * HAT metal pitch; sweep and wire / metal tone follow TIMBRE / INTENSITY), BASS / LEAD
- * SLIDE + DETUNE, PAD UNISON + DETUNE.
+ * The synths' SOUND page (the only sound page). One column per module (top knob / bottom
+ * knob): 1 TIMBRE / INTENSITY, 2 OSC 1 ATTACK / DECAY, 3 OSC 2 ATTACK / DECAY, 4 CUTOFF /
+ * RESO, 5 FILTER ATTACK / DECAY, 6 DRIVE / CRUSH, 7 the type's tuning pair (`tune`: BASS /
+ * LEAD SLIDE + DETUNE, CHORD CHORD + DETUNE), 8 `last` (FLT ENV / FM). PLUCK: column 7
+ * CHORD / ARP OCT, column 8 ARP / ARP RATE.
  */
 export function soundPage(elements: readonly string[], tune: readonly [string, string], last: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;
   return [
     'timbre', a1, a2, 'cutoff', 'fattack', 'drive', tune[0], last[0],
     'intensity', d1, d2, 'reso', 'fdecay', 'crush', tune[1], last[1],
+  ];
+}
+
+/**
+ * The drums' SOUND page: 1 TIMBRE / INTENSITY, 2 element 1 ATTACK / DECAY, 3 element 2
+ * ATTACK / DECAY, 4 both elements' pitch (`pitch`), 5 their colour (`colour`), 6 DRIVE /
+ * CRUSH, 7 ROLL DIV / BALANCE (element 1 <-> 2), 8 the type's own pair (`last`). Elements:
+ * KICK tone + click, SNARE tone + wires (metal), HAT click + metal, PERC tone + click. No
+ * filter per drum (FX 1's FILTER is the kit's).
+ */
+export function drumPage(elements: readonly string[], pitch: readonly [string, string], colour: readonly [string, string], last: readonly [string, string]): string[] {
+  const [a1, d1, a2, d2] = elements;
+  return [
+    'timbre', a1, a2, pitch[0], colour[0], 'drive', 'rolldiv', last[0],
+    'intensity', d1, d2, pitch[1], colour[1], 'crush', 'balance', last[1],
   ];
 }
 
@@ -60,10 +71,9 @@ export function funcPage(top: readonly (string | null)[], bottom: readonly (stri
 const _ = null;
 /*
  * FUNC layers. Synths: column 1 SHAPE, element columns SUSTAIN / RELEASE (each
- * oscillator its own), column 7 OCTAVE + SUB / UNISON. Drums: column 1 the tone's wave /
- * sweep time (or the metal's mode / FM), element columns the layer's LEVEL / colour
- * (SWEEP, CLICK TONE, METAL TONE), column 4 the click's reso / noise or the metal's noise /
- * spread, column 7 a third voice (snare metal FM / pitch, hat head, perc metal).
+ * oscillator its own), column 7 OCTAVE + SUB / UNISON. Drums: column 1 the tone's wave
+ * (or the metal's mode / FM), element columns the layers' LEVELs, then what is left of
+ * the voice (metal FM / mode, hat head colour, spread, perc click reso and metal tone).
  */
 const SYNTH_FUNC_TOP = ['shape', 'sustain', 'sustain2', _, _, _, 'octave', _];
 const SYNTH_FUNC_BOTTOM = [_, 'release', 'release2', _, _, _];
@@ -105,22 +115,21 @@ const LENGTH_SYNTH: [string, number][] = [['decay', 1], ['decay2', 1], ['release
 
 export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
   kick: [
-    macro('DECAY', [['t_decay', 1], ['c_len', 0.5], ['ring', 1]]),
+    macro('DECAY', [['t_decay', 1], ['c_len', 0.5]]),
     macro('PUNCH', [['t_sweep', 1], ['c_level', 1], ['drive', 1]]),
     macro('TUNE', [['t_pitch', 1]]),
   ],
   snare: [
-    macro('DECAY', [['t_decay', 1], ['m_decay', 1], ['ring', 1]]),
+    macro('DECAY', [['t_decay', 1], ['m_decay', 1]]),
     macro('SNAP', [['m_level', 1], ['m_tone', 1], ['t_level', -1]]),
     macro('TUNE', [['t_pitch', 1], ['m_pitch', 1]]),
   ],
   hat: [
-    macro('DECAY', [['m_decay', 1], ['c_len', 0.5], ['ring', 1]]),
+    macro('DECAY', [['m_decay', 1], ['c_len', 0.5]]),
     macro('BRIGHT', [['m_tone', 1], ['c_tone', 1], ['m_noise', 1]]),
   ],
   perc: [
-    macro('DECAY', [['t_decay', 1], ['c_len', 0.5], ['ring', 0.5]]),
-    macro('TUNE', [['t_pitch', 1], ['m_pitch', 1]]),
+    macro('DECAY', [['t_decay', 1], ['c_len', 0.5]]),
   ],
   bass: [macro('ENV', [['fenv', 1], ['fdecay', 1]])],
   pad: [
@@ -193,21 +202,25 @@ export interface InstrumentEntry {
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
-    name: 'KICK', live: ['macro:decay', 'macro:punch'], liveFunc: ['mix:volume', 'macro:tune'], params: KICK_PARAMS, layout: soundPage(KICK_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
-    funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', _, _, _, _], ['t_stime', 't_sweep', 'c_tone', 'c_noise', _, _, _, _]),
-    presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS) },
+    name: 'KICK', live: ['macro:decay', 'macro:punch'], liveFunc: ['mix:volume', 'macro:tune'], params: KICK_PARAMS,
+    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['t_sweep', 'c_reso'], ['t_stime', 'c_noise']),
+    funcLayout: funcPage(['t_wave', 't_level', 'c_level', _, _, _, _, _], [_, _, _, _, _, _, _, _]),
+    presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
-    name: 'SNARE', live: ['macro:decay', 'macro:snap'], liveFunc: ['mix:volume', 'macro:tune'], params: SNARE_PARAMS, layout: soundPage(SNARE_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
-    funcLayout: funcPage(['t_wave', 't_level', 'm_level', 'm_noise', _, _, 'm_fm', _], ['m_mode', 't_sweep', 'm_tone', 'm_spread', _, _, 'm_pitch', _]),
-    presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS) },
+    name: 'SNARE', live: ['macro:decay', 'macro:snap'], liveFunc: ['mix:volume', 'macro:tune'], params: SNARE_PARAMS,
+    layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['t_sweep', 'm_tone'], ['m_noise', 'm_spread']),
+    funcLayout: funcPage(['t_wave', 't_level', 'm_level', _, _, _, 'm_fm', _], ['m_mode', _, _, _, _, _, _, _]),
+    presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
-    name: 'HAT', live: ['macro:decay', 'cutoff'], liveFunc: ['mix:volume', 'macro:bright'], params: HAT_PARAMS, layout: soundPage(HAT_ELEMENTS, ['rolldiv', 'm_pitch'], ['fenv', 'ring']),
-    funcLayout: funcPage(['m_mode', 'c_level', 'm_level', 'm_noise', _, _, 'h_time', 'h_tone'], ['m_fm', 'c_tone', 'm_tone', 'm_spread', _, _, 'h_pitch', 'h_noise']),
-    presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS) },
+    name: 'HAT', live: ['macro:decay', 'macro:bright'], liveFunc: ['mix:volume', 'h_time'], params: HAT_PARAMS,
+    layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'm_tone'], ['m_noise', 'h_time']),
+    funcLayout: funcPage(['m_mode', 'c_level', 'm_level', _, _, _, 'h_tone', 'h_noise'], ['m_fm', _, _, _, _, _, 'h_pitch', 'm_spread']),
+    presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
   perc: {
-    name: 'PERC', live: ['macro:decay', 'cutoff'], liveFunc: ['mix:volume', 'macro:tune'], params: PERC_PARAMS, layout: soundPage(PERC_ELEMENTS, ['rolldiv', 't_pitch'], ['fenv', 'ring']),
-    funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', _, _, 'm_level', _], ['t_stime', 't_sweep', 'c_tone', 'c_noise', _, _, 'm_pitch', _]),
-    presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS) },
+    name: 'PERC', live: ['macro:decay', 'detune'], liveFunc: ['mix:volume', 'm_level'], params: PERC_PARAMS,
+    layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 'c_tone'], ['m_level', 'c_noise']),
+    funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', 'm_tone', _, _, 'm_mode'], ['t_stime', _, _, _, 'm_spread', _, _, 'm_fm']),
+    presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
     name: 'BASS', live: ['cutoff', 'reso'], liveFunc: ['mix:volume', 'macro:env'], params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'sub', _]),

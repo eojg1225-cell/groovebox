@@ -1,5 +1,5 @@
 import type { Instrument, Preset } from './Instrument';
-import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
+import { choice, type ParamSpec } from '../engine/params';
 import { decayMul, Noise, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE } from './macroParams';
 import { MACROS } from './macros';
@@ -17,12 +17,16 @@ import { MACROS } from './macros';
  * TIMBRE) and morphs over HEAD time into its tail (the M ... settings), so short hits
  * stay hats and the tail decides the cymbal.
  * RING (the sequencer's sustain) stretches each layer's own decay x RING_STRETCH and adds
- * RING LEN seconds (tone and metal; the click only stretches), so ring tails follow the
- * DECAY knobs.
- * Each layer has its own ATTACK and DECAY. Then a resonant low-pass FILTER with its own
- * envelope (ATTACK, DECAY, ENV amount), DRIVE (tanh) and CRUSH (bit + sample-rate
- * reduction). Ranges go far past "sensible" on purpose.
+ * the type's fixed ring extension (tone and metal; the click only stretches), so ring
+ * tails follow the DECAY knobs.
+ * Each layer has its own ATTACK and DECAY; BALANCE trades the type's two elements against
+ * each other (centre = as designed). Then DRIVE (tanh) and CRUSH (bit + sample-rate
+ * reduction). No filter per drum: the kit's filter is FX 1's FILTER (the LFO's filter
+ * destination still sweeps a low-pass here). Ranges go far past "sensible" on purpose.
  * The played note tunes the pitched layers (36 = as designed), so drums play chromatically.
+ * PERC (relative tuning): the metal sits INTERVAL semitones above the tone, the click's
+ * resonance follows the note too, and DETUNE moves both (up to a semitone) off the tone,
+ * which always stays on the step's note.
  */
 
 const T_WAVES = ['SINE', 'TRI', 'SAW', 'SQR'];
@@ -70,14 +74,11 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'h_noise', name: 'H NOISE', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'h_mode', name: 'H MODE', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'h_spread', name: 'H SPREAD', min: 0, max: 3, defaultValue: 1, unit: '', curve: 'linear' },
-  // RING (sequencer sustain): seconds added to the decay.
-  { id: 'ring', name: 'RING LEN', min: 0, max: 10, defaultValue: 0.6, unit: 'S', curve: 'linear' },
-  // Whole drum: these sit on top of TIMBRE / INTENSITY (the macros never move them).
-  { id: 'cutoff', name: 'CUTOFF', min: 20, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'fattack', name: 'FLT ATK', ...ATTACK, max: 10 },
-  { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'power', power: FDECAY_POWER },
-  { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.5, unit: '', curve: 'linear' },
+  // PERC: the metal's interval above the tone (whole semitones) and DETUNE of metal + click.
+  { id: 'm_interval', name: 'INTERVAL', min: -12, max: 36, defaultValue: 12, unit: 'ST', curve: 'linear', decimals: 0 },
+  { id: 'detune', name: 'DETUNE', min: -1, max: 1, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 2 },
+  // Whole drum: these sit on top of TIMBRE / INTENSITY (the macros never move BALANCE).
+  { id: 'balance', name: 'BALANCE', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'drive', name: 'DRIVE', min: 1, max: 200, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // ROLL DIV: how fast a ROLL step repeats (read by the engine; the voice ignores it).
@@ -90,11 +91,11 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /** Controls every drum has (after its layer parameters). */
-const WHOLE = ['ring', 'cutoff', 'reso', 'fattack', 'fdecay', 'fenv', 'drive', 'crush', 'rolldiv'];
+const WHOLE = ['balance', 'drive', 'crush', 'rolldiv'];
 
 /*
  * Each drum type: its parameters (set by TIMBRE / INTENSITY and presets, except the tail
- * lengths - layer decays and RING LEN - which are the type's own, the same for every
+ * lengths - layer decays and the ring extension - which are the type's own, the same for every
  * TIMBRE, so sounds can be swapped without changing how long they ring),
  * and its two elements' ATTACK / DECAY ids (on the SOUND page, see registry). Parameters
  * without a knob are set by TIMBRE / INTENSITY.
@@ -116,7 +117,7 @@ export const HAT_PARAMS = drumParams(
     'timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm',
     'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', ...WHOLE,
   ],
-  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03, ring: 1.5 },
+  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03 },
 );
 export const HAT_ELEMENTS = ['c_attack', 'c_len', 'm_attack', 'm_decay'];
 
@@ -124,11 +125,25 @@ export const PERC_PARAMS = drumParams(
   [
     'timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave',
     'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise',
-    'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm', ...WHOLE,
+    'm_level', 'm_interval', 'detune', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm', ...WHOLE,
   ],
   { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.3, m_decay: 0.3, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
 );
 export const PERC_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
+
+/** Per type voice settings: which layers BALANCE trades, the fixed ring extension, PERC tuning. */
+export interface DrumVoice {
+  /** Element 1 and 2 layers (BALANCE: left = element 1 only, right = element 2 only). */
+  balance: readonly ['t' | 'c' | 'm', 't' | 'c' | 'm'];
+  /** Seconds a RING step adds to the stretched decay (was the RING LEN knob's default). */
+  ringExtra: number;
+  /** PERC: metal + click tuned from the tone (INTERVAL, DETUNE, the note) instead of in Hz. */
+  relative?: boolean;
+}
+export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6 };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6 };
+export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 1.5 };
+export const PERC_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, relative: true };
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'kick' | 'snare' | 'hat' | 'perc'): Preset[] {
@@ -170,15 +185,17 @@ export class Drum implements Instrument {
   private fmC = 0; private fmM = 0;
   private tDecayMul = 0; private sweepMul = 0; private mDecayMul = 0; private cDecayMul = 0;
   private tRingMul = 0; private mRingMul = 0; private cRingMul = 0;
-  private tDecay = 0.45; private mDecay = 0.2; private cLen = 0.004; private ringLen = 0.6;
+  private tDecay = 0.45; private mDecay = 0.2; private cLen = 0.004;
+  // BALANCE gains per layer; PERC tuning (INTERVAL, DETUNE as frequency ratios).
+  private gT = 1; private gC = 1; private gM = 1;
+  private intervalMul = 2; private detuneMul = 1;
   // HAT head -> tail morph: head values, the tail's own tone, and how fast it morphs.
   private hTime = 0; private hMul = 0; private hPitch = 420; private hTone = 8500; private hNoise = 0.3;
   private hMode = 0; private hSpread = 1; private mTone = 6000;
   private hEnv = 0; private hCounter = 0;
   private tAtk = 0; private cAtk = 0; private mAtk = 0;
-  private cutoff = 20000; private reso = 0; private filterOn = false;
-  private fAtk = 0; private fDecayMul = 0; private fAmount = 0.5;
-  private filterMod = 0;
+  // The LFO's filter destination: a low-pass from 20 kHz, only while it modulates.
+  private filterOn = false; private filterMod = 0;
   private readonly chokeMul: number;
   /** Decay multipliers in use for the current hit (normal, ring or choke). */
   private tMul = 0; private mMul = 0; private cMul = 0;
@@ -193,12 +210,11 @@ export class Drum implements Instrument {
   private mEnv = 0; private mStage = OFF;
   private cEnv = 0; private cStage = OFF;
   private impulse = false;
-  private fEnv = 0; private fStage = OFF;
   private fCounter = 0;
   private velocity = 1;
   private holdCount = 0; private held = 0;
 
-  constructor(sampleRate: number, readonly params: readonly ParamSpec[]) {
+  constructor(sampleRate: number, readonly params: readonly ParamSpec[], private readonly voice: DrumVoice) {
     this.sr = sampleRate;
     this.chokeMul = decayMul(CHOKE_SECONDS, sampleRate);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
@@ -212,6 +228,7 @@ export class Drum implements Instrument {
     this.mMul = ring ? this.mRingMul : this.mDecayMul;
     this.cMul = ring ? this.cRingMul : this.cDecayMul;
     this.tune = Math.pow(2, (note - 36) / 12);
+    if (this.voice.relative) this.setupClick();
     this.velocity = velocity;
     this.tPhase = 0;
     this.sweepEnv = 1;
@@ -220,7 +237,6 @@ export class Drum implements Instrument {
     this.tEnv = this.tAtk > 0 ? 0 : 1; this.tStage = this.tAtk > 0 ? ATTACKING : DECAYING;
     this.mEnv = this.mAtk > 0 ? 0 : 1; this.mStage = this.mAtk > 0 ? ATTACKING : DECAYING;
     this.cEnv = this.cAtk > 0 ? 0 : 1; this.cStage = this.cAtk > 0 ? ATTACKING : DECAYING;
-    this.fEnv = this.fAtk > 0 ? 0 : 1; this.fStage = this.fAtk > 0 ? ATTACKING : DECAYING;
     this.fCounter = 0;
     this.hEnv = this.hTime > 0 ? 1 : 0;
     this.hCounter = 0;
@@ -248,33 +264,35 @@ export class Drum implements Instrument {
 
   setFilterMod(octaves: number): void {
     this.filterMod = octaves;
-    this.filterOn = this.cutoff < 19990 || this.reso > 0 || octaves !== 0;
+    this.filterOn = octaves !== 0;
+    this.fCounter = 0;
   }
 
   setParam(id: string, v: number): void {
     const sr = this.sr;
     switch (id) {
       case 't_level': this.tLevel = v; break;
-      case 't_pitch': this.tPitch = v; break;
+      case 't_pitch': this.tPitch = v; this.updateMetal(); break;
       case 't_sweep': this.tSweep = v; break;
       case 't_stime': this.sweepMul = decayMul(v, sr); break;
       case 't_attack': this.tAtk = attackInc(v, sr); break;
       case 't_decay': this.tDecay = v; this.updateDecays(); break;
       case 't_wave': this.tWave = Math.round(v); break;
       case 'c_level': this.cLevel = v; break;
-      case 'c_tone': this.cTone = v; this.cFilter.setup(this.cTone, this.cReso, sr); break;
-      case 'c_reso': this.cReso = v; this.cFilter.setup(this.cTone, this.cReso, sr); break;
+      case 'c_tone': this.cTone = v; this.setupClick(); break;
+      case 'c_reso': this.cReso = v; this.setupClick(); break;
       case 'c_noise': this.cNoise = v; break;
       case 'c_attack': this.cAtk = attackInc(v, sr); break;
       case 'c_len': this.cLen = v; this.updateDecays(); break;
       case 'm_level': this.mLevel = v; break;
-      case 'm_pitch': this.mPitch = v; break;
+      case 'm_pitch': if (!this.voice.relative) this.mPitch = v; break;
+      case 'm_interval': this.intervalMul = Math.pow(2, Math.round(v) / 12); this.updateMetal(); break;
+      case 'detune': this.detuneMul = Math.pow(2, v / 12); this.updateMetal(); this.setupClick(); break;
       case 'm_spread': this.mSpread = v; break;
       case 'm_noise': this.mNoise = v; break;
       case 'm_tone': this.mTone = v; this.mFilter.setup(v, 0.3, sr); break;
       case 'm_attack': this.mAtk = attackInc(v, sr); break;
       case 'm_decay': this.mDecay = v; this.updateDecays(); break;
-      case 'ring': this.ringLen = v; this.updateDecays(); break;
       case 'h_time': this.hTime = v; this.hMul = v > 0 ? Math.exp(-1 / (v * sr)) : 0; break;
       case 'h_pitch': this.hPitch = v; break;
       case 'h_tone': this.hTone = v; break;
@@ -283,24 +301,39 @@ export class Drum implements Instrument {
       case 'h_spread': this.hSpread = v; break;
       case 'm_mode': this.mMode = Math.min(2, Math.max(0, v)); break;
       case 'm_fm': this.mFm = v; break;
-      case 'cutoff': this.cutoff = v; this.setFilterMod(this.filterMod); this.fCounter = 0; break;
-      case 'reso': this.reso = v; this.setFilterMod(this.filterMod); this.fCounter = 0; break;
-      case 'fattack': this.fAtk = attackInc(v, sr); break;
-      case 'fdecay': this.fDecayMul = decayMul(v, sr); break;
-      case 'fenv': this.fAmount = v; break;
+      case 'balance': {
+        const g1 = Math.min(1, 2 * (1 - v)), g2 = Math.min(1, 2 * v);
+        this.gT = 1; this.gC = 1; this.gM = 1;
+        const [l1, l2] = this.voice.balance;
+        if (l1 === 't') this.gT = g1; else if (l1 === 'c') this.gC = g1; else this.gM = g1;
+        if (l2 === 't') this.gT = g2; else if (l2 === 'c') this.gC = g2; else this.gM = g2;
+        break;
+      }
       case 'drive': this.drive = v; break;
       case 'crush': this.crush = v; break;
     }
   }
 
-  /** Normal decays, and RING ones (decay x RING_STRETCH + RING LEN). */
+  /** PERC: the metal sits INTERVAL above the tone, detuned. */
+  private updateMetal(): void {
+    if (this.voice.relative) this.mPitch = this.tPitch * this.intervalMul * this.detuneMul;
+  }
+
+  /** The click's resonance (PERC: follows the note and DETUNE). */
+  private setupClick(): void {
+    const f = this.voice.relative ? this.cTone * this.tune * this.detuneMul : this.cTone;
+    this.cFilter.setup(f, this.cReso, this.sr);
+  }
+
+  /** Normal decays, and RING ones (decay x RING_STRETCH + the type's ring extension). */
   private updateDecays(): void {
     const sr = this.sr;
+    const extra = this.voice.ringExtra;
     this.tDecayMul = decayMul(this.tDecay, sr);
     this.mDecayMul = decayMul(this.mDecay, sr);
     this.cDecayMul = decayMul(this.cLen, sr);
-    this.tRingMul = decayMul(this.tDecay * RING_STRETCH + this.ringLen, sr);
-    this.mRingMul = decayMul(this.mDecay * RING_STRETCH + this.ringLen, sr);
+    this.tRingMul = decayMul(this.tDecay * RING_STRETCH + extra, sr);
+    this.mRingMul = decayMul(this.mDecay * RING_STRETCH + extra, sr);
     this.cRingMul = decayMul(this.cLen * RING_STRETCH, sr);
   }
 
@@ -340,7 +373,7 @@ export class Drum implements Instrument {
           }
           default: osc = Math.sin(TWO_PI * ph);
         }
-        sum += osc * this.tEnv * this.tLevel;
+        sum += osc * this.tEnv * this.tLevel * this.gT;
         this.sweepEnv *= this.sweepMul;
         if (this.tStage === ATTACKING) {
           this.tEnv += this.tAtk;
@@ -397,7 +430,7 @@ export class Drum implements Instrument {
         }
         m = m * (1 - mNoise) + this.noise.next() * mNoise;
         this.mFilter.process(m);
-        sum += this.mFilter.high * this.mEnv * this.mLevel;
+        sum += this.mFilter.high * this.mEnv * this.mLevel * this.gM;
         if (this.mStage === ATTACKING) {
           this.mEnv += this.mAtk;
           if (this.mEnv >= 1) { this.mEnv = 1; this.mStage = DECAYING; }
@@ -412,7 +445,7 @@ export class Drum implements Instrument {
         // Impulse (a "knock" that rings at CLK TONE with RESO) blended with a noise burst.
         this.cFilter.process(this.noise.next() * this.cNoise + (this.impulse ? 4 * (1 - this.cNoise * 0.5) : 0));
         this.impulse = false;
-        sum += this.cFilter.band * this.cEnv * this.cLevel * 2;
+        sum += this.cFilter.band * this.cEnv * this.cLevel * 2 * this.gC;
         if (this.cStage === ATTACKING) {
           this.cEnv += this.cAtk;
           if (this.cEnv >= 1) { this.cEnv = 1; this.cStage = DECAYING; }
@@ -422,20 +455,13 @@ export class Drum implements Instrument {
         }
       }
 
-      // FILTER (with its envelope), DRIVE, CRUSH
+      // LFO FILTER (only while modulating), DRIVE, CRUSH
       let out = sum * this.velocity;
-      if (this.fStage === ATTACKING) {
-        this.fEnv += this.fAtk;
-        if (this.fEnv >= 1) { this.fEnv = 1; this.fStage = DECAYING; }
-      } else if (this.fStage === DECAYING) {
-        this.fEnv *= this.fDecayMul;
-        if (this.fEnv < 1e-5) { this.fEnv = 0; this.fStage = OFF; }
-      }
       if (this.filterOn) {
         if (this.fCounter-- <= 0) {
           this.fCounter = FILTER_UPDATE;
-          const fc = this.cutoff * Math.pow(2, this.fAmount * 6 * this.fEnv + this.filterMod);
-          this.filter.setup(fc < 20 ? 20 : fc, this.reso, this.sr);
+          const fc = 20000 * Math.pow(2, this.filterMod);
+          this.filter.setup(fc < 20 ? 20 : fc, 0, this.sr);
         }
         this.filter.process(out);
         out = this.filter.low;

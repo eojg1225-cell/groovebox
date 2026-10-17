@@ -12,12 +12,14 @@ import {
   type ChannelState, type Project, type SoundKind,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
-import { INSTRUMENTS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
 import { deriveTrims, hiddenSound } from '../instruments/trims';
 import { remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
+import { DJ_DEAD } from './params';
+import type { InstrumentKind } from './project';
 import { LFO_RATES, LFO_RATES_V17, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
@@ -183,6 +185,14 @@ function readSteps(pattern: Obj): ReadStep[] {
   return out;
 }
 
+/** A live knob id this type can use (mixer / track ids, its macros, its parameters). */
+function liveIdValid(kind: InstrumentKind, id: string): boolean {
+  if (kind === 'none') return true;
+  if (id.startsWith('macro:')) return LIVE_MACROS[kind].some((m) => m.id === id);
+  if (id.includes(':')) return true;
+  return INSTRUMENTS[kind].params.some((p) => p.id === id);
+}
+
 function readChannel(src: Obj, ch: ChannelState, version: number): void {
   const kind = src.instrument;
   if (typeof kind === 'string' && (SOUND_KINDS as string[]).includes(kind) && kind !== ch.instrument) {
@@ -204,6 +214,10 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       mirrorOsc2(values);
       // v19: a fifth TIMBRE sound per type; older positions move so each sound stays itself.
       if (version < 19 && values.timbre !== undefined) values.timbre = remapTimbreV18(k, values.timbre);
+      // v23: PERC's metal is tuned as an interval above the tone instead of in Hz.
+      if (k === 'perc' && values.m_interval === undefined && values.m_pitch > 0 && values.t_pitch > 0) {
+        values.m_interval = Math.max(-12, Math.min(36, Math.round(12 * Math.log2(values.m_pitch / values.t_pitch))));
+      }
       const kept = Object.fromEntries(Object.entries(values).filter(([id]) => known.has(id)));
       if (Object.keys(kept).length) ch.sounds[k] = { ...(ch.sounds[k] ?? presetSound(k, 0)), ...kept };
     }
@@ -219,14 +233,20 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       for (const id in hidden) if (typeof saved[id] !== 'number') sound[id] = hidden[id];
     }
   }
-  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19 / v20 /
-  // v21 / v22, when the TIMBRE sounds, the FLT DEC curve and PERC's tuning changed): derived from the values, so every sound plays exactly as
-  // before.
+  // SOUND page trims on top of TIMBRE / INTENSITY (v17). Older saves (and before v19 - v23,
+  // when the TIMBRE sounds, the FLT DEC curve, PERC's tuning and its INTENSITY top
+  // changed): derived from the values, so every sound plays exactly as before.
   for (const k of SOUND_KINDS) {
     const sound = ch.sounds[k];
     if (!sound) continue;
-    const stored = version >= 22 && isObj(src.trims) ? src.trims[k] : undefined;
+    const stored = version >= 23 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
+  }
+  // v23: PERC's tone pitch has no knob (the step's note plays it): back on the shared octave.
+  const perc = ch.sounds.perc;
+  if (version < 23 && perc && ch.trims.perc?.t_pitch !== undefined) {
+    delete ch.trims.perc.t_pitch;
+    perc.t_pitch = hiddenSound('perc', perc, INSTRUMENTS.perc.params).t_pitch ?? perc.t_pitch;
   }
   if (isObj(src.presets)) {
     for (const k of SOUND_KINDS) {
@@ -248,6 +268,9 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     const offsets = numbers(src.liveOffset);
     for (const id in offsets) if (offsets[id] !== 0) ch.liveOffset[id] = Math.max(-1, Math.min(1, offsets[id]));
   }
+  // Live knobs on parameters the type no longer has (v23: the drums' filter, RING LEN,
+  // PERC TUNE): back to the type's defaults.
+  if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, id))) liveDefaults(ch);
   // Chords are stored by index; before v6 the list had no MAJOR/MINOR, so map by name.
   const chord = Math.round(num(src.chord, ch.chord, 0, 64));
   ch.chord = version < 6 ? Math.max(0, CHORD_NAMES.indexOf(CHORD_NAMES_V5[chord] ?? 'OFF')) : Math.min(chord, CHORD_NAMES.length - 1);
@@ -368,6 +391,12 @@ export function fromStored(data: unknown): Project | null {
   };
   if (isObj(data.fx1)) {
     for (const spec of DRUM_BUS_PARAMS) p.fx1[spec.id] = num(data.fx1[spec.id], p.fx1[spec.id], spec.min, spec.max);
+    // v23: the LOW-PASS cutoff became the one-knob FILTER (left half = the same low-pass).
+    const lp = data.fx1.lp_cutoff;
+    if (typeof lp === 'number' && typeof data.fx1.flt !== 'number' && lp < 19990) {
+      const half = 0.5 - DJ_DEAD;
+      p.fx1.flt = Math.max(0, half - half * Math.log(Math.max(30, lp) / 20000) / Math.log(30 / 20000));
+    }
   }
   readGrid(data.sendWet ?? data.sendFx, p.sendWet);
   readGrid(data.sendInt, p.sendInt);

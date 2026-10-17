@@ -34,6 +34,8 @@ export interface ParamSpec {
    * mode; live knobs can only be assigned non-coarse parameters.
    */
   readonly coarse?: boolean;
+  /** Special readouts: 'dj' = FX 1's FILTER (LP <- OFF -> HP, shown with its cutoff). */
+  readonly display?: 'dj';
 }
 
 /** Shorthand for a discrete, coarse parameter. */
@@ -67,9 +69,30 @@ export function toNorm(spec: ParamSpec, value: number): number {
   return (v - spec.min) / (spec.max - spec.min);
 }
 
+/** FX 1 FILTER: the dead zone either side of the centre (OFF). */
+export const DJ_DEAD = 0.02;
+/**
+ * FX 1 FILTER position (0..1) -> cutoff: negative = low-pass at that many Hz (left of the
+ * centre, 20 kHz down to 30 Hz), positive = high-pass (right, 20 Hz up to 16 kHz), 0 = off.
+ */
+export function djCutoff(pos: number): number {
+  const half = 0.5 - DJ_DEAD;
+  if (pos < half) return -20000 * Math.pow(30 / 20000, (half - pos) / half);
+  if (pos > 0.5 + DJ_DEAD) return 20 * Math.pow(16000 / 20, Math.min(1, (pos - 0.5 - DJ_DEAD) / half));
+  return 0;
+}
+
+function hz(v: number): string {
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}K` : `${Math.round(v)}HZ`;
+}
+
 /** Compact value text for the pixel screen, e.g. "220HZ", "0.50", "12MS". */
 export function formatValue(spec: ParamSpec, value: number): string {
   if (spec.options) return spec.options[Math.round(clamp(value, 0, spec.options.length - 1))];
+  if (spec.display === 'dj') {
+    const c = djCutoff(value);
+    return c === 0 ? 'OFF' : c < 0 ? `LP ${hz(-c)}` : `HP ${hz(c)}`;
+  }
   const abs = Math.abs(value);
   const digits = spec.decimals ?? (abs >= 100 ? 0 : abs >= 10 ? 1 : 2);
   return value.toFixed(digits) + spec.unit;

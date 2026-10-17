@@ -1,4 +1,4 @@
-import type { ParamSpec } from '../engine/params';
+import { djCutoff, type ParamSpec } from '../engine/params';
 import { Smoother } from '../engine/smoother';
 import { Svf } from '../instruments/dsp';
 import { COMP_PARAMS, Compressor } from './Compressor';
@@ -10,7 +10,7 @@ export const REVERSE_LENGTHS = [
 
 /**
  * FX 1, the drum bus: tracks routed here pass THROUGH it (nothing is added alongside), so
- * the low-pass really darkens them and the reverse swells sit under the drums themselves.
+ * the filter really darkens (or thins) them and the reverse swells sit under the drums themselves.
  * At its defaults it is transparent. Knob order = panel order (top row, then bottom row):
  * two modules per effect.
  */
@@ -19,21 +19,22 @@ export const DRUM_BUS_PARAMS: readonly ParamSpec[] = [
   { id: 'rev_len', name: 'REV LEN', min: 0, max: REVERSE_LENGTHS.length - 1, defaultValue: 2, unit: '', curve: 'linear', options: REVERSE_LENGTHS.map((g) => g.name) },
   { id: 'dst_drive', name: 'DRIVE', min: 0, max: 60, defaultValue: 0, unit: 'DB', curve: 'linear', decimals: 0 },
   { id: 'dst_tone', name: 'DST TONE', min: 200, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'lp_cutoff', name: 'LP CUTOFF', min: 30, max: 20000, defaultValue: 20000, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'lp_reso', name: 'LP RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // FILTER: one knob, left of centre a low-pass, right a high-pass, centre off (DJ style).
+  { id: 'flt', name: 'FILTER', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear', display: 'dj' },
+  { id: 'lp_reso', name: 'FLT RESO', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'rev_smear', name: 'SMEAR', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
   { id: 'rev_fdbk', name: 'REV FDBK', min: 0, max: 1.1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'dst_crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'dst_level', name: 'DST LEVEL', min: 0, max: 2, defaultValue: 1, unit: 'X', curve: 'linear' },
-  { id: 'lp_env', name: 'LP ENV', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'lp_release', name: 'LP REL', min: 0.005, max: 2, defaultValue: 0.15, unit: 'S', curve: 'exp', decimals: 3 },
+  { id: 'lp_env', name: 'FLT ENV', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'lp_release', name: 'ENV REL', min: 0.005, max: 2, defaultValue: 0.15, unit: 'S', curve: 'exp', decimals: 3 },
   // COMP (series, for an even level): THRESH / RATIO / ATTACK / RELEASE; 1:1 = off.
   ...COMP_PARAMS,
 ];
 
-/** FX 1 knobs, 2 x 8: REVERSE, DISTORT, LOW-PASS (two modules each), COMP (modules 7-8). */
+/** FX 1 knobs, 2 x 8: REVERSE, DISTORT, FILTER (two modules each), COMP (modules 7-8). */
 export const DRUM_BUS_LAYOUT: readonly string[] = [
-  'rev_mix', 'rev_len', 'dst_drive', 'dst_tone', 'lp_cutoff', 'lp_reso', 'cmp_thresh', 'cmp_attack',
+  'rev_mix', 'rev_len', 'dst_drive', 'dst_tone', 'flt', 'lp_reso', 'cmp_thresh', 'cmp_attack',
   'rev_smear', 'rev_fdbk', 'dst_crush', 'dst_level', 'lp_env', 'lp_release', 'cmp_ratio', 'cmp_release',
 ];
 
@@ -62,15 +63,17 @@ class Allpass {
 }
 
 /**
- * REVERSE -> DISTORT -> LOW-PASS.
+ * REVERSE -> DISTORT -> FILTER.
  *  REVERSE  a reverse delay: the drums are recorded in REV LEN slices (tempo-synced) and each
  *           slice is played back backwards while the next one records, through two
  *           overlapping windows (no clicks), so every hit swells in towards where it was.
  *           REV FDBK feeds the reversed sound back in (reverse echoes of reverse echoes);
  *           SMEAR diffuses it into a reverse-reverb wash. REVERSE = how much is mixed in.
  *  DISTORT  DRIVE (dB into tanh), TONE (low-pass after it), CRUSH (bits + sample rate), LEVEL.
- *  LOW-PASS CUTOFF, RESO (to self-oscillation), ENV (an envelope follower opens (+) or
- *           closes (-) it on every hit, up to 8 octaves), REL (how fast the follower falls).
+ *  FILTER   one knob (DJ style): left of centre a low-pass closing to 30 Hz, right a
+ *           high-pass opening to 16 kHz, centre off (see djCutoff). RESO (to self-
+ *           oscillation), ENV (an envelope follower raises (+) or lowers (-) the cutoff on
+ *           every hit, up to 8 octaves), ENV REL (how fast the follower falls).
  *  COMP     bus compressor in series, for an even level: THRESH / RATIO / ATTACK /
  *           RELEASE with automatic make-up (see Compressor). RATIO 1:1 = off.
  */
@@ -98,9 +101,10 @@ export class DrumBus {
   private levelTarget = 1;
   private toneL = 0; private toneR = 0;
   private holdCount = 0; private heldL = 0; private heldR = 0;
-  // Low-pass
-  private readonly cutoff: Smoother;
-  private cutoffTarget = 20000;
+  // Filter: position (smoothed), 0 = off / -1 = low-pass / 1 = high-pass
+  private readonly pos: Smoother;
+  private posTarget = 0.5;
+  private mode = 0;
   private reso = 0;
   private env = 0;
   private releaseMul = 0;
@@ -119,7 +123,7 @@ export class DrumBus {
     this.apR = DIFFUSE.map((d) => new Allpass(Math.round(d * scale * 1.07))); // decorrelated
     this.mix = new Smoother(0, 0.01, sampleRate);
     this.level = new Smoother(1, 0.02, sampleRate);
-    this.cutoff = new Smoother(20000, 0.02, sampleRate);
+    this.pos = new Smoother(0.5, 0.02, sampleRate);
     this.comp = new Compressor(sampleRate);
     for (const p of DRUM_BUS_PARAMS) this.setParam(p.id, p.defaultValue);
   }
@@ -139,7 +143,7 @@ export class DrumBus {
       case 'dst_tone': this.toneCoeff = v >= 19999 ? 1 : 1 - Math.exp((-2 * Math.PI * v) / this.sr); break;
       case 'dst_crush': this.crush = v; break;
       case 'dst_level': this.levelTarget = v; this.level.setTarget(v); break;
-      case 'lp_cutoff': this.cutoffTarget = v; this.cutoff.setTarget(v); break;
+      case 'flt': this.posTarget = v; this.pos.setTarget(v); break;
       case 'lp_reso': this.reso = v; this.counter = 0; break;
       case 'lp_env': this.env = v; break;
       case 'cmp_thresh': case 'cmp_ratio': case 'cmp_attack': case 'cmp_release': this.comp.setParam(id, v); break;
@@ -151,7 +155,7 @@ export class DrumBus {
   settle(): void {
     this.mix.setImmediate(this.mixTarget);
     this.level.setImmediate(this.levelTarget);
-    this.cutoff.setImmediate(this.cutoffTarget);
+    this.pos.setImmediate(this.posTarget);
   }
 
   /** Reads the bus input and ADDS the processed result into out. */
@@ -244,19 +248,25 @@ export class DrumBus {
       // ---- LOW-PASS
       const a = (l < 0 ? -l : l) + (r < 0 ? -r : r);
       this.follow = a > this.follow ? a : this.follow * this.releaseMul;
-      const base = this.cutoff.next();
+      const pos = this.pos.next();
       if (this.counter-- <= 0) {
         this.counter = FILTER_UPDATE;
+        const c = djCutoff(pos);
+        this.mode = c < 0 ? -1 : c > 0 ? 1 : 0;
+        const base = c < 0 ? -c : c;
         const fc = this.env === 0 ? base : base * Math.pow(2, this.env * 8 * Math.min(1, this.follow));
         this.lpL.setup(fc < 20 ? 20 : fc, this.reso, this.sr);
         this.lpR.setup(fc < 20 ? 20 : fc, this.reso, this.sr);
       }
       this.lpL.process(l);
       this.lpR.process(r);
-      // Wide open with no resonance or envelope: transparent.
-      if (base < 19990 || this.reso > 0 || this.env !== 0) {
+      // Centred (OFF): transparent.
+      if (this.mode < 0) {
         l = this.lpL.low;
         r = this.lpR.low;
+      } else if (this.mode > 0) {
+        l = this.lpL.high;
+        r = this.lpR.high;
       }
 
       // ---- COMP (series)

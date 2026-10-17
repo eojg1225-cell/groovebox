@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
-import { toNorm, toValue } from '../src/engine/params';
+import { djCutoff, formatValue, toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
 import { emptyPattern, type Project, type SoundKind } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
-import { Drum, HAT_PARAMS, KICK_PARAMS, PERC_PARAMS, SNARE_PARAMS } from '../src/instruments/Drum';
+import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { midiToHz } from '../src/instruments/dsp';
 import { Delay } from '../src/fx/Delay';
@@ -25,8 +25,8 @@ const RATE = (name: string) => LFO_RATES.findIndex((r) => r.name === name);
 import { MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound, timbreName } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
-import { soundPage, stepsOnStrip } from '../src/instruments/registry';
-import { DrumBus, REVERSE_LENGTHS } from '../src/fx/DrumBus';
+import { drumPage, soundPage, stepsOnStrip } from '../src/instruments/registry';
+import { DRUM_BUS_PARAMS, DrumBus, REVERSE_LENGTHS } from '../src/fx/DrumBus';
 import { SendBus } from '../src/fx/SendBus';
 
 const SR = 48000;
@@ -153,7 +153,13 @@ describe('instruments', () => {
       'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive', 't1', 'l1',
       'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush', 't2', 'l2',
     ]);
+    expect(drumPage(['a1', 'd1', 'a2', 'd2'], ['p1', 'p2'], ['c1', 'c2'], ['l1', 'l2'])).toEqual([
+      'timbre', 'a1', 'a2', 'p1', 'c1', 'drive', 'rolldiv', 'l1',
+      'intensity', 'd1', 'd2', 'p2', 'c2', 'crush', 'balance', 'l2',
+    ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
+    expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
+    expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
     expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['glide', 'detune']);
@@ -163,7 +169,7 @@ describe('instruments', () => {
   });
 
   it('drum crush and drive keep the output bounded', () => {
-    const d = new Drum(SR, SNARE_PARAMS);
+    const d = new Drum(SR, SNARE_PARAMS, SNARE_VOICE);
     const sound = presetSound('snare', INSTRUMENTS.snare.presets.findIndex((p) => p.name === 'INDUSTRIAL'));
     for (const id in sound) d.setParam(id, sound[id]);
     d.setParam('drive', 30);
@@ -378,7 +384,7 @@ describe('drum layers', () => {
 
   it('the played note tunes a drum (chromatic play)', () => {
     const zc = (note: number) => {
-      const d = new Drum(SR, KICK_PARAMS);
+      const d = new Drum(SR, KICK_PARAMS, KICK_VOICE);
       d.setParam('t_sweep', 0); d.setParam('c_level', 0); d.setParam('t_decay', 2);
       const l = new Float32Array(SR / 4);
       d.noteOn(note, 1, note);
@@ -484,8 +490,8 @@ describe('send effects', () => {
   it('CUTOFF (the sound filter) darkens the track', () => {
     const bright = (cutoff: number) => {
       const p = kickProject([], { bpm: 120 });
-      p.channels[2].patterns[0].steps[0].active = true; // hat
-      p.channels[2].sounds.hat = { ...p.channels[2].sounds.hat!, cutoff };
+      p.channels[4].patterns[0].steps[0].active = true; // bass
+      p.channels[4].sounds.bass = { ...p.channels[4].sounds.bass!, cutoff, fenv: 0 };
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
       const { l } = render(e, 0.05);
@@ -493,7 +499,7 @@ describe('send effects', () => {
       for (let i = 1; i < l.length; i++) d += (l[i] - l[i - 1]) ** 2;
       return d;
     };
-    expect(bright(500)).toBeLessThan(bright(20000) * 0.1);
+    expect(bright(300)).toBeLessThan(bright(20000) * 0.25);
   });
 
   describe('LO-FI', () => {
@@ -835,7 +841,7 @@ describe('project', () => {
     p.sendComp[2].cmp_thresh = -30;
     p.sendInt[1][0] = 0.8;
     p.fx1.rev_len = 3;
-    p.fx1.lp_cutoff = 800;
+    p.fx1.flt = 0.3;
     p.channels[4].fx1 = true;
     p.lfo = { rate: 7, shape: 5, morph: 0.3, fm: 0.4, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
     p.channels[6].lfoOn = true;
@@ -1019,8 +1025,8 @@ describe('FX 1 drum bus', () => {
       const { l } = render(e, 0.3);
       return { e: l.reduce((a, v) => a + v * v, 0), s: stats(l) };
     };
-    expect(energy({ lp_cutoff: 300 }).e).toBeLessThan(energy({}).e * 0.2);
-    const loud = energy({ dst_drive: 60, dst_level: 2, lp_reso: 1, lp_cutoff: 2000 });
+    expect(energy({ flt: 0.15 }).e).toBeLessThan(energy({}).e * 0.2);
+    const loud = energy({ dst_drive: 60, dst_level: 2, lp_reso: 1, flt: 0.3 });
     expect(loud.s.nan).toBe(false);
     expect(loud.s.peak).toBeLessThanOrEqual(1);
   });
@@ -1037,9 +1043,9 @@ describe('FX 1 drum bus', () => {
   });
 });
 
-describe('drum element and filter envelopes', () => {
+describe('drum element envelopes', () => {
   const hit = (sound: Record<string, number>) => {
-    const d = new Drum(SR, KICK_PARAMS);
+    const d = new Drum(SR, KICK_PARAMS, KICK_VOICE);
     const base = presetSound('kick', 1);
     for (const id in base) d.setParam(id, base[id]);
     for (const id in sound) d.setParam(id, sound[id]);
@@ -1057,19 +1063,6 @@ describe('drum element and filter envelopes', () => {
     expect(stats(hit({ t_attack: 0.2, c_level: 0 }).subarray(SR * 0.18, SR * 0.22)).peak).toBeGreaterThan(0.3);
   });
 
-  it('the filter envelope opens a closed filter on each hit', () => {
-    // High-frequency content (sample-to-sample differences) over the first 50 ms.
-    const hf = (l: Float32Array) => { let e = 0; for (let i = 1; i < SR * 0.05; i++) e += (l[i] - l[i - 1]) ** 2; return e; };
-    const closed = hit({ c_level: 1, cutoff: 100, fenv: 0 });
-    const opened = hit({ c_level: 1, cutoff: 100, fenv: 1.5, fdecay: 0.2 });
-    expect(hf(opened)).toBeGreaterThan(hf(closed) * 10);
-  });
-  it('the drum FILTER darkens it', () => {
-    const e = (l: Float32Array) => l.reduce((a, v) => a + v * v, 0);
-    const bright = hit({ c_level: 1, cutoff: 20000 });
-    const dark = hit({ c_level: 1, cutoff: 80 });
-    expect(e(dark)).toBeLessThan(e(bright));
-  });
 });
 
 describe('slides and rolls', () => {
@@ -1240,9 +1233,9 @@ describe('LFO options', () => {
   });
 });
 
-describe('hat head and RING LEN', () => {
+describe('hat head and RING', () => {
   const hat = (name: string, ring = false, extra: Record<string, number> = {}) => {
-    const d = new Drum(SR, HAT_PARAMS);
+    const d = new Drum(SR, HAT_PARAMS, HAT_VOICE);
     const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === name)), c_level: 0, ...extra };
     for (const id in sound) d.setParam(id, sound[id]);
     d.noteOn(36, 1, 36, ring);
@@ -1262,13 +1255,13 @@ describe('hat head and RING LEN', () => {
     expect(diff(h, c, 0, 240)).toBeLessThan(diff(h, c, 9600, 12000) * 0.5);
   });
 
-  it('RING adds the sound\'s RING LEN to the decay (not a blown-out multiple)', () => {
+  it('RING adds the type\'s fixed extension to the decay (not a blown-out multiple)', () => {
     const tail = (l: Float32Array, t: number) => stats(l.subarray(SR * t, SR * t + 2400)).peak;
-    const plain = hat('HAT', false, { ring: 0.5 });
-    const ring = hat('HAT', true, { ring: 0.5 });
+    const plain = hat('HAT', false);
+    const ring = hat('HAT', true);
     expect(tail(plain, 0.3)).toBeLessThan(1e-3);
-    expect(tail(ring, 0.3)).toBeGreaterThan(1e-3); // ~0.5 s open hat
-    expect(tail(ring, 1.2)).toBeLessThan(1e-4); // ... and then gone
+    expect(tail(ring, 0.3)).toBeGreaterThan(1e-3); // an open hat
+    expect(tail(ring, 1.9)).toBeLessThan(tail(ring, 0.3) * 0.1); // ... fading out
   });
 });
 
@@ -1374,7 +1367,7 @@ describe('PERC track', () => {
     expect(stepsOnStrip('snare')).toBe(true);
     expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'SYN DRUM', 'CONGA', 'COWBELL', 'CLAVE']);
     const crossings = (note: number) => {
-      const d = new Drum(SR, PERC_PARAMS);
+      const d = new Drum(SR, PERC_PARAMS, PERC_VOICE);
       const sound = presetSound('perc', 0);
       for (const id in sound) d.setParam(id, sound[id]);
       d.setParam('c_level', 0);
@@ -1464,16 +1457,15 @@ describe('v10 track order', () => {
 describe('drum RING follows the decay knobs', () => {
   it('a longer metal DECAY gives a longer ring tail', () => {
     const tail = (mDecay: number) => {
-      const d = new Drum(SR, HAT_PARAMS);
-      const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === 'HAT')), c_level: 0, ring: 0.5, m_decay: mDecay };
+      const d = new Drum(SR, HAT_PARAMS, HAT_VOICE);
+      const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === 'HAT')), c_level: 0, m_decay: mDecay };
       for (const id in sound) d.setParam(id, sound[id]);
       d.noteOn(36, 1, 36, true);
       const l = new Float32Array(SR * 3);
       d.render(l, new Float32Array(SR * 3), 0, l.length);
       return stats(l.subarray(SR * 1.2, SR * 1.3)).peak;
     };
-    expect(tail(0.07)).toBeLessThan(1e-4); // a short hat rings about 0.7 s
-    expect(tail(0.4)).toBeGreaterThan(1e-3); // a longer one rings well past a second
+    expect(tail(0.4)).toBeGreaterThan(tail(0.07) * 3); // a longer DECAY rings longer
   });
 });
 
@@ -1969,7 +1961,7 @@ describe('CHORD / LEAD / PLUCK level, CHORD stabs, FLT DEC curve', () => {
 
 describe('PERC: INTENSITY at the top makes warped clangs', () => {
   const hit = (t: number, x: number) => {
-    const d = new Drum(SR, PERC_PARAMS);
+    const d = new Drum(SR, PERC_PARAMS, PERC_VOICE);
     const sound = { ...presetSound('perc', 0), ...macroSound('perc', t, x, PERC_PARAMS) };
     for (const id in sound) d.setParam(id, sound[id]);
     d.noteOn(36, 1, 36);
@@ -1987,7 +1979,9 @@ describe('PERC: INTENSITY at the top makes warped clangs', () => {
     for (const t of [0, 0.25, 0.5, 0.75, 1]) {
       const top = macroSound('perc', t, 1, PERC_PARAMS);
       expect(top.m_level, `t=${t}`).toBeGreaterThanOrEqual(0.8 - 1e-9);
-      expect(top.t_sweep, `t=${t}`).toBeGreaterThan(50);
+      expect(top.t_sweep, `t=${t}`).toBeGreaterThan(20);
+      expect(top.t_sweep, `t=${t}`).toBeLessThanOrEqual(24); // gnarly, not out of control
+      expect(top.drive, `t=${t}`).toBeLessThanOrEqual(6 + 1e-9);
       const wild = hit(t, 1);
       expect(stats(wild).nan).toBe(false);
       expect(edge(wild), `t=${t}`).toBeGreaterThan(edge(hit(t, 0.5)) * 2);
@@ -2049,7 +2043,94 @@ describe('PERC: one octave whatever the TIMBRE', () => {
     for (let t = 0; t <= 1.0001; t += 0.05) {
       const s = macroSound('perc', t, 0.5, PERC_PARAMS);
       expect(s.t_pitch, `@${t.toFixed(2)}`).toBeCloseTo(130.81, 2);
-      expect(s.m_pitch, `@${t.toFixed(2)}`).toBeCloseTo(261.62, 2);
+      expect(s.m_pitch, `@${t.toFixed(2)}`).toBeUndefined(); // the metal is an INTERVAL above the tone
     }
+    expect(presetSound('perc', 3).m_interval).toBe(12);
+  });
+
+  const pitchOf = (extra: Record<string, number>, layer: 't' | 'm') => {
+    const d = new Drum(SR, PERC_PARAMS, PERC_VOICE);
+    const sound: Record<string, number> = { ...presetSound('perc', 0), t_sweep: 0, c_level: 0, drive: 1, ...extra };
+    if (layer === 'm') Object.assign(sound, { t_level: 0, m_level: 1, m_mode: 0, m_spread: 0, m_noise: 0, m_tone: 30 });
+    for (const id in sound) d.setParam(id, sound[id]);
+    d.noteOn(48, 1, 48);
+    const l = new Float32Array(SR / 4);
+    d.render(l, new Float32Array(l.length), 0, l.length);
+    let crossings = 0;
+    for (let i = 1; i < l.length; i++) if (l[i - 1] < 0 && l[i] >= 0) crossings++;
+    return crossings * 4;
+  };
+
+  it('DETUNE moves the metal off the tone; the tone stays on the step\'s note', () => {
+    expect(pitchOf({}, 't')).toBeCloseTo(261.6, -1); // note 48 = an octave above C3
+    expect(pitchOf({ detune: 1 }, 't')).toBeCloseTo(261.6, -1);
+    expect(pitchOf({}, 'm')).toBeCloseTo(523.2, -1); // an octave above
+    expect(pitchOf({ detune: 1 }, 'm')).toBeCloseTo(523.2 * Math.pow(2, 1 / 12), -1);
+    expect(pitchOf({ m_interval: 7 }, 'm')).toBeCloseTo(261.6 * Math.pow(2, 7 / 12), -1);
+  });
+});
+
+describe('drum BALANCE', () => {
+  const energy = (balance: number, layers: Record<string, number>) => {
+    const d = new Drum(SR, KICK_PARAMS, KICK_VOICE);
+    const sound: Record<string, number> = { ...presetSound('kick', 2), ...layers, balance };
+    for (const id in sound) d.setParam(id, sound[id]);
+    d.noteOn(36, 1, 36);
+    const l = new Float32Array(SR / 4);
+    d.render(l, new Float32Array(l.length), 0, l.length);
+    return l.reduce((a, v) => a + v * v, 0);
+  };
+
+  it('centre = as designed; each end leaves one element alone', () => {
+    expect(energy(0.5, { c_level: 0 })).toBeCloseTo(energy(0, { c_level: 0 }), 6); // left: the tone at full
+    expect(energy(1, { c_level: 0 })).toBe(0); // right: no tone
+    expect(energy(0, { t_level: 0 })).toBe(0); // left: no click
+    expect(energy(0.75, {})).toBeLessThan(energy(0.5, {}));
+  });
+});
+
+describe('FX 1 FILTER (one knob: low-pass <- off -> high-pass)', () => {
+  const through = (pos: number, freq: number) => {
+    const bus = new DrumBus(SR);
+    bus.setParam('flt', pos);
+    bus.settle();
+    const n = SR / 2;
+    const x = Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * freq * i) / SR) * 0.5);
+    const l = new Float32Array(n), r = new Float32Array(n);
+    bus.setClock(0, 1 / 6000);
+    bus.process(x, x.slice(), l, r, 0, n);
+    let peak = 0;
+    for (let i = n / 2; i < n; i++) peak = Math.max(peak, Math.abs(l[i]));
+    return peak / 0.5;
+  };
+
+  it('is transparent in the middle, darkens to the left and thins to the right', () => {
+    expect(through(0.5, 100)).toBeCloseTo(1, 3);
+    expect(through(0.5, 6000)).toBeCloseTo(1, 3);
+    expect(through(0.2, 6000)).toBeLessThan(0.05);
+    expect(through(0.2, 100)).toBeGreaterThan(0.7);
+    expect(through(0.9, 100)).toBeLessThan(0.05);
+    expect(through(0.9, 12000)).toBeGreaterThan(0.5);
+    expect(formatValue(DRUM_BUS_PARAMS.find((p) => p.id === 'flt')!, 0.5)).toBe('OFF');
+    expect(formatValue(DRUM_BUS_PARAMS.find((p) => p.id === 'flt')!, 0.2)).toMatch(/^LP /);
+    expect(formatValue(DRUM_BUS_PARAMS.find((p) => p.id === 'flt')!, 0.8)).toMatch(/^HP /);
+  });
+});
+
+describe('v23: drum filter gone, PERC interval, FX 1 FILTER', () => {
+  it('older saves keep their sound: LP cutoff -> FILTER, metal Hz -> INTERVAL, dead live knobs reset', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p))) as Record<string, any>;
+    stored.version = 22;
+    stored.fx1 = { ...stored.fx1, lp_cutoff: 800 };
+    delete stored.fx1.flt;
+    const perc = stored.channels[3];
+    perc.sounds.perc = { ...perc.sounds.perc, m_pitch: perc.sounds.perc.t_pitch * Math.pow(2, 7 / 12) };
+    delete perc.sounds.perc.m_interval;
+    stored.channels[2].live = ['macro:decay', 'cutoff'];
+    const back = fromStored(stored)!;
+    expect(djCutoff(back.fx1.flt)).toBeCloseTo(-800, -1);
+    expect(back.channels[3].sounds.perc!.m_interval).toBe(7);
+    expect(back.channels[2].live).toEqual(INSTRUMENTS.hat.live);
   });
 });
