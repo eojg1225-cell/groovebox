@@ -23,7 +23,7 @@ const ROW = PAGE_SLOTS / 2;
  * The synths' SOUND page (the only sound page). One column per module (top knob / bottom
  * knob): 1 TIMBRE / INTENSITY, 2 OSC 1 ATTACK / DECAY, 3 OSC 2 ATTACK / DECAY, 4 CUTOFF /
  * RESO, 5 FILTER ATTACK / DECAY, 6 DRIVE / CRUSH, 7 the type's tuning pair (`tune`: BASS /
- * LEAD SLIDE + DETUNE, CHORD CHORD + DETUNE), 8 `last` (FLT ENV / FM). PLUCK: column 7
+ * SLIDE + SUB, LEAD SLIDE + CARRIERS, CHORD CHORD + UNISON), 8 `last` (FLT ENV / FM). PLUCK: column 7
  * CHORD / ARP OCT, column 8 ARP / ARP RATE.
  */
 export function soundPage(elements: readonly string[], tune: readonly [string, string], last: readonly [string, string]): string[] {
@@ -49,9 +49,11 @@ export function drumPage(elements: readonly string[], pitch: readonly [string, s
   ];
 }
 
-/** Column 7 for the synths: mono ones SLIDE (time) / DETUNE, CHORD (the pad track) CHORD / DETUNE. */
-const MONO_TUNE = ['glide', 'detune'] as const;
-const PAD_TUNE = ['track:chord', 'detune'] as const;
+/**
+ * Column 7 for the synths: BASS SLIDE (time) / SUB, LEAD SLIDE / CARRIERS, CHORD (the pad
+ * track) CHORD / UNISON. DETUNE (the type's own width, never set by TIMBRE / INTENSITY) is
+ * on the FUNC layer under column 7's bottom knob.
+ */
 
 /** A 2 x 6 layout on the 2 x 8 panel: modules 1-6, modules 7-8 empty. */
 export function widen<T>(six: readonly (T | null)[]): (T | null)[] {
@@ -71,7 +73,8 @@ export function funcPage(top: readonly (string | null)[], bottom: readonly (stri
 const _ = null;
 /*
  * FUNC layers. Synths: column 1 SHAPE, element columns SUSTAIN / RELEASE (each
- * oscillator its own), column 7 OCTAVE + SUB / UNISON. Drums: column 1 the tone's wave
+ * oscillator its own), column 7 OCTAVE / DETUNE (CHORD column 4 CARRIERS, PLUCK column 4
+ * UNISON). Drums: column 1 the tone's wave
  * (or the metal's mode / FM), element columns the layers' LEVELs, then what is left of
  * the voice (metal FM / mode, hat head colour, spread, perc click reso and metal tone).
  */
@@ -222,20 +225,20 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: funcPage(['t_wave', 't_level', 'c_level', 'c_reso', 'm_tone', _, _, 'm_mode'], ['t_stime', _, _, _, 'm_spread', _, _, 'm_fm']),
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
-    name: 'BASS', live: ['cutoff', 'reso'], liveFunc: ['mix:volume', 'macro:env'], params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
-    funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'sub', _]),
+    name: 'BASS', live: ['cutoff', 'reso'], liveFunc: ['mix:volume', 'macro:env'], params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['glide', 'sub'], ['fenv', 'fm']),
+    funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'detune', _]),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
   pad: {
-    name: 'CHORD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, PAD_TUNE, ['fenv', 'fm']),
-    funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 3), 'unison', ...SYNTH_FUNC_TOP.slice(4)], ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'carriers', _]),
+    name: 'CHORD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'unison'], ['fenv', 'fm']),
+    funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 3), 'carriers', ...SYNTH_FUNC_TOP.slice(4)], ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'detune', _]),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: {
-    name: 'LEAD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, MONO_TUNE, ['fenv', 'fm']),
-    funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'carriers', _]),
+    name: 'LEAD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['glide', 'carriers'], ['fenv', 'fm']),
+    funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'detune', _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
   pluck: {
     name: 'PLUCK', gain: SYNTH_TRIM, live: ['macro:length', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
-    funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 7), 'fenv'], [...SYNTH_FUNC_BOTTOM, 'unison', 'fm']),
+    funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 3), 'unison', ...SYNTH_FUNC_TOP.slice(4, 7), 'fenv'], [...SYNTH_FUNC_BOTTOM, 'detune', 'fm']),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
 };
 

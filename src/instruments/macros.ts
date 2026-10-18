@@ -118,16 +118,16 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   bass: {
     anchors: [
-      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, detune: 0, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, drive: 1, glide: 0.03 } },
-      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, detune: 0.15, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, drive: 1.6, glide: 0.02 } },
+      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, drive: 1, glide: 0.03 } },
+      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, drive: 1.6, glide: 0.02 } },
       // 303: square through a resonant filter with a short, snappy envelope (accents and slides).
-      { name: '303', values: { shape: 3, fm: 0, fmratio: 2, detune: 0, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fdecay: 0.18, drive: 1.8, glide: 0.06 } },
-      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, detune: 0.75, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, drive: 3, glide: 0.04 } },
-      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, detune: 0, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, drive: 2.2, glide: 0.02 } },
+      { name: '303', values: { shape: 3, fm: 0, fmratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fdecay: 0.18, drive: 1.8, glide: 0.06 } },
+      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, drive: 3, glide: 0.04 } },
+      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, drive: 2.2, glide: 0.02 } },
     ],
     excite: [
       { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
-      { id: 'fm', floor: 0, knee: 0.5, top: 1 }, { id: 'reso', floor: 0.05, high: 1.2 }, { id: 'detune', floor: 0.05, high: 1.3 },
+      { id: 'fm', floor: 0, knee: 0.5, top: 1 }, { id: 'reso', floor: 0.05, high: 1.2 },
     ],
   },
   pad: {
@@ -135,19 +135,19 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // related ratios on one feedback modulator (carrier 1 : 2 : 3, modulator). INTENSITY 0 = carrier 1 alone, a plain pad;
     // the stack and the DX7-style FM come in as it rises, biting in the top quarter.
     anchors: [
-      { name: 'GLASS', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.72, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.4, detune: 0.2, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, drive: 1 } },
+      { name: 'GLASS', values: { fattack: 0.0005, shape: 0, fm: 0.72, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.4, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, drive: 1 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { unison: 0, fattack: 0.0005, shape: 0, fm: 0.78, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.2, carriers: 0.3, detune: 0.15, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, drive: 1.1 } },
-      { name: 'WARM', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.3, carriers: 0.45, detune: 0.4, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, drive: 1 } },
-      { name: 'STRINGS', values: { unison: 0, fattack: 0.0005, shape: 2, fm: 0.5, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, detune: 0.75, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, drive: 1.2 } },
-      // Euphoric and ethereal: unison saws with carriers on 3:2 and 3.
-      { name: 'ETHEREAL', values: { shape: 2, unison: 1, fm: 0.6, fmratio: 1.5, ratio2: 1.5, ratio3: 3, feedback: 0.25, carriers: 0.5, detune: 1.6, cutoff: 7000, reso: 0.15, fattack: 0.0005, fenv: 0.45, fdecay: 0.8, drive: 1.1 } },
+      { name: 'TINE', values: { fattack: 0.0005, shape: 0, fm: 0.78, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.2, carriers: 0.3, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, drive: 1.1 } },
+      { name: 'WARM', values: { fattack: 0.0005, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.3, carriers: 0.45, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, drive: 1 } },
+      { name: 'STRINGS', values: { fattack: 0.0005, shape: 2, fm: 0.5, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, drive: 1.2 } },
+      // Ethereal: odd carriers 1 : 3 : 5 lit by a 7x modulator - every sideband lands on a
+      // harmonic, so INTENSITY opens a bright, high shimmer above a hollow, clear body.
+      { name: 'ETHEREAL', values: { shape: 0, fm: 0.7, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.25, carriers: 0.6, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 1.2, drive: 1 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
-      { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'detune', floor: 0.1, high: 1.1 }, { id: 'drive', floor: 1, high: 1.5 },
-      { id: 'unison', floor: 0, high: 1.1 },
+      { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
     ],
   },
   lead: {
@@ -156,38 +156,39 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // carrier 1 alone plays a simple wave - one clear note; carriers 2 / 3 and the
     // modulation come in as it rises, the ratios biting in the top quarter.
     anchors: [
-      { name: 'ODD 2:3', values: { shape: 0.7, unison: 0, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, detune: 0.05, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, drive: 1.2 } },
+      { name: 'ODD 2:3', values: { shape: 0.7, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, drive: 1.2 } },
       // Organ: drawbar-style carriers 1 : 2 : 3 on soft waves, full sustain - a bass or a lead.
-      { name: 'ORGAN', values: { shape: 0.6, unison: 0, fm: 0.4, fmratio: 1, ratio2: 2, ratio3: 3, feedback: 0.15, carriers: 0.6, detune: 0.05, glide: 0.06, cutoff: 6000, reso: 0.05, fenv: 0.1, fdecay: 0.1, drive: 1.2 } },
-      { name: 'SAW 1:1', values: { shape: 2, unison: 0, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, detune: 0.25, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, drive: 1.3 } },
-      { name: 'OCT 1:2', values: { shape: 3, unison: 0, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, detune: 0.15, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, drive: 1.4 } },
-      { name: 'FIFTH 3:2', values: { shape: 1.5, unison: 0, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, detune: 0.1, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, drive: 1.3 } },
+      { name: 'ORGAN', values: { shape: 0.6, fm: 0.4, fmratio: 1, ratio2: 2, ratio3: 3, feedback: 0.15, carriers: 0.6, glide: 0.06, cutoff: 6000, reso: 0.05, fenv: 0.1, fdecay: 0.1, drive: 1.2 } },
+      { name: 'SAW 1:1', values: { shape: 2, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, drive: 1.3 } },
+      { name: 'OCT 1:2', values: { shape: 3, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, drive: 1.4 } },
+      { name: 'FIFTH 3:2', values: { shape: 1.5, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, drive: 1.3 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'cutoff', floor: 700, high: 1.4 }, { id: 'reso', floor: 0.05, high: 1.15 }, { id: 'drive', floor: 1, high: 1.5 },
-      { id: 'fenv', floor: 0.05, high: 1.3 }, { id: 'detune', floor: 0.05, high: 1.1 },
+      { id: 'fenv', floor: 0.05, high: 1.3 },
     ],
   },
   pluck: {
     // Glassy -> a bright saw pluck -> a hollow, buzzy square pluck -> a raging FM donk.
     anchors: [
       // Steel: an FM steel-drum pluck (inharmonic 1 : 2.5).
-      { name: 'STEEL', values: { shape: 0, fm: 0.7, fmratio: 2.5, detune: 0.1, unison: 0, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2 } },
-      { name: 'GLASS PLUCK', values: { shape: 1, fm: 0.25, fmratio: 3, detune: 0.2, unison: 0, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2 } },
-      { name: 'SAW PLUCK', values: { shape: 2, fm: 0.05, fmratio: 2, detune: 0.35, unison: 0.5, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2 } },
-      { name: 'SQUARE PLUCK', values: { shape: 3, fm: 0.1, fmratio: 2, detune: 0.25, unison: 0.2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5 } },
-      { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, detune: 0.1, unison: 0, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12 } },
+      { name: 'STEEL', values: { shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2 } },
+      { name: 'GLASS PLUCK', values: { shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2 } },
+      { name: 'SAW PLUCK', values: { shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2 } },
+      { name: 'SQUARE PLUCK', values: { shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5 } },
+      { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'fenv', floor: 0.1, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
-      { id: 'cutoff', floor: 500, high: 1.4 }, { id: 'drive', floor: 1, high: 1.6 }, { id: 'unison', floor: 0, high: 1.1 }, { id: 'detune', floor: 0.05, high: 1.1 },
+      { id: 'cutoff', floor: 500, high: 1.4 }, { id: 'drive', floor: 1, high: 1.6 },
     ],
   },
 };
 
-// The synths' amp envelopes (ATTACK / DECAY / SUSTAIN / RELEASE, both oscillators) are the
-// type's own, like the drums' tails: TIMBRE never sets them, so an ADSR you set stays put.
+// The synths' amp envelopes (ATTACK / DECAY / SUSTAIN / RELEASE, both oscillators) and
+// their width (DETUNE, UNISON) are the type's own, like the drums' tails: TIMBRE and
+// INTENSITY never set them, so an ADSR or a width you set stays put.
 
 /** Each type's four sounds before v19 (a fifth was added; older TIMBRE positions move). */
 const ANCHORS_V18: Record<SoundKind, readonly string[]> = {

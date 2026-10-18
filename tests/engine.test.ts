@@ -162,9 +162,9 @@ describe('instruments', () => {
     expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
-    expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['glide', 'detune']);
-    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['track:chord', 'detune']); // CHORD: chord select on the page
-    expect(INSTRUMENTS.pad.funcLayout).toContain('unison');
+    expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['glide', 'carriers']);
+    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['track:chord', 'unison']); // CHORD: chord select on the page
+    for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) expect(INSTRUMENTS[k].funcLayout[14], k).toBe('detune'); // FUNC under column 7
     expect(INSTRUMENTS.pad.layout).not.toContain('fmratio');
   });
 
@@ -753,7 +753,7 @@ describe('TIMBRE and INTENSITY macros', () => {
   });
 
   it('TIMBRE never changes tail lengths or the synths\' amp ADSR: they are the type\'s own', () => {
-    const tails = ['t_decay', 'm_decay', 'ring', 'attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2'];
+    const tails = ['t_decay', 'm_decay', 'detune', 'unison', 'attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2'];
     for (const k of SOUND_KINDS) {
       const ids = macroIds(k, INSTRUMENTS[k].params);
       for (const id of tails) expect(ids.has(id), `${k} ${id}`).toBe(false);
@@ -1265,20 +1265,38 @@ describe('hat head and RING', () => {
   });
 });
 
-describe('ETHEREAL pad', () => {
-  it('the FM supersaw renders cleanly', () => {
+describe('ETHEREAL chord', () => {
+  const chord = (name: string) => {
     const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
-    const sound = presetSound('pad', INSTRUMENTS.pad.presets.findIndex((p) => p.name === 'ETHEREAL'));
-    expect(sound.unison).toBeGreaterThan(0.5);
-    expect(sound.fmratio).toBe(1.5);
+    const sound: Record<string, number> = { ...presetSound('pad', INSTRUMENTS.pad.presets.findIndex((p) => p.name === name)), sustain: 0.8, sustain2: 0.8 };
     for (const id in sound) s.setParam(id, sound[id]);
     for (const n of [57, 60, 64, 67]) s.noteOn(n, 0.8, 57);
-    const l = new Float32Array(SR * 2);
-    s.render(l, new Float32Array(SR * 2), 0, l.length);
+    const l = new Float32Array(SR);
+    s.render(l, new Float32Array(SR), 0, l.length);
+    return { sound, l };
+  };
+  // Share of high-frequency energy (sample-to-sample differences against the signal).
+  const brightness = (l: Float32Array) => {
+    let d = 0, e = 0;
+    for (let i = 1; i < l.length; i++) { d += (l[i] - l[i - 1]) ** 2; e += l[i] ** 2; }
+    return d / e;
+  };
+
+  it('odd carriers 1 : 3 : 5 on a 7x modulator: a high shimmer, rendering cleanly', () => {
+    const { sound, l } = chord('ETHEREAL');
+    expect([sound.fmratio, sound.ratio2, sound.ratio3]).toEqual([7, 3, 5]);
     const st = stats(l);
     expect(st.nan).toBe(false);
     expect(st.peak).toBeGreaterThan(0.05);
     expect(st.peak).toBeLessThan(3);
+    for (const other of ['GLASS', 'WARM', 'STRINGS']) expect(brightness(l), other).toBeGreaterThan(brightness(chord(other).l));
+  });
+
+  it('width is the type\'s own: every sound has the same DETUNE / UNISON', () => {
+    for (const p of INSTRUMENTS.pad.presets) {
+      const s = presetSound('pad', INSTRUMENTS.pad.presets.indexOf(p));
+      expect([s.detune, s.unison], p.name).toEqual([0.25, 0]);
+    }
   });
 });
 
