@@ -135,19 +135,21 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // related ratios on one feedback modulator (carrier 1 : 2 : 3, modulator). INTENSITY 0 = carrier 1 alone, a plain pad;
     // the stack and the DX7-style FM come in as it rises, biting in the top quarter.
     anchors: [
-      { name: 'GLASS', values: { fattack: 0.0005, shape: 0, fm: 0.72, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.4, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, drive: 1 } },
+      { name: 'GLASS', values: { cfeedback: 0, fattack: 0.0005, shape: 0, fm: 0.72, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.4, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, drive: 1 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { fattack: 0.0005, shape: 0, fm: 0.78, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.2, carriers: 0.3, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, drive: 1.1 } },
-      { name: 'WARM', values: { fattack: 0.0005, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.3, carriers: 0.45, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, drive: 1 } },
-      { name: 'STRINGS', values: { fattack: 0.0005, shape: 2, fm: 0.5, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, drive: 1.2 } },
+      { name: 'TINE', values: { cfeedback: 0, fattack: 0.0005, shape: 0, fm: 0.78, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.2, carriers: 0.3, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, drive: 1.1 } },
+      { name: 'WARM', values: { cfeedback: 0, fattack: 0.0005, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.3, carriers: 0.45, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, drive: 1 } },
+      { name: 'STRINGS', values: { cfeedback: 0, fattack: 0.0005, shape: 2, fm: 0.5, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, drive: 1.2 } },
       // Ethereal: odd carriers 1 : 3 : 5 lit by a 7x modulator - every sideband lands on a
       // harmonic, so INTENSITY opens a bright, high shimmer above a hollow, clear body.
-      { name: 'ETHEREAL', values: { shape: 0, fm: 0.7, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.25, carriers: 0.6, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 1.2, drive: 1 } },
+      { name: 'ETHEREAL', values: { cfeedback: 0, shape: 0, fm: 0.7, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.25, carriers: 0.6, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 1.2, drive: 1 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
       { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
+      // Carrier 1 feeds back into itself above the middle: sines turn saw-like at the top.
+      { id: 'cfeedback', floor: 0, knee: 0.25, top: 1 },
     ],
   },
   lead: {

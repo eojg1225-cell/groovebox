@@ -60,6 +60,11 @@ export function dx7Index(fm: number): number {
 }
 /** Feedback at FEEDBACK 1 (DX7 feedback 7: just short of noise). */
 const MAX_FEEDBACK = 1.6;
+/**
+ * Carrier 1's feedback at CAR FB 1: a sine carrier ends as a bright saw-like edge, short of
+ * the DX7 fizz. On saw / square waves (already bright) only a fifth of it applies.
+ */
+const MAX_CARRIER_FEEDBACK = 1.3;
 
 /** Phase into 0..1 (modulated phases can leave it by a few cycles). */
 function wrap(p: number): number {
@@ -85,6 +90,8 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'ratio2', name: 'RATIO 2', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'ratio3', name: 'RATIO 3', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'feedback', name: 'FEEDBACK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // Carrier 1's own feedback (DX7-style: a sine turns saw-like as it rises). Set by INT.
+  { id: 'cfeedback', name: 'CAR FB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // Level of carriers 2 and 3 against carrier 1 (0 = one clear note, 1 = the full stack).
   { id: 'carriers', name: 'CARRIERS', min: 0, max: 1, defaultValue: 0.35, unit: '', curve: 'linear' },
   // ARP (played by the engine, which reads these two): chord / octave notes in turn while held.
@@ -132,7 +139,7 @@ const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'uni
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, decay: 0.6, decay2: 0.6, sustain: 0.6, sustain2: 0.6, release: 0.06, release2: 0.06, level: 0.75 });
 export const BASS_FIXED = { voice: 1 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3, level: 0.5, detune: 0.25 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback'], { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3, level: 0.5, detune: 0.25 });
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
@@ -183,7 +190,7 @@ class Voice {
   hold = false;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
   /** 3 CARRIER: carriers 2 / 3 phases and the modulator's last two outputs (feedback). */
-  p5 = 0; p6 = 0; fb1 = 0; fb2 = 0;
+  p5 = 0; p6 = 0; fb1 = 0; fb2 = 0; cf1 = 0; cf2 = 0;
   /** UNISON copies' phases. */
   readonly u = new Float64Array(4);
   /** Envelope stage and level per element (OSC 1, OSC 2). */
@@ -204,6 +211,7 @@ export class Synth implements Instrument {
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35;
   private fmMod = 0; private fmEff = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
+  private cFeedback = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
   private slideCoeff = 1;
@@ -274,6 +282,7 @@ export class Synth implements Instrument {
     if (!sounding(v)) {
       for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
       v.fb1 = v.fb2 = 0;
+      v.cf1 = v.cf2 = 0;
     }
     v.stage[0] = STAGE_ATTACK;
     v.stage[1] = STAGE_ATTACK;
@@ -320,6 +329,7 @@ export class Synth implements Instrument {
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
       case 'feedback': this.feedback = value; break;
+      case 'cfeedback': this.cFeedback = value; break;
       case 'carriers': this.carriers = value; break;
       case 'algo': this.algo = Math.round(value); break;
       case 'detune': this.detune = value; break;
@@ -394,6 +404,7 @@ export class Synth implements Instrument {
       for (let k = 0; k < 4; k++) this.uRatio[k] = Math.pow(2, (UNISON_SPREAD[k] * cents) / 1200);
     }
     const uniGain = 1 / (1 + uni);
+    const cfbAmt = (this.cFeedback * MAX_CARRIER_FEEDBACK * (1 - 0.8 * Math.min(1, Math.max(0, this.shape - 1)))) / (2 * Math.PI);
     for (let vi = 0; vi < count; vi++) {
       const v = this.voices[vi];
       if (!sounding(v)) continue;
@@ -427,7 +438,11 @@ export class Synth implements Instrument {
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
           v.p6 += d6; if (v.p6 >= 1) v.p6 -= 1;
           const c = this.carriers;
-          const c1 = this.osc(wrap(v.p1 + pm), dt1);
+          // Carrier 1 into itself (its last two outputs averaged), scaled down on bright waves.
+          const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
+          const c1 = this.osc(wrap(v.p1 + pm + cfb), dt1);
+          v.cf2 = v.cf1;
+          v.cf1 = c1;
           o1 = c1 * (1 - 0.4 * c) + this.osc(wrap(v.p6 + pm), d6) * 0.6 * c;
           o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + pm), d5) * c;
         } else {

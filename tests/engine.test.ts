@@ -2255,3 +2255,46 @@ describe('DRIVE level compensation', () => {
     expect(driveCompGain(DRIVE_RISE.kick, 20)).toBeLessThan(driveCompGain(DRIVE_RISE.kick, 4));
   });
 });
+
+describe('CHORD carrier feedback (INT top half)', () => {
+  const note = (name: string, intensity: number, cfb?: number) => {
+    const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+    const t = anchorPosition('pad', MACROS.pad.anchors.findIndex((a) => a.name === name));
+    const sound: Record<string, number> = {
+      ...presetSound('pad', 0), ...macroSound('pad', t, intensity, PAD_PARAMS),
+      fm: 0, carriers: 0, cutoff: 20000, fenv: 0, detune: 0, unison: 0, sustain: 1, sustain2: 1,
+    };
+    if (cfb !== undefined) sound.cfeedback = cfb;
+    for (const id in sound) s.setParam(id, sound[id]);
+    s.noteOn(57, 1, 57);
+    const l = new Float32Array(SR / 2);
+    s.render(l, new Float32Array(l.length), 0, l.length);
+    return { l: l.subarray(SR / 4), sound };
+  };
+  const bright = (l: Float32Array) => {
+    let d = 0, e = 0;
+    for (let i = 1; i < l.length; i++) { d += (l[i] - l[i - 1]) ** 2; e += l[i] ** 2; }
+    return d / e;
+  };
+  // Similarity of the signal to itself one period later (1 = perfectly periodic, no fizz).
+  const periodic = (l: Float32Array) => {
+    const p = Math.round(SR / 220);
+    let a = 0, b = 0;
+    for (let i = 0; i + p < l.length; i++) { a += l[i] * l[i + p]; b += l[i] * l[i]; }
+    return a / b;
+  };
+
+  it('is off up to the middle and rises in the top half', () => {
+    for (const x of [0, 0.25, 0.5]) expect(note('GLASS', x).sound.cfeedback, `${x}`).toBeCloseTo(0);
+    expect(note('GLASS', 0.75).sound.cfeedback).toBeCloseTo(0.25);
+    expect(note('GLASS', 1).sound.cfeedback).toBeCloseTo(1);
+  });
+
+  it('turns a sine carrier bright and saw-like, still a clean pitched tone', () => {
+    const plain = note('GLASS', 0.5, 0).l;
+    const full = note('GLASS', 0.5, 1).l;
+    expect(bright(full)).toBeGreaterThan(bright(plain) * 3);
+    expect(periodic(full)).toBeGreaterThan(0.95);
+    expect(stats(full).nan).toBe(false);
+  });
+});
