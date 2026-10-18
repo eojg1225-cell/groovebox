@@ -42,7 +42,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
+  DYNAMIC_VELOCITY, emptyStep, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset, liveDefaults } from '../engine/defaultProject';
@@ -170,6 +170,9 @@ export class App {
   /** CLEAR held, and whether anything was cleared while it was. */
   private clearHeld = false;
   private clearUsed = false;
+  /** COPY held: + channel = copy the current pattern there, + FX 1-3 / LFO = to pattern A-D. */
+  private copyHeld = false;
+  private copyUsed = false;
   /** Channel button held down (its pattern A-D on the FX 1-3 / LFO buttons), and if it was used. */
   private heldTrack = -1;
   private heldUsed = false;
@@ -732,6 +735,26 @@ export class App {
         if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK');
         this.refreshPanel();
       }
+      if (id === 'copy') {
+        this.copyHeld = false;
+        if (!this.copyUsed) this.flash('HOLD COPY + TRACK / FX 1-3 LFO');
+        this.refreshPanel();
+      }
+      return;
+    }
+    if (id === 'copy') {
+      this.copyHeld = true;
+      this.copyUsed = false;
+      this.refreshPanel();
+      return;
+    }
+    if (this.copyHeld && ((m = /^ch(\d)$/.exec(id)) || (m = /^fx([1-4])$/.exec(id)))) {
+      // COPY + channel: the same pattern slot on that track; COPY + FX 1-3 / LFO: pattern
+      // A-D of this track.
+      const c = this.channel;
+      if (id.startsWith('ch')) this.copyPattern(this.selected, c.activePattern, Number(m[1]) - 1, c.activePattern);
+      else this.copyPattern(this.selected, c.activePattern, this.selected, Number(m[1]) - 1);
+      this.refreshPanel();
       return;
     }
     if (id === 'clear') {
@@ -1357,6 +1380,35 @@ export class App {
     this.save();
   }
 
+  /**
+   * COPY: a pattern (length, steps, flags) onto another track's / pattern slot. Onto KICK,
+   * SNARE and HAT the notes do not carry over (their hits play as designed); PERC and the
+   * synths keep them. Locks only go to a track of the same type.
+   */
+  private copyPattern(fromCh: number, fromPat: number, toCh: number, toPat: number): void {
+    if (fromCh === toCh && fromPat === toPat) {
+      this.flash('PICK ANOTHER TRACK / PATTERN');
+      return;
+    }
+    const from = this.project.channels[fromCh];
+    const to = this.project.channels[toCh];
+    const src = from.patterns[fromPat];
+    const dst = to.patterns[toPat];
+    const plainDrum = to.instrument !== 'none' && stepsOnStrip(to.instrument);
+    dst.length = src.length;
+    this.send({ type: 'setPatternLength', channel: toCh, pattern: toPat, length: dst.length });
+    src.steps.forEach((s, i) => {
+      const step: Step = JSON.parse(JSON.stringify(s));
+      if (plainDrum) step.note = emptyStep().note; // a drum's own pitch (as designed)
+      if (from.instrument !== to.instrument) delete step.locks;
+      dst.steps[i] = step;
+      this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
+    });
+    this.copyUsed = true;
+    this.flash(`COPIED ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${this.kindName(to)} ${PATTERN_NAMES[toPat]}`);
+    this.save();
+  }
+
   /** CLEAR + channel: empty that track's current pattern (its sound stays). */
   private clearTrack(ch: number): void {
     const c = this.project.channels[ch];
@@ -1608,6 +1660,8 @@ export class App {
     this.panel.setButtonLit('clear', this.clearHeld);
     this.panel.setButtonLit('reset', this.glides.size > 0);
     this.panel.setButtonEnabled('clear', this.mode !== 'design');
+    this.panel.setButtonLit('copy', this.copyHeld);
+    this.panel.setButtonEnabled('copy', this.mode !== 'design');
     this.panel.setButtonLit('play', this.playing);
     this.panel.setButtonText('play', this.playing ? 'STOP' : 'PLAY');
 
@@ -1844,7 +1898,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
+      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / FX = PATTERN' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
