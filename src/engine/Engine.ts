@@ -184,6 +184,8 @@ export class Engine {
   /** PLAY mode RING / SLIDE: every hit on the track plays with that flag (not stored). */
   private readonly forceRing = new Uint8Array(NUM_CHANNELS);
   private readonly forceSlide = new Uint8Array(NUM_CHANNELS);
+  /** PLAY mode ACCENT / GHOST: every hit at this velocity (0 = the step's own). */
+  private readonly forceVel = new Float32Array(NUM_CHANNELS);
   private readonly busL: Float32Array[] = [];
   private readonly busR: Float32Array[] = [];
   private readonly tape: Tape;
@@ -295,7 +297,11 @@ export class Engine {
       case 'release': this.release(msg.channel, msg.note); break;
       case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
       case 'setChord': this.chord[msg.channel] = msg.chord; break;
-      case 'setForce': this.forceRing[msg.channel] = msg.ring ? 1 : 0; this.forceSlide[msg.channel] = msg.slide ? 1 : 0; break;
+      case 'setForce':
+        this.forceRing[msg.channel] = msg.ring ? 1 : 0;
+        this.forceSlide[msg.channel] = msg.slide ? 1 : 0;
+        this.forceVel[msg.channel] = msg.velocity ?? 0;
+        break;
       case 'recordNote': this.recordNote(msg.channel, msg.note, msg.velocity, msg.accent, msg.slide === true); break;
       case 'recordLock': this.recordLock(msg.channel, msg.id, msg.value); break;
       case 'ping': break; // answered by the host
@@ -490,7 +496,8 @@ export class Engine {
         const drumRoll = this.rollDiv[ch] > 0 && slideFlag;
         // A SLIDE note is held (like RING) until the next note, which it glides into.
         const slide = this.rollDiv[ch] === 0 && slideFlag;
-        this.noteOn(ch, this.stepNote[s], this.stepVel[s], ring, slideFrom, slide);
+        const vel = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
+        this.noteOn(ch, this.stepNote[s], vel, ring, slideFrom, slide);
         this.gateGroup[ch] = this.stepNote[s];
         this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
         this.ringing[ch] = ring || slide ? 1 : 0;
@@ -501,7 +508,7 @@ export class Engine {
           this.rollEvery[ch] = stepLen / roll;
           this.rollAt[ch] = stepLen / roll;
           this.rollNote[ch] = this.stepNote[s];
-          this.rollVel[ch] = this.stepVel[s];
+          this.rollVel[ch] = vel;
         }
       }
       this.skipStep[ch] = -1;

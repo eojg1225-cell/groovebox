@@ -2198,6 +2198,18 @@ describe('PLAY mode RING / SLIDE (all notes)', () => {
     expect(tail(true)).toBeGreaterThan(tail(false) * 10 + 1e-4);
   });
 
+  it('ACCENT / GHOST play every hit at that dynamic', () => {
+    const peak = (velocity?: number) => {
+      const p = kickProject([0], { bpm: 120 });
+      const e = engineWith(p);
+      if (velocity) e.handleMessage({ type: 'setForce', channel: 0, ring: false, slide: false, velocity });
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 0.2).l).peak;
+    };
+    expect(peak(1)).toBeGreaterThan(peak() * 1.1);
+    expect(peak(0.45)).toBeLessThan(peak() * 0.75);
+  });
+
   it('SLIDE on a drum track rolls every hit at its ROLL DIV', () => {
     const hits = (force: boolean) => {
       const p = kickProject([0], { bpm: 120 });

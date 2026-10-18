@@ -145,6 +145,8 @@ export class App {
   /** PLAY: RING / SLIDE per track = every note plays as a RING / SLIDE (ROLL) note. */
   private readonly forceRing: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private readonly forceSlide: boolean[] = new Array(NUM_CHANNELS).fill(false);
+  /** PLAY: ACCENT / GHOST per track = every note at that dynamic ('normal' = its own). */
+  private readonly forceDyn: Dynamic[] = new Array(NUM_CHANNELS).fill('normal');
   /** REST armed (drum tracks): tapping a step places / removes a rest marker. */
   restArm = false;
   /**
@@ -769,7 +771,7 @@ export class App {
       if (this.mode !== 'record') { this.ring = false; this.slideArm = false; }
       if (this.mode !== 'play') {
         for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-          if (this.forceRing[ch] || this.forceSlide[ch]) this.setForce(ch, false, false);
+          if (this.forceRing[ch] || this.forceSlide[ch] || this.forceDyn[ch] !== 'normal') this.setForce(ch, false, false, 'normal');
         }
       }
       this.touchedKnob = -1;
@@ -827,13 +829,20 @@ export class App {
       this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
     } else if ((id === 'dyn:accent' || id === 'dyn:ghost') && this.flagPaintable) {
       this.flagDown(id); // tap = arm (on release), hold = paint steps
-    } else if ((id === 'ring' || id === 'slide') && this.mode === 'play') {
+    } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.mode === 'play') {
+      // PLAY: a live effect on the selected track's notes, tap on / tap off.
       const ch = this.selected;
       const ring = id === 'ring' ? !this.forceRing[ch] : this.forceRing[ch];
       const slide = id === 'slide' ? !this.forceSlide[ch] : this.forceSlide[ch];
-      this.setForce(ch, ring, slide);
-      const on = id === 'ring' ? ring : slide;
-      this.flash(`${id === 'ring' ? 'RING' : this.slideName} ALL NOTES ${on ? 'ON' : 'OFF'}`);
+      let dyn = this.forceDyn[ch];
+      if (id === 'dyn:accent' || id === 'dyn:ghost') {
+        const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
+        dyn = dyn === d ? 'normal' : d; // ACCENT and GHOST exclude each other
+      }
+      this.setForce(ch, ring, slide, dyn);
+      const on = id === 'ring' ? ring : id === 'slide' ? slide : dyn !== 'normal';
+      const name = id === 'ring' ? 'RING' : id === 'slide' ? this.slideName : id.slice(4).toUpperCase();
+      this.flash(`${name} ALL NOTES ${on ? 'ON' : 'OFF'}`);
     } else if (id === 'ring' || id === 'slide') {
       // RECORD: tap = place this flag on the strip (one at a time), tap again = back.
       const on = id === 'ring' ? !this.ring : !this.slideArm;
@@ -1087,7 +1096,8 @@ export class App {
   }
 
   private velocity(): number {
-    return this.dynamic === 'accent' ? 1 : this.dynamic === 'ghost' ? 0.45 : 0.8;
+    const d = this.mode === 'play' ? this.forceDyn[this.selected] : this.dynamic;
+    return DYNAMIC_VELOCITY[d];
   }
 
   private onStrip(button: number): void {
@@ -1266,11 +1276,12 @@ export class App {
     this.save();
   }
 
-  /** PLAY: every note on a track as RING / SLIDE (ROLL) notes, or back. */
-  private setForce(ch: number, ring: boolean, slide: boolean): void {
+  /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
+  private setForce(ch: number, ring: boolean, slide: boolean, dyn: Dynamic): void {
     this.forceRing[ch] = ring;
     this.forceSlide[ch] = slide;
-    this.send({ type: 'setForce', channel: ch, ring, slide });
+    this.forceDyn[ch] = dyn;
+    this.send({ type: 'setForce', channel: ch, ring, slide, velocity: dyn === 'normal' ? 0 : DYNAMIC_VELOCITY[dyn] });
   }
 
   /** Hits per step of a ROLL-flagged drum step on this channel (its sound's ROLL DIV). */
@@ -1609,8 +1620,9 @@ export class App {
     // Synths: SLIDE; drums: ROLL (same button, same step flag).
     this.panel.setButtonText('slide', this.slideName);
     this.panel.setButtonEnabled('slide', rec || play);
-    this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent' || this.flagPaint.has('dyn:accent'));
-    this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost' || this.flagPaint.has('dyn:ghost'));
+    const dyn = play ? this.forceDyn[this.selected] : this.dynamic;
+    this.panel.setButtonLit('dyn:accent', dyn === 'accent' || this.flagPaint.has('dyn:accent'));
+    this.panel.setButtonLit('dyn:ghost', dyn === 'ghost' || this.flagPaint.has('dyn:ghost'));
     this.panel.setButtonEnabled('ring', rec || play);
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
