@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "types": ["vite/client"] },
+  "include": ["main.ts", "worklet.ts", "vite.config.ts", "../../src/worklet/worklet-globals.d.ts"]
+}

@@ -3,3 +3,5 @@ dist
 *.log
 .DS_Store
 dist-artifact
+dist-soundtest
+dist-soundtest-artifact

@@ -1,0 +1,76 @@
+/* Layout: one hardware-like deck (transport, track, two big knobs) above the list of TIMBRE rules. */
+:root {
+  --bg: #e9eef0;
+  --panel: #f8fafb;
+  --line: #cdd6da;
+  --fg: #172226;
+  --muted: #5b696f;
+  --teal: #12857a;
+  --gold: #a6720c;
+  --knob: #dfe6e9;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111417; --panel: #1b2127; --line: #2d363e; --fg: #dde5ea; --muted: #8c99a0;
+    --teal: #3cc8b4; --gold: #e8b53a; --knob: #262e35; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111417; --panel: #1b2127; --line: #2d363e; --fg: #dde5ea; --muted: #8c99a0;
+  --teal: #3cc8b4; --gold: #e8b53a; --knob: #262e35; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.5; margin: 0; }
+.wrap {
+  max-width: 860px; margin: 0 auto; display: grid; gap: 24px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 40px;
+}
+header { display: grid; gap: 6px; }
+h1 { font-family: var(--display); font-weight: 600; font-size: 1.8rem; margin: 0; text-wrap: balance; }
+header p, .foot { margin: 0; color: var(--muted); max-width: 66ch; }
+.foot { font-size: 0.9rem; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 10px; }
+.deck { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 18px; }
+.transport { display: flex; align-items: center; gap: 14px; }
+.play {
+  font-family: var(--display); font-weight: 600; font-size: 1.1rem; letter-spacing: 0.08em; text-transform: uppercase;
+  min-width: 120px; padding: 12px 22px; border-radius: 10px; border: 1px solid var(--line); background: var(--knob); color: var(--fg); cursor: pointer;
+}
+.play.on { background: var(--teal); border-color: var(--teal); color: var(--bg); }
+.play:focus-visible, .knob:focus-visible, .names button:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+.bpm { font-family: var(--display); color: var(--muted); letter-spacing: 0.06em; }
+.tracks { display: flex; flex-wrap: wrap; gap: 8px 20px; font-family: var(--display); letter-spacing: 0.05em; }
+.tracks label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.tracks small { font-family: var(--body); color: var(--muted); letter-spacing: 0; }
+.solo { margin-left: auto; }
+.knobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+.knob-wrap { display: grid; justify-items: center; gap: 4px; min-width: 0; }
+.knob { width: 150px; height: 150px; touch-action: none; cursor: ns-resize; border-radius: 50%; }
+.knob svg { width: 100%; height: 100%; display: block; }
+.knob .track { fill: none; stroke: var(--line); stroke-width: 6; stroke-linecap: round; }
+.knob .arc { fill: none; stroke: var(--teal); stroke-width: 6; stroke-linecap: round; }
+.knob .cap { fill: var(--knob); stroke: var(--line); stroke-width: 1.5; }
+.knob .ptr { stroke: var(--fg); stroke-width: 4; stroke-linecap: round; }
+.klabel { font-family: var(--display); font-weight: 600; letter-spacing: 0.1em; }
+.kval { font-family: var(--display); color: var(--teal); min-height: 1.5em; text-align: center; }
+.names { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.names button {
+  font-family: var(--display); font-size: 0.75rem; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
+}
+.names button:hover { color: var(--fg); border-color: var(--teal); }
+.modes { display: grid; gap: 10px; }
+.mode {
+  display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+}
+.mode:has(input:checked) { border-color: var(--teal); box-shadow: inset 4px 0 0 var(--teal); }
+.mode input { margin-top: 4px; accent-color: var(--teal); }
+.mode span { min-width: 0; color: var(--muted); }
+.mode b { display: block; font-family: var(--display); font-weight: 600; color: var(--fg); letter-spacing: 0.03em; }
+.err { color: var(--gold); margin: 0; min-height: 0; }
+.err:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
