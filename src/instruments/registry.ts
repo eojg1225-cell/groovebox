@@ -189,9 +189,10 @@ export function liveContribution(t: LiveTarget, offset: number): number {
 
 /** CHORD / LEAD / PLUCK output trim (-14 dB). */
 export const SYNTH_TRIM = 0.2;
-/** Per type balance on top of it: CHORD +10 %, LEAD -20 % (so their defaults sit together). */
+/** Per type balance on top of it (so their defaults sit together). */
 const CHORD_GAIN = SYNTH_TRIM * 1.1;
-const LEAD_GAIN = SYNTH_TRIM * 0.8;
+const LEAD_GAIN = SYNTH_TRIM * 0.88;
+const PLUCK_GAIN = SYNTH_TRIM * 1.1;
 
 export interface InstrumentEntry {
   name: string;
@@ -259,7 +260,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: susRel([_, _, _, 'octave'], [_, _, _, _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
-    name: 'PLUCK', gain: SYNTH_TRIM, live: ['track:notes', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS,
+    name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS,
     layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'detune']),
     funcLayout: susRel([_, 'unison', 'octave', 'arp'], [_, _, 'arpoct', 'arprate']),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },

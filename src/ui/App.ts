@@ -367,7 +367,12 @@ export class App {
     const following = ch !== this.selected || this.mode === 'play' || this.recording;
     let page: number;
     if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
-    else if (!stepsOnStrip(c.instrument) && this.mode === 'record') page = Math.floor(this.cursor[ch] / 16);
+    else if (!stepsOnStrip(c.instrument) && this.mode === 'record') {
+      // Step entry: the cursor's block, or while a note is being tied, the block its end is in
+      // (a tie runs on past the bar line into the next block, and round past the loop end).
+      const at = this.entry ? (this.entry.index + c.patterns[c.activePattern].steps[this.entry.index].gate - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
+      page = Math.floor(at / 16);
+    }
     else page = this.viewPage[ch];
     return Math.min(page, this.pageCount(ch) - 1);
   }
