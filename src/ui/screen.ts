@@ -8,12 +8,12 @@ export const SCREEN_W = 256;
 export const SCREEN_H = 128;
 
 export const INK = {
-  bg: '#0a1410',
-  dim: '#1f4a35',
-  mid: '#3fa070',
-  hi: '#9cffc8',
-  warn: '#ffb347',
-  shade: '#11241b',
+  bg: '#061312',
+  dim: '#1a4842',
+  mid: '#34a596',
+  hi: '#a0f5ea',
+  warn: '#e8b53a',
+  shade: '#0f2422',
 } as const;
 
 export class PixelScreen {
