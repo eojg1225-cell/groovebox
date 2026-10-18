@@ -1,3 +1,4 @@
+import { dynVelocity } from '../src/engine/mixParams';
 import { describe, expect, it } from 'vitest';
 import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
 import { djCutoff, formatValue, toNorm, toValue } from '../src/engine/params';
@@ -2152,5 +2153,34 @@ describe('v23: drum filter gone, PERC interval, FX 1 FILTER', () => {
     expect(djCutoff(back.fx1.flt)).toBeCloseTo(-800, -1);
     expect(back.channels[3].sounds.perc!.m_interval).toBe(7);
     expect(back.channels[2].live).toEqual(INSTRUMENTS.hat.live);
+  });
+});
+
+describe('ACC/GHOST depth (per track)', () => {
+  it('scales how far accents and ghosts sit from a normal hit, both ways at once', () => {
+    expect(dynVelocity(0.8, 0)).toBe(0.8);
+    expect(dynVelocity(1, 0)).toBeCloseTo(0.8);
+    expect(dynVelocity(0.45, 0)).toBeCloseTo(0.8);
+    expect(dynVelocity(1, 1)).toBe(1);
+    const db = (v: number) => 20 * Math.log10(v / 0.8);
+    expect(db(dynVelocity(1, 2))).toBeCloseTo(2 * db(1));
+    expect(db(dynVelocity(0.45, 2))).toBeCloseTo(2 * db(0.45));
+  });
+
+  it('a track at 0 % plays accents, normal hits and ghosts at one level', () => {
+    const peak = (velocity: number, dyn: number) => {
+      const p = kickProject([0], { bpm: 120 });
+      p.channels[0].dynamics = dyn;
+      p.channels[0].patterns[0].steps[0].velocity = velocity;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 0.2).l).peak;
+    };
+    expect(peak(1, 0)).toBeCloseTo(peak(0.8, 0), 3);
+    expect(peak(0.45, 0)).toBeCloseTo(peak(0.8, 0), 3);
+    expect(peak(0.45, 200)).toBeLessThan(peak(0.45, 100));
+    const p = createDefaultProject();
+    p.channels[2].dynamics = 150;
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[2].dynamics).toBe(150);
   });
 });

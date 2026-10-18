@@ -1,3 +1,4 @@
+import { dynVelocity } from './mixParams';
 import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
@@ -178,6 +179,8 @@ export class Engine {
   private readonly sends: (SendBus | null)[] = [];
   private readonly route = new Int8Array(NUM_CHANNELS).fill(-1); // bus index or -1
   private readonly sendLevel: Smoother[] = [];
+  /** ACC/GHOST depth per track (1 = as designed; see dynVelocity). */
+  private readonly dynDepth = new Float32Array(NUM_CHANNELS).fill(1);
   private readonly busL: Float32Array[] = [];
   private readonly busR: Float32Array[] = [];
   private readonly tape: Tape;
@@ -324,6 +327,7 @@ export class Engine {
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
+      this.setMix(ch, 'dyn', c.dynamics ?? 100);
       this.route[ch] = this.busIndex(c.fxSend);
       this.inDrumBus[ch] = c.fx1 ? 1 : 0;
       this.sendLevel[ch].setImmediate(c.sendLevel);
@@ -558,6 +562,7 @@ export class Engine {
   private noteOn(ch: number, note: number, velocity: number, ring = false, slideFrom = -1, slide = false): void {
     const inst = this.current[ch];
     if (!inst) return;
+    velocity = dynVelocity(velocity, this.dynDepth[ch]);
     if (this.gateSteps[ch] > 0 && slideFrom < 0) this.releaseGate(ch);
     const fc = hitToneCutoff(velocity);
     this.toneL[ch].setup(fc, 0, this.sampleRate);
@@ -586,7 +591,8 @@ export class Engine {
     if (!inst) return;
     const note = this.rollNote[ch];
     const intervals = CHORDS[this.chord[ch]]?.intervals ?? CHORDS[0].intervals;
-    for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], this.rollVel[ch], note, this.ringing[ch] === 1);
+    const vel = dynVelocity(this.rollVel[ch], this.dynDepth[ch]);
+    for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], vel, note, this.ringing[ch] === 1);
   }
 
   /** ARP: play the next note of the held chord (and schedule the one after). */
@@ -1033,6 +1039,7 @@ export class Engine {
 
   private setMix(ch: number, id: MixParam, value: number): void {
     if (id === 'send') { this.sendLevel[ch].setTarget(value); return; }
+    if (id === 'dyn') { this.dynDepth[ch] = value / 100; return; }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);
     else this.muted[ch] = value > 0 ? 1 : 0;

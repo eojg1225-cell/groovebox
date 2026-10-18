@@ -5,9 +5,27 @@ export const MIX_PARAMS: readonly ParamSpec[] = [
   { id: 'volume', name: 'VOLUME', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
   { id: 'pan', name: 'PAN', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'send', name: 'SEND LVL', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
+  // ACCENT / GHOST depth: how far accents and ghosts sit from a normal hit (100 % = as
+  // designed, 0 % = every hit the same, 200 % = twice the difference in dB).
+  { id: 'dyn', name: 'ACC/GHOST', min: 0, max: 200, defaultValue: 100, unit: '%', curve: 'linear', decimals: 0 },
 ];
 
-export type MixId = 'volume' | 'pan' | 'send';
+export type MixId = 'volume' | 'pan' | 'send' | 'dyn';
+
+/** The channel field each mixer parameter lives in. */
+export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics' } as const;
+
+/** Velocity of a normal hit (ghost 0.45, accent 1.0). */
+export const NORMAL_VELOCITY = 0.8;
+
+/**
+ * A hit's velocity after the track's ACC/GHOST depth: its distance from a normal hit is
+ * scaled in dB (depth 1 = unchanged, 0 = normal, 2 = twice as far either way).
+ */
+export function dynVelocity(velocity: number, depth: number): number {
+  if (depth === 1 || velocity <= 0) return velocity;
+  return NORMAL_VELOCITY * Math.pow(velocity / NORMAL_VELOCITY, depth);
+}
 
 export const BPM_MIN = 40;
 export const BPM_MAX = 300;

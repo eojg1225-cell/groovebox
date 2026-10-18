@@ -37,7 +37,7 @@
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES } from '../engine/chords';
@@ -447,7 +447,7 @@ export class App {
       const mixId = id.slice(MIX_PREFIX.length) as MixId;
       const spec = MIX_PARAMS.find((p) => p.id === mixId);
       if (!spec) return null;
-      const field = mixId === 'send' ? 'sendLevel' : mixId;
+      const field = MIX_FIELD[mixId];
       return {
         label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
         get: () => c[field],
@@ -640,6 +640,9 @@ export class App {
         set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
       });
     }
+    // Bottom row: ACC/GHOST under VOLUME.
+    while (targets.length < 10) targets.push(null);
+    targets.push(this.paramTarget(ch, 'mix:dyn'));
     return targets;
   }
 
@@ -873,8 +876,7 @@ export class App {
       const s = saved.channels[ch];
       if (!s) return;
       for (const spec of MIX_PARAMS) {
-        const field = spec.id === 'send' ? 'sendLevel' : (spec.id as 'volume' | 'pan');
-        fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[field]);
+        fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[MIX_FIELD[spec.id as MixId]] ?? spec.defaultValue);
       }
       if (!isDrum(c.instrument)) fromTarget(this.paramTarget(ch, 'track:chord'), s.chord);
       // Relative live knobs glide back to the centre (the sound as set).

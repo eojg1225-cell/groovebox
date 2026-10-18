@@ -63,6 +63,7 @@ export interface StoredChannel {
   fx1: boolean;
   fxSend: number;
   sendLevel: number;
+  dynamics?: number;
   lfoOn: boolean;
   mute: boolean;
   activePattern: number;
@@ -113,6 +114,7 @@ export function toStored(p: Project): StoredProject {
       fx1: c.fx1,
       fxSend: c.fxSend,
       sendLevel: c.sendLevel,
+      dynamics: c.dynamics,
       lfoOn: c.lfoOn,
       mute: c.mute,
       activePattern: c.activePattern,
@@ -280,6 +282,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   const trim = ch.instrument === 'none' || INSTRUMENTS[ch.instrument].gain === undefined ? 1 : SYNTH_TRIM;
   if (version < 20 && trim < 1) ch.volume = Math.min(1, ch.volume / trim);
   ch.pan = num(src.pan, ch.pan, -1, 1);
+  ch.dynamics = num(src.dynamics, 100, 0, 200);
   ch.mute = src.mute === true;
   if (version >= 7) {
     ch.fx1 = src.fx1 === true;

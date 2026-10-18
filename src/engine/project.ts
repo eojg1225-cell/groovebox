@@ -124,6 +124,8 @@ export interface ChannelState {
   fxSend: number;
   /** How much of the track goes to its send, 0..1. */
   sendLevel: number;
+  /** ACC/GHOST: how far accents and ghosts sit from normal hits, % (100 = as designed). */
+  dynamics: number;
   /** The track is modulated by the (shared) LFO. */
   lfoOn: boolean;
   mute: boolean;
@@ -180,6 +182,7 @@ export function emptyChannel(): ChannelState {
     fx1: false,
     fxSend: 0,
     sendLevel: 0.5,
+    dynamics: 100,
     lfoOn: false,
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
