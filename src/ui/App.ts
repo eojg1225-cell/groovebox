@@ -624,7 +624,7 @@ export class App {
 
   /**
    * DESIGN > PROJECT: the project settings on top (TEMPO, SWING, MASTER, LO-FI); below, the
-   * selected track's setup: PRESET, LIVE 1 / 2 (LIVE 3 / 4 with FUNC), CHORD (synths).
+   * selected track's setup: PRESET, LIVE 1 / 2 (LIVE 3 / 4 with FUNC), CHORD and GATE (synths).
    */
   private projectTargets(): (KnobTarget | null)[] {
     const ch = this.selected;
@@ -659,7 +659,10 @@ export class App {
         },
       });
     }
-    if (!isDrum(kind)) targets.push(this.paramTarget(ch, 'track:chord'));
+    if (!isDrum(kind)) {
+      targets.push(this.paramTarget(ch, 'track:chord'));
+      targets.push(this.paramTarget(ch, MIX_PREFIX + 'gate'));
+    }
     return targets;
   }
 

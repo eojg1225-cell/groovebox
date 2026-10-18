@@ -129,6 +129,8 @@ export interface ChannelState {
   sendLevel: number;
   /** ACC/GHOST: how far accents and ghosts sit from normal hits, % (100 = as designed). */
   dynamics: number;
+  /** GATE: how long each sequenced note's last step is held, in steps (1/8 .. 2; 1 = as entered). */
+  gateLength: number;
   /** The track is modulated by the (shared) LFO. */
   lfoOn: boolean;
   mute: boolean;
@@ -187,6 +189,7 @@ export function emptyChannel(): ChannelState {
     fxSend: 0,
     sendLevel: 0.5,
     dynamics: 100,
+    gateLength: 1,
     lfoOn: false,
     mute: false,
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),

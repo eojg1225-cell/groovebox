@@ -126,6 +126,9 @@ export class Engine {
   private readonly notes = new Uint8Array(NUM_CHANNELS).fill(MAX_CHORD_NOTES);
   /** Steps until the sequenced note on a channel is released (0 = none held). */
   private readonly gateSteps = new Int16Array(NUM_CHANNELS);
+  /** GATE per track (steps the last step of a note is held), and a pending early / late release (frames, -1 = none). */
+  private readonly gateLength = new Float64Array(NUM_CHANNELS).fill(1);
+  private readonly gateAt = new Float64Array(NUM_CHANNELS).fill(-1);
   private readonly gateGroup = new Int16Array(NUM_CHANNELS);
   /** The held note is a RING note: it ends at the next hit or rest, not by count. */
   private readonly ringing = new Uint8Array(NUM_CHANNELS);
@@ -353,6 +356,7 @@ export class Engine {
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
       this.setMix(ch, 'dyn', c.dynamics ?? 100);
+      this.setMix(ch, 'gate', c.gateLength ?? 1);
       this.route[ch] = this.busIndex(c.fxSend);
       this.inDrumBus[ch] = c.fx1 ? 1 : 0;
       this.sendLevel[ch].setImmediate(c.sendLevel);
@@ -394,6 +398,7 @@ export class Engine {
         if (this.arpHeld[ch]) this.stopArp(ch);
         this.current[ch]?.noteOff(-1);
         this.gateSteps[ch] = 0;
+        this.gateAt[ch] = -1;
         this.recNote[ch] = -1;
         this.restoreBase(ch);
       }
@@ -423,6 +428,13 @@ export class Engine {
       if (this.playing) {
         const until = Math.ceil(this.framesToStep);
         if (until < n) n = until;
+        // GATE releases land on their exact sample.
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+          if (this.gateAt[ch] < 0) continue;
+          if (this.gateAt[ch] <= 0) { this.releaseGate(ch); continue; }
+          const g = Math.ceil(this.gateAt[ch]);
+          if (g < n) n = g;
+        }
         // ROLL repeats also land on their exact sample.
         for (let ch = 0; ch < NUM_CHANNELS; ch++) {
           if (this.rollLeft[ch] === 0) continue;
@@ -441,6 +453,7 @@ export class Engine {
       if (this.playing) {
         this.framesToStep -= n;
         for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.rollLeft[ch] > 0) this.rollAt[ch] -= n;
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.gateAt[ch] > 0) this.gateAt[ch] = Math.max(0, this.gateAt[ch] - n);
       }
     }
     this.finishBlock(outL, outR, frames);
@@ -494,14 +507,22 @@ export class Engine {
       if (slideFrom >= 0) {
         this.gateSteps[ch] = 0;
         this.ringing[ch] = 0;
+        this.gateAt[ch] = -1;
+      } else if (this.gateAt[ch] >= 0) {
+        // A GATE release due by now (it always lands inside the step it was set in).
+        this.releaseGate(ch);
       } else if (this.gateSteps[ch] > 0) {
         if (this.ringing[ch]) {
           // A RING note ends at the next hit or rest on this track.
           if (this.stepActive[s] || this.stepRest[s]) this.releaseGate(ch);
         } else if (--this.gateSteps[ch] === 0) {
-          // A held note ends where its gate says: exactly at the start of a later step.
-          this.releaseGate(ch);
-        }
+          // A held note ends where its gate says: at the start of a later step, or (GATE
+          // above 1) that far into it.
+          if (this.gateLength[ch] > 1) {
+            this.gateSteps[ch] = 1;
+            this.gateAt[ch] = (this.gateLength[ch] - 1) * stepLen;
+          } else this.releaseGate(ch);
+        } else if (this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen); // its last step
       }
       this.applyLocks(ch, s);
       if (hit) {
@@ -516,6 +537,8 @@ export class Engine {
         this.gateGroup[ch] = this.stepNote[s];
         this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
         this.ringing[ch] = ring || slide ? 1 : 0;
+        this.gateAt[ch] = -1;
+        if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
         this.sliding[ch] = slide ? 1 : 0;
         const roll = drumRoll ? this.rollDiv[ch] : this.stepRoll[s];
         if (roll > 1) {
@@ -533,6 +556,11 @@ export class Engine {
     this.lastStepFrames = this.stepFrames(this.globalStep);
     this.framesToStep += this.lastStepFrames;
     this.globalStep++;
+  }
+
+  /** GATE below 1: the note's last step (just started, stepLen long) is cut short. */
+  private gateEarly(ch: number, stepLen: number): void {
+    if (this.gateLength[ch] < 1) this.gateAt[ch] = this.gateLength[ch] * stepLen;
   }
 
   /** Song: a bar line. Move on to the next row (or a queued jump) when this row is done. */
@@ -662,6 +690,7 @@ export class Engine {
 
   private releaseGate(ch: number): void {
     this.sliding[ch] = 0;
+    this.gateAt[ch] = -1;
     if (this.arpHeld[ch]) this.stopArp(ch);
     this.current[ch]?.noteOff(this.gateGroup[ch]);
     this.gateSteps[ch] = 0;
@@ -730,6 +759,7 @@ export class Engine {
     this.rollDiv[ch] = 0;
     this.current[ch]?.noteOff(-1);
     this.gateSteps[ch] = 0;
+    this.gateAt[ch] = -1;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
     this.kind[ch] = kind;
     this.typeGain[ch] = kind === 'none' ? 1 : INSTRUMENTS[kind].gain ?? 1;
@@ -1075,6 +1105,7 @@ export class Engine {
   private setMix(ch: number, id: MixParam, value: number): void {
     if (id === 'send') { this.sendLevel[ch].setTarget(value); return; }
     if (id === 'dyn') { this.dynDepth[ch] = value / 100; return; }
+    if (id === 'gate') { this.gateLength[ch] = value; return; }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);
     else this.muted[ch] = value > 0 ? 1 : 0;

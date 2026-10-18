@@ -1,5 +1,8 @@
 import type { ParamSpec } from './params';
 
+export const GATE_MIN = 0.125;
+export const GATE_MAX = 2;
+
 /** Per-channel mixer parameters. */
 export const MIX_PARAMS: readonly ParamSpec[] = [
   { id: 'volume', name: 'VOLUME', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
@@ -8,12 +11,15 @@ export const MIX_PARAMS: readonly ParamSpec[] = [
   // ACCENT / GHOST depth: how far accents and ghosts sit from a normal hit (100 % = as
   // designed, 0 % = every hit the same, 200 % = twice the difference in dB).
   { id: 'dyn', name: 'ACC/GHOST', min: 0, max: 200, defaultValue: 100, unit: '%', curve: 'linear', decimals: 0 },
+  // GATE: how long a sequenced note's last step is held, in steps (1 = the whole step, as
+  // entered). Ties and RING / SLIDE notes keep their length; only the end moves.
+  { id: 'gate', name: 'GATE', min: GATE_MIN, max: GATE_MAX, defaultValue: 1, unit: ' ST', curve: 'linear', decimals: 2 },
 ];
 
-export type MixId = 'volume' | 'pan' | 'send' | 'dyn';
+export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate';
 
 /** The channel field each mixer parameter lives in. */
-export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics' } as const;
+export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength' } as const;
 
 /** Velocity of a normal hit (ghost 0.45, accent 1.0). */
 export const NORMAL_VELOCITY = 0.8;

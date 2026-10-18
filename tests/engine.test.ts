@@ -2477,3 +2477,42 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(q.channels[7].liveFunc).toEqual(['macro:space', 'macro:bite']);
   });
 });
+
+describe('GATE: how long a sequenced note\'s last step is held', () => {
+  // 120 BPM: a step is 6000 frames.
+  const run = (gateLength: number, gate = 1) => {
+    const p = kickProject([], { bpm: 120 });
+    const bass = p.channels[4];
+    bass.sounds.bass = { ...presetSound('bass', 0), sustain: 1, release: 0.005, duck: 0 };
+    bass.gateLength = gateLength;
+    bass.patterns[0].steps[0].active = true;
+    bass.patterns[0].steps[0].gate = gate;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    return render(e, 0.5).l;
+  };
+  const level = (l: Float32Array, step: number) => stats(l.subarray(Math.round(step * 6000), Math.round(step * 6000) + 300)).peak;
+
+  it('cuts the note short, holds it on into the next step, and keeps ties long', () => {
+    const full = run(1);
+    expect(level(full, 0.5)).toBeGreaterThan(0.02);
+    expect(level(full, 1.3)).toBeLessThan(level(full, 0.5) * 0.05);
+    const short = run(0.25);
+    expect(level(short, 0.15)).toBeGreaterThan(0.02);
+    expect(level(short, 0.5)).toBeLessThan(level(full, 0.5) * 0.05);
+    const long = run(2);
+    expect(level(long, 1.5)).toBeGreaterThan(level(full, 0.5) * 0.5);
+    expect(level(long, 2.3)).toBeLessThan(level(full, 0.5) * 0.05);
+    // A note tied over 4 steps still sustains; only its last step is cut.
+    const tied = run(0.25, 4);
+    expect(level(tied, 2.5)).toBeGreaterThan(level(full, 0.5) * 0.5);
+    expect(level(tied, 3.6)).toBeLessThan(level(full, 0.5) * 0.05);
+  });
+
+  it('is saved with the track', () => {
+    const p = createDefaultProject();
+    p.channels[7].gateLength = 0.25;
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[7].gateLength).toBe(0.25);
+    expect(createDefaultProject().channels[7].gateLength).toBe(1);
+  });
+});

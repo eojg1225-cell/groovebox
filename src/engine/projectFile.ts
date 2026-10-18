@@ -24,7 +24,7 @@ const MORPHED_V26: Partial<Record<SoundKind, readonly string[]>> = {
 import { remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
-import { BPM_MAX, BPM_MIN } from './mixParams';
+import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
 import { DJ_DEAD } from './params';
 import type { InstrumentKind } from './project';
 import { LFO_RATES, LFO_RATES_V17, LFO_RATES_V24, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
@@ -72,6 +72,7 @@ export interface StoredChannel {
   fxSend: number;
   sendLevel: number;
   dynamics?: number;
+  gateLength?: number;
   lfoOn: boolean;
   mute: boolean;
   activePattern: number;
@@ -124,6 +125,7 @@ export function toStored(p: Project): StoredProject {
       fxSend: c.fxSend,
       sendLevel: c.sendLevel,
       dynamics: c.dynamics,
+      gateLength: c.gateLength,
       lfoOn: c.lfoOn,
       mute: c.mute,
       activePattern: c.activePattern,
@@ -316,6 +318,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (version < 20 && trim < 1) ch.volume = Math.min(1, ch.volume / trim);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.dynamics = num(src.dynamics, 100, 0, 200);
+  ch.gateLength = num(src.gateLength, 1, GATE_MIN, GATE_MAX);
   ch.mute = src.mute === true;
   if (version >= 7) {
     ch.fx1 = src.fx1 === true;
