@@ -82,7 +82,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 
 CHORD, LEAD and PLUCK sit 14 dB down at the output (sustained synths would swamp the drums otherwise; CHORD and PLUCK 10 % louder and LEAD about 12 % quieter than that, so their defaults balance): full VOLUME is a loud lead, half (their default) sits in the mix. FLT DEC has 1 s at the middle of its knob (2 ms … 10 s).
 
-Five sounds per type. **Envelopes are the type's own, not TIMBRE's:** the drums' decays and ring lengths and the synths' whole amp ADSR (ATTACK / DECAY / SUSTAIN / RELEASE of both oscillators) and their width (DETUNE, UNISON) stay as you set them whichever sound is chosen (INTENSITY never changes them either), so sounds can be swapped mid-groove without the envelope going out of whack. TIMBRE still shapes the filter envelope (part of each sound's character).
+Five sounds per type. **Envelopes are the type's own, not TIMBRE's:** the drums' decays and ring lengths and the synths' whole amp ADSR (ATTACK / DECAY / SUSTAIN / RELEASE of both oscillators) and their width (DETUNE, UNISON) stay as you set them whichever sound is chosen (INTENSITY never changes them either), so sounds can be swapped mid-groove without the envelope going out of whack. TIMBRE still shapes the filter envelope (part of each sound's character). **Except BASS and PLUCK:** each of their sounds brings its whole character, amp envelope and width included, and your SOUND page changes ride on top as offsets.
 
 Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4, 5TH, 5TH+OCT, MAJ11.
 

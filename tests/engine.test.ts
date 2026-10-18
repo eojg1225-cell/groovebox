@@ -764,12 +764,22 @@ describe('TIMBRE and INTENSITY macros', () => {
     expect(rim.t_pitch).toBeGreaterThan(brk.t_pitch);
   });
 
-  it('TIMBRE never changes tail lengths or the synths\' amp ADSR: they are the type\'s own', () => {
+  it('TIMBRE never changes tail lengths or the CHORD / LEAD amp ADSR: they are the type\'s own', () => {
     const tails = ['t_decay', 'm_decay', 'detune', 'unison', 'attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2'];
-    for (const k of SOUND_KINDS) {
+    for (const k of SOUND_KINDS.filter((k) => k !== 'bass' && k !== 'pluck')) {
       const ids = macroIds(k, INSTRUMENTS[k].params);
       for (const id of tails) expect(ids.has(id), `${k} ${id}`).toBe(false);
       for (const e of MACROS[k].excite) expect(tails.includes(e.id), `${k} INTENSITY ${e.id}`).toBe(false);
+    }
+  });
+
+  it('BASS and PLUCK sounds bring their own envelope and width', () => {
+    for (const k of ['bass', 'pluck'] as const) {
+      const specs = INSTRUMENTS[k].params;
+      const sounds = [0, 0.25, 0.5, 0.75, 1].map((t) => macroSound(k, t, 0.5, specs));
+      expect(new Set(sounds.map((s) => s.decay.toFixed(3))).size, `${k} decay`).toBeGreaterThan(2);
+      expect(new Set(sounds.map((s) => s.detune.toFixed(3))).size, `${k} detune`).toBeGreaterThan(1);
+      expect(macroIds(k, specs).has('sustain2')).toBe(true);
     }
   });
 });
@@ -1621,7 +1631,7 @@ describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
     delete stored.channels[4].sounds.bass.release2;
     stored.version = 13;
     const old = fromStored(stored)!.channels[4].sounds.bass!;
-    expect(old.sustain2).toBe(0.2);
+    expect(old.sustain2).toBeCloseTo(old.sustain, 6);
     expect(old.release2).toBe(3);
   });
 });

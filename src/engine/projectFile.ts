@@ -13,7 +13,13 @@ import {
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, mirrorOsc2, pageParams, presetSound } from '../instruments/registry';
-import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
+import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
+
+/** Parameters TIMBRE took over in v26 (they were the type's own before). */
+const MORPHED_V26: Partial<Record<SoundKind, readonly string[]>> = {
+  bass: ['decay', 'decay2', 'sustain', 'sustain2', 'detune'],
+  pluck: ['attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2', 'detune', 'unison'],
+};
 import { remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
@@ -203,9 +209,11 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     applyPreset(ch, kind as SoundKind, 0);
   }
   // Sounds: keep values for parameters this version knows.
+  const loaded: Partial<Record<SoundKind, Record<string, number>>> = {};
   if (isObj(src.sounds)) {
     for (const k of SOUND_KINDS) {
       const values = numbers(src.sounds[k]);
+      loaded[k] = values;
       const known = new Set(INSTRUMENTS[k].params.map((p) => p.id));
       // Synths before the continuous SHAPE stored a stepped wave (SAW, SQR, TRI, SINE).
       if (values.wave !== undefined && values.shape === undefined && known.has('shape')) {
@@ -231,8 +239,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (isObj(src.sounds)) {
     for (const k of SOUND_KINDS) {
       const sound = ch.sounds[k];
-      const saved = isObj(src.sounds[k]) ? (src.sounds[k] as Obj) : null;
-      if (!sound || !saved) continue;
+      const saved = loaded[k];
+      if (!sound || !saved || !isObj(src.sounds[k])) continue;
       const hidden = hiddenSound(k, sound, INSTRUMENTS[k].params);
       for (const id in hidden) if (typeof saved[id] !== 'number') sound[id] = hidden[id];
     }
@@ -245,6 +253,20 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     if (!sound) continue;
     const stored = version >= 23 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
+    // v26: BASS / PLUCK sounds bring their own envelope and width again. What was set on
+    // the SOUND page (away from the type's default) is kept as a trim on top of them.
+    if (version < 26 && MORPHED_V26[k]) {
+      const specs = INSTRUMENTS[k].params;
+      const hidden = hiddenSound(k, sound, specs);
+      for (const id of MORPHED_V26[k]!) {
+        const spec = specs.find((p) => p.id === id);
+        if (!spec || hidden[id] === undefined) continue;
+        const t = typeof sound[id] === 'number' ? trimFor(spec, sound[id], spec.defaultValue) : 0;
+        if (t) ch.trims[k]![id] = t;
+        else delete ch.trims[k]![id];
+        sound[id] = applyTrim(spec, hidden[id], t);
+      }
+    }
     // Knobs that left the page (v24 review, or any later change): back to TIMBRE / INT.
     pruneTrims(sound, ch.trims[k]!, hiddenSound(k, sound, INSTRUMENTS[k].params), pageParams(k));
   }
