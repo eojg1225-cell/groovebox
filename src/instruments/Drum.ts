@@ -45,24 +45,24 @@ export const ROLL_DIVS = [
 const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   TIMBRE,
   INTENSITY,
-  { id: 't_level', name: 'TONE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 't_pitch', name: 'PITCH', min: 10, max: 5000, defaultValue: 50, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 't_level', name: 'BD LEVEL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 't_pitch', name: 'BD PITCH', min: 10, max: 5000, defaultValue: 50, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 't_sweep', name: 'SWEEP', min: 0, max: 96, defaultValue: 24, unit: 'ST', curve: 'linear', decimals: 0 },
   { id: 't_stime', name: 'SWP TIME', min: 0.001, max: 2, defaultValue: 0.04, unit: 'S', curve: 'exp', decimals: 3 },
-  { id: 't_attack', name: 'TONE ATK', ...ATTACK },
-  { id: 't_decay', name: 'TONE DEC', min: 0.005, max: 20, defaultValue: 0.45, unit: 'S', curve: 'exp' },
-  choice('t_wave', 'WAVE', T_WAVES),
-  { id: 'c_level', name: 'CLICK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'c_tone', name: 'CLK TONE', min: 100, max: 20000, defaultValue: 4000, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 't_attack', name: 'BD ATK', ...ATTACK },
+  { id: 't_decay', name: 'BD DEC', min: 0.005, max: 20, defaultValue: 0.45, unit: 'S', curve: 'exp' },
+  choice('t_wave', 'BD WAVE', T_WAVES),
+  { id: 'c_level', name: 'CLK LEVEL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'c_tone', name: 'CLK PITCH', min: 100, max: 20000, defaultValue: 4000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'c_attack', name: 'CLK ATK', ...ATTACK },
   { id: 'c_len', name: 'CLK DEC', min: 0.0002, max: 0.5, defaultValue: 0.004, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'c_reso', name: 'CLK RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'c_noise', name: 'CLK NOISE', min: 0, max: 1, defaultValue: 0.6, unit: '', curve: 'linear' },
-  { id: 'm_level', name: 'METAL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'm_pitch', name: 'M PITCH', min: 20, max: 12000, defaultValue: 400, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'm_level', name: 'MTL LEVEL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'm_pitch', name: 'MTL PITCH', min: 20, max: 12000, defaultValue: 400, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'm_spread', name: 'SPREAD', min: 0, max: 3, defaultValue: 1, unit: '', curve: 'linear' },
-  { id: 'm_noise', name: 'NOISE', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
-  { id: 'm_tone', name: 'M TONE', min: 30, max: 20000, defaultValue: 6000, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'm_noise', name: 'MTL NOISE', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
+  { id: 'm_tone', name: 'MTL TONE', min: 30, max: 20000, defaultValue: 6000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'm_attack', name: 'MTL ATK', ...ATTACK },
   { id: 'm_decay', name: 'MTL DEC', min: 0.005, max: 20, defaultValue: 0.2, unit: 'S', curve: 'exp' },
   // Continuous: 0 = square bank, 1 = ring-mod pairs, 2 = FM (blends in between).
@@ -76,7 +76,7 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'h_mode', name: 'H MODE', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'h_spread', name: 'H SPREAD', min: 0, max: 3, defaultValue: 1, unit: '', curve: 'linear' },
   // PERC: the metal's interval above the tone (whole semitones) and DETUNE of metal + click.
-  { id: 'm_interval', name: 'INTERVAL', min: -12, max: 36, defaultValue: 12, unit: 'ST', curve: 'linear', decimals: 0 },
+  { id: 'm_interval', name: 'INTVL', min: -12, max: 36, defaultValue: 12, unit: 'ST', curve: 'linear', decimals: 0 },
   { id: 'detune', name: 'DETUNE', min: -1, max: 1, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 2 },
   // Whole drum: these sit on top of TIMBRE / INTENSITY (the macros never move BALANCE).
   { id: 'balance', name: 'BALANCE', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
@@ -108,7 +108,7 @@ export const KICK_PARAMS = drumParams(
 export const KICK_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
 export const SNARE_PARAMS = drumParams(
-  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE],
+  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE],
   { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2 },
 );
 export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
@@ -126,19 +126,25 @@ export const PERC_PARAMS = drumParams(
   [
     'timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave',
     'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise',
-    'm_level', 'm_interval', 'detune', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm', ...WHOLE,
+    'm_level', 'm_interval', 'detune', 'm_spread', 'm_noise', 'm_tone', 'm_mode', 'm_fm', ...WHOLE,
   ],
-  { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.3, m_decay: 0.3, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
+  { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.3, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
 );
 export const PERC_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
 /** Per type voice settings: which layers BALANCE trades, the fixed ring extension, PERC tuning. */
 export interface DrumVoice {
-  /** Element 1 and 2 layers (BALANCE: left = element 1 only, right = element 2 only). */
-  balance: readonly ['t' | 'c' | 'm', 't' | 'c' | 'm'];
+  /**
+   * The layers on each side of BALANCE (left = side 1 only, right = side 2 only), e.g.
+   * PERC's body against click + metal.
+   */
+  balance: readonly [string, string];
   /** Seconds a RING step adds to the stretched decay (was the RING LEN knob's default). */
   ringExtra: number;
-  /** PERC: metal + click tuned from the tone (INTERVAL, DETUNE, the note) instead of in Hz. */
+  /**
+   * PERC: metal + click tuned from the tone (INTERVAL, DETUNE, the note) instead of in Hz,
+   * and the metal's attack / decay halfway (in time) between the body's and the click's.
+   */
   relative?: boolean;
   /** DRIVE level compensation curve (driveComp.ts). */
   driveRise?: readonly number[];
@@ -146,7 +152,7 @@ export interface DrumVoice {
 export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick };
 export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare };
 export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 1.5, driveRise: DRIVE_RISE.hat };
-export const PERC_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
+export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'kick' | 'snare' | 'hat' | 'perc'): Preset[] {
@@ -197,6 +203,8 @@ export class Drum implements Instrument {
   private hMode = 0; private hSpread = 1; private mTone = 6000;
   private hEnv = 0; private hCounter = 0;
   private tAtk = 0; private cAtk = 0; private mAtk = 0;
+  /** Attack times in seconds (PERC derives the metal's from them). */
+  private tAtkS = 0.0005; private cAtkS = 0.0005;
   // The LFO's filter destination: a low-pass from 20 kHz, only while it modulates.
   private filterOn = false; private filterMod = 0;
   private readonly chokeMul: number;
@@ -278,15 +286,15 @@ export class Drum implements Instrument {
       case 't_pitch': this.tPitch = v; this.updateMetal(); break;
       case 't_sweep': this.tSweep = v; break;
       case 't_stime': this.sweepMul = decayMul(v, sr); break;
-      case 't_attack': this.tAtk = attackInc(v, sr); break;
-      case 't_decay': this.tDecay = v; this.updateDecays(); break;
+      case 't_attack': this.tAtkS = v; this.tAtk = attackInc(v, sr); this.updateMetalEnv(); break;
+      case 't_decay': this.tDecay = v; this.updateMetalEnv(); this.updateDecays(); break;
       case 't_wave': this.tWave = Math.round(v); break;
       case 'c_level': this.cLevel = v; break;
       case 'c_tone': this.cTone = v; this.setupClick(); break;
       case 'c_reso': this.cReso = v; this.setupClick(); break;
       case 'c_noise': this.cNoise = v; break;
-      case 'c_attack': this.cAtk = attackInc(v, sr); break;
-      case 'c_len': this.cLen = v; this.updateDecays(); break;
+      case 'c_attack': this.cAtkS = v; this.cAtk = attackInc(v, sr); this.updateMetalEnv(); break;
+      case 'c_len': this.cLen = v; this.updateMetalEnv(); this.updateDecays(); break;
       case 'm_level': this.mLevel = v; break;
       case 'm_pitch': if (!this.voice.relative) this.mPitch = v; break;
       case 'm_interval': this.intervalMul = Math.pow(2, Math.round(v) / 12); this.updateMetal(); break;
@@ -294,8 +302,8 @@ export class Drum implements Instrument {
       case 'm_spread': this.mSpread = v; break;
       case 'm_noise': this.mNoise = v; break;
       case 'm_tone': this.mTone = v; this.mFilter.setup(v, 0.3, sr); break;
-      case 'm_attack': this.mAtk = attackInc(v, sr); break;
-      case 'm_decay': this.mDecay = v; this.updateDecays(); break;
+      case 'm_attack': if (!this.voice.relative) this.mAtk = attackInc(v, sr); break;
+      case 'm_decay': if (!this.voice.relative) { this.mDecay = v; this.updateDecays(); } break;
       case 'h_time': this.hTime = v; this.hMul = v > 0 ? Math.exp(-1 / (v * sr)) : 0; break;
       case 'h_pitch': this.hPitch = v; break;
       case 'h_tone': this.hTone = v; break;
@@ -306,15 +314,21 @@ export class Drum implements Instrument {
       case 'm_fm': this.mFm = v; break;
       case 'balance': {
         const g1 = Math.min(1, 2 * (1 - v)), g2 = Math.min(1, 2 * v);
-        this.gT = 1; this.gC = 1; this.gM = 1;
         const [l1, l2] = this.voice.balance;
-        if (l1 === 't') this.gT = g1; else if (l1 === 'c') this.gC = g1; else this.gM = g1;
-        if (l2 === 't') this.gT = g2; else if (l2 === 'c') this.gC = g2; else this.gM = g2;
+        const gain = (layer: string) => (l1.includes(layer) ? g1 : l2.includes(layer) ? g2 : 1);
+        this.gT = gain('t'); this.gC = gain('c'); this.gM = gain('m');
         break;
       }
       case 'drive': this.drive = v; this.driveComp = driveCompGain(this.voice.driveRise, v); break;
       case 'crush': this.crush = v; break;
     }
+  }
+
+  /** PERC: the metal's attack and decay sit halfway (in time) between the body's and the click's. */
+  private updateMetalEnv(): void {
+    if (!this.voice.relative) return;
+    this.mAtk = attackInc((this.tAtkS + this.cAtkS) / 2, this.sr);
+    this.mDecay = (this.tDecay + this.cLen) / 2;
   }
 
   /** PERC: the metal sits INTERVAL above the tone, detuned. */

@@ -19,6 +19,8 @@ export type MainToWorklet =
   | { type: 'setInstrument'; channel: number; kind: InstrumentKind; sound: Record<string, number> }
   /** Chord mode index (0 = off). */
   | { type: 'setChord'; channel: number; chord: number }
+  /** NOTES: how many of the chord's tones play (1..MAX_CHORD_NOTES). */
+  | { type: 'setNotes'; channel: number; notes: number }
   /**
    * PLAY mode RING / SLIDE / ACCENT / GHOST: every note on the track plays as a RING /
    * SLIDE (ROLL) note, and at this velocity (0 = its own; accent 1, ghost 0.45).

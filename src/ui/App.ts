@@ -40,18 +40,18 @@ import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/
 import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
-import { CHORD_NAMES } from '../engine/chords';
+import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, paramSpec, presetSound, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, presetSound, stepsOnStrip } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
-import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../instruments/trims';
+import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, SongView } from './views';
@@ -334,6 +334,7 @@ export class App {
       if (old && values.timbre !== undefined) values.timbre = remapTimbreV18(kind, values.timbre);
       c.sounds[kind] = { ...defaults, ...values };
       c.trims[kind] = patch.trims && !old ? { ...patch.trims } : deriveTrims(kind, c.sounds[kind]!, INSTRUMENTS[kind].params);
+      pruneTrims(c.sounds[kind]!, c.trims[kind]!, hiddenSound(kind, c.sounds[kind]!, INSTRUMENTS[kind].params), pageParams(kind));
       c.presets[kind] = index;
       c.live = [...patch.live];
       if (patch.liveFunc) c.liveFunc = [...patch.liveFunc];
@@ -391,6 +392,7 @@ export class App {
     const list: { id: string; spec: ParamSpec }[] = [];
     if (c.instrument !== 'none') {
       for (const m of LIVE_MACROS[c.instrument]) list.push({ id: m.id, spec: { ...OFFSET_SPEC, name: m.name } });
+      if (!isDrum(c.instrument)) list.push({ id: 'track:notes', spec: choice('notes', 'NOTES', NOTES_NAMES) });
       const entry = INSTRUMENTS[c.instrument];
       for (const id of [...entry.layout, ...entry.funcLayout]) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
@@ -407,6 +409,7 @@ export class App {
     if (id.startsWith('macro:')) return c.instrument === 'none' ? '-' : LIVE_MACROS[c.instrument].find((m) => m.id === id)?.name ?? '-';
     if (id.startsWith('lfo:')) return LFO_PARAMS[id.slice(4) as LfoId]?.name ?? '-';
     if (id.startsWith(MIX_PREFIX)) return MIX_PARAMS.find((p) => MIX_PREFIX + p.id === id)?.name ?? '-';
+    if (id === 'track:notes') return 'NOTES';
     return paramSpec(c.instrument, id)?.name ?? '-';
   }
 
@@ -441,6 +444,13 @@ export class App {
         label: label ?? spec.name, spec, channel: ch, highlight, key: id,
         get: () => this.project.lfo[lfoId],
         set: (v) => { this.project.lfo[lfoId] = v; this.send({ type: 'setLfo', id: lfoId, value: v }); },
+      };
+    }
+    if (id === 'track:notes') {
+      return {
+        label: label ?? 'NOTES', spec: choice('notes', 'NOTES', NOTES_NAMES), channel: ch, highlight, key: `${ch}:${id}`,
+        get: () => c.notes - 1,
+        set: (v) => { c.notes = v + 1; this.send({ type: 'setNotes', channel: ch, notes: c.notes }); },
       };
     }
     if (id === 'track:chord') {
@@ -899,7 +909,10 @@ export class App {
       for (const spec of MIX_PARAMS) {
         fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[MIX_FIELD[spec.id as MixId]] ?? spec.defaultValue);
       }
-      if (!isDrum(c.instrument)) fromTarget(this.paramTarget(ch, 'track:chord'), s.chord);
+      if (!isDrum(c.instrument)) {
+        fromTarget(this.paramTarget(ch, 'track:chord'), s.chord);
+        fromTarget(this.paramTarget(ch, 'track:notes'), s.notes - 1);
+      }
       // Relative live knobs glide back to the centre (the sound as set).
       for (const id of Object.keys(c.liveOffset)) fromTarget(this.liveKnob(ch, id, false), 0);
       // The sound, value by value (not through TIMBRE / INTENSITY, which would recompute

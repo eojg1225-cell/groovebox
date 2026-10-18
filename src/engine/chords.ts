@@ -24,3 +24,29 @@ export const CHORD_NAMES = CHORDS.map((c) => c.name);
 
 /** Chord list before MAJOR/MINOR were added (project format < 6), for migrating saves. */
 export const CHORD_NAMES_V5 = ['OFF', 'MIN7', 'MAJ7', 'DOM7', 'MIN9', 'MAJ9', 'DOM9', 'MIN11', 'SUS4'];
+
+/** NOTES: how many of the chord's tones play (the most a chord has; MAX = all). */
+export const MAX_CHORD_NOTES = 6;
+export const NOTES_NAMES = ['1', '2', '3', '4', '5', 'ALL'];
+
+/** Tone order for NOTES: root, then the 5th, the 3rd (or sus), the 7th, 9th, 11th, octave. */
+function toneRank(interval: number): number {
+  const order = [0, 7, 4, 3, 5, 2, 10, 11, 14, 17, 12];
+  const i = order.indexOf(interval);
+  return i < 0 ? order.length + interval : i;
+}
+
+/**
+ * CHORD_VOICINGS[chord][notes - 1]: the chord's intervals with only its first `notes` tones
+ * (in tone order: root, 5th, 3rd, 7th, 9th, 11th), played low to high. Built once.
+ */
+export const CHORD_VOICINGS: readonly (readonly (readonly number[])[])[] = CHORDS.map((c) => {
+  const ranked = [...c.intervals].sort((a, b) => toneRank(a) - toneRank(b));
+  return Array.from({ length: MAX_CHORD_NOTES }, (_, n) => ranked.slice(0, n + 1).sort((a, b) => a - b));
+});
+
+/** The intervals to play for a chord at a NOTES setting (1..MAX_CHORD_NOTES). */
+export function chordVoicing(chord: number, notes: number): readonly number[] {
+  const v = CHORD_VOICINGS[chord] ?? CHORD_VOICINGS[0];
+  return v[Math.max(1, Math.min(MAX_CHORD_NOTES, notes)) - 1];
+}

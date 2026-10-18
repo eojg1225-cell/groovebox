@@ -5,4 +5,4 @@ import type { ParamSpec } from '../engine/params';
  * sound like any parameter; the instruments themselves ignore them.
  */
 export const TIMBRE: ParamSpec = { id: 'timbre', name: 'TIMBRE', min: 0, max: 1, defaultValue: 0.33, unit: '', curve: 'linear' };
-export const INTENSITY: ParamSpec = { id: 'intensity', name: 'INTENSITY', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' };
+export const INTENSITY: ParamSpec = { id: 'intensity', name: 'INT', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' };

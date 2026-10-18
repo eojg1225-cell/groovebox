@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 23;
+export const PROJECT_VERSION = 24;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 5;
@@ -34,6 +34,7 @@ export interface Song {
 }
 
 import type { LfoState } from './lfo';
+import { MAX_CHORD_NOTES } from './chords';
 
 export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'perc' | 'bass' | 'pad' | 'lead' | 'pluck';
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
@@ -116,6 +117,8 @@ export interface ChannelState {
   liveOffset: Record<string, number>;
   /** Chord mode index into CHORDS (0 = off). */
   chord: number;
+  /** NOTES: how many of the chord's tones play (1..MAX_CHORD_NOTES; the max = all). */
+  notes: number;
   volume: number; // 0..1
   pan: number; // -1..1
   /** The track passes through FX 1, the drum bus (independent of its send). */
@@ -177,6 +180,7 @@ export function emptyChannel(): ChannelState {
     liveFunc: ['mix:send', 'mix:pan'],
     liveOffset: {},
     chord: 0,
+    notes: MAX_CHORD_NOTES,
     volume: 0.8,
     pan: 0,
     fx1: false,

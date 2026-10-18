@@ -121,7 +121,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, drive: 1, glide: 0.03 } },
       { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, drive: 1.6, glide: 0.02 } },
       // 303: square through a resonant filter with a short, snappy envelope (accents and slides).
-      { name: '303', values: { shape: 3, fm: 0, fmratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fdecay: 0.18, drive: 1.8, glide: 0.06 } },
+      { name: 'ACID', values: { shape: 3, fm: 0, fmratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fdecay: 0.18, drive: 1.8, glide: 0.06 } },
       { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, drive: 3, glide: 0.04 } },
       { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, drive: 2.2, glide: 0.02 } },
     ],

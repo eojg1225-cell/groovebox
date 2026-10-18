@@ -40,4 +40,4 @@ export const GLOBAL_PARAMS: readonly ParamSpec[] = [
 
 /** The two controls of each effect inside a send. */
 export const EFFECT_WET: ParamSpec = { id: 'wet', name: 'WET', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' };
-export const EFFECT_INTENSITY: ParamSpec = { id: 'int', name: 'INTENSITY', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' };
+export const EFFECT_INTENSITY: ParamSpec = { id: 'int', name: 'DEPTH', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' };

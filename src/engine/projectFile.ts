@@ -12,11 +12,11 @@ import {
   type ChannelState, type Project, type SoundKind,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, mirrorOsc2, presetSound } from '../instruments/registry';
-import { deriveTrims, hiddenSound } from '../instruments/trims';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, mirrorOsc2, pageParams, presetSound } from '../instruments/registry';
+import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
 import { remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
-import { CHORD_NAMES, CHORD_NAMES_V5 } from './chords';
+import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
 import { DJ_DEAD } from './params';
 import type { InstrumentKind } from './project';
@@ -58,6 +58,7 @@ export interface StoredChannel {
   liveFunc?: string[];
   liveOffset?: Record<string, number>;
   chord: number;
+  notes?: number;
   volume: number;
   pan: number;
   fx1: boolean;
@@ -109,6 +110,7 @@ export function toStored(p: Project): StoredProject {
       liveFunc: [...c.liveFunc],
       liveOffset: { ...c.liveOffset },
       chord: c.chord,
+      notes: c.notes,
       volume: c.volume,
       pan: c.pan,
       fx1: c.fx1,
@@ -243,6 +245,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     if (!sound) continue;
     const stored = version >= 23 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
+    // Knobs that left the page (v24 review, or any later change): back to TIMBRE / INT.
+    pruneTrims(sound, ch.trims[k]!, hiddenSound(k, sound, INSTRUMENTS[k].params), pageParams(k));
   }
   // v23: PERC's tone pitch has no knob (the step's note plays it): back on the shared octave.
   const perc = ch.sounds.perc;
@@ -275,6 +279,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, id))) liveDefaults(ch);
   // Chords are stored by index; before v6 the list had no MAJOR/MINOR, so map by name.
   const chord = Math.round(num(src.chord, ch.chord, 0, 64));
+  ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.chord = version < 6 ? Math.max(0, CHORD_NAMES.indexOf(CHORD_NAMES_V5[chord] ?? 'OFF')) : Math.min(chord, CHORD_NAMES.length - 1);
   ch.lfoOn = src.lfoOn === true;
   ch.volume = num(src.volume, ch.volume, 0, 1);
@@ -436,7 +441,8 @@ export function fromStored(data: unknown): Project | null {
   // v15: the mixer CUTOFF went (the sound's filter is CUTOFF) and each type got its own
   // live knobs (two sound controls; VOLUME with FUNC); v16: they became relative, with
   // macros. Every track takes its type's.
-  if (version < 16) for (const c of p.channels) liveDefaults(c);
+  // v24 (the per-track knob review): every track takes its type's new live knobs.
+  if (version < 24) for (const c of p.channels) liveDefaults(c);
   // Before v8 every track had its own LFO: tracks that used theirs join the shared one,
   // which takes the first such track's settings.
   if (version < 8) {

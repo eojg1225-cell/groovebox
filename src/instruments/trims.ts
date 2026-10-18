@@ -39,3 +39,15 @@ export function deriveTrims(kind: SoundKind, sound: Record<string, number>, spec
   }
   return out;
 }
+
+/**
+ * Keep only the trims of parameters that have a knob (SOUND page or its FUNC layer): a
+ * parameter that lost its knob goes back to what TIMBRE / INTENSITY make of it. In place.
+ */
+export function pruneTrims(sound: Record<string, number>, trims: Record<string, number>, hidden: Record<string, number>, onPage: ReadonlySet<string>): void {
+  for (const id of Object.keys(trims)) {
+    if (onPage.has(id)) continue;
+    delete trims[id];
+    if (hidden[id] !== undefined) sound[id] = hidden[id];
+  }
+}

@@ -1,4 +1,5 @@
 import { DRIVE_RISE, driveCompGain } from '../src/instruments/driveComp';
+import { CHORD_NAMES as CHORD_LIST, chordVoicing } from '../src/engine/chords';
 import { dynVelocity } from '../src/engine/mixParams';
 import { describe, expect, it } from 'vitest';
 import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
@@ -150,23 +151,32 @@ describe('instruments', () => {
     }
   });
 
-  it('sound page columns: TIMBRE/INTENSITY, element ATK/DECs, FILTER/RESO, FILTER ATK/DEC, DRIVE/CRUSH, tune pair, FLT ENV/hold', () => {
-    expect(soundPage(['a1', 'd1', 'a2', 'd2'], ['t1', 't2'], ['l1', 'l2'])).toEqual([
-      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'drive', 't1', 'l1',
-      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'crush', 't2', 'l2',
+  it('sound page frame: the sound, then DRIVE / CRUSH (7), then the performance pair (8)', () => {
+    expect(soundPage(['a1', 'd1', 'a2', 'd2'], ['p1', 'p2'])).toEqual([
+      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'fenv', 'drive', 'p1',
+      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'fm', 'crush', 'p2',
     ]);
-    expect(drumPage(['a1', 'd1', 'a2', 'd2'], ['p1', 'p2'], ['c1', 'c2'], ['l1', 'l2'])).toEqual([
-      'timbre', 'a1', 'a2', 'p1', 'c1', 'drive', 'rolldiv', 'l1',
-      'intensity', 'd1', 'd2', 'p2', 'c2', 'crush', 'balance', 'l2',
+    expect(drumPage(['a1', 'd1', 'a2', 'd2'], ['p1', 'p2'], ['f1', 'f2'], ['s1', 's2'])).toEqual([
+      'timbre', 'a1', 'a2', 'p1', 'f1', 's1', 'drive', 'rolldiv',
+      'intensity', 'd1', 'd2', 'p2', 'f2', 's2', 'crush', 'balance',
     ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
+    expect([INSTRUMENTS.kick.layout[4], INSTRUMENTS.kick.layout[12]]).toEqual(['t_sweep', 't_stime']); // the sweep together
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
     expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
-    expect([INSTRUMENTS.lead.layout[6], INSTRUMENTS.lead.layout[14]]).toEqual(['glide', 'carriers']);
-    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['track:chord', 'unison']); // CHORD: chord select on the page
-    for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) expect(INSTRUMENTS[k].funcLayout[14], k).toBe('detune'); // FUNC under column 7
+    expect([INSTRUMENTS.bass.layout[7], INSTRUMENTS.bass.layout[15]]).toEqual(['glide', 'sub']);
+    expect([INSTRUMENTS.lead.layout[7], INSTRUMENTS.lead.layout[15]]).toEqual(['glide', 'detune']);
+    expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'detune']);
+    expect([INSTRUMENTS.pluck.layout[7], INSTRUMENTS.pluck.layout[15]]).toEqual(['track:chord', 'detune']);
+    for (const k of ['kick', 'snare', 'hat', 'perc'] as const) expect(INSTRUMENTS[k].funcLayout.every((id) => id === null), k).toBe(true);
+    for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) {
+      expect(INSTRUMENTS[k].funcLayout.slice(1, 3), k).toEqual(['sustain', 'sustain2']);
+      expect(INSTRUMENTS[k].funcLayout, k).not.toContain('shape'); // TIMBRE's
+    }
+    expect(INSTRUMENTS.lead.funcLayout).not.toContain('feedback');
+    expect(INSTRUMENTS.lead.funcLayout).not.toContain('carriers');
     expect(INSTRUMENTS.pad.layout).not.toContain('fmratio');
   });
 
@@ -912,8 +922,8 @@ describe('project', () => {
     old.channels[0].liveOffset = { t_decay: 0.5 };
     old.channels[0].liveFunc = ['mix:pan', 'mix:send'];
     const k = fromStored(old)!.channels[0];
-    expect(k.live).toEqual(['macro:decay', 'macro:punch']);
-    expect(k.liveFunc).toEqual(['mix:volume', 'macro:tune']);
+    expect(k.live).toEqual(['macro:attack', 'macro:decay']);
+    expect(k.liveFunc).toEqual(['mix:volume', 'macro:grit']);
     const now = toStored(createDefaultProject());
     now.channels[0].live = ['t_decay', 'mix:pan'];
     expect(fromStored(now)!.channels[0].live).toEqual(['t_decay', 'mix:pan']);
@@ -923,7 +933,7 @@ describe('project', () => {
     const p = createStartProject();
     expect(p.channels[4].patterns[0].length).toBe(64);
     expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
-    expect(p.channels[4].live).toEqual(['cutoff', 'reso']);
+    expect(p.channels[4].live).toEqual(['macro:env', 'macro:grit']);
     expect(p.channels.every((c) => c.liveFunc[0] === 'mix:volume')).toBe(true);
   });
 
@@ -1493,7 +1503,8 @@ describe('PLUCK and ARP', () => {
   it('has its five sounds, from steel to the FM donk, with CHORD and ARP on the SOUND page', () => {
     expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['STEEL', 'GLASS PLUCK', 'SAW PLUCK', 'SQUARE PLUCK', 'RAGE DONK']);
     const l = INSTRUMENTS.pluck.layout;
-    expect([l[6], l[14], l[7], l[15]]).toEqual(['track:chord', 'arpoct', 'arp', 'arprate']);
+    const f = INSTRUMENTS.pluck.funcLayout;
+    expect([l[7], l[15], f[7], f[15], f[14]]).toEqual(['track:chord', 'detune', 'arp', 'arprate', 'arpoct']);
     const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });
     const donk = presetSound('pluck', 3);
     for (const id in donk) s.setParam(id, donk[id]);
@@ -1676,7 +1687,7 @@ describe('relative live knobs', () => {
 
   it('live offsets are saved; projects before v16 take the new defaults', () => {
     const p = createDefaultProject();
-    expect(p.channels[0].live).toEqual(['macro:decay', 'macro:punch']);
+    expect(p.channels[0].live).toEqual(['macro:attack', 'macro:decay']);
     p.channels[0].liveOffset = { 'macro:decay': 0.4 };
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[0].liveOffset).toEqual({ 'macro:decay': 0.4 });
     const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 15 };
@@ -1898,7 +1909,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
   it('every type has five sounds, the new one where it blends', () => {
     const names = (k: SoundKind) => MACROS[k].anchors.map((a) => a.name);
     expect(names('hat')).toEqual(['RIDE', 'HAT', 'SPLASH', 'CRASH', 'CHINA']);
-    expect(names('bass')).toEqual(['SINE SUB', 'SOLID', '303', 'GROWL', 'FM CLANG']);
+    expect(names('bass')).toEqual(['SINE SUB', 'SOLID', 'ACID', 'GROWL', 'FM CLANG']);
     expect(names('snare')[1]).toBe('PICCOLO');
     expect(names('lead')[1]).toBe('ORGAN');
     for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
@@ -2296,5 +2307,44 @@ describe('CHORD carrier feedback (INT top half)', () => {
     expect(bright(full)).toBeGreaterThan(bright(plain) * 3);
     expect(periodic(full)).toBeGreaterThan(0.95);
     expect(stats(full).nan).toBe(false);
+  });
+});
+
+describe('v24 knob review', () => {
+  it('NOTES adds chord tones in order: root, 5th, 3rd, 7th, 9th, 11th', () => {
+    const min9 = CHORD_LIST.indexOf('MIN9');
+    expect([1, 2, 3, 4, 5, 6].map((n) => chordVoicing(min9, n))).toEqual([
+      [0], [0, 7], [0, 3, 7], [0, 3, 7, 10], [0, 3, 7, 10, 14], [0, 3, 7, 10, 14],
+    ]);
+    expect(chordVoicing(CHORD_LIST.indexOf('MAJ11'), 6)).toEqual([0, 4, 7, 11, 14, 17]);
+    expect(chordVoicing(0, 6)).toEqual([0]);
+  });
+
+  it('PERC metal rings halfway between the body and the click (BD DEC lengthens a cowbell)', () => {
+    const bell = (tDecay: number) => {
+      const d = new Drum(SR, PERC_PARAMS, PERC_VOICE);
+      const s: Record<string, number> = { ...presetSound('perc', INSTRUMENTS.perc.presets.findIndex((p) => p.name === 'COWBELL')), t_level: 0, c_level: 0, m_level: 1, t_decay: tDecay };
+      for (const id in s) d.setParam(id, s[id]);
+      d.noteOn(48, 1, 48);
+      const l = new Float32Array(SR);
+      d.render(l, new Float32Array(SR), 0, SR);
+      return stats(l.subarray(SR * 0.3, SR * 0.35)).peak;
+    };
+    expect(bell(1.2)).toBeGreaterThan(bell(0.3) * 5);
+  });
+
+  it('old saves: knobs that left the page go back to TIMBRE / INT, and every track takes the new live knobs', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p))) as Record<string, any>;
+    stored.version = 23;
+    const bass = stored.channels[4];
+    bass.trims = { ...(bass.trims ?? {}), bass: { ...(bass.trims?.bass ?? {}), shape: 0.2, cutoff: -0.1 } };
+    bass.live = ['cutoff', 'reso'];
+    const back = fromStored(stored)!.channels[4];
+    expect(back.trims.bass!.shape).toBeUndefined();
+    expect(back.trims.bass!.cutoff).toBeCloseTo(-0.1);
+    expect(back.sounds.bass!.shape).toBeCloseTo(hiddenSound('bass', back.sounds.bass!, INSTRUMENTS.bass.params).shape);
+    expect(back.live).toEqual(['macro:env', 'macro:grit']);
+    expect(back.liveFunc).toEqual(['mix:volume', 'cutoff']);
   });
 });
