@@ -181,6 +181,9 @@ export class Engine {
   private readonly sendLevel: Smoother[] = [];
   /** ACC/GHOST depth per track (1 = as designed; see dynVelocity). */
   private readonly dynDepth = new Float32Array(NUM_CHANNELS).fill(1);
+  /** PLAY mode RING / SLIDE: every hit on the track plays with that flag (not stored). */
+  private readonly forceRing = new Uint8Array(NUM_CHANNELS);
+  private readonly forceSlide = new Uint8Array(NUM_CHANNELS);
   private readonly busL: Float32Array[] = [];
   private readonly busR: Float32Array[] = [];
   private readonly tape: Tape;
@@ -292,6 +295,7 @@ export class Engine {
       case 'release': this.release(msg.channel, msg.note); break;
       case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
       case 'setChord': this.chord[msg.channel] = msg.chord; break;
+      case 'setForce': this.forceRing[msg.channel] = msg.ring ? 1 : 0; this.forceSlide[msg.channel] = msg.slide ? 1 : 0; break;
       case 'recordNote': this.recordNote(msg.channel, msg.note, msg.velocity, msg.accent, msg.slide === true); break;
       case 'recordLock': this.recordLock(msg.channel, msg.id, msg.value); break;
       case 'ping': break; // answered by the host
@@ -480,11 +484,12 @@ export class Engine {
       }
       this.applyLocks(ch, s);
       if (hit) {
-        const ring = this.stepRing[s] === 1;
+        const ring = this.stepRing[s] === 1 || this.forceRing[ch] === 1;
+        const slideFlag = this.stepSlide[s] === 1 || this.forceSlide[ch] === 1;
         // On drum tracks the SLIDE flag is ROLL: the hit repeats at ROLL DIV.
-        const drumRoll = this.rollDiv[ch] > 0 && this.stepSlide[s] === 1;
+        const drumRoll = this.rollDiv[ch] > 0 && slideFlag;
         // A SLIDE note is held (like RING) until the next note, which it glides into.
-        const slide = this.rollDiv[ch] === 0 && this.stepSlide[s] === 1;
+        const slide = this.rollDiv[ch] === 0 && slideFlag;
         this.noteOn(ch, this.stepNote[s], this.stepVel[s], ring, slideFrom, slide);
         this.gateGroup[ch] = this.stepNote[s];
         this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];

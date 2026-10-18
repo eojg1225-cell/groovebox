@@ -19,6 +19,8 @@ export type MainToWorklet =
   | { type: 'setInstrument'; channel: number; kind: InstrumentKind; sound: Record<string, number> }
   /** Chord mode index (0 = off). */
   | { type: 'setChord'; channel: number; chord: number }
+  /** PLAY mode RING / SLIDE: every note on the track plays as a RING / SLIDE (ROLL) note. */
+  | { type: 'setForce'; channel: number; ring: boolean; slide: boolean }
   /** Release a note started with trigger/recordNote (note = the played root). */
   | { type: 'release'; channel: number; note: number }
   /** Instrument parameter in real units. */

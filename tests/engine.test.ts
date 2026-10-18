@@ -2184,3 +2184,30 @@ describe('ACC/GHOST depth (per track)', () => {
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[2].dynamics).toBe(150);
   });
 });
+
+describe('PLAY mode RING / SLIDE (all notes)', () => {
+  it('RING on a track makes every hit ring, without touching the steps', () => {
+    const tail = (force: boolean) => {
+      const p = kickProject([0], { bpm: 120 });
+      p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.05, c_level: 0 };
+      const e = engineWith(p);
+      if (force) e.handleMessage({ type: 'setForce', channel: 0, ring: true, slide: false });
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 0.4).l.subarray(SR * 0.3)).peak;
+    };
+    expect(tail(true)).toBeGreaterThan(tail(false) * 10 + 1e-4);
+  });
+
+  it('SLIDE on a drum track rolls every hit at its ROLL DIV', () => {
+    const hits = (force: boolean) => {
+      const p = kickProject([0], { bpm: 120 });
+      p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 0 }; // 1/32: 2 per step
+      const e = engineWith(p);
+      if (force) e.handleMessage({ type: 'setForce', channel: 0, ring: false, slide: true });
+      e.handleMessage({ type: 'transport', playing: true });
+      const l = render(e, 0.12).l;
+      return stats(l.subarray(SR * 0.0625, SR * 0.07)).peak; // the second half of step 1
+    };
+    expect(hits(true)).toBeGreaterThan(hits(false) * 10 + 1e-3);
+  });
+});

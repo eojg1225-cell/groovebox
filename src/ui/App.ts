@@ -136,10 +136,15 @@ export class App {
   selected = 0;
   mode: Mode = 'record';
   designPage = 0;
-  /** RING armed: new hits ring until the next hit or rest. */
+  /**
+   * RECORD: RING / SLIDE tapped on = placing that flag: the strip shows the steps and a tap
+   * puts it on / takes it off a note (drum lanes: new hits get it too); tapped again = back.
+   */
   ring = false;
-  /** SLIDE armed (synth tracks): new notes glide into the next one. */
   slideArm = false;
+  /** PLAY: RING / SLIDE per track = every note plays as a RING / SLIDE (ROLL) note. */
+  private readonly forceRing: boolean[] = new Array(NUM_CHANNELS).fill(false);
+  private readonly forceSlide: boolean[] = new Array(NUM_CHANNELS).fill(false);
   /** REST armed (drum tracks): tapping a step places / removes a rest marker. */
   restArm = false;
   /**
@@ -255,6 +260,7 @@ export class App {
    */
   private get keyboard(): boolean {
     if (this.clearHeld && this.mode !== 'design') return false;
+    if ((this.ring || this.slideArm) && this.mode === 'record') return false;
     if (this.flagPaint.size > 0 && this.mode === 'record') return false;
     return !stepsOnStrip(this.channel.instrument) || this.mode !== 'record';
   }
@@ -759,6 +765,13 @@ export class App {
       this.send({ type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: this.songRow });
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
+      // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY.
+      if (this.mode !== 'record') { this.ring = false; this.slideArm = false; }
+      if (this.mode !== 'play') {
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+          if (this.forceRing[ch] || this.forceSlide[ch]) this.setForce(ch, false, false);
+        }
+      }
       this.touchedKnob = -1;
       if (this.mode === 'song' && this.project.song.rows.length === 0) {
         // A first row from what the tracks play now.
@@ -812,12 +825,21 @@ export class App {
       this.startReset();
     } else if (id === 'saveproject') {
       this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
-    } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.flagPaintable) {
+    } else if ((id === 'dyn:accent' || id === 'dyn:ghost') && this.flagPaintable) {
       this.flagDown(id); // tap = arm (on release), hold = paint steps
-    } else if (id === 'ring') {
-      this.ring = !this.ring;
-    } else if (id === 'slide') {
-      this.slideArm = !this.slideArm;
+    } else if ((id === 'ring' || id === 'slide') && this.mode === 'play') {
+      const ch = this.selected;
+      const ring = id === 'ring' ? !this.forceRing[ch] : this.forceRing[ch];
+      const slide = id === 'slide' ? !this.forceSlide[ch] : this.forceSlide[ch];
+      this.setForce(ch, ring, slide);
+      const on = id === 'ring' ? ring : slide;
+      this.flash(`${id === 'ring' ? 'RING' : this.slideName} ALL NOTES ${on ? 'ON' : 'OFF'}`);
+    } else if (id === 'ring' || id === 'slide') {
+      // RECORD: tap = place this flag on the strip (one at a time), tap again = back.
+      const on = id === 'ring' ? !this.ring : !this.slideArm;
+      this.ring = id === 'ring' && on;
+      this.slideArm = id === 'slide' && on;
+      if (on && this.flagPaintable) this.flash(`TAP NOTES: ${id === 'ring' ? 'RING' : this.slideName}`);
     } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
       this.dynamic = this.dynamic === d ? 'normal' : d;
@@ -1077,7 +1099,13 @@ export class App {
     }
     if (this.flagPaint.size > 0 && this.mode === 'record') {
       const index = this.visiblePage(ch) * 16 + button;
-      if (index < this.pattern.length) this.paintStep(index);
+      if (index < this.pattern.length) this.paintStep(index, this.flagPaint);
+      return;
+    }
+    // Keyboard track placing RING / SLIDE: a tap puts the flag on / off that step's note.
+    if ((this.ring || this.slideArm) && this.mode === 'record' && this.flagPaintable) {
+      const index = this.visiblePage(ch) * 16 + button;
+      if (index < this.pattern.length) this.paintStep(index, [this.ring ? 'ring' : 'slide']);
       return;
     }
     if (this.keyboard) {
@@ -1183,10 +1211,10 @@ export class App {
   }
 
   /**
-   * RECORD on a keyboard track: ACCENT / GHOST / RING tapped = armed for the notes played;
-   * held for a second = the strip shows the steps and tapping one paints the flag onto its
-   * note (the drum rules: another dynamic -> the held one, the same one -> back to normal;
-   * RING toggles).
+   * RECORD on a keyboard track: ACCENT / GHOST tapped = armed for the notes played; held
+   * for a second = the strip shows the steps and tapping one paints the flag onto its note
+   * (the drum rules: another dynamic -> the held one, the same one -> back to normal).
+   * RING / SLIDE are tapped into their placing mode instead (see onButton).
    */
   private get flagPaintable(): boolean {
     return this.mode === 'record' && !stepsOnStrip(this.channel.instrument);
@@ -1217,14 +1245,14 @@ export class App {
     }
   }
 
-  /** Paint the held flags onto the note on a step. */
-  private paintStep(index: number): void {
+  /** Paint flags onto the note on a step. */
+  private paintStep(index: number, ids: Iterable<string>): void {
     const step = this.pattern.steps[index];
     if (!step.active) {
       this.flash('NO NOTE ON THIS STEP');
       return;
     }
-    for (const id of this.flagPaint) {
+    for (const id of ids) {
       if (id === 'ring') step.ring = !step.ring;
       else if (id === 'slide') {
         step.slide = !step.slide;
@@ -1236,6 +1264,13 @@ export class App {
     }
     this.sendStep(index, step);
     this.save();
+  }
+
+  /** PLAY: every note on a track as RING / SLIDE (ROLL) notes, or back. */
+  private setForce(ch: number, ring: boolean, slide: boolean): void {
+    this.forceRing[ch] = ring;
+    this.forceSlide[ch] = slide;
+    this.send({ type: 'setForce', channel: ch, ring, slide });
   }
 
   /** Hits per step of a ROLL-flagged drum step on this channel (its sound's ROLL DIV). */
@@ -1568,14 +1603,15 @@ export class App {
     const rec = this.mode === 'record';
     const kb = this.keyboard;
     this.panel.setButtonLit('func', this.func);
-    this.panel.setButtonLit('ring', this.ring || this.flagPaint.has('ring'));
-    this.panel.setButtonLit('slide', this.slideArm || this.flagPaint.has('slide'));
+    const play = this.mode === 'play';
+    this.panel.setButtonLit('ring', play ? this.forceRing[this.selected] : this.ring);
+    this.panel.setButtonLit('slide', play ? this.forceSlide[this.selected] : this.slideArm);
     // Synths: SLIDE; drums: ROLL (same button, same step flag).
     this.panel.setButtonText('slide', this.slideName);
-    this.panel.setButtonEnabled('slide', rec);
+    this.panel.setButtonEnabled('slide', rec || play);
     this.panel.setButtonLit('dyn:accent', this.dynamic === 'accent' || this.flagPaint.has('dyn:accent'));
     this.panel.setButtonLit('dyn:ghost', this.dynamic === 'ghost' || this.flagPaint.has('dyn:ghost'));
-    this.panel.setButtonEnabled('ring', rec);
+    this.panel.setButtonEnabled('ring', rec || play);
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
@@ -1681,8 +1717,7 @@ export class App {
     } else {
       // RING or SLIDE / ROLL armed (or painting): every hit is dim (like a ghost note) and
       // the ones with that flag light up fully; the other flags are not shown.
-      const view = this.ring || this.flagPaint.has('ring') ? 'ring'
-        : this.slideArm || this.flagPaint.has('slide') ? 'slide' : null;
+      const view = this.ring ? 'ring' : this.slideArm ? 'slide' : null;
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
         const index = page * 16 + i;
