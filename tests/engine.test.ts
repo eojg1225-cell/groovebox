@@ -15,7 +15,6 @@ import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7I
 import { midiToHz } from '../src/instruments/dsp';
 import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
-import { MidCut } from '../src/fx/MidCut';
 
 import { Chorus } from '../src/fx/Chorus';
 import { Reverb } from '../src/fx/Reverb';
@@ -340,6 +339,25 @@ describe('dynamics, locks and motion recording', () => {
     expect(got.map((m) => m.type === 'recordedNote' && [m.index, m.note])).toEqual([[0, 40], [1, 43]]);
   });
 
+  it('live notes land where they were heard: the listen latency is allowed for', () => {
+    // 120 BPM: a step is 6000 frames. A tap 5000 frames into step 0 goes to step 1 with no
+    // latency, but heard 60 ms (2880 frames) late it was meant for step 0.
+    const run = (ms: number) => {
+      const e = engineWith(kickProject([]));
+      const got: RecordedMsg[] = [];
+      e.onRecorded = (m) => got.push(m);
+      e.handleMessage({ type: 'setListenLatency', ms });
+      e.handleMessage({ type: 'transport', playing: true });
+      render(e, 5000 / SR);
+      e.handleMessage({ type: 'recordNote', channel: 3, note: 40, velocity: 1, accent: false });
+      render(e, 5500 / SR); // 10500 frames: step 2 by the engine, step 1 by ear
+      e.handleMessage({ type: 'recordNote', channel: 3, note: 43, velocity: 1, accent: false });
+      return got.map((m) => m.type === 'recordedNote' && m.index);
+    };
+    expect(run(0)).toEqual([1, 2]);
+    expect(run(60)).toEqual([0, 1]);
+  });
+
   it('motion-recorded knob moves lock the step playing now', () => {
     const e = engineWith(kickProject([0]));
     const got: RecordedMsg[] = [];
@@ -461,19 +479,6 @@ describe('send effects', () => {
     const out = new Float32Array(n);
     d.process(sine, sine, out, new Float32Array(n), 0, n);
     expect(stats(out).peak).toBeLessThan(1);
-  });
-
-  it('mid-cut removes energy at its centre frequency', () => {
-    const energyAt = (freq: number) => {
-      const m = new MidCut(SR);
-      m.setParam('mid_freq', 1000); m.setParam('mid_depth', 24); m.setParam('mid_return', 1);
-      const n = SR / 2;
-      const sine = Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * freq * i) / SR));
-      const out = new Float32Array(n);
-      m.process(sine, sine, out, new Float32Array(n), 0, n);
-      return out.subarray(n / 2).reduce((a, v) => a + v * v, 0) / (n / 2);
-    };
-    expect(energyAt(1000)).toBeLessThan(energyAt(100) * 0.1);
   });
 
   it('a track routed to a send gets that send\'s effects (FX 3 delay = 1/4 note)', () => {
@@ -2547,6 +2552,35 @@ describe('MID CUT per track (MIX, FUNC) at the sound\'s MID FREQ', () => {
     const freq = Object.fromEntries(SOUND_KINDS.map((k) => [k, presetSound(k, 0).midfreq]));
     expect(freq).toEqual({ kick: 350, snare: 500, hat: 2000, perc: 450, bass: 350, pad: 500, lead: 1000, pluck: 800 });
     expect(createDefaultProject().channels.every((c) => c.midCut === 0)).toBe(true);
+  });
+
+  it('a send bus with nothing coming in falls silent and is skipped; effects at 0 are skipped', () => {
+    const bus = new SendBus(SR, 1);
+    bus.setWet(0, 0.6); // delay
+    const n = 128;
+    const inL = new Float32Array(n), inR = new Float32Array(n);
+    const outL = new Float32Array(n), outR = new Float32Array(n);
+    inL[0] = inR[0] = 1;
+    bus.process(inL, inR, outL, outR, 0, n);
+    inL[0] = inR[0] = 0;
+    let heard = 0;
+    for (let i = 0; i < (SR * 2) / n; i++) {
+      outL.fill(0);
+      bus.process(inL, inR, outL, outR, 0, n);
+      heard = Math.max(heard, ...outL);
+    }
+    expect(heard).toBeGreaterThan(0.01); // its echoes still come back
+    // Turned to 0, then back up: it starts clean (no old echoes).
+    bus.setWet(0, 0);
+    for (let i = 0; i < (SR * 0.3) / n; i++) bus.process(inL, inR, outL, outR, 0, n);
+    bus.setWet(0, 0.6);
+    let stale = 0;
+    for (let i = 0; i < (SR * 2) / n; i++) {
+      outL.fill(0);
+      bus.process(inL, inR, outL, outR, 0, n);
+      stale = Math.max(stale, ...outL.map(Math.abs));
+    }
+    expect(stale).toBeLessThan(1e-6);
   });
 
   it('v29 load: MID CUT leaves the sends, the other effects keep their settings', () => {

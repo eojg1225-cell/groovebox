@@ -36,6 +36,10 @@ export class Distortion implements Effect {
     }
   }
 
+  reset(): void {
+    this.lpL = this.lpR = 0;
+  }
+
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, off: number, n: number): void {
     const c = this.char;
     for (let i = 0; i < n; i++) {

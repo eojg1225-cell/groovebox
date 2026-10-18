@@ -107,3 +107,5 @@ Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4, 5TH, 5TH+
 **Saving:** SAVE PATCH (USER n per track type), SAVE PROJECT (opens next launch), both in this browser's local storage; the working session survives reloads; on claude.ai the project is also mirrored to the artifact's store. The save format is forgiving: notes carry over across format changes.
 
 Keyboard: Space play/stop · Z FUNC (hold) · 1-8 select channel · Shift+1-8 mute · Q-I / A-K the strip.
+
+**Live recording and latency:** notes played live while recording land on the step you heard, not the one the engine was on when your tap arrived. The browser's reported output latency (shown as OUT …MS) plus a small allowance for touch is taken off, so recording works with the delay a phone or tablet adds (also Bluetooth, if the device reports it).

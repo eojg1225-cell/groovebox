@@ -42,6 +42,11 @@ export class Chorus implements Effect {
     }
   }
 
+  reset(): void {
+    this.bufL.fill(0);
+    this.bufR.fill(0);
+  }
+
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, off: number, n: number): void {
     const len = this.bufL.length;
     const base = (BASE_MS / 1000) * this.sr;

@@ -71,6 +71,9 @@ export class Engine {
   private readonly master: Smoother;
   private readonly limiter: Limiter;
 
+  /** How late the player hears the engine, in frames, besides the limiter (setListenLatency). */
+  private listenFrames = 0;
+
   /** Output latency in frames (the master limiter's look-ahead). */
   get latency(): number {
     return this.limiter.len;
@@ -275,6 +278,7 @@ export class Engine {
       case 'setSound': this.setSound(msg.channel, msg.id, msg.value); break;
       case 'setOffset': this.setOffset(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
+      case 'setListenLatency': this.listenFrames = Math.max(0, msg.ms) * 0.001 * this.sampleRate; break;
       case 'setGlobal':
         if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); this.instrumentTempo(); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
@@ -716,8 +720,7 @@ export class Engine {
     if (this.recNote[ch] !== note) return;
     this.recNote[ch] = -1;
     if (!this.playing) return;
-    const elapsed = this.lastStepFrames - this.framesToStep;
-    const endStep = elapsed < this.lastStepFrames / 2 ? this.globalStep - 1 : this.globalStep;
+    const endStep = Math.round(this.heardPosition());
     const pattern = this.recPattern[ch];
     // Up to the whole loop (a note may be held past the end and on from the start).
     const gate = Math.max(1, Math.min(this.patternLength[ch * NUM_PATTERNS + pattern], endStep - this.recStart[ch]));
@@ -815,14 +818,27 @@ export class Engine {
     }
   }
 
-  /** Index of the step nearest to "now" for a channel, given the current step progress. */
-  private nearestStep(ch: number): { index: number; isNext: boolean } {
+  /**
+   * Where the player is (global steps, fractional): what they hear now, which is the engine's
+   * position less the output latency (limiter look-ahead + the reported listen latency).
+   */
+  private heardPosition(): number {
     const elapsed = this.lastStepFrames - this.framesToStep;
+    return this.globalStep - 1 + (elapsed - this.latency - this.listenFrames) / this.lastStepFrames;
+  }
+
+  /**
+   * The step a live note belongs to: the one nearest to where it was heard (global step
+   * `global`; `isNext` = the step about to fire, which must then skip it).
+   */
+  private nearestStep(ch: number, round = true): { index: number; isNext: boolean; global: number } {
     const cur = this.currentStep[ch];
-    if (cur < 0) return { index: 0, isNext: true };
-    return elapsed < this.lastStepFrames / 2
-      ? { index: cur, isNext: false }
-      : { index: this.position[ch], isNext: true };
+    if (cur < 0) return { index: 0, isNext: true, global: this.globalStep };
+    const heard = this.heardPosition();
+    const global = round ? Math.round(heard) : Math.floor(heard);
+    const k = global - (this.globalStep - 1);
+    const len = this.patternLength[ch * NUM_PATTERNS + this.activePattern[ch]];
+    return { index: (((cur + k) % len) + len) % len, isNext: k >= 1, global };
   }
 
   private recordNote(ch: number, note: number, velocity: number, accent: boolean, slide = false): void {
@@ -830,10 +846,10 @@ export class Engine {
     const prev = slide && this.recNote[ch] >= 0 ? this.recNote[ch] : -1;
     this.noteOn(ch, note, velocity, false, slide ? prev : -1);
     if (!this.playing || !this.current[ch]) return;
-    const { index, isNext } = this.nearestStep(ch);
+    const { index, isNext, global } = this.nearestStep(ch);
     const pattern = this.activePattern[ch];
     if (prev >= 0) {
-      const start = isNext ? this.globalStep : this.globalStep - 1;
+      const start = global;
       const gate = Math.max(1, Math.min(MAX_STEPS, start - this.recStart[ch]));
       const p = this.recPattern[ch];
       const i = this.recIndex[ch];
@@ -859,7 +875,7 @@ export class Engine {
     if (isNext) this.skipStep[ch] = index;
     // Remember it so the release sets its length.
     this.recNote[ch] = note;
-    this.recStart[ch] = isNext ? this.globalStep : this.globalStep - 1;
+    this.recStart[ch] = global;
     this.recIndex[ch] = index;
     this.recPattern[ch] = pattern;
     this.recVel[ch] = velocity;
@@ -876,7 +892,8 @@ export class Engine {
     this.applyParam(ch, inst, id, this.withOffset(ch, slot, value)); // hear it now
     if (!this.playing || this.currentStep[ch] < 0) return;
     const pattern = this.activePattern[ch];
-    const index = this.currentStep[ch];
+    // The step being heard when the knob moved.
+    const { index } = this.nearestStep(ch, false);
     const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
     this.locks[s * LOCK_SLOTS + slot] = value;
     this.lockApplied[ch * LOCK_SLOTS + slot] = 1;

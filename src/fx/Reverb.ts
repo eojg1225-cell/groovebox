@@ -21,6 +21,7 @@ class Comb {
   private i = 0;
   private store = 0;
   constructor(len: number) { this.buf = new Float32Array(len); }
+  reset(): void { this.buf.fill(0); this.store = 0; }
   process(x: number, feedback: number, damp: number): number {
     const y = this.buf[this.i];
     this.store = y * (1 - damp) + this.store * damp;
@@ -35,6 +36,7 @@ class Allpass {
   private readonly buf: Float32Array;
   private i = 0;
   constructor(len: number) { this.buf = new Float32Array(len); }
+  reset(): void { this.buf.fill(0); }
   process(x: number): number {
     const b = this.buf[this.i];
     this.buf[this.i] = x + b * 0.5;
@@ -83,6 +85,14 @@ export class Reverb implements Effect {
       case 'rev_width': this.width = v; break;
       case 'rev_return': this.ret.setTarget(v); break;
     }
+  }
+
+  reset(): void {
+    for (const c of this.combsL) c.reset();
+    for (const c of this.combsR) c.reset();
+    for (const a of this.apL) a.reset();
+    for (const a of this.apR) a.reset();
+    this.pre.fill(0);
   }
 
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, off: number, n: number): void {

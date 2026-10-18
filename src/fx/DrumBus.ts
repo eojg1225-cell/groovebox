@@ -110,6 +110,7 @@ export class DrumBus {
   private releaseMul = 0;
   private follow = 0;
   private counter = 0;
+  private resting = false;
   private readonly lpL = new Svf();
   private readonly lpR = new Svf();
   private readonly comp: Compressor;
@@ -158,8 +159,38 @@ export class DrumBus {
     this.pos.setImmediate(this.posTarget);
   }
 
+  /**
+   * Every effect at rest (REVERSE off, no DISTORT, FILTER centred, COMP 1:1): the tracks just
+   * pass through (the REVERSE buffer still records, so it can reach back when turned up).
+   */
+  private atRest(): boolean {
+    return this.mixTarget === 0 && this.mix.value === 0 && this.driveDb === 0 && this.toneCoeff >= 1 && this.crush === 0
+      && this.levelTarget === 1 && this.level.value === 1 && djCutoff(this.posTarget) === 0 && djCutoff(this.pos.value) === 0
+      && !this.comp.active;
+  }
+
   /** Reads the bus input and ADDS the processed result into out. */
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, off: number, n: number): void {
+    if (this.atRest()) {
+      const size = this.bufL.length;
+      for (let i = 0; i < n; i++) {
+        this.bufL[this.write] = inL[i];
+        this.bufR[this.write] = inR[i];
+        if (++this.write >= size) this.write = 0;
+        outL[off + i] += inL[i];
+        outR[off + i] += inR[i];
+      }
+      this.wetL = this.wetR = 0;
+      this.resting = true;
+      return;
+    }
+    if (this.resting) {
+      // Back from rest: the filter starts from silence instead of stale state.
+      this.resting = false;
+      this.lpL.reset();
+      this.lpR.reset();
+      this.counter = 0;
+    }
     const gain = Math.pow(10, this.driveDb / 20);
     const shape = Math.min(1, this.driveDb / 6); // blend in the shaper over the first 6 dB
     const hold = 1 + Math.floor(this.crush * this.crush * 40);

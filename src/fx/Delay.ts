@@ -92,6 +92,12 @@ export class Delay implements Effect {
     }
   }
 
+  reset(): void {
+    this.bufL.fill(0);
+    this.bufR.fill(0);
+    this.lpL = this.lpR = 0;
+  }
+
   private targetFrames(): number {
     return (DELAY_DIVISIONS[this.division].sixteenths * 60 * this.sr) / (this.bpm * 4);
   }

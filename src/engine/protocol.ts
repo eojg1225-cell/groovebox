@@ -34,6 +34,11 @@ export type MainToWorklet =
   | { type: 'setOffset'; channel: number; id: string; value: number }
   | { type: 'setMix'; channel: number; id: MixParam; value: number }
   | { type: 'setGlobal'; id: GlobalParam; value: number }
+  /**
+   * How late the player hears the engine (output latency + touch delay, ms): live-recorded
+   * notes and knob moves land where they were heard, not where the engine is.
+   */
+  | { type: 'setListenLatency'; ms: number }
   /** Route a track to send FX 2 or FX 3 (0 = none). */
   | { type: 'setRouting'; channel: number; send: number }
   /** Pass a track through FX 1, the drum bus, or not. */

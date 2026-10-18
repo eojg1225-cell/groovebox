@@ -78,6 +78,7 @@ function unlockAudio(): void {
     host.onRecorded = (m) => app.onRecorded(m);
     host.onEngineReset = () => {
       for (const msg of app.syncMessages()) host?.send(msg);
+      sentListenMs = -1; // a fresh engine: send the listen latency again
       app.notify('ENGINE RESTARTED');
     };
     host.onStatus = (s) => {
@@ -142,19 +143,32 @@ document.addEventListener('visibilitychange', () => {
 // ------------------------------------------------------------------ frame loop
 
 let wasPlaying = false;
+/**
+ * Touch / click to event, on top of the reported audio latency: what the player hears is this
+ * much behind what the engine plays when they tap along (live recording allows for it).
+ */
+const TOUCH_MS = 15;
+let sentListenMs = -1;
 const frame = (now: number) => {
   if (host) {
     const lat = host.latency();
     audio.latencyMs = (Number.isFinite(lat.baseMs) ? lat.baseMs : 0) + (Number.isFinite(lat.outputMs) ? lat.outputMs : 0);
+    const listenMs = audio.latencyMs + TOUCH_MS;
+    if (Math.abs(listenMs - sentListenMs) >= 1) {
+      sentListenMs = listenMs;
+      host.send({ type: 'setListenLatency', ms: listenMs });
+    }
     if (audio.state === 'on' && host.ctx.state !== 'running') audio.state = 'off';
     else if (audio.state === 'off' && host.ctx.state === 'running') audio.state = 'on';
   }
   if (app.playing !== wasPlaying) { wasPlaying = app.playing; void updateWakeLock(); }
   app.updateFrame(now);
+  screen.begin();
   if (app.mode === 'song') drawSongView(screen, app.songView(now, audio));
   else if (app.sendOpen) drawDesignView(screen, app.sendView(now, audio));
   else if (app.mode === 'design') drawDesignView(screen, app.designView(now, audio));
   else drawLiveView(screen, app.liveView(now, audio));
+  screen.end();
   requestAnimationFrame(frame);
 };
 requestAnimationFrame(frame);

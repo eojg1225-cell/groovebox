@@ -5,7 +5,7 @@ const UPDATE = 32;
 
 /**
  * Master LO-FI: a post-processing colour, tape-like rather than an effect. As AMOUNT rises:
- *  - MID CUT: a wide dip (Q 0.7) centred ~800 Hz, moving up a little (to ~1 kHz) as it
+ *  - MID DIP: a wide dip (Q 0.7) centred ~800 Hz, moving up a little (to ~1 kHz) as it
  *    deepens: about -3 dB at half, -8 dB at full;
  *  - SATURATION: a soft, slightly asymmetric curve (even harmonics) normalised to unity
  *    gain for quiet signals, so it only rounds off peaks - gentle tape compression -
