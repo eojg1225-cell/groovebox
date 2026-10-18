@@ -14,6 +14,7 @@ import {
   BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS, PLUCK_FIXED, PLUCK_PARAMS, PLUCK_PRESETS,
   PAD_FIXED, PAD_PARAMS, PAD_PRESETS, SYNTH_ELEMENTS, Synth,
 } from './Synth';
+import { DRIVE_RISE } from './driveComp';
 
 /** Knob slots per page: 2 rows of 8 modules. */
 export const PAGE_SLOTS = 16;
@@ -230,19 +231,19 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   bass: {
     name: 'BASS', live: ['cutoff', 'reso'], liveFunc: ['mix:volume', 'macro:env'], params: BASS_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['glide', 'sub'], ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'detune', _]),
-    presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
+    presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'CHORD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'unison'], ['fenv', 'fm']),
     funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 3), 'carriers', ...SYNTH_FUNC_TOP.slice(4)], ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'detune', _]),
-    presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
+    presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: LEAD_GAIN, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['glide', 'carriers'], ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'detune', _]),
-    presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
+    presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: SYNTH_TRIM, live: ['macro:length', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'arpoct'], ['arp', 'arprate']),
     funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 3), 'unison', ...SYNTH_FUNC_TOP.slice(4, 7), 'fenv'], [...SYNTH_FUNC_BOTTOM, 'detune', 'fm']),
-    presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED) },
+    presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },
 };
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];

@@ -45,9 +45,9 @@ import {
   DYNAMIC_VELOCITY, emptyStep, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
-import { applyPreset, liveDefaults } from '../engine/defaultProject';
+import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, liveTargets, mirrorOsc2, paramSpec, presetSound, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, paramSpec, presetSound, stepsOnStrip } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
@@ -520,26 +520,20 @@ export class App {
     return ids;
   }
 
-  /** Sound design pages for the selected track: instrument pages, then TRACK, GLOBAL. */
+  /**
+   * DESIGN pages: TRACK (the selected track's sound), MIX (every track's level, send, pan,
+   * ACC/GHOST), PROJECT (project settings + the selected track's setup).
+   */
   private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
     const ch = this.selected;
     const c = this.channel;
-    const pages: { name: string; targets: () => (KnobTarget | null)[] }[] = [];
-    if (c.instrument !== 'none') {
-      const entry = INSTRUMENTS[c.instrument];
-      const layout = this.func ? entry.funcLayout : entry.layout;
-      pages.push({ name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) });
-    }
-    pages.push({ name: 'TRACK', targets: () => this.trackTargets() });
-    pages.push({
-      name: 'GLOBAL',
-      targets: () => this.func ? [] : GLOBAL_PARAMS.map((spec) => ({
-        label: spec.name, spec, channel: ch, key: `global:${spec.id}`,
-        get: () => this.getGlobal(spec.id as GlobalId),
-        set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
-      })),
-    });
-    return pages;
+    const entry = c.instrument === 'none' ? null : INSTRUMENTS[c.instrument];
+    const layout = entry ? (this.func ? entry.funcLayout : entry.layout) : [];
+    return [
+      { name: 'TRACK', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) },
+      { name: 'MIX', targets: () => this.mixTargets() },
+      { name: 'PROJECT', targets: () => this.projectTargets() },
+    ];
   }
 
   private getGlobal(id: GlobalId): number {
@@ -598,35 +592,46 @@ export class App {
    * FUNC held). Row 2: send level, chord (pitched).
    * The send itself is chosen with FX 1/2/3.
    */
-  private trackTargets(): (KnobTarget | null)[] {
+  /**
+   * DESIGN > MIX: one module per track (knob = track number). VOLUME on top, SEND level
+   * below; with FUNC: PAN on top, ACC/GHOST below.
+   */
+  private mixTargets(): (KnobTarget | null)[] {
+    const top = this.func ? 'mix:pan' : 'mix:volume';
+    const bottom = this.func ? 'mix:dyn' : 'mix:send';
+    const short = this.func ? ['PAN', 'ACC'] : ['VOL', 'SEND'];
+    const row = (id: string, name: string) => this.project.channels.map((_, ch) =>
+      this.paramTarget(ch, id, `${name} ${ch + 1}`, ch === this.selected));
+    return [...row(top, short[0]), ...row(bottom, short[1])];
+  }
+
+  /**
+   * DESIGN > PROJECT: the project settings on top (TEMPO, SWING, MASTER, LO-FI); below, the
+   * selected track's setup: PRESET, LIVE 1 / 2 (LIVE 3 / 4 with FUNC), CHORD (synths).
+   */
+  private projectTargets(): (KnobTarget | null)[] {
     const ch = this.selected;
     const c = this.channel;
-    const targets: (KnobTarget | null)[] = [];
-    const typeSpec = choice('type', 'TYPE', SOUND_KINDS.map((k) => INSTRUMENTS[k].name));
+    const targets: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
+      label: spec.name, spec, channel: ch, key: `global:${spec.id}`,
+      get: () => this.getGlobal(spec.id as GlobalId),
+      set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
+    }));
+    while (targets.length < 8) targets.push(null);
+    if (c.instrument === 'none') return targets;
+    const kind = c.instrument;
     targets.push({
-      label: 'TYPE', spec: typeSpec, channel: ch,
-      get: () => Math.max(0, SOUND_KINDS.indexOf(c.instrument as SoundKind)),
-      set: (v) => this.setType(SOUND_KINDS[v]),
+      label: 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch,
+      get: () => c.presets[kind] ?? 0,
+      set: (v) => this.loadPreset(ch, kind, v),
     });
-    if (c.instrument !== 'none') {
-      const kind = c.instrument;
-      targets.push({
-        label: 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch,
-        get: () => c.presets[kind] ?? 0,
-        set: (v) => this.loadPreset(ch, kind, v),
-      });
-    } else {
-      targets.push(null);
-    }
-    targets.push(this.paramTarget(ch, 'mix:volume'), this.paramTarget(ch, 'mix:pan'));
     const candidates = this.liveCandidates(c);
-    const liveTargets: KnobTarget[] = [];
     // FUNC held: the same two knobs choose LIVE 3 / 4 (the live knobs with FUNC held).
     const live = this.func ? c.liveFunc : c.live;
     for (let r = 0; r < 2; r++) {
       const n = this.func ? r + 3 : r + 1;
       const spec = choice(`live${n}`, `LIVE ${n}`, candidates.map((x) => x.spec.name));
-      liveTargets.push({
+      targets.push({
         label: `LIVE ${n}`, spec, channel: ch,
         get: () => Math.max(0, candidates.findIndex((x) => x.id === live[r])),
         set: (v) => {
@@ -637,37 +642,8 @@ export class App {
         },
       });
     }
-    if (this.func) return [null, null, null, null, ...liveTargets];
-    targets.push(...liveTargets);
-    targets.push(this.paramTarget(ch, 'mix:send'));
-    if (!isDrum(c.instrument)) {
-      targets.push({
-        label: 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch,
-        get: () => c.chord,
-        set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
-      });
-    }
-    // Bottom row: ACC/GHOST under VOLUME.
-    while (targets.length < 10) targets.push(null);
-    targets.push(this.paramTarget(ch, 'mix:dyn'));
+    if (!isDrum(kind)) targets.push(this.paramTarget(ch, 'track:chord'));
     return targets;
-  }
-
-  private setType(kind: SoundKind): void {
-    const c = this.channel;
-    if (c.instrument === kind) return;
-    if (c.sounds[kind]) c.instrument = kind;
-    else applyPreset(c, kind, 0);
-    // The live knobs take the new type's defaults.
-    liveDefaults(c);
-    // Locks belong to the old instrument's parameters.
-    for (const p of c.patterns) for (const s of p.steps) delete s.locks;
-    this.send({ type: 'setInstrument', channel: this.selected, kind, sound: c.sounds[kind] ?? {} });
-    this.octave[this.selected] = INSTRUMENTS[kind].baseNote;
-    if (isDrum(kind)) {
-      c.chord = 0;
-      this.send({ type: 'setChord', channel: this.selected, chord: 0 });
-    }
   }
 
   /** The 16 knob targets for the current mode. */
@@ -714,7 +690,6 @@ export class App {
             if (this.funcHeld) this.funcUsed = true; // not a latching tap
           } else {
             this.selected = this.heldTrack;
-            this.designPage = 0;
             this.fxView = 0;
             this.touchedKnob = -1;
           }
@@ -800,7 +775,6 @@ export class App {
       // a tap = back to that track).
     } else if ((m = /^ch(\d)$/.exec(id))) {
       this.selected = Number(m[1]) - 1;
-      this.designPage = 0;
     } else if ((m = /^mute(\d)$/.exec(id))) {
       const ch = Number(m[1]) - 1;
       const c = this.project.channels[ch];
@@ -1181,7 +1155,7 @@ export class App {
         this.entry = { button, index };
         this.save();
       } else {
-        // PLAY and SOUND DESIGN: play only, never recorded.
+        // PLAY and DESIGN: play only, never recorded.
         this.send({ type: 'trigger', channel: ch, note, velocity: vel, slideFrom: legato ? heldNote : -1 });
       }
       return;

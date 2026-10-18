@@ -1,7 +1,7 @@
 /**
  * What the pixel screen shows. Pure drawing from plain view-model objects.
  *  - Live view (RECORD / PLAY): eight step lanes, then the 16 live knobs (one column per track).
- *  - Design view (SOUND DESIGN, and an open FX bus): page tabs and the 16 knobs as on the panel.
+ *  - Design view (DESIGN, and an open FX bus): page tabs and the 16 knobs as on the panel.
  */
 import { INK, PixelScreen, SCREEN_W } from './screen';
 import { textWidth } from './font';

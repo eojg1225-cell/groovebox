@@ -3,6 +3,7 @@ import { choice, type ParamSpec } from '../engine/params';
 import { decayMul, Noise, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE } from './macroParams';
 import { MACROS } from './macros';
+import { DRIVE_RISE, driveCompGain } from './driveComp';
 
 /**
  * Drum voice built from layers. Each drum type uses two of them (its two "elements"):
@@ -139,11 +140,13 @@ export interface DrumVoice {
   ringExtra: number;
   /** PERC: metal + click tuned from the tone (INTERVAL, DETUNE, the note) instead of in Hz. */
   relative?: boolean;
+  /** DRIVE level compensation curve (driveComp.ts). */
+  driveRise?: readonly number[];
 }
-export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6 };
-export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6 };
-export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 1.5 };
-export const PERC_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, relative: true };
+export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare };
+export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 1.5, driveRise: DRIVE_RISE.hat };
+export const PERC_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'kick' | 'snare' | 'hat' | 'perc'): Preset[] {
@@ -180,7 +183,7 @@ export class Drum implements Instrument {
   // Parameter values (all layers silent unless the drum type sets them)
   private tLevel = 0; private tPitch = 50; private tSweep = 24; private tWave = 0;
   private cLevel = 0; private cTone = 4000; private cReso = 0.3; private cNoise = 0.6;
-  private drive = 1; private crush = 0;
+  private drive = 1; private crush = 0; private driveComp = 1;
   private mLevel = 0; private mPitch = 400; private mSpread = 1; private mNoise = 0.3; private mMode = 0; private mFm = 0.5;
   private fmC = 0; private fmM = 0;
   private tDecayMul = 0; private sweepMul = 0; private mDecayMul = 0; private cDecayMul = 0;
@@ -309,7 +312,7 @@ export class Drum implements Instrument {
         if (l2 === 't') this.gT = g2; else if (l2 === 'c') this.gC = g2; else this.gM = g2;
         break;
       }
-      case 'drive': this.drive = v; break;
+      case 'drive': this.drive = v; this.driveComp = driveCompGain(this.voice.driveRise, v); break;
       case 'crush': this.crush = v; break;
     }
   }
@@ -466,7 +469,7 @@ export class Drum implements Instrument {
         this.filter.process(out);
         out = this.filter.low;
       }
-      if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * 0.8;
+      if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * 0.8 * this.driveComp;
       if (this.crush > 0) {
         if (this.holdCount <= 0) {
           this.held = Math.round(out * levels) / levels;

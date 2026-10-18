@@ -1,3 +1,4 @@
+import { DRIVE_RISE, driveCompGain } from '../src/instruments/driveComp';
 import { dynVelocity } from '../src/engine/mixParams';
 import { describe, expect, it } from 'vitest';
 import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
@@ -1878,9 +1879,9 @@ describe('LFO: odd rates, MORPH, FM MOD', () => {
     };
     const a = render1(0);
     const b = render1(0.5);
-    let diff = 0;
-    for (let i = 2000; i < a.length; i++) diff += Math.abs(a[i] - b[i]);
-    expect(diff / a.length).toBeGreaterThan(0.01);
+    let diff = 0, level = 0;
+    for (let i = 2000; i < a.length; i++) { diff += Math.abs(a[i] - b[i]); level += Math.abs(a[i]); }
+    expect(diff / level).toBeGreaterThan(0.1);
     expect(stats(b).nan).toBe(false);
   });
 });
@@ -2221,5 +2222,36 @@ describe('PLAY mode RING / SLIDE (all notes)', () => {
       return stats(l.subarray(SR * 0.0625, SR * 0.07)).peak; // the second half of step 1
     };
     expect(hits(true)).toBeGreaterThan(hits(false) * 10 + 1e-3);
+  });
+});
+
+describe('DRIVE level compensation', () => {
+  it('every type ends up only a little louder at full DRIVE (about +2.5 dB on average)', () => {
+    for (const k of SOUND_KINDS) {
+      const e = INSTRUMENTS[k];
+      const max = e.params.find((p) => p.id === 'drive')!.max;
+      const rises = e.presets.map((_, pi) => {
+        const rms = (d: number) => {
+          const inst = e.create(SR);
+          const s: Record<string, number> = { ...presetSound(k, pi), drive: d, crush: 0 };
+          if (!e.drum) { s.sustain = 0.7; s.sustain2 = 0.7; }
+          for (const id in s) inst.setParam(id, s[id]);
+          inst.noteOn(e.drum ? 36 : 48, 0.8, e.drum ? 36 : 48, false);
+          const l = new Float32Array(SR / 4);
+          inst.render(l, new Float32Array(l.length), 0, l.length);
+          return Math.sqrt(l.reduce((a, v) => a + v * v, 0) / l.length);
+        };
+        return 20 * Math.log10(rms(max) / rms(1));
+      });
+      const avg = rises.reduce((a, b) => a + b, 0) / rises.length;
+      expect(avg, k).toBeGreaterThan(1);
+      expect(avg, k).toBeLessThan(4.5);
+      for (const r of rises) expect(r, k).toBeLessThan(12);
+    }
+  });
+
+  it('the cut follows DRIVE, so turning it back restores the level', () => {
+    expect(driveCompGain(DRIVE_RISE.kick, 1)).toBe(1);
+    expect(driveCompGain(DRIVE_RISE.kick, 20)).toBeLessThan(driveCompGain(DRIVE_RISE.kick, 4));
   });
 });

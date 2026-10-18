@@ -3,6 +3,7 @@ import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
 import { decayMul, midiToHz, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE } from './macroParams';
 import { MACROS } from './macros';
+import { driveCompGain } from './driveComp';
 
 /**
  * Polyphonic synth (6 voices) for basses, pads and leads.
@@ -208,7 +209,7 @@ export class Synth implements Instrument {
   private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
   private filterMod = 0;
-  private drive = 1; private crush = 0; private level = 0.7;
+  private drive = 1; private crush = 0; private level = 0.7; private driveComp = 1;
   private holdCount = 0; private held = 0;
   /** Per element (OSC 1, OSC 2). */
   private readonly attackInc = new Float64Array([1, 1]);
@@ -224,7 +225,8 @@ export class Synth implements Instrument {
   private ageCounter = 0;
   private pitchMod = 1;
 
-  constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>) {
+  /** driveRise: the type's DRIVE level compensation curve (driveComp.ts). */
+  constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>, private readonly driveRise?: readonly number[]) {
     this.sr = sampleRate;
     for (let i = 0; i < MAX_VOICES; i++) this.voices.push(new Voice());
     for (const p of SYNTH_PARAMS) this.setParam(p.id, p.defaultValue);
@@ -336,7 +338,7 @@ export class Synth implements Instrument {
       case 'fenv': this.fenvAmt = value; break;
       case 'fdecay': this.fdecayMul = decayMul(value, sr); break;
       case 'fattack': this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
-      case 'drive': this.drive = value; break;
+      case 'drive': this.drive = value; this.driveComp = driveCompGain(this.driveRise, value); break;
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
       case 'attack': this.attackInc[0] = 1 / (value * sr); break;
@@ -496,7 +498,7 @@ export class Synth implements Instrument {
         v.filter.process(mix * 0.5);
 
         let out = v.filter.low * v.velocity * this.level;
-        if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm;
+        if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * this.driveComp;
         outL[i] += out;
         outR[i] += out;
       }
