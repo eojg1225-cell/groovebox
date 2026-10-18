@@ -39,9 +39,10 @@ export class Delay implements Effect {
   private lpL = 0;
   private lpR = 0;
 
-  constructor(sampleRate: number) {
+  /** maxSeconds: the longest delay held (onboard delays keep a shorter buffer). */
+  constructor(sampleRate: number, maxSeconds = MAX_SECONDS) {
     this.sr = sampleRate;
-    const len = Math.ceil(MAX_SECONDS * sampleRate);
+    const len = Math.ceil(maxSeconds * sampleRate);
     this.bufL = new Float32Array(len);
     this.bufR = new Float32Array(len);
     this.time = new Smoother(this.targetFrames(), 0.12, sampleRate);

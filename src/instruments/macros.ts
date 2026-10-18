@@ -118,12 +118,12 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   bass: {
     anchors: [
-      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, decay2: 0.7, sustain: 0.8, sustain2: 0.8, detune: 0 } },
-      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, decay2: 0.5, sustain: 0.45, sustain2: 0.45, detune: 0.15 } },
+      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fratio: 0.43, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 } },
+      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fratio: 0.44, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
       // 303: square through a resonant filter with a short, snappy envelope (accents and slides).
-      { name: 'ACID', values: { shape: 3, fm: 0, fmratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fdecay: 0.18, drive: 1.8, glide: 0.06, decay: 0.35, decay2: 0.35, sustain: 0.6, sustain2: 0.6, detune: 0 } },
-      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, drive: 3, glide: 0.04, decay: 1, decay2: 1, sustain: 0.9, sustain2: 0.9, detune: 0.75 } },
-      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fdecay: 0.18, drive: 2.2, glide: 0.02, decay: 0.5, decay2: 0.5, sustain: 0.25, sustain2: 0.25, detune: 0 } },
+      { name: 'ACID', values: { shape: 3, fm: 0, fmratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fratio: 0.51, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 } },
+      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fratio: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fratio: 0.36, drive: 2.2, glide: 0.02, decay: 0.5, sustain: 0.25, detune: 0 } },
     ],
     excite: [
       { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
@@ -176,11 +176,11 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // Glassy -> a bright saw pluck -> a hollow, buzzy square pluck -> a raging FM donk.
     anchors: [
       // Steel: an FM steel-drum pluck (inharmonic 1 : 2.5).
-      { name: 'STEEL', values: { shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, attack2: 0.001, decay: 0.35, decay2: 0.25, sustain: 0, sustain2: 0, release: 0.25, release2: 0.25, detune: 0.1, unison: 0 } },
-      { name: 'GLASS PLUCK', values: { shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, attack2: 0.001, decay: 0.4, decay2: 0.3, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3, detune: 0.2, unison: 0 } },
-      { name: 'SAW PLUCK', values: { shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, attack2: 0.001, decay: 0.4, decay2: 0.35, sustain: 0.05, sustain2: 0.05, release: 0.25, release2: 0.25, detune: 0.35, unison: 0.5 } },
-      { name: 'SQUARE PLUCK', values: { shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, attack2: 0.001, decay: 0.35, decay2: 0.3, sustain: 0.03, sustain2: 0.03, release: 0.22, release2: 0.22, detune: 0.25, unison: 0.2 } },
-      { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, attack2: 0.0005, decay: 0.25, decay2: 0.18, sustain: 0, sustain2: 0, release: 0.12, release2: 0.12, detune: 0.1, unison: 0 } },
+      { name: 'STEEL', values: { shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.35, sustain: 0, release: 0.25, detune: 0.1, unison: 0, dratio: 0.71 } },
+      { name: 'GLASS PLUCK', values: { shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.4, sustain: 0, release: 0.3, detune: 0.2, unison: 0, dratio: 0.75 } },
+      { name: 'SAW PLUCK', values: { shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, decay: 0.4, sustain: 0.05, release: 0.25, detune: 0.35, unison: 0.5, dratio: 0.88 } },
+      { name: 'SQUARE PLUCK', values: { shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, decay: 0.35, sustain: 0.03, release: 0.22, detune: 0.25, unison: 0.2, dratio: 0.86 } },
+      { name: 'RAGE DONK', values: { shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, decay: 0.25, sustain: 0, release: 0.12, detune: 0.1, unison: 0, dratio: 0.72 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'fenv', floor: 0.1, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
@@ -190,9 +190,10 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
 };
 
-// BASS and PLUCK sounds each bring their whole character: amp envelope (both oscillators)
-// and width (DETUNE, UNISON) morph with TIMBRE, and SOUND page changes are trims on top
-// (v26). CHORD and LEAD keep the type's own envelope and width, like the drums' tails.
+// BASS and PLUCK sounds each bring their whole character: amp envelope (one for both
+// oscillators; PLUCK's OSC 2 decays by its own ratio), BASS's filter-to-amp speed and the
+// width (DETUNE, UNISON) morph with TIMBRE, and SOUND page changes are trims on top (v26).
+// PAD and LEAD keep the type's own envelope and width, like the drums' tails.
 
 /** Each type's four sounds before v19 (a fifth was added; older TIMBRE positions move). */
 const ANCHORS_V18: Record<SoundKind, readonly string[]> = {

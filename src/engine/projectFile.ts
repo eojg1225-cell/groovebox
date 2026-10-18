@@ -11,14 +11,15 @@ import {
   MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS,
   type ChannelState, type Project, type SoundKind,
 } from './project';
-import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
+import { applyPreset, defaultSend, liveDefaults, createDefaultProject } from './defaultProject';
+import { PAD_DEFAULT_ENVELOPE, PAD_ENVELOPE_V26 } from '../instruments/Synth';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, mirrorOsc2, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 
 /** Parameters TIMBRE took over in v26 (they were the type's own before). */
 const MORPHED_V26: Partial<Record<SoundKind, readonly string[]>> = {
-  bass: ['decay', 'decay2', 'sustain', 'sustain2', 'detune'],
-  pluck: ['attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2', 'detune', 'unison'],
+  bass: ['decay', 'sustain', 'detune'],
+  pluck: ['attack', 'decay', 'sustain', 'release', 'detune', 'unison'],
 };
 import { remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
@@ -270,6 +271,11 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     // Knobs that left the page (v24 review, or any later change): back to TIMBRE / INT.
     pruneTrims(sound, ch.trims[k]!, hiddenSound(k, sound, INSTRUMENTS[k].params), pageParams(k));
   }
+  // v27: PAD holds its chords (PLUCK is the stab engine): an untouched stab envelope moves on.
+  const pad = ch.sounds.pad;
+  if (version < 27 && pad && Object.entries(PAD_ENVELOPE_V26).every(([id, v]) => Math.abs((pad[id] ?? v) - v) < 1e-6)) {
+    Object.assign(pad, PAD_DEFAULT_ENVELOPE);
+  }
   // v23: PERC's tone pitch has no knob (the step's note plays it): back on the shared octave.
   const perc = ch.sounds.perc;
   if (version < 23 && perc && ch.trims.perc?.t_pitch !== undefined) {
@@ -334,6 +340,13 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     } else {
       ch.fxSend = 0;
     }
+  }
+  // v27: BASS and PLUCK carry their own effects; FX 2 / 3 belong to PAD and LEAD. PLUCK
+  // takes its new live knobs (SPACE).
+  if (version < 27) {
+    if (ch.instrument === 'bass' || ch.instrument === 'pluck') ch.fxSend = 0;
+    else if ((ch.instrument === 'pad' || ch.instrument === 'lead') && ch.fxSend === 0) ch.fxSend = defaultSend(ch.instrument);
+    if (ch.instrument === 'pluck') liveDefaults(ch);
   }
   ch.activePattern = Math.round(num(src.activePattern, 0, 0, NUM_PATTERNS - 1));
 

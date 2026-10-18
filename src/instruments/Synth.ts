@@ -4,6 +4,8 @@ import { decayMul, midiToHz, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE } from './macroParams';
 import { MACROS } from './macros';
 import { driveCompGain } from './driveComp';
+import { DELAY_DIVISIONS, Delay } from '../fx/Delay';
+import { Reverb } from '../fx/Reverb';
 
 /**
  * Polyphonic synth (6 voices) for basses, pads and leads.
@@ -120,6 +122,20 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'release', name: 'OSC1 REL', min: 0.005, max: 20, defaultValue: 0.15, unit: 'S', curve: 'exp' },
   { id: 'sustain2', name: 'OSC2 SUS', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'release2', name: 'OSC2 REL', min: 0.005, max: 20, defaultValue: 0.15, unit: 'S', curve: 'exp' },
+  // One envelope for both oscillators (BASS, PLUCK): OSC 2's DECAY is OSC 1's x this (set
+  // by TIMBRE: each pluck's shorter OSC 2 tail is part of its character).
+  { id: 'dratio', name: 'OSC2 DEC x', min: 0.25, max: 2, defaultValue: 1, unit: '', curve: 'linear', decimals: 2 },
+  // BASS envelope filter: the amp envelope opens the filter, decaying this much faster
+  // (filter decay = DECAY x this; set by TIMBRE, so ACID still snaps).
+  { id: 'fratio', name: 'FLT/AMP', min: 0.1, max: 2, defaultValue: 0.5, unit: '', curve: 'linear', decimals: 2 },
+  // SIDECHAIN (BASS): each KICK hit ducks the sound by DUCK, recovering over DUCK REL.
+  { id: 'duck', name: 'DUCK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'duckrel', name: 'DUCK REL', min: 0.02, max: 1, defaultValue: 0.2, unit: 'S', curve: 'exp', decimals: 3 },
+  // Onboard FX (PLUCK): a tempo-synced delay, then a short room.
+  choice('dtime', 'DLY TIME', DELAY_DIVISIONS.map((d) => d.name), 2),
+  { id: 'dfdbk', name: 'DLY FDBK', min: 0, max: 0.95, defaultValue: 0.35, unit: '', curve: 'linear' },
+  { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
+  { id: 'verb', name: 'VERB', min: 0, max: 1, defaultValue: 0.25, unit: '', curve: 'linear' },
 ];
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
@@ -129,17 +145,25 @@ function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec
 }
 
 /**
- * The synth tracks share the engine with different controls: BASS (mono, glide), CHORD
- * (kind "pad": polyphonic chords, an envelope for stabs by default) and LEAD (mono, glide). Each type's parameters are all set by
- * TIMBRE / INTENSITY, except the amp envelopes (ATTACK / DECAY / SUSTAIN / RELEASE of both
- * oscillators), which are the type's own - the same for every TIMBRE; settings outside the list are fixed (*_FIXED).
+ * The synth tracks share the engine with different controls: BASS (mono, glide, envelope
+ * filter, sidechain), PAD (kind "pad": polyphonic chords), LEAD (mono, glide) and PLUCK
+ * (onboard delay + room). PAD and LEAD keep their amp envelopes (both oscillators) as the
+ * type's own; BASS and PLUCK sounds bring theirs, one envelope for both oscillators.
+ * Settings outside the list are fixed (*_FIXED).
  */
 const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'unison', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
 
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
-export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...ENVELOPE], { attack: 0.002, attack2: 0.002, decay: 0.6, decay2: 0.6, sustain: 0.6, sustain2: 0.6, release: 0.06, release2: 0.06, level: 0.75 });
-export const BASS_FIXED = { voice: 1 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback'], { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3, level: 0.5, detune: 0.25 });
+/** One envelope for both oscillators (envlink). */
+const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
+const without = (ids: string[], drop: string[]) => ids.filter((id) => !drop.includes(id));
+export const BASS_PARAMS = synthParams([...without(MORPHED, ['fattack', 'fdecay']), 'fratio', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75 });
+export const BASS_FIXED = { voice: 1, envlink: 1, fltlink: 1 };
+/** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
+export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
+/** PAD's envelope before v27 (a stab), for keeping an untouched one up to date. */
+export const PAD_ENVELOPE_V26 = { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3 };
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25 });
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
@@ -148,11 +172,18 @@ export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
 export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { octave: 3, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
 export const LEAD_FIXED = { voice: 1, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'arp', 'arprate', 'arpoct'], { attack: 0.001, attack2: 0.001, decay: 0.35, decay2: 0.3, sustain: 0, sustain2: 0, release: 0.25, release2: 0.25, level: 0.55, detune: 0.15 });
-export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS };
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb'], { attack: 0.001, decay: 0.35, sustain: 0, release: 0.25, level: 0.55, detune: 0.15 });
+export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS, envlink: 1, onboard: 1 };
 
 /** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */
 export const SYNTH_ELEMENTS = ['attack', 'decay', 'attack2', 'decay2'];
+/** SIDECHAIN: how fast a KICK hit pulls the level down (no click). */
+const DUCK_ATTACK = 0.003;
+/** PLUCK's onboard room and delay. */
+const ONBOARD_DELAY_SECONDS = 2.5;
+const ONBOARD_ROOM = { rev_size: 0.35, rev_damp: 0.55, rev_predelay: 8, rev_width: 1 };
+const ONBOARD_VERB_GAIN = 0.7;
+const ONBOARD_DLY_TONE = 3500;
 
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
@@ -232,10 +263,25 @@ export class Synth implements Instrument {
   private readonly decayTime = new Float64Array([0.4, 0.4]);
   private ageCounter = 0;
   private pitchMod = 1;
+  /** envlink: OSC 2 follows OSC 1's envelope (DECAY x dratio). fltlink: the filter envelope follows it too. */
+  private envLink = false; private fltLink = false;
+  private attack1 = 0.003; private decay1 = 0.4; private dRatio = 1; private fRatio = 0.5;
+  /** SIDECHAIN: 0 idle, 1 pulling down, 2 recovering; progress and shape (0..1) of the duck. */
+  private duckDepth = 0; private duckRelInc = 0; private duckStage = 0; private duckX = 0; private duckFrom = 0; private duckShape = 0;
+  private readonly duckAttackInc: number;
+  private readonly delay: Delay | null = null;
+  private readonly room: Reverb | null = null;
 
   /** driveRise: the type's DRIVE level compensation curve (driveComp.ts). */
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>, private readonly driveRise?: readonly number[]) {
     this.sr = sampleRate;
+    this.duckAttackInc = 1 / (DUCK_ATTACK * sampleRate);
+    if (fixed.onboard) {
+      this.delay = new Delay(sampleRate, ONBOARD_DELAY_SECONDS);
+      this.delay.setParam('dly_tone', ONBOARD_DLY_TONE);
+      this.room = new Reverb(sampleRate);
+      for (const id in ONBOARD_ROOM) this.room.setParam(id, ONBOARD_ROOM[id as keyof typeof ONBOARD_ROOM]);
+    }
     for (let i = 0; i < MAX_VOICES; i++) this.voices.push(new Voice());
     for (const p of SYNTH_PARAMS) this.setParam(p.id, p.defaultValue);
     for (const id in fixed) this.setParam(id, fixed[id]);
@@ -346,20 +392,75 @@ export class Synth implements Instrument {
       case 'cutoff': this.cutoff = value; break;
       case 'reso': this.reso = value; break;
       case 'fenv': this.fenvAmt = value; break;
-      case 'fdecay': this.fdecayMul = decayMul(value, sr); break;
-      case 'fattack': this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
+      case 'fdecay': if (!this.fltLink) this.fdecayMul = decayMul(value, sr); break;
+      case 'fattack': if (!this.fltLink) this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
       case 'drive': this.drive = value; this.driveComp = driveCompGain(this.driveRise, value); break;
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
-      case 'attack': this.attackInc[0] = 1 / (value * sr); break;
-      case 'decay': this.decayMul[0] = decayMul(value, sr); this.decayTime[0] = value; this.updateSustain(); break;
-      case 'attack2': this.attackInc[1] = 1 / (value * sr); break;
-      case 'decay2': this.decayMul[1] = decayMul(value, sr); this.decayTime[1] = value; this.updateSustain(); break;
-      case 'sustain': this.sustain[0] = value; this.updateSustain(); break;
-      case 'sustain2': this.sustain[1] = value; this.updateSustain(); break;
-      case 'release': this.releaseMul[0] = decayMul(value, sr); this.updateSustain(); break;
-      case 'release2': this.releaseMul[1] = decayMul(value, sr); this.updateSustain(); break;
+      case 'attack':
+        this.attack1 = value;
+        this.attackInc[0] = 1 / (value * sr);
+        if (this.envLink) this.attackInc[1] = this.attackInc[0];
+        this.updateFilterLink();
+        break;
+      case 'decay': this.decay1 = value; this.setDecay(0, value); if (this.envLink) this.setDecay(1, value * this.dRatio); this.updateFilterLink(); break;
+      case 'sustain': this.sustain[0] = value; if (this.envLink) this.sustain[1] = value; this.updateSustain(); break;
+      case 'release': this.releaseMul[0] = decayMul(value, sr); if (this.envLink) this.releaseMul[1] = this.releaseMul[0]; this.updateSustain(); break;
+      // OSC 2's own envelope (PAD, LEAD); linked sounds ignore it.
+      case 'attack2': if (!this.envLink) this.attackInc[1] = 1 / (value * sr); break;
+      case 'decay2': if (!this.envLink) this.setDecay(1, value); break;
+      case 'sustain2': if (!this.envLink) { this.sustain[1] = value; this.updateSustain(); } break;
+      case 'release2': if (!this.envLink) { this.releaseMul[1] = decayMul(value, sr); this.updateSustain(); } break;
+      case 'dratio': this.dRatio = value; if (this.envLink) this.setDecay(1, this.decay1 * value); break;
+      case 'fratio': this.fRatio = value; this.updateFilterLink(); break;
+      case 'envlink':
+        this.envLink = value > 0;
+        if (this.envLink) {
+          this.attackInc[1] = this.attackInc[0];
+          this.sustain[1] = this.sustain[0];
+          this.releaseMul[1] = this.releaseMul[0];
+          this.setDecay(1, this.decay1 * this.dRatio);
+        }
+        break;
+      case 'fltlink': this.fltLink = value > 0; this.updateFilterLink(); break;
+      case 'duck': this.duckDepth = value; break;
+      case 'duckrel': this.duckRelInc = 1 / (value * sr); break;
+      case 'dtime': this.delay?.setParam('dly_time', value); break;
+      case 'dfdbk': this.delay?.setParam('dly_fdbk', value); break;
+      case 'dmix': this.delay?.setParam('dly_return', value); break;
+      case 'verb': this.room?.setParam('rev_return', value * ONBOARD_VERB_GAIN); break;
     }
+  }
+
+  private setDecay(k: number, seconds: number): void {
+    this.decayMul[k] = decayMul(seconds, this.sr);
+    this.decayTime[k] = seconds;
+    this.updateSustain();
+  }
+
+  /** Envelope filter (fltlink): the filter opens with the amp's ATTACK and decays with its DECAY x fratio. */
+  private updateFilterLink(): void {
+    if (!this.fltLink) return;
+    this.fattackInc = this.attack1 <= 0.0006 ? 0 : 1 / (this.attack1 * this.sr);
+    this.fdecayMul = decayMul(Math.max(0.002, this.decay1 * this.fRatio), this.sr);
+  }
+
+  setTempo(bpm: number): void {
+    this.delay?.setTempo(bpm);
+  }
+
+  duck(): void {
+    if (this.duckDepth <= 0) return;
+    this.duckFrom = this.duckShape;
+    this.duckStage = 1;
+    this.duckX = 0;
+  }
+
+  /** PLUCK's delay, then its room (on the track's output, in place). */
+  post(l: Float32Array, r: Float32Array, n: number): void {
+    if (!this.delay || !this.room) return;
+    this.delay.process(l, r, l, r, 0, n);
+    this.room.process(l, r, l, r, 0, n);
   }
 
   private updateSustain(): void {
@@ -377,6 +478,29 @@ export class Synth implements Instrument {
    */
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     this.renderVoices(outL, outR, start, end);
+    this.renderCrush(outL, outR, start, end);
+    if (this.duckStage !== 0) this.renderDuck(outL, outR, start, end);
+  }
+
+  /** SIDECHAIN: pull down fast, recover on a smooth S-curve over DUCK REL. */
+  private renderDuck(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
+    for (let i = start; i < end; i++) {
+      if (this.duckStage === 1) {
+        this.duckX += this.duckAttackInc;
+        if (this.duckX >= 1) { this.duckX = 0; this.duckStage = 2; this.duckShape = 1; }
+        else this.duckShape = this.duckFrom + (1 - this.duckFrom) * this.duckX;
+      } else if (this.duckStage === 2) {
+        this.duckX += this.duckRelInc;
+        if (this.duckX >= 1) { this.duckStage = 0; this.duckShape = 0; }
+        else { const t = this.duckX; this.duckShape = 1 - t * t * (3 - 2 * t); }
+      }
+      const g = 1 - this.duckDepth * this.duckShape;
+      outL[i] *= g;
+      outR[i] *= g;
+    }
+  }
+
+  private renderCrush(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     if (this.crush <= 0) return;
     const hold = 1 + Math.floor(this.crush * this.crush * 24);
     const levels = Math.pow(2, 16 - this.crush * 12);

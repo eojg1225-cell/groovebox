@@ -1,4 +1,4 @@
-import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
+import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type InstrumentKind, type Project, type SoundKind } from './project';
 import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
 import { defaultDrumBus, defaultSendComp, defaultSendInt, defaultSendWet } from '../fx';
@@ -12,6 +12,11 @@ export function applyPreset(c: ChannelState, kind: SoundKind, index: number): vo
   c.sounds[kind] = presetSound(kind, index);
   c.trims[kind] = {};
   c.presets[kind] = index;
+}
+
+/** The FX 2 / 3 send a type starts on (0 = none): LEAD -> FX 2, PAD -> FX 3. */
+export function defaultSend(kind: InstrumentKind): number {
+  return kind === 'pad' ? 3 : kind === 'lead' ? 2 : 0;
 }
 
 /** A track's type's default live knobs (LIVE 1 / 2, and 3 / 4 with FUNC). */
@@ -42,15 +47,14 @@ export function createDefaultProject(): Project {
     return c;
   });
   // Intended routing (a starting point, freely changed): drums and percussion through FX 1
-  // (the drum bus), bass and leads to FX 2 (dub delay), the pad - ready for jungle chords - to
-  // FX 3 (reverb).
+  // (the drum bus), the lead to FX 2 (dub delay), the pad - ready for jungle chords - to FX 3
+  // (reverb). BASS and PLUCK carry their own effects (sidechain; delay + room).
   const of = (kind: SoundKind) => channels.find((c) => c.instrument === kind) as ChannelState;
   of('pad').chord = CHORD_NAMES.indexOf('MIN9');
   channels.forEach((c) => {
     c.fx1 = INSTRUMENTS[c.instrument as SoundKind].drum;
-    c.fxSend = c.instrument === 'pad' ? 3 : c.instrument === 'bass' || c.instrument === 'lead' || c.instrument === 'pluck' ? 2 : 0;
+    c.fxSend = defaultSend(c.instrument);
   });
-  of('bass').sendLevel = 0.25;
   // The sustained synths' trimmed output: half VOLUME sits with the drums.
   for (const kind of ['pad', 'lead', 'pluck'] as const) of(kind).volume = 0.5;
   return {

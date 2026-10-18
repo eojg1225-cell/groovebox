@@ -269,7 +269,7 @@ export class Engine {
       case 'setOffset': this.setOffset(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setGlobal':
-        if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); }
+        if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); this.instrumentTempo(); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
         else if (msg.id === 'master') this.master.setTarget(msg.value);
         else if (msg.id === 'lofi') this.tape.setAmount(msg.value);
@@ -310,8 +310,20 @@ export class Engine {
     }
   }
 
+  /** Tempo-synced onboard effects (PLUCK's delay) follow the tempo. */
+  private instrumentTempo(): void {
+    for (const set of this.instruments) for (const k in set) set[k].setTempo?.(this.bpm);
+  }
+
+  /** SIDECHAIN: a KICK hit ducks every track that listens (BASS DUCK). */
+  private kickHit(ch: number): void {
+    if (this.kind[ch] !== 'kick') return;
+    for (let c = 0; c < NUM_CHANNELS; c++) if (c !== ch) this.current[c]?.duck?.();
+  }
+
   loadProject(p: Project): void {
     this.bpm = p.bpm;
+    this.instrumentTempo();
     for (const id in p.fx1) this.drumBus.setParam(id, p.fx1[id]);
     this.drumBus.settle();
     for (const k of SEND_BUSES) {
@@ -596,6 +608,7 @@ export class Engine {
     }
     // RETRIG NOTE: the LFO restarts with each new note (not on slides).
     if (slideFrom < 0) this.lfoTrig[ch] = this.lfoClock;
+    this.kickHit(ch);
   }
 
   /** One ROLL repeat: re-strike the step's note (same velocity), then schedule the next. */
@@ -608,6 +621,7 @@ export class Engine {
     const intervals = chordVoicing(this.chord[ch], this.notes[ch]);
     const vel = dynVelocity(this.rollVel[ch], this.dynDepth[ch]);
     for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], vel, note, this.ringing[ch] === 1);
+    this.kickHit(ch);
   }
 
   /** ARP: play the next note of the held chord (and schedule the one after). */
@@ -870,14 +884,22 @@ export class Engine {
         this.fmModOn[ch] = 0;
       }
       inst.render(sl, sr, 0, n);
+      const tl = this.toneL[ch];
+      const tr = this.toneR[ch];
+      // The hit tone (velocity colour), then the track's onboard effects.
+      for (let i = 0; i < n; i++) {
+        tl.process(sl[i]);
+        tr.process(sr[i]);
+        sl[i] = tl.low;
+        sr[i] = tr.low;
+      }
+      inst.post?.(sl, sr, n);
       const volDepth = lfo ? this.lfoVol : 0;
       const panDepth = lfo ? this.lfoPan : 0;
       const sendDepth = lfo ? this.lfoSend : 0;
       const vol = this.volume[ch];
       const tg = this.typeGain[ch];
       const pan = this.pan[ch];
-      const tl = this.toneL[ch];
-      const tr = this.toneR[ch];
       const level = this.sendLevel[ch];
       const bus = this.route[ch];
       const bL = bus >= 0 ? this.busL[bus] : null;
@@ -899,10 +921,8 @@ export class Engine {
           pp = pp > 1 ? 1 : pp < -1 ? -1 : pp;
         }
         const a = (pp + 1) * 0.25 * Math.PI;
-        tl.process(sl[i]);
-        tr.process(sr[i]);
-        const l = tl.low * v * Math.cos(a);
-        const r = tr.low * v * Math.sin(a);
+        const l = sl[i] * v * Math.cos(a);
+        const r = sr[i] * v * Math.sin(a);
         dL[dOff + i] += l;
         dR[dOff + i] += r;
         // Post-fader send, taken before the drum bus (a muted track sends nothing).

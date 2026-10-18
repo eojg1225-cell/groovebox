@@ -28,6 +28,12 @@ export interface Instrument {
   setParam(id: string, value: number): void;
   /** ADD output into outL/outR for frames [start, end). */
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void;
+  /** Onboard effects on the track's own output (frames [0, n), after the hit tone), in place. */
+  post?(l: Float32Array, r: Float32Array, n: number): void;
+  /** Tempo for tempo-synced onboard effects. */
+  setTempo?(bpm: number): void;
+  /** SIDECHAIN: a KICK hit ducks the sound (by its DUCK amount). */
+  duck?(): void;
 }
 
 /** A named set of parameter values (missing ids keep their defaults). */

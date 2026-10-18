@@ -50,6 +50,24 @@ export function drumPage(elements: readonly string[], pitch: readonly [string, s
   ];
 }
 
+/**
+ * BASS (one envelope, envelope filter, sidechain): 1 TIMBRE / INT, 2 ATTACK / DECAY (amp +
+ * filter), 3 SUSTAIN / RELEASE, 4 CUTOFF / RESO, 5 DUCK / DUCK REL, 6 FLT ENV / FM LVL,
+ * 7 DRIVE / CRUSH, 8 SLIDE / SUB.
+ */
+const BASS_PAGE = [
+  'timbre', 'attack', 'sustain', 'cutoff', 'duck', 'fenv', 'drive', 'glide',
+  'intensity', 'decay', 'release', 'reso', 'duckrel', 'fm', 'crush', 'sub',
+];
+/**
+ * PLUCK (one envelope, onboard delay + room): 1 TIMBRE / INT, 2 ATTACK / DECAY, 3 DLY TIME /
+ * DLY FDBK, 4 CUTOFF / RESO, 5 FLT ATK / DEC, 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 CHORD / DETUNE.
+ */
+const PLUCK_PAGE = [
+  'timbre', 'attack', 'dtime', 'cutoff', 'fattack', 'fenv', 'drive', 'track:chord',
+  'intensity', 'decay', 'dfdbk', 'reso', 'fdecay', 'fm', 'crush', 'detune',
+];
+
 /** A 2 x 6 layout on the 2 x 8 panel: modules 1-6, modules 7-8 empty. */
 export function widen<T>(six: readonly (T | null)[]): (T | null)[] {
   if (six.length === PAGE_SLOTS) return [...six];
@@ -73,6 +91,10 @@ const _ = null;
  * UNISON. SHAPE is TIMBRE's. Drums: no FUNC layer yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
+/** BASS FUNC: OCTAVE / DETUNE under column 8. */
+const BASS_FUNC = funcPage([_, _, _, _, _, _, _, 'octave'], [_, _, _, _, _, _, _, 'detune']);
+/** PLUCK FUNC: SUSTAIN / RELEASE, DLY MIX / VERB, UNISON, OCTAVE / ARP OCT, ARP / ARP RATE. */
+const PLUCK_FUNC = funcPage([_, 'sustain', 'dmix', 'unison', _, _, 'octave', 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
 /** A synth FUNC layer: SUSTAIN / RELEASE on the element columns, the rest as given (columns 1, 4, 7, 8). */
 function susRel(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
   return funcPage(
@@ -150,7 +172,8 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     drumAttack('t_attack', 'c_attack'),
     GRIT,
   ],
-  bass: [macro('ENV', [['fenv', 1], ['fdecay', 1]]), GRIT],
+  // The envelope filter: ENV opens it further and lengthens the envelope driving it.
+  bass: [macro('ENV', [['fenv', 1], ['decay', 0.5]]), GRIT],
   pad: [
     macro('LENGTH', LENGTH_SYNTH),
     macro('SWELL', [['attack', 1], ['attack2', 1], ['release', 1], ['release2', 1]]),
@@ -161,8 +184,10 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('LENGTH', LENGTH_SYNTH),
   ],
   pluck: [
-    macro('LENGTH', [...LENGTH_SYNTH, ['fdecay', 1]]),
+    macro('LENGTH', [['decay', 1], ['release', 1], ['fdecay', 1]]),
     macro('BITE', [['fenv', 1], ['drive', 1], ['fm', 1]]),
+    // The onboard delay + room: left dries it up, right drowns it.
+    macro('SPACE', [['dmix', 1], ['verb', 1]]),
   ],
 };
 
@@ -246,11 +271,11 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
     name: 'BASS', live: ['macro:env', 'macro:grit'], liveFunc: ['mix:volume', 'cutoff'], params: BASS_PARAMS,
-    layout: soundPage(SYNTH_ELEMENTS, ['glide', 'sub']),
-    funcLayout: susRel([_, _, _, 'octave'], [_, _, _, 'detune']),
+    layout: BASS_PAGE,
+    funcLayout: BASS_FUNC,
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
-    name: 'CHORD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
+    name: 'PAD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
     layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'detune']),
     funcLayout: susRel([_, 'carriers', _, 'octave'], ['feedback', _, _, 'unison']),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
@@ -260,9 +285,9 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: susRel([_, _, _, 'octave'], [_, _, _, _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
-    name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'cutoff'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS,
-    layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'detune']),
-    funcLayout: susRel([_, 'unison', 'octave', 'arp'], [_, _, 'arpoct', 'arprate']),
+    name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'macro:space'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS,
+    layout: PLUCK_PAGE,
+    funcLayout: PLUCK_FUNC,
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },
 };
 

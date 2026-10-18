@@ -165,14 +165,19 @@ describe('instruments', () => {
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
     expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
-    expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'attack2']);
+    // BASS / PLUCK: one envelope for both oscillators; BASS's filter follows it (no FLT ATK / DEC).
+    expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'sustain']);
+    expect(INSTRUMENTS.bass.layout).not.toContain('fdecay');
+    expect([INSTRUMENTS.bass.layout[4], INSTRUMENTS.bass.layout[12]]).toEqual(['duck', 'duckrel']);
+    expect([INSTRUMENTS.pluck.layout[2], INSTRUMENTS.pluck.layout[10]]).toEqual(['dtime', 'dfdbk']);
+    expect(INSTRUMENTS.pluck.funcLayout.slice(2, 3).concat(INSTRUMENTS.pluck.funcLayout.slice(10, 11))).toEqual(['dmix', 'verb']);
     expect([INSTRUMENTS.bass.layout[7], INSTRUMENTS.bass.layout[15]]).toEqual(['glide', 'sub']);
     expect([INSTRUMENTS.lead.layout[7], INSTRUMENTS.lead.layout[15]]).toEqual(['glide', 'detune']);
     expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'detune']);
     expect([INSTRUMENTS.pluck.layout[7], INSTRUMENTS.pluck.layout[15]]).toEqual(['track:chord', 'detune']);
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) expect(INSTRUMENTS[k].funcLayout.every((id) => id === null), k).toBe(true);
+    for (const k of ['pad', 'lead'] as const) expect(INSTRUMENTS[k].funcLayout.slice(1, 3), k).toEqual(['sustain', 'sustain2']);
     for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) {
-      expect(INSTRUMENTS[k].funcLayout.slice(1, 3), k).toEqual(['sustain', 'sustain2']);
       expect(INSTRUMENTS[k].funcLayout, k).not.toContain('shape'); // TIMBRE's
     }
     expect(INSTRUMENTS.lead.funcLayout).not.toContain('feedback');
@@ -779,7 +784,8 @@ describe('TIMBRE and INTENSITY macros', () => {
       const sounds = [0, 0.25, 0.5, 0.75, 1].map((t) => macroSound(k, t, 0.5, specs));
       expect(new Set(sounds.map((s) => s.decay.toFixed(3))).size, `${k} decay`).toBeGreaterThan(2);
       expect(new Set(sounds.map((s) => s.detune.toFixed(3))).size, `${k} detune`).toBeGreaterThan(1);
-      expect(macroIds(k, specs).has('sustain2')).toBe(true);
+      // One envelope for both oscillators: no OSC 2 envelope knobs of their own.
+      for (const id of ['attack2', 'decay2', 'sustain2', 'release2']) expect(specs.some((p) => p.id === id), `${k} ${id}`).toBe(false);
     }
   });
 });
@@ -1425,7 +1431,8 @@ describe('PERC track', () => {
     const p = createDefaultProject();
     expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']);
     expect(p.channels[3].fx1).toBe(true);
-    expect(p.channels[7].fxSend).toBe(2);
+    // BASS and PLUCK carry their own effects; LEAD -> FX 2, PAD -> FX 3.
+    expect(p.channels.slice(4).map((c) => c.fxSend)).toEqual([0, 3, 2, 0]);
   });
 });
 
@@ -1618,20 +1625,20 @@ describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
   });
 
   it('presets and older projects give OSC 2 the OSC 1 SUSTAIN / RELEASE; LIVE 3 / 4 are saved', () => {
-    const bass = presetSound('bass', 1);
-    expect(bass.sustain2).toBe(bass.sustain);
-    expect(bass.release2).toBe(bass.release);
+    const lead = presetSound('lead', 1);
+    expect(lead.sustain2).toBe(lead.sustain);
+    expect(lead.release2).toBe(lead.release);
     const p = createDefaultProject();
-    p.channels[4].sounds.bass = { ...p.channels[4].sounds.bass!, sustain: 0.2, release: 3 };
-    p.channels[4].liveFunc = ['fm', 'mix:pan'];
+    p.channels[6].sounds.lead = { ...p.channels[6].sounds.lead!, sustain: 0.2, release: 3 };
+    p.channels[6].liveFunc = ['fm', 'mix:pan'];
     const stored = JSON.parse(JSON.stringify(toStored(p)));
     const q = fromStored(stored)!;
-    expect(q.channels[4].liveFunc).toEqual(['fm', 'mix:pan']);
-    delete stored.channels[4].sounds.bass.sustain2;
-    delete stored.channels[4].sounds.bass.release2;
+    expect(q.channels[6].liveFunc).toEqual(['fm', 'mix:pan']);
+    delete stored.channels[6].sounds.lead.sustain2;
+    delete stored.channels[6].sounds.lead.release2;
     stored.version = 13;
-    const old = fromStored(stored)!.channels[4].sounds.bass!;
-    expect(old.sustain2).toBeCloseTo(old.sustain, 6);
+    const old = fromStored(stored)!.channels[6].sounds.lead!;
+    expect(old.sustain2).toBe(0.2);
     expect(old.release2).toBe(3);
   });
 });
@@ -1986,11 +1993,12 @@ describe('CHORD / LEAD / PLUCK level, CHORD stabs, FLT DEC curve', () => {
     expect(q.channels[0].volume).toBeCloseTo(0.8);
   });
 
-  it('CHORD (the pad track) is set up for stabs', () => {
-    expect(INSTRUMENTS.pad.name).toBe('CHORD');
+  it('PAD holds its chords, fading in and out quickly', () => {
+    expect(INSTRUMENTS.pad.name).toBe('PAD');
     const s = presetSound('pad', 0);
-    expect(s.sustain).toBe(0);
-    expect(s.attack).toBeLessThan(0.01);
+    expect(s.sustain).toBeGreaterThan(0.5);
+    expect(s.attack).toBeLessThan(0.05);
+    expect(s.release).toBeLessThan(0.3);
   });
 
   it('FLT DEC: 1 s sits at the middle of the knob, the range is unchanged', () => {
@@ -2369,5 +2377,96 @@ describe('LFO rates v25', () => {
     stored.lfo = { ...stored.lfo, rate: 11 }; // '3/16' in the v18-v24 list
     expect(LFO_RATES[fromStored(stored)!.lfo.rate].name).toBe('3/16');
     expect(LFO_RATES[createDefaultProject().lfo.rate].name).toBe('1/4');
+  });
+});
+
+describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', () => {
+  const rms = (l: Float32Array, a: number, b: number) => {
+    let e = 0;
+    for (let i = a; i < b; i++) e += l[i] * l[i];
+    return Math.sqrt(e / (b - a));
+  };
+  const synth = (kind: 'bass' | 'pluck', values: Record<string, number>) => {
+    const entry = INSTRUMENTS[kind];
+    const s = entry.create(SR);
+    const sound = { ...presetSound(kind, 0), ...values };
+    for (const id in sound) s.setParam(id, sound[id]);
+    s.setTempo?.(120);
+    return s;
+  };
+  const play = (s: ReturnType<typeof synth>, seconds: number, noteSeconds: number) => {
+    const n = Math.floor(seconds * SR);
+    const l = new Float32Array(n);
+    const r = new Float32Array(n);
+    s.noteOn(45, 1, 45, false);
+    const off = Math.floor(noteSeconds * SR);
+    for (let at = 0; at < n; at += BLOCK) {
+      if (at === Math.floor(off / BLOCK) * BLOCK) s.noteOff(-1);
+      const end = Math.min(n, at + BLOCK);
+      const bl = new Float32Array(end - at);
+      const br = new Float32Array(end - at);
+      s.render(bl, br, 0, end - at);
+      s.post?.(bl, br, end - at);
+      l.set(bl, at);
+      r.set(br, at);
+    }
+    return l;
+  };
+
+  it('a KICK hit ducks the BASS by DUCK (even with the kick turned down)', () => {
+    const run = (duck: number) => {
+      const p = kickProject([4], { bpm: 120 });
+      p.channels[0].volume = 0;
+      const bass = p.channels[4];
+      bass.sounds.bass = { ...presetSound('bass', 0), sustain: 1, duck, duckrel: 0.3 };
+      bass.patterns[0].steps[0].active = true;
+      bass.patterns[0].steps[0].gate = 16;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return render(e, 1.2).l;
+    };
+    const dry = run(0);
+    const ducked = run(1);
+    const at = 24000 + 400;
+    expect(rms(dry, at, at + 2000)).toBeGreaterThan(0.01);
+    expect(rms(ducked, at, at + 2000)).toBeLessThan(rms(dry, at, at + 2000) * 0.15);
+    // ... and it recovers after DUCK REL.
+    expect(rms(ducked, 24000 + 18000, 24000 + 20000)).toBeGreaterThan(rms(dry, 24000 + 18000, 24000 + 20000) * 0.8);
+  });
+
+  it('the BASS filter follows its DECAY (envelope filter)', () => {
+    const bright = (decay: number) => {
+      const l = play(synth('bass', { shape: 2, sustain: 1, cutoff: 200, reso: 0.2, fenv: 2, decay }), 0.6, 0.6);
+      let d = 0, e = 0;
+      for (let i = SR * 0.1; i < SR * 0.25; i++) { d += (l[i] - l[i - 1]) ** 2; e += l[i] ** 2; }
+      return d / e;
+    };
+    expect(bright(3)).toBeGreaterThan(bright(0.5) * 2);
+  });
+
+  it('PLUCK echoes through its onboard delay; SPACE fully left dries it up', () => {
+    const tail = (values: Record<string, number>) => {
+      const l = play(synth('pluck', { decay: 0.05, release: 0.02, dtime: 2, dfdbk: 0.3, ...values }), 0.6, 0.02);
+      return rms(l, Math.floor(0.375 * SR), Math.floor(0.42 * SR)); // 3/16 at 120 BPM
+    };
+    expect(tail({ dmix: 0.5, verb: 0 })).toBeGreaterThan(0.002);
+    expect(tail({ dmix: 0, verb: 0 })).toBeLessThan(1e-4);
+    expect(LIVE_MACROS.pluck.find((m) => m.id === 'macro:space')!.targets.map((t) => t.id)).toEqual(['dmix', 'verb']);
+    expect(INSTRUMENTS.pluck.live).toContain('macro:space');
+  });
+
+  it('v27 load: sends move to PAD / LEAD, an untouched PAD stab holds, PLUCK takes SPACE', () => {
+    const p = createDefaultProject();
+    p.channels[4].fxSend = 2;
+    p.channels[7].fxSend = 2;
+    p.channels[5].fxSend = 0;
+    p.channels[5].sounds.pad = { ...p.channels[5].sounds.pad!, attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3 };
+    p.channels[7].live = ['track:notes', 'cutoff'];
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 26;
+    const q = fromStored(stored)!;
+    expect(q.channels.slice(4).map((c) => c.fxSend)).toEqual([0, 3, 2, 0]);
+    expect(q.channels[5].sounds.pad!.sustain).toBeGreaterThan(0.5);
+    expect(q.channels[7].live).toEqual(['track:notes', 'macro:space']);
   });
 });
