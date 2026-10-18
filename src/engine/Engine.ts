@@ -18,6 +18,7 @@ import { DrumBus } from '../fx/DrumBus';
 import { Tape } from '../fx/Tape';
 import { Limiter } from '../fx/Limiter';
 import { EFFECTS, SEND_BUSES } from '../fx';
+import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
 import { NUM_SENDS } from './project';
 
@@ -129,6 +130,8 @@ export class Engine {
   /** GATE per track (steps the last step of a note is held), and a pending early / late release (frames, -1 = none). */
   private readonly gateLength = new Float64Array(NUM_CHANNELS).fill(1);
   private readonly gateAt = new Float64Array(NUM_CHANNELS).fill(-1);
+  /** Each track's MID CUT (after its DRIVE and onboard FX). */
+  private readonly cuts: TrackCut[] = [];
   private readonly gateGroup = new Int16Array(NUM_CHANNELS);
   /** The held note is a RING note: it ends at the next hit or rest, not by count. */
   private readonly ringing = new Uint8Array(NUM_CHANNELS);
@@ -241,6 +244,7 @@ export class Engine {
       const set: Record<string, Instrument> = {};
       for (const kind of SOUND_KINDS) set[kind] = INSTRUMENTS[kind].create(sampleRate);
       this.instruments.push(set);
+      this.cuts.push(new TrackCut(sampleRate));
       this.current.push(null);
       this.volume.push(new Smoother(0.8, 0.02, sampleRate));
       this.pan.push(new Smoother(0, 0.02, sampleRate));
@@ -313,6 +317,12 @@ export class Engine {
     }
   }
 
+  /** A sound parameter to the instrument; MID FREQ goes to the track's MID CUT. */
+  private applyParam(ch: number, inst: Instrument, id: string, value: number): void {
+    if (id === 'midfreq') this.cuts[ch].setFreq(value);
+    else inst.setParam(id, value);
+  }
+
   /** Tempo-synced onboard effects (PLUCK's delay) follow the tempo. */
   private instrumentTempo(): void {
     for (const set of this.instruments) for (const k in set) set[k].setTempo?.(this.bpm);
@@ -357,12 +367,14 @@ export class Engine {
       this.setMix(ch, 'pan', c.pan);
       this.setMix(ch, 'dyn', c.dynamics ?? 100);
       this.setMix(ch, 'gate', c.gateLength ?? 1);
+      this.setMix(ch, 'cut', c.midCut ?? 0);
       this.route[ch] = this.busIndex(c.fxSend);
       this.inDrumBus[ch] = c.fx1 ? 1 : 0;
       this.sendLevel[ch].setImmediate(c.sendLevel);
       // A loaded project starts at its values instead of gliding to them.
       this.volume[ch].setImmediate(c.mute ? 0 : c.volume);
       this.pan[ch].setImmediate(c.pan);
+      this.cuts[ch].settle();
       this.activePattern[ch] = c.activePattern;
       this.pendingPattern[ch] = -1;
       for (let pat = 0; pat < NUM_PATTERNS; pat++) {
@@ -749,7 +761,7 @@ export class Engine {
     }
     for (let k = 0; k < n; k++) {
       if (this.offsetNorm[base + k] === this.prevOffset[k] || this.lockApplied[base + k]) continue;
-      inst.setParam(inst.params[k].id, this.withOffset(ch, k, this.baseValue[base + k]));
+      this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, this.baseValue[base + k]));
     }
   }
 
@@ -783,10 +795,10 @@ export class Engine {
       const v = this.locks[stepSlot * LOCK_SLOTS + k];
       const applied = ch * LOCK_SLOTS + k;
       if (v === v) { // not NaN
-        inst.setParam(inst.params[k].id, this.withOffset(ch, k, v));
+        this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, v));
         this.lockApplied[applied] = 1;
       } else if (this.lockApplied[applied]) {
-        inst.setParam(inst.params[k].id, this.withOffset(ch, k, this.baseValue[applied]));
+        this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, this.baseValue[applied]));
         this.lockApplied[applied] = 0;
       }
     }
@@ -797,7 +809,7 @@ export class Engine {
     if (!inst) return;
     for (let k = 0; k < Math.min(inst.params.length, LOCK_SLOTS); k++) {
       if (this.lockApplied[ch * LOCK_SLOTS + k]) {
-        inst.setParam(inst.params[k].id, this.withOffset(ch, k, this.baseValue[ch * LOCK_SLOTS + k]));
+        this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, this.baseValue[ch * LOCK_SLOTS + k]));
         this.lockApplied[ch * LOCK_SLOTS + k] = 0;
       }
     }
@@ -861,7 +873,7 @@ export class Engine {
     if (!inst) return;
     const slot = this.slotOf(inst, id);
     if (slot < 0) return;
-    inst.setParam(id, this.withOffset(ch, slot, value)); // hear it now
+    this.applyParam(ch, inst, id, this.withOffset(ch, slot, value)); // hear it now
     if (!this.playing || this.currentStep[ch] < 0) return;
     const pattern = this.activePattern[ch];
     const index = this.currentStep[ch];
@@ -924,6 +936,7 @@ export class Engine {
         sr[i] = tr.low;
       }
       inst.post?.(sl, sr, n);
+      this.cuts[ch].process(sl, sr, n);
       const volDepth = lfo ? this.lfoVol : 0;
       const panDepth = lfo ? this.lfoPan : 0;
       const sendDepth = lfo ? this.lfoSend : 0;
@@ -1067,7 +1080,7 @@ export class Engine {
     if (!inst) return;
     const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
     if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
-    inst.setParam(id, slot >= 0 ? this.withOffset(ch, slot, value) : value);
+    this.applyParam(ch, inst, id, slot >= 0 ? this.withOffset(ch, slot, value) : value);
     if (id === 'arp') {
       this.arpMode[ch] = Math.max(0, Math.round(value));
       if (this.arpMode[ch] === 0 && this.arpHeld[ch]) this.stopArp(ch);
@@ -1106,6 +1119,7 @@ export class Engine {
     if (id === 'send') { this.sendLevel[ch].setTarget(value); return; }
     if (id === 'dyn') { this.dynDepth[ch] = value / 100; return; }
     if (id === 'gate') { this.gateLength[ch] = value; return; }
+    if (id === 'cut') { this.cuts[ch].setAmount(value); return; }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);
     else this.muted[ch] = value > 0 ? 1 : 0;

@@ -1,6 +1,5 @@
 import { Delay } from './Delay';
 import { Distortion } from './Distortion';
-import { MidCut } from './MidCut';
 import { Chorus } from './Chorus';
 import { Reverb } from './Reverb';
 import { Compressor } from './Compressor';
@@ -13,17 +12,15 @@ const MAX_BLOCK = 256;
 const SEND_DELAY_DIVISION = [2, 2, 3];
 
 /**
- * One send: a bus feeding five effects in parallel, their returns summed and then held
+ * One send: a bus feeding four effects in parallel, their returns summed and then held
  * level by the bus COMPRESSOR (series: THRESH / RATIO / ATTACK / RELEASE) before the mix.
  * Each effect has two controls:
  *  WET        how much of its output returns to the mix (0 = off)
- *  INTENSITY  how hard it works: DELAY feedback, DISTORT drive, MID CUT depth,
- *             CHORUS depth, REVERB size
+ *  INTENSITY  how hard it works: DELAY feedback, DISTORT drive, CHORUS depth, REVERB size
  */
 export class SendBus {
   private readonly delay: Delay;
   private readonly dist: Distortion;
-  private readonly mid: MidCut;
   private readonly chorus: Chorus;
   private readonly reverb: Reverb;
   /** The bus compressor on the summed returns. */
@@ -34,13 +31,10 @@ export class SendBus {
   constructor(sampleRate: number, index: number) {
     this.delay = new Delay(sampleRate);
     this.dist = new Distortion(sampleRate);
-    this.mid = new MidCut(sampleRate);
     this.chorus = new Chorus(sampleRate);
     this.reverb = new Reverb(sampleRate);
     this.comp = new Compressor(sampleRate);
     this.delay.setParam('dly_time', SEND_DELAY_DIVISION[index] ?? 2);
-    this.mid.setParam('mid_freq', 1000);
-    this.mid.setParam('mid_width', 0.9);
     for (let k = 0; k < EFFECTS.length; k++) {
       this.setWet(k, 0);
       this.setIntensity(k, 0.5);
@@ -60,7 +54,6 @@ export class SendBus {
     switch (EFFECTS[k].id) {
       case 'delay': this.delay.setParam('dly_return', a); break;
       case 'dist': this.dist.setParam('dst_return', a * 0.8); break;
-      case 'midcut': this.mid.setParam('mid_return', a); break;
       case 'chorus': this.chorus.setParam('cho_return', a); break;
       case 'reverb': this.reverb.setParam('rev_return', a); break;
     }
@@ -71,7 +64,6 @@ export class SendBus {
     switch (EFFECTS[k].id) {
       case 'delay': this.delay.setParam('dly_fdbk', 0.1 + 0.95 * a); break; // up to dub runaway
       case 'dist': this.dist.setParam('dst_drive', 1 + 150 * a * a); break;
-      case 'midcut': this.mid.setParam('mid_depth', 30 * a); break;
       case 'chorus':
         this.chorus.setParam('cho_depth', a);
         this.chorus.setParam('cho_rate', 0.2 + 1.8 * a);
@@ -91,7 +83,6 @@ export class SendBus {
     r.fill(0, 0, n);
     this.delay.process(inL, inR, l, r, 0, n);
     this.dist.process(inL, inR, l, r, 0, n);
-    this.mid.process(inL, inR, l, r, 0, n);
     this.chorus.process(inL, inR, l, r, 0, n);
     this.reverb.process(inL, inR, l, r, 0, n);
     this.comp.process(l, r, 0, n);

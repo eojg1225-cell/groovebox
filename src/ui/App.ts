@@ -460,6 +460,32 @@ export class App {
         set: (v) => { c.notes = v + 1; this.send({ type: 'setNotes', channel: ch, notes: c.notes }); },
       };
     }
+    if (id === 'track:preset' && c.instrument !== 'none') {
+      const kind = c.instrument;
+      return {
+        label: label ?? 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch, highlight,
+        get: () => c.presets[kind] ?? 0,
+        set: (v) => this.loadPreset(ch, kind, v),
+      };
+    }
+    const liveSlot = /^track:live([1-4])$/.exec(id);
+    if (liveSlot && c.instrument !== 'none') {
+      // What LIVE n controls: 1 / 2 the live knobs, 3 / 4 the same knobs with FUNC held.
+      const n = Number(liveSlot[1]);
+      const live = n <= 2 ? c.live : c.liveFunc;
+      const r = (n - 1) % 2;
+      const candidates = this.liveCandidates(c);
+      return {
+        label: label ?? `LIVE ${n}`, spec: choice(`live${n}`, `LIVE ${n}`, candidates.map((x) => x.spec.name)), channel: ch, highlight,
+        get: () => Math.max(0, candidates.findIndex((x) => x.id === live[r])),
+        set: (v) => {
+          const old = live[r];
+          live[r] = candidates[v].id;
+          // A knob given another job comes back centred.
+          if (![...c.live, ...c.liveFunc].includes(old) && c.liveOffset[old] !== undefined) this.setLiveOffset(ch, old, 0);
+        },
+      };
+    }
     if (id === 'track:chord') {
       return {
         label: label ?? 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch, highlight, key: `${ch}:${id}`,
@@ -538,8 +564,9 @@ export class App {
   }
 
   /**
-   * DESIGN pages: TRACK (the selected track's sound), MIX (every track's level, send; FUNC TRIM),
-   * PROJECT (project settings + the selected track's setup, PAN, ACC/GHOST).
+   * DESIGN pages: SOUND (the selected track's sound; FUNC: also its PRESET, LIVE knobs and
+   * MID FREQ), MIX (every track's VOLUME / PAN; FUNC SEND LVL / MID CUT), PROJECT (TEMPO,
+   * SWING, MASTER, LO-FI; every track's ACC/GHOST, FUNC TRIM). MIX and PROJECT are global.
    */
   private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
     const ch = this.selected;
@@ -547,7 +574,7 @@ export class App {
     const entry = c.instrument === 'none' ? null : INSTRUMENTS[c.instrument];
     const layout = entry ? (this.func ? entry.funcLayout : entry.layout) : [];
     return [
-      { name: 'TRACK', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) },
+      { name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) },
       { name: 'MIX', targets: () => this.mixTargets() },
       { name: 'PROJECT', targets: () => this.projectTargets() },
     ];
@@ -590,7 +617,6 @@ export class App {
         set: (v: number) => { grid[k][e] = v; this.send({ type: 'setSendFx', send: k, effect: e, control, value: v }); },
       };
     });
-    // Five effects (WET over INTENSITY), module 6 empty, the bus COMPRESSOR on 7-8 (as FX 1).
     const comp = this.project.sendComp[k];
     const c = (id: string): KnobTarget => {
       const spec = COMP_PARAMS.find((p) => p.id === id)!;
@@ -600,7 +626,9 @@ export class App {
         set: (v: number) => { comp[id] = v; this.send({ type: 'setSendComp', send: k, id, value: v }); },
       };
     };
-    return [...control('wet'), null, c('cmp_thresh'), c('cmp_attack'), ...control('int'), null, c('cmp_ratio'), c('cmp_release')];
+    // The effects on modules 1-4, 5-6 free, the bus COMPRESSOR on 7-8 (as FX 1).
+    const pad = (row: (KnobTarget | null)[]) => [...row, ...new Array<KnobTarget | null>(KNOBS_PER_ROW - 2 - row.length).fill(null)];
+    return [...pad(control('wet')), c('cmp_thresh'), c('cmp_attack'), ...pad(control('int')), c('cmp_ratio'), c('cmp_release')];
   }
 
   /**
@@ -609,59 +637,33 @@ export class App {
    * FUNC held). Row 2: send level, chord (pitched).
    * The send itself is chosen with FX 1/2/3.
    */
-  /**
-   * DESIGN > MIX: one module per track (knob = track number). VOLUME on top, SEND level
-   * below; with FUNC: TRIM on top (how long each sequenced note's last step is held).
-   */
-  private mixTargets(): (KnobTarget | null)[] {
-    const row = (id: string, name: string) => this.project.channels.map((_, ch) =>
-      this.paramTarget(ch, id, `${name} ${ch + 1}`, ch === this.selected));
-    if (this.func) return [...row('mix:gate', 'TRIM'), ...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null)];
-    return [...row('mix:volume', 'VOL'), ...row('mix:send', 'SEND')];
+  /** One knob per track (knob = track number); `only` leaves the others blank. */
+  private trackRow(id: string, name: string, only: (c: ChannelState) => boolean = () => true): (KnobTarget | null)[] {
+    return this.project.channels.map((c, ch) => (only(c) ? this.paramTarget(ch, id, `${name} ${ch + 1}`, ch === this.selected) : null));
   }
 
   /**
-   * DESIGN > PROJECT: the project settings on top (TEMPO, SWING, MASTER, LO-FI); below, the
-   * selected track's setup: PRESET, LIVE 1 / 2 (LIVE 3 / 4 with FUNC), CHORD (synths), PAN,
-   * ACC/GHOST.
+   * DESIGN > MIX: one module per track. VOLUME on top, PAN below; with FUNC: SEND level on
+   * top, MID CUT below (the centre is each sound's MID FREQ, SOUND page FUNC).
+   */
+  private mixTargets(): (KnobTarget | null)[] {
+    if (this.func) return [...this.trackRow('mix:send', 'SEND'), ...this.trackRow('mix:cut', 'CUT')];
+    return [...this.trackRow('mix:volume', 'VOL'), ...this.trackRow('mix:pan', 'PAN')];
+  }
+
+  /**
+   * DESIGN > PROJECT (global): TEMPO, SWING, MASTER, LO-FI on top; every track's ACC/GHOST
+   * below. With FUNC: every synth track's TRIM below (drums play out their own decay).
    */
   private projectTargets(): (KnobTarget | null)[] {
-    const ch = this.selected;
-    const c = this.channel;
-    const targets: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
-      label: spec.name, spec, channel: ch, key: `global:${spec.id}`,
+    const top: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
+      label: spec.name, spec, channel: this.selected, key: `global:${spec.id}`,
       get: () => this.getGlobal(spec.id as GlobalId),
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
     }));
-    while (targets.length < 8) targets.push(null);
-    if (c.instrument === 'none') return targets;
-    const kind = c.instrument;
-    targets.push({
-      label: 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch,
-      get: () => c.presets[kind] ?? 0,
-      set: (v) => this.loadPreset(ch, kind, v),
-    });
-    const candidates = this.liveCandidates(c);
-    // FUNC held: the same two knobs choose LIVE 3 / 4 (the live knobs with FUNC held).
-    const live = this.func ? c.liveFunc : c.live;
-    for (let r = 0; r < 2; r++) {
-      const n = this.func ? r + 3 : r + 1;
-      const spec = choice(`live${n}`, `LIVE ${n}`, candidates.map((x) => x.spec.name));
-      targets.push({
-        label: `LIVE ${n}`, spec, channel: ch,
-        get: () => Math.max(0, candidates.findIndex((x) => x.id === live[r])),
-        set: (v) => {
-          const old = live[r];
-          live[r] = candidates[v].id;
-          // A knob given another job comes back centred.
-          if (![...c.live, ...c.liveFunc].includes(old) && c.liveOffset[old] !== undefined) this.setLiveOffset(ch, old, 0);
-        },
-      });
-    }
-    targets.push(isDrum(kind) ? null : this.paramTarget(ch, 'track:chord'));
-    targets.push(this.paramTarget(ch, MIX_PREFIX + 'pan'));
-    targets.push(this.paramTarget(ch, MIX_PREFIX + 'dyn'));
-    return targets;
+    while (top.length < KNOBS_PER_ROW) top.push(null);
+    if (this.func) return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...this.trackRow('mix:gate', 'TRIM', (c) => !isDrum(c.instrument))];
+    return [...top, ...this.trackRow('mix:dyn', 'ACC')];
   }
 
   /** The 16 knob targets for the current mode. */
@@ -710,7 +712,12 @@ export class App {
             this.selected = this.heldTrack;
             this.fxView = 0;
             this.touchedKnob = -1;
+            if (this.mode === 'design') this.designPage = 0;
           }
+        } else if (this.mode === 'design' && !this.sendOpen && !this.heldUsed) {
+          // DESIGN: a plain tap on a track opens its SOUND page (MIX and PROJECT are global).
+          this.designPage = 0;
+          this.touchedKnob = -1;
         }
         this.heldTrack = -1;
         this.refreshPanel();

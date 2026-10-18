@@ -1,7 +1,7 @@
 import type { Instrument, Preset } from './Instrument';
 import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
 import { decayMul, midiToHz, polyBlep, Svf } from './dsp';
-import { INTENSITY, TIMBRE } from './macroParams';
+import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { driveCompGain } from './driveComp';
 import { DELAY_DIVISIONS, Delay } from '../fx/Delay';
@@ -119,6 +119,7 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'duck', name: 'DUCK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'duckrel', name: 'DUCK REL', min: 0.02, max: 1, defaultValue: 0.2, unit: 'S', curve: 'exp', decimals: 3 },
   // Onboard FX (PLUCK): a tempo-synced delay, then a short room.
+  midFreq(1000),
   choice('dtime', 'DLY TIME', DELAY_DIVISIONS.map((d) => d.name), 2),
   { id: 'dfdbk', name: 'DLY FDBK', min: 0, max: 0.95, defaultValue: 0.35, unit: '', curve: 'linear' },
   { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
@@ -146,22 +147,22 @@ const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
 const without = (ids: string[], drop: string[]) => ids.filter((id) => !drop.includes(id));
-export const BASS_PARAMS = synthParams([...without(MORPHED, ['fattack', 'fdecay']), 'fratio', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75 }, SHARED_NAMES);
+export const BASS_PARAMS = synthParams([...without(MORPHED, ['fattack', 'fdecay']), 'fratio', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
 export const BASS_FIXED = { voice: 1, envlink: 1, fltlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 /** PAD's envelope before v27 (a stab), for keeping an untouched one up to date. */
 export const PAD_ENVELOPE_V26 = { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 });
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { octave: 3, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
+export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: 3, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
 export const LEAD_FIXED = { voice: 1, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb'], { attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS, envlink: 1, onboard: 1 };
 
 /** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */

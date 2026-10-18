@@ -2,14 +2,14 @@ import { COMP_PARAMS as COMP_PARAMS_LIST } from './Compressor';
 
 /**
  * FX 1 is the drum bus (DrumBus: tracks pass through it). FX 2 and FX 3 are sends.
- * The five effects inside each send, in panel order (one knob module each): WET (its
+ * The four effects inside each send, in panel order (one knob module each): WET (its
  * return volume) on top, INTENSITY below; then the bus COMPRESSOR (modules 7-8, like FX 1).
+ * (MID CUT left the sends in v29: every track has its own, on MIX.)
  * See SendBus for what intensity drives.
  */
 export const EFFECTS = [
   { id: 'delay', name: 'DELAY' },
   { id: 'dist', name: 'DISTORT' },
-  { id: 'midcut', name: 'MID CUT' },
   { id: 'chorus', name: 'CHORUS' },
   { id: 'reverb', name: 'REVERB' },
 ] as const;
@@ -25,17 +25,17 @@ export const SEND_BUSES = [1, 2] as const;
  */
 export function defaultSendWet(): number[][] {
   return [
-    [0, 0, 0, 0, 0],
-    [0.6, 0, 0, 0, 0.2],
-    [0, 0, 0, 0.3, 0.7],
+    [0, 0, 0, 0],
+    [0.6, 0, 0, 0.2],
+    [0, 0, 0.3, 0.7],
   ];
 }
 
 export function defaultSendInt(): number[][] {
   return [
-    [0.5, 0.5, 0.5, 0.5, 0.5],
-    [0.5, 0.5, 0.5, 0.5, 0.5],
-    [0.5, 0.5, 0.5, 0.4, 0.6],
+    [0.5, 0.5, 0.5, 0.5],
+    [0.5, 0.5, 0.5, 0.5],
+    [0.5, 0.5, 0.4, 0.6],
   ];
 }
 

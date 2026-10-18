@@ -13,13 +13,16 @@ export const MIX_PARAMS: readonly ParamSpec[] = [
   { id: 'dyn', name: 'ACC/GHOST', min: 0, max: 200, defaultValue: 100, unit: '%', curve: 'linear', decimals: 0 },
   // TRIM (id "gate"): how long a sequenced note's last step is held, in steps (1 = the whole step, as
   // entered). Ties and RING / SLIDE notes keep their length; only the end moves.
+  // MID CUT: the track's own cut after its DRIVE (depth and width together; the centre is
+  // the sound's MID FREQ, SOUND page FUNC).
+  { id: 'cut', name: 'MID CUT', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'gate', name: 'TRIM', min: GATE_MIN, max: GATE_MAX, defaultValue: 1, unit: ' ST', curve: 'linear', decimals: 2 },
 ];
 
-export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate';
+export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate' | 'cut';
 
 /** The channel field each mixer parameter lives in. */
-export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength' } as const;
+export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength', cut: 'midCut' } as const;
 
 /** Velocity of a normal hit (ghost 0.45, accent 1.0). */
 export const NORMAL_VELOCITY = 0.8;

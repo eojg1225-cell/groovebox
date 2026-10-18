@@ -104,6 +104,23 @@ function susRel(top: readonly (string | null)[], bottom: readonly (string | null
   );
 }
 
+/**
+ * Every track's FUNC layer also holds the track's setup (the same slots on every type):
+ * PRESET (module 1 top), MID FREQ (4 bottom: the MID CUT's centre), LIVE 1 / 2 (5) and
+ * LIVE 3 / 4 (6) - what the live knobs control.
+ */
+export const TRACK_FUNC: Readonly<Record<number, string>> = {
+  0: 'track:preset', [ROW + 3]: 'midfreq', 4: 'track:live1', [ROW + 4]: 'track:live2', 5: 'track:live3', [ROW + 5]: 'track:live4',
+};
+function trackFunc(func: readonly (string | null)[]): (string | null)[] {
+  const out = [...func];
+  for (const [slot, id] of Object.entries(TRACK_FUNC)) {
+    if (out[Number(slot)] !== null) throw new Error(`FUNC slot ${slot} is taken by ${out[Number(slot)]}`);
+    out[Number(slot)] = id;
+  }
+  return out;
+}
+
 /** How far a relative live knob reaches at full turn: this share of each parameter's range. */
 export const LIVE_RANGE = 0.6;
 /**
@@ -256,42 +273,42 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
     name: 'KICK', live: ['macro:attack', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['t_sweep', 't_stime'], ['c_reso', 'c_noise']),
-    funcLayout: NO_FUNC,
+    funcLayout: trackFunc(NO_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
     name: 'SNARE', live: ['macro:snap', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['t_sweep', 't_stime'], ['m_tone', 'm_noise']),
-    funcLayout: NO_FUNC,
+    funcLayout: trackFunc(NO_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
     name: 'HAT', live: ['macro:bright', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'c_noise'], ['m_tone', 'm_noise']),
-    funcLayout: NO_FUNC,
+    funcLayout: trackFunc(NO_FUNC),
     presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
   perc: {
     name: 'PERC', live: ['macro:knock', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
     layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['c_tone', 'c_noise']),
-    funcLayout: NO_FUNC,
+    funcLayout: trackFunc(NO_FUNC),
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
     name: 'BASS', live: ['macro:env', 'macro:grit'], liveFunc: ['mix:volume', 'cutoff'], params: BASS_PARAMS,
     layout: BASS_PAGE,
-    funcLayout: BASS_FUNC,
+    funcLayout: trackFunc(BASS_FUNC),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
     layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'detune']),
-    funcLayout: susRel([_, 'carriers', _, 'octave'], ['feedback', _, _, 'unison']),
+    funcLayout: trackFunc(susRel([_, 'carriers', _, 'octave'], ['feedback', _, _, 'unison'])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: LEAD_GAIN, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
     layout: soundPage(SYNTH_ELEMENTS, ['glide', 'detune']),
-    funcLayout: susRel([_, _, _, 'octave'], [_, _, _, _]),
+    funcLayout: trackFunc(susRel([_, _, _, 'octave'], [_, _, _, _])),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'macro:sustain'], liveFunc: ['macro:space', 'macro:bite'], params: PLUCK_PARAMS,
     layout: PLUCK_PAGE,
-    funcLayout: PLUCK_FUNC,
+    funcLayout: trackFunc(PLUCK_FUNC),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },
 };
 

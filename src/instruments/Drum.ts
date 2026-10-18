@@ -1,7 +1,7 @@
 import type { Instrument, Preset } from './Instrument';
 import { choice, type ParamSpec } from '../engine/params';
 import { decayMul, Noise, polyBlep, Svf } from './dsp';
-import { INTENSITY, TIMBRE } from './macroParams';
+import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
 
@@ -84,6 +84,7 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // ROLL DIV: how fast a ROLL step repeats (read by the engine; the voice ignores it).
   choice('rolldiv', 'ROLL DIV', ROLL_DIVS.map((r) => r.name), 0),
+  midFreq(1000),
 ] as ParamSpec[]).map((p) => [p.id, p]));
 
 /** Build a drum type's parameter list (in knob order) with per-type defaults. */
@@ -92,7 +93,7 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /** Controls every drum has (after its layer parameters). */
-const WHOLE = ['balance', 'drive', 'crush', 'rolldiv'];
+const WHOLE = ['balance', 'drive', 'crush', 'rolldiv', 'midfreq'];
 
 /*
  * Each drum type: its parameters (set by TIMBRE / INTENSITY and presets, except the tail
@@ -103,13 +104,13 @@ const WHOLE = ['balance', 'drive', 'crush', 'rolldiv'];
  */
 export const KICK_PARAMS = drumParams(
   ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', ...WHOLE],
-  { t_level: 0.95, t_pitch: 48, t_sweep: 30, t_stime: 0.035, t_decay: 0.5, c_level: 0.25, c_tone: 3500, c_len: 0.003 },
+  { t_level: 0.95, t_pitch: 48, t_sweep: 30, t_stime: 0.035, t_decay: 0.5, c_level: 0.25, c_tone: 3500, c_len: 0.003, midfreq: 350 },
 );
 export const KICK_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
 export const SNARE_PARAMS = drumParams(
   ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE],
-  { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2 },
+  { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2, midfreq: 500 },
 );
 export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
 
@@ -118,7 +119,7 @@ export const HAT_PARAMS = drumParams(
     'timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm',
     'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', ...WHOLE,
   ],
-  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03 },
+  { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03, midfreq: 2000 },
 );
 export const HAT_ELEMENTS = ['c_attack', 'c_len', 'm_attack', 'm_decay'];
 
@@ -128,7 +129,7 @@ export const PERC_PARAMS = drumParams(
     'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise',
     'm_level', 'm_interval', 'detune', 'm_spread', 'm_noise', 'm_tone', 'm_mode', 'm_fm', ...WHOLE,
   ],
-  { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.3, c_level: 0.3, c_tone: 2200, c_len: 0.004 },
+  { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.3, c_level: 0.3, c_tone: 2200, c_len: 0.004, midfreq: 450 },
 );
 export const PERC_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 

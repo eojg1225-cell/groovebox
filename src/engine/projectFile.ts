@@ -73,6 +73,7 @@ export interface StoredChannel {
   sendLevel: number;
   dynamics?: number;
   gateLength?: number;
+  midCut?: number;
   lfoOn: boolean;
   mute: boolean;
   activePattern: number;
@@ -126,6 +127,7 @@ export function toStored(p: Project): StoredProject {
       sendLevel: c.sendLevel,
       dynamics: c.dynamics,
       gateLength: c.gateLength,
+      midCut: c.midCut,
       lfoOn: c.lfoOn,
       mute: c.mute,
       activePattern: c.activePattern,
@@ -319,6 +321,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.dynamics = num(src.dynamics, 100, 0, 200);
   ch.gateLength = num(src.gateLength, 1, GATE_MIN, GATE_MAX);
+  ch.midCut = num(src.midCut, 0, 0, 1);
   ch.mute = src.mute === true;
   if (version >= 7) {
     ch.fx1 = src.fx1 === true;
@@ -435,7 +438,9 @@ export function fromStored(data: unknown): Project | null {
   const readGrid = (grid: unknown, into: number[][]) => {
     if (!Array.isArray(grid)) return;
     for (let k = 1; k < NUM_SENDS; k++) {
-      const row = grid[version >= 7 ? k : k - 1];
+      let row = grid[version >= 7 ? k : k - 1];
+      // v29: MID CUT (effect 3 of 5) left the sends.
+      if (Array.isArray(row) && version < 29) row = row.filter((_, e) => e !== 2);
       if (Array.isArray(row)) for (let e = 0; e < EFFECTS.length; e++) into[k][e] = num(row[e], into[k][e], 0, 1);
     }
   };

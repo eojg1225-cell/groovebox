@@ -175,7 +175,8 @@ describe('instruments', () => {
     expect([INSTRUMENTS.lead.layout[7], INSTRUMENTS.lead.layout[15]]).toEqual(['glide', 'detune']);
     expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'detune']);
     expect([INSTRUMENTS.pluck.layout[7], INSTRUMENTS.pluck.layout[15]]).toEqual(['track:chord', 'detune']);
-    for (const k of ['kick', 'snare', 'hat', 'perc'] as const) expect(INSTRUMENTS[k].funcLayout.every((id) => id === null), k).toBe(true);
+    // Drums: no sound FUNC layer, only the track setup (PRESET, LIVE, MID FREQ).
+    for (const k of ['kick', 'snare', 'hat', 'perc'] as const) expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:')), k).toBe(true);
     for (const k of ['pad', 'lead'] as const) expect(INSTRUMENTS[k].funcLayout.slice(1, 3), k).toEqual(['sustain', 'sustain2']);
     for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) {
       expect(INSTRUMENTS[k].funcLayout, k).not.toContain('shape'); // TIMBRE's
@@ -864,7 +865,7 @@ describe('project', () => {
     p.channels[5].fxSend = 3;
     p.channels[5].sendLevel = 0.7;
     p.lofi = 0.4;
-    p.sendWet[2][4] = 0.9;
+    p.sendWet[2][3] = 0.9;
     p.sendComp[1].cmp_ratio = 4;
     p.sendComp[2].cmp_thresh = -30;
     p.sendInt[1][0] = 0.8;
@@ -1600,7 +1601,10 @@ describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
     for (const k of SOUND_KINDS) {
       const entry = INSTRUMENTS[k];
       expect(entry.funcLayout.length).toBe(16);
-      for (const id of entry.funcLayout) if (id) expect(entry.params.some((p) => p.id === id), `${k}:${id}`).toBe(true);
+      for (const id of entry.funcLayout) if (id && !id.startsWith('track:')) expect(entry.params.some((p) => p.id === id), `${k}:${id}`).toBe(true);
+      // Every type's FUNC layer holds its setup in the same slots.
+      expect([entry.funcLayout[0], entry.funcLayout[11], entry.funcLayout[4], entry.funcLayout[12], entry.funcLayout[5], entry.funcLayout[13]], k)
+        .toEqual(['track:preset', 'midfreq', 'track:live1', 'track:live2', 'track:live3', 'track:live4']);
     }
   });
 
@@ -2514,5 +2518,44 @@ describe('GATE: how long a sequenced note\'s last step is held', () => {
     p.channels[7].gateLength = 0.25;
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[7].gateLength).toBe(0.25);
     expect(createDefaultProject().channels[7].gateLength).toBe(1);
+  });
+});
+
+describe('MID CUT per track (MIX, FUNC) at the sound\'s MID FREQ', () => {
+  const sine = (hz: number, n = SR / 2) => Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * hz * i) / SR) * 0.5);
+  const tailRms = (l: Float32Array) => Math.sqrt(l.subarray(l.length / 2).reduce((a, v) => a + v * v, 0) / (l.length / 2));
+
+  it('cuts at the centre (about 18 dB at full), leaves other frequencies, and is off at 0', async () => {
+    const { TrackCut, TRACK_CUT_MAX_DB } = await import('../src/fx/TrackCut');
+    const run = (amount: number, hz: number) => {
+      const c = new TrackCut(SR);
+      c.setFreq(1000);
+      c.setAmount(amount);
+      c.settle();
+      const l = sine(hz);
+      const r = sine(hz);
+      for (let i = 0; i < l.length; i += BLOCK) c.process(l.subarray(i, i + BLOCK), r.subarray(i, i + BLOCK), Math.min(BLOCK, l.length - i));
+      return tailRms(l);
+    };
+    const dry = tailRms(sine(1000));
+    expect(run(0, 1000)).toBeCloseTo(dry, 6);
+    expect(20 * Math.log10(run(1, 1000) / dry)).toBeLessThan(-TRACK_CUT_MAX_DB + 1);
+    expect(20 * Math.log10(run(1, 8000) / tailRms(sine(8000)))).toBeGreaterThan(-3);
+  });
+
+  it('each type starts on its own MID FREQ; MID CUT starts at 0', () => {
+    const freq = Object.fromEntries(SOUND_KINDS.map((k) => [k, presetSound(k, 0).midfreq]));
+    expect(freq).toEqual({ kick: 350, snare: 500, hat: 2000, perc: 450, bass: 350, pad: 500, lead: 1000, pluck: 800 });
+    expect(createDefaultProject().channels.every((c) => c.midCut === 0)).toBe(true);
+  });
+
+  it('v29 load: MID CUT leaves the sends, the other effects keep their settings', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 28;
+    stored.sendWet = [[0, 0, 0, 0, 0], [0.6, 0.1, 0.9, 0.2, 0.3], [0, 0, 0.5, 0.4, 0.7]];
+    const q = fromStored(stored)!;
+    expect(q.sendWet[1]).toEqual([0.6, 0.1, 0.2, 0.3]);
+    expect(q.sendWet[2]).toEqual([0, 0, 0.4, 0.7]);
   });
 });
