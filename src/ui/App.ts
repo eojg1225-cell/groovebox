@@ -268,7 +268,7 @@ export class App {
 
   /** RECORD / PLAY with a bus open: knobs and screen show that bus. */
   get sendOpen(): boolean {
-    return this.mode !== 'design' && this.fxView > 0;
+    return this.mode !== 'song' && this.fxView > 0;
   }
 
   /** Whether a track is on bus n (1 = the drum bus, 2-3 = its send, 4 = the LFO). */
@@ -668,13 +668,13 @@ export class App {
     // FUNC layers exist for the SOUND / TRACK pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.mode === 'song') return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
+    if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1);
     if (this.mode === 'design') {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
       const t = pages[this.designPage].targets();
       return Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null);
     }
-    if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1);
     // Live knobs: column = track, rows = live knob 1 / 2 (FUNC: 3 / 4).
     const out: (KnobTarget | null)[] = [];
     for (let row = 0; row < 2; row++) {
@@ -803,14 +803,16 @@ export class App {
     } else if ((m = /^dpage(\d)$/.exec(id))) {
       const page = Number(m[1]);
       this.designPage = page;
+      this.fxView = 0; // back from a bus to the DESIGN pages
       this.touchedKnob = -1;
     } else if ((m = /^fx([1-4])$/.exec(id))) {
       const n = Number(m[1]);
-      if (this.mode === 'design') {
-        // Sound design: put the selected track on / off this bus.
+      if (this.func) {
+        // FUNC + FX 1-3 / LFO: put the selected track on / off this bus.
         this.toggleBus(this.selected, n);
+        if (this.funcHeld) this.funcUsed = true; // not a latching tap
       } else {
-        // RECORD / PLAY: show this send's controls on the knobs (again = back to tracks).
+        // Show this bus's controls on the knobs (again = back to the tracks / DESIGN pages).
         this.fxView = this.fxView === n ? 0 : n;
         this.touchedKnob = -1;
       }
@@ -1632,7 +1634,7 @@ export class App {
         this.panel.setButtonFlag(id, 'pattern', true);
       } else {
         this.panel.setButtonText(id, n === 4 ? 'LFO' : String(n));
-        this.panel.setButtonLit(id, this.mode === 'design' ? this.onBus(this.channel, n) : this.fxView === n);
+        this.panel.setButtonLit(id, this.fxView === n);
         this.panel.setButtonFlag(id, 'pattern', false);
       }
     }
@@ -1641,7 +1643,7 @@ export class App {
       const page = pages[i];
       this.panel.setButtonText(`dpage${i}`, page ? page.name : '');
       this.panel.setButtonEnabled(`dpage${i}`, !!page);
-      this.panel.setButtonLit(`dpage${i}`, !!page && i === this.designPage);
+      this.panel.setButtonLit(`dpage${i}`, !!page && i === this.designPage && this.fxView === 0);
     }
     this.panel.setButtonLit('clear', this.clearHeld);
     this.panel.setButtonLit('reset', this.glides.size > 0);
@@ -1930,7 +1932,7 @@ export class App {
     };
   }
 
-  /** RECORD / PLAY with a bus open: the bus's knobs on screen, like a design page. */
+  /** A bus open (RECORD / PLAY / DESIGN): the bus's knobs on screen, like a design page. */
   sendView(now: number, audio: AudioInfo): DesignView {
     const n = this.fxView;
     const f = this.footer(audio);
@@ -1939,7 +1941,7 @@ export class App {
       ...this.header(),
       channelLabel: n === 1 ? 'FX 1 DRUM BUS' : n === 4 ? 'LFO' : `FX ${n} SEND`,
       patternLabel: '',
-      kindLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
+      kindLabel: this.mode.toUpperCase(),
       pages: ['FX 1', 'FX 2', 'FX 3', 'LFO'],
       page: n - 1,
       slots: this.slots(),

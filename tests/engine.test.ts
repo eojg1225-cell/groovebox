@@ -2348,3 +2348,16 @@ describe('v24 knob review', () => {
     expect(back.liveFunc).toEqual(['mix:volume', 'cutoff']);
   });
 });
+
+describe('LFO rates v25', () => {
+  it('adds dotted / odd rates and keeps older saves on the same rate', () => {
+    const names = LFO_RATES.map((r) => r.name);
+    for (const n of ['3/16', '3/32', '7/16', '5/8', '7/8', '1/32T']) expect(names, n).toContain(n);
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p))) as Record<string, any>;
+    stored.version = 24;
+    stored.lfo = { ...stored.lfo, rate: 11 }; // '3/16' in the v18-v24 list
+    expect(LFO_RATES[fromStored(stored)!.lfo.rate].name).toBe('3/16');
+    expect(LFO_RATES[createDefaultProject().lfo.rate].name).toBe('1/4');
+  });
+});

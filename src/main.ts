@@ -152,8 +152,8 @@ const frame = (now: number) => {
   if (app.playing !== wasPlaying) { wasPlaying = app.playing; void updateWakeLock(); }
   app.updateFrame(now);
   if (app.mode === 'song') drawSongView(screen, app.songView(now, audio));
-  else if (app.mode === 'design') drawDesignView(screen, app.designView(now, audio));
   else if (app.sendOpen) drawDesignView(screen, app.sendView(now, audio));
+  else if (app.mode === 'design') drawDesignView(screen, app.designView(now, audio));
   else drawLiveView(screen, app.liveView(now, audio));
   requestAnimationFrame(frame);
 };

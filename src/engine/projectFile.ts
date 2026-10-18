@@ -20,7 +20,7 @@ import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN } from './mixParams';
 import { DJ_DEAD } from './params';
 import type { InstrumentKind } from './project';
-import { LFO_RATES, LFO_RATES_V17, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
+import { LFO_RATES, LFO_RATES_V17, LFO_RATES_V24, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
 
@@ -357,8 +357,10 @@ function readLfo(src: unknown, lfo: LfoState, version: number): void {
   if (!isObj(src)) return;
   const rate = Math.round(num(src.rate, lfo.rate, 0, 63));
   // Before v18 the rate list had no odd / dotted rates: map the old index by name.
-  lfo.rate = version < 18
-    ? Math.max(0, LFO_RATES.findIndex((r) => r.name === (LFO_RATES_V17[rate] ?? '1/4')))
+  // Rates are stored by index: older lists are mapped by name (v18 and v25 added rates).
+  const byName = (name: string | undefined) => Math.max(0, LFO_RATES.findIndex((r) => r.name === (name ?? '1/4')));
+  lfo.rate = version < 18 ? byName(LFO_RATES_V17[rate])
+    : version < 25 ? byName(LFO_RATES_V24[rate])
     : Math.min(rate, LFO_RATES.length - 1);
   lfo.morph = num(src.morph, lfo.morph, 0, 1);
   lfo.fm = num(src.fm, lfo.fm, 0, 1);

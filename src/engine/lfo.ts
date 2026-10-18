@@ -13,13 +13,20 @@ import { choice, type ParamSpec } from './params';
  */
 export const LFO_RATES = [
   { name: '4 BAR', steps: 64 }, { name: '3 BAR', steps: 48 }, { name: '2 BAR', steps: 32 },
-  { name: '1.5 BAR', steps: 24 }, { name: '1 BAR', steps: 16 }, { name: '3/4', steps: 12 },
-  { name: '1/2', steps: 8 }, { name: '3/8', steps: 6 }, { name: '1/2T', steps: 16 / 3 },
+  { name: '1.5 BAR', steps: 24 }, { name: '1 BAR', steps: 16 }, { name: '7/8', steps: 14 },
+  { name: '3/4', steps: 12 }, { name: '5/8', steps: 10 }, { name: '1/2', steps: 8 },
+  { name: '7/16', steps: 7 }, { name: '3/8', steps: 6 }, { name: '1/2T', steps: 16 / 3 },
   { name: '5/16', steps: 5 }, { name: '1/4', steps: 4 }, { name: '3/16', steps: 3 },
-  { name: '1/4T', steps: 8 / 3 }, { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 },
-  { name: '1/16', steps: 1 }, { name: '1/16T', steps: 2 / 3 }, { name: '1/32', steps: 0.5 },
-  { name: '1/64', steps: 0.25 },
+  { name: '1/4T', steps: 8 / 3 }, { name: '1/8', steps: 2 }, { name: '3/32', steps: 1.5 },
+  { name: '1/8T', steps: 4 / 3 }, { name: '1/16', steps: 1 }, { name: '1/16T', steps: 2 / 3 },
+  { name: '1/32', steps: 0.5 }, { name: '1/32T', steps: 1 / 3 }, { name: '1/64', steps: 0.25 },
 ] as const;
+
+/** The rate list of v18 - v24 (stored by index), for loading those saves. */
+export const LFO_RATES_V24 = [
+  '4 BAR', '3 BAR', '2 BAR', '1.5 BAR', '1 BAR', '3/4', '1/2', '3/8', '1/2T', '5/16', '1/4', '3/16',
+  '1/4T', '1/8', '1/8T', '1/16', '1/16T', '1/32', '1/64',
+];
 
 /** The rate list before v18 (stored by index), for loading older saves. */
 export const LFO_RATES_V17 = ['4 BAR', '2 BAR', '1 BAR', '1/2', '1/4', '1/4T', '1/8', '1/8T', '1/16', '1/16T', '1/32', '1/64'];
@@ -49,7 +56,7 @@ export type LfoId = keyof LfoState;
 
 export const LFO_PARAMS: Record<LfoId, ParamSpec> = {
   // RATE is discrete but a performance control, so not coarse.
-  rate: { id: 'rate', name: 'LFO RATE', min: 0, max: LFO_RATES.length - 1, defaultValue: 10, unit: '', curve: 'linear', options: LFO_RATES.map((r) => r.name) },
+  rate: { id: 'rate', name: 'LFO RATE', min: 0, max: LFO_RATES.length - 1, defaultValue: LFO_RATES.findIndex((r) => r.name === '1/4'), unit: '', curve: 'linear', options: LFO_RATES.map((r) => r.name) },
   shape: choice('shape', 'LFO SHAPE', LFO_SHAPES),
   morph: { id: 'morph', name: 'MORPH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   vol: { id: 'vol', name: 'VOL MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
@@ -75,7 +82,7 @@ export const LFO_LAYOUT: readonly (LfoId | null)[] = [
 ];
 
 export function defaultLfo(): LfoState {
-  return { rate: 10, shape: 0, morph: 0, fm: 0, vol: 0, pitch: 0, filter: 0, pan: 0, phase: 0, smooth: 0, fade: 0, retrig: 0, send: 0, spread: 0 };
+  return { rate: LFO_PARAMS.rate.defaultValue, shape: 0, morph: 0, fm: 0, vol: 0, pitch: 0, filter: 0, pan: 0, phase: 0, smooth: 0, fade: 0, retrig: 0, send: 0, spread: 0 };
 }
 
 /**
