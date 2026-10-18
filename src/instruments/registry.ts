@@ -60,12 +60,13 @@ const BASS_PAGE = [
   'intensity', 'decay', 'release', 'reso', 'duckrel', 'fm', 'crush', 'sub',
 ];
 /**
- * PLUCK (one envelope, onboard delay + room): 1 TIMBRE / INT, 2 ATTACK / DECAY, 3 DLY TIME /
- * DLY FDBK, 4 CUTOFF / RESO, 5 FLT ATK / DEC, 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 CHORD / DETUNE.
+ * PLUCK (one envelope, onboard delay + room): 1 TIMBRE / INT, 2 ATTACK / SUSTAIN (a pluck
+ * that rings on, up to a held pad), 3 DLY TIME / DLY FDBK, 4 CUTOFF / RESO, 5 FLT ATK / DEC,
+ * 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 CHORD / DETUNE.
  */
 const PLUCK_PAGE = [
   'timbre', 'attack', 'dtime', 'cutoff', 'fattack', 'fenv', 'drive', 'track:chord',
-  'intensity', 'decay', 'dfdbk', 'reso', 'fdecay', 'fm', 'crush', 'detune',
+  'intensity', 'sustain', 'dfdbk', 'reso', 'fdecay', 'fm', 'crush', 'detune',
 ];
 
 /** A 2 x 6 layout on the 2 x 8 panel: modules 1-6, modules 7-8 empty. */
@@ -93,8 +94,8 @@ const _ = null;
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
 /** BASS FUNC: OCTAVE / DETUNE under column 8. */
 const BASS_FUNC = funcPage([_, _, _, _, _, _, _, 'octave'], [_, _, _, _, _, _, _, 'detune']);
-/** PLUCK FUNC: SUSTAIN / RELEASE, DLY MIX / VERB, UNISON, OCTAVE / ARP OCT, ARP / ARP RATE. */
-const PLUCK_FUNC = funcPage([_, 'sustain', 'dmix', 'unison', _, _, 'octave', 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
+/** PLUCK FUNC: DECAY / RELEASE, DLY MIX / VERB, UNISON, OCTAVE / ARP OCT, ARP / ARP RATE. */
+const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', 'unison', _, _, 'octave', 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
 /** A synth FUNC layer: SUSTAIN / RELEASE on the element columns, the rest as given (columns 1, 4, 7, 8). */
 function susRel(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
   return funcPage(
@@ -188,6 +189,9 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('BITE', [['fenv', 1], ['drive', 1], ['fm', 1]]),
     // The onboard delay + room: left dries it up, right drowns it.
     macro('SPACE', [['dmix', 1], ['verb', 1]]),
+    // Right: each note fades in, rings on and holds (up to a pad; the filter stays open with
+    // it); left: tighter. RELEASE stays as set, so notes never smear into each other.
+    macro('SUSTAIN', [['attack', 1], ['decay', 1], ['sustain', 1], ['fdecay', 1]]),
   ],
 };
 
@@ -285,7 +289,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: susRel([_, _, _, 'octave'], [_, _, _, _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
-    name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'macro:space'], liveFunc: ['mix:volume', 'macro:bite'], params: PLUCK_PARAMS,
+    name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'macro:sustain'], liveFunc: ['macro:space', 'macro:bite'], params: PLUCK_PARAMS,
     layout: PLUCK_PAGE,
     funcLayout: PLUCK_FUNC,
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },

@@ -11,7 +11,7 @@ import { applyPreset, createDefaultProject, createStartProject } from '../src/en
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
-import { Synth, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
+import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { midiToHz } from '../src/instruments/dsp';
 import { Delay } from '../src/fx/Delay';
 import { Distortion } from '../src/fx/Distortion';
@@ -950,7 +950,8 @@ describe('project', () => {
     expect(p.channels[4].patterns[0].length).toBe(64);
     expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
     expect(p.channels[4].live).toEqual(['macro:env', 'macro:grit']);
-    expect(p.channels.every((c) => c.liveFunc[0] === 'mix:volume')).toBe(true);
+    // PLUCK: SPACE / BITE with FUNC (its VOLUME is on the MIX page).
+    expect(p.channels.every((c) => c.liveFunc[0] === (c.instrument === 'pluck' ? 'macro:space' : 'mix:volume'))).toBe(true);
   });
 
   it('keeps the notes even from an older, different format', () => {
@@ -1104,7 +1105,7 @@ describe('slides and rolls', () => {
   });
 
   const bass = () => {
-    const s = new Synth(SR, INSTRUMENTS.bass.params, { voice: 1 });
+    const s = new Synth(SR, INSTRUMENTS.bass.params, BASS_FIXED);
     for (const [id, v] of Object.entries({ shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0.06, drive: 1 })) s.setParam(id, v);
     return s;
   };
@@ -1328,7 +1329,7 @@ describe('ETHEREAL chord', () => {
   });
 });
 
-describe('short DECAY cuts sustain and release', () => {
+describe('no stab rule: SUSTAIN and RELEASE do what they say', () => {
   const padChord = (decay: number, releaseAt = SR) => {
     const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
     const sound = presetSound('pad', INSTRUMENTS.pad.presets.findIndex((p) => p.name === 'WARM'));
@@ -1345,19 +1346,14 @@ describe('short DECAY cuts sustain and release', () => {
   };
   const at = (l: Float32Array, t: number) => stats(l.subarray(Math.round(SR * t), Math.round(SR * t) + 960)).peak;
 
-  it('a held pad chord sustains at a long DECAY, becomes a stab when short, a click at the bottom', () => {
+  it('a short DECAY falls to SUSTAIN and holds there; RELEASE is as set', () => {
     const held = padChord(1.2);
-    const stab = padChord(0.1);
-    const click = padChord(0.005);
-    expect(at(held, 0.5)).toBeGreaterThan(0.05);
-    expect(at(stab, 0.02)).toBeGreaterThan(0.05);
-    expect(at(stab, 0.5)).toBeLessThan(at(held, 0.5) * 0.05);
-    expect(at(click, 0.03)).toBeLessThan(at(held, 0.03) * 0.05);
-  });
-
-  it('a stab released early does not ring on for the pad\'s long RELEASE', () => {
-    const stab = padChord(0.1, SR * 0.05);
-    expect(at(stab, 0.4)).toBeLessThan(1e-3);
+    const short = padChord(0.1);
+    expect(at(short, 0.5)).toBeGreaterThan(0.05);
+    expect(at(short, 0.5)).toBeGreaterThan(at(held, 0.5) * 0.5);
+    // Released at 50 ms: WARM's own RELEASE rings it out, not the short DECAY.
+    const early = padChord(0.1, SR * 0.05);
+    expect(at(early, 0.1)).toBeGreaterThan(1e-3);
   });
 });
 
@@ -2452,10 +2448,20 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(tail({ dmix: 0.5, verb: 0 })).toBeGreaterThan(0.002);
     expect(tail({ dmix: 0, verb: 0 })).toBeLessThan(1e-4);
     expect(LIVE_MACROS.pluck.find((m) => m.id === 'macro:space')!.targets.map((t) => t.id)).toEqual(['dmix', 'verb']);
-    expect(INSTRUMENTS.pluck.live).toContain('macro:space');
+    expect(INSTRUMENTS.pluck.liveFunc).toContain('macro:space');
   });
 
-  it('v27 load: sends move to PAD / LEAD, an untouched PAD stab holds, PLUCK takes SPACE', () => {
+  it('PLUCK SUSTAIN (live) rings each note on without touching RELEASE; SUSTAIN on the page holds', () => {
+    const m = LIVE_MACROS.pluck.find((x) => x.id === 'macro:sustain')!;
+    expect(m.targets.map((t) => t.id)).toEqual(['attack', 'decay', 'sustain', 'fdecay']);
+    expect(INSTRUMENTS.pluck.live).toEqual(['track:notes', 'macro:sustain']);
+    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
+    const held = play(synth('pluck', { sustain: 0.6, dmix: 0, verb: 0 }), 0.8, 0.8);
+    const plucked = play(synth('pluck', { sustain: 0, dmix: 0, verb: 0 }), 0.8, 0.8);
+    expect(rms(held, SR * 0.6, SR * 0.7)).toBeGreaterThan(rms(plucked, SR * 0.6, SR * 0.7) * 10 + 1e-3);
+  });
+
+  it('v27 load: sends move to PAD / LEAD, an untouched PAD stab holds, PLUCK takes SUSTAIN / SPACE', () => {
     const p = createDefaultProject();
     p.channels[4].fxSend = 2;
     p.channels[7].fxSend = 2;
@@ -2467,6 +2473,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     const q = fromStored(stored)!;
     expect(q.channels.slice(4).map((c) => c.fxSend)).toEqual([0, 3, 2, 0]);
     expect(q.channels[5].sounds.pad!.sustain).toBeGreaterThan(0.5);
-    expect(q.channels[7].live).toEqual(['track:notes', 'macro:space']);
+    expect(q.channels[7].live).toEqual(['track:notes', 'macro:sustain']);
+    expect(q.channels[7].liveFunc).toEqual(['macro:space', 'macro:bite']);
   });
 });

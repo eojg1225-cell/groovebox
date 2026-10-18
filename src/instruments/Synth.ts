@@ -39,19 +39,6 @@ const SLIDE_SECONDS = 0.06;
 /** A SLIDE note's envelopes hold at least this level until the slide ends (added sustain). */
 const SLIDE_SUSTAIN = 0.75;
 /**
- * DECAY below STAB_END starts cutting the sustain (and the release) away, so turning DECAY
- * down takes any sound - a held pad chord too - to a stab, and at the bottom a click.
- * Fully cut at STAB_START and below.
- */
-const STAB_START = 0.12;
-const STAB_END = 0.45;
-
-/** 0 at or below STAB_START, 1 at or above STAB_END (smooth, on a log scale). */
-function sustainKeep(decaySeconds: number): number {
-  const t = Math.min(1, Math.max(0, Math.log(decaySeconds / STAB_START) / Math.log(STAB_END / STAB_START)));
-  return t * t * (3 - 2 * t);
-}
-/**
  * 3 CARRIER modulation index from FM (0..1) on a DX7-like level curve: like an operator's
  * OUTPUT LEVEL (FM 1 = 99), about 6 dB per 8 levels, so most of the knob is subtle (FM 0.6
  * = level 60, index ~0.45) and the last part goes from tasteful to brutal (index ~13).
@@ -140,9 +127,11 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
 
-function synthParams(ids: string[], defaults: Record<string, number>): ParamSpec[] {
-  return ids.map((id) => ({ ...BY_ID[id], defaultValue: defaults[id] ?? BY_ID[id].defaultValue }));
+function synthParams(ids: string[], defaults: Record<string, number>, names: Record<string, string> = {}): ParamSpec[] {
+  return ids.map((id) => ({ ...BY_ID[id], defaultValue: defaults[id] ?? BY_ID[id].defaultValue, name: names[id] ?? BY_ID[id].name }));
 }
+/** One envelope for both oscillators: plain names. */
+const SHARED_NAMES = { attack: 'ATTACK', decay: 'DECAY', sustain: 'SUSTAIN', release: 'RELEASE' };
 
 /**
  * The synth tracks share the engine with different controls: BASS (mono, glide, envelope
@@ -157,7 +146,7 @@ const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
 const without = (ids: string[], drop: string[]) => ids.filter((id) => !drop.includes(id));
-export const BASS_PARAMS = synthParams([...without(MORPHED, ['fattack', 'fdecay']), 'fratio', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75 });
+export const BASS_PARAMS = synthParams([...without(MORPHED, ['fattack', 'fdecay']), 'fratio', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75 }, SHARED_NAMES);
 export const BASS_FIXED = { voice: 1, envlink: 1, fltlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
@@ -172,7 +161,7 @@ export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
 export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers'], { octave: 3, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
 export const LEAD_FIXED = { voice: 1, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb'], { attack: 0.001, decay: 0.35, sustain: 0, release: 0.25, level: 0.55, detune: 0.15 });
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb'], { attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS, envlink: 1, onboard: 1 };
 
 /** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */
@@ -256,11 +245,6 @@ export class Synth implements Instrument {
   /** Per element: SUSTAIN and the RELEASE multiplier. */
   private readonly sustain = new Float64Array([0.5, 0.5]);
   private readonly releaseMul = new Float64Array(2);
-  /** Per element: the sustain level in use (SUSTAIN x how much a short DECAY keeps) ... */
-  private readonly sustainLevel = new Float64Array([0.5, 0.5]);
-  /** ... and its release: never slower than its decay once that decay is a stab. */
-  private readonly releaseK = new Float64Array(2);
-  private readonly decayTime = new Float64Array([0.4, 0.4]);
   private ageCounter = 0;
   private pitchMod = 1;
   /** envlink: OSC 2 follows OSC 1's envelope (DECAY x dratio). fltlink: the filter envelope follows it too. */
@@ -404,13 +388,13 @@ export class Synth implements Instrument {
         this.updateFilterLink();
         break;
       case 'decay': this.decay1 = value; this.setDecay(0, value); if (this.envLink) this.setDecay(1, value * this.dRatio); this.updateFilterLink(); break;
-      case 'sustain': this.sustain[0] = value; if (this.envLink) this.sustain[1] = value; this.updateSustain(); break;
-      case 'release': this.releaseMul[0] = decayMul(value, sr); if (this.envLink) this.releaseMul[1] = this.releaseMul[0]; this.updateSustain(); break;
+      case 'sustain': this.sustain[0] = value; if (this.envLink) this.sustain[1] = value; break;
+      case 'release': this.releaseMul[0] = decayMul(value, sr); if (this.envLink) this.releaseMul[1] = this.releaseMul[0]; break;
       // OSC 2's own envelope (PAD, LEAD); linked sounds ignore it.
       case 'attack2': if (!this.envLink) this.attackInc[1] = 1 / (value * sr); break;
       case 'decay2': if (!this.envLink) this.setDecay(1, value); break;
-      case 'sustain2': if (!this.envLink) { this.sustain[1] = value; this.updateSustain(); } break;
-      case 'release2': if (!this.envLink) { this.releaseMul[1] = decayMul(value, sr); this.updateSustain(); } break;
+      case 'sustain2': if (!this.envLink) this.sustain[1] = value; break;
+      case 'release2': if (!this.envLink) this.releaseMul[1] = decayMul(value, sr); break;
       case 'dratio': this.dRatio = value; if (this.envLink) this.setDecay(1, this.decay1 * value); break;
       case 'fratio': this.fRatio = value; this.updateFilterLink(); break;
       case 'envlink':
@@ -434,8 +418,6 @@ export class Synth implements Instrument {
 
   private setDecay(k: number, seconds: number): void {
     this.decayMul[k] = decayMul(seconds, this.sr);
-    this.decayTime[k] = seconds;
-    this.updateSustain();
   }
 
   /** Envelope filter (fltlink): the filter opens with the amp's ATTACK and decays with its DECAY x fratio. */
@@ -461,15 +443,6 @@ export class Synth implements Instrument {
     if (!this.delay || !this.room) return;
     this.delay.process(l, r, l, r, 0, n);
     this.room.process(l, r, l, r, 0, n);
-  }
-
-  private updateSustain(): void {
-    for (let k = 0; k < 2; k++) {
-      const keep = sustainKeep(this.decayTime[k]);
-      this.sustainLevel[k] = this.sustain[k] * keep;
-      // A stab ends as fast as it decays, whatever the RELEASE.
-      this.releaseK[k] = keep < 1 ? Math.min(this.releaseMul[k], this.decayMul[k]) : this.releaseMul[k];
-    }
   }
 
   /**
@@ -600,7 +573,7 @@ export class Synth implements Instrument {
         let mix = 0;
         for (let k = 0; k < 2; k++) {
           let a = v.amp[k];
-          const sus = v.hold ? Math.max(this.sustainLevel[k], SLIDE_SUSTAIN) : this.sustainLevel[k];
+          const sus = v.hold ? Math.max(this.sustain[k], SLIDE_SUSTAIN) : this.sustain[k];
           switch (v.stage[k]) {
             case STAGE_ATTACK:
               a += this.attackInc[k];
@@ -614,7 +587,7 @@ export class Synth implements Instrument {
               a = sus;
               break;
             case STAGE_RELEASE:
-              a *= this.releaseK[k];
+              a *= this.releaseMul[k];
               if (a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
               break;
           }

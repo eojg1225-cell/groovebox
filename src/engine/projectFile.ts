@@ -348,6 +348,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     else if ((ch.instrument === 'pad' || ch.instrument === 'lead') && ch.fxSend === 0) ch.fxSend = defaultSend(ch.instrument);
     if (ch.instrument === 'pluck') liveDefaults(ch);
   }
+  // v28: PLUCK's live SUSTAIN (NOTES / SUSTAIN; SPACE / BITE with FUNC).
+  if (version < 28 && ch.instrument === 'pluck') liveDefaults(ch);
   ch.activePattern = Math.round(num(src.activePattern, 0, 0, NUM_PATTERNS - 1));
 
   if (!Array.isArray(src.patterns)) return;
