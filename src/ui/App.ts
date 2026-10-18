@@ -538,8 +538,8 @@ export class App {
   }
 
   /**
-   * DESIGN pages: TRACK (the selected track's sound), MIX (every track's level, send, pan,
-   * ACC/GHOST), PROJECT (project settings + the selected track's setup).
+   * DESIGN pages: TRACK (the selected track's sound), MIX (every track's level, send; FUNC TRIM),
+   * PROJECT (project settings + the selected track's setup, PAN, ACC/GHOST).
    */
   private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
     const ch = this.selected;
@@ -611,20 +611,19 @@ export class App {
    */
   /**
    * DESIGN > MIX: one module per track (knob = track number). VOLUME on top, SEND level
-   * below; with FUNC: PAN on top, ACC/GHOST below.
+   * below; with FUNC: TRIM on top (how long each sequenced note's last step is held).
    */
   private mixTargets(): (KnobTarget | null)[] {
-    const top = this.func ? 'mix:pan' : 'mix:volume';
-    const bottom = this.func ? 'mix:dyn' : 'mix:send';
-    const short = this.func ? ['PAN', 'ACC'] : ['VOL', 'SEND'];
     const row = (id: string, name: string) => this.project.channels.map((_, ch) =>
       this.paramTarget(ch, id, `${name} ${ch + 1}`, ch === this.selected));
-    return [...row(top, short[0]), ...row(bottom, short[1])];
+    if (this.func) return [...row('mix:gate', 'TRIM'), ...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null)];
+    return [...row('mix:volume', 'VOL'), ...row('mix:send', 'SEND')];
   }
 
   /**
    * DESIGN > PROJECT: the project settings on top (TEMPO, SWING, MASTER, LO-FI); below, the
-   * selected track's setup: PRESET, LIVE 1 / 2 (LIVE 3 / 4 with FUNC), CHORD and GATE (synths).
+   * selected track's setup: PRESET, LIVE 1 / 2 (LIVE 3 / 4 with FUNC), CHORD (synths), PAN,
+   * ACC/GHOST.
    */
   private projectTargets(): (KnobTarget | null)[] {
     const ch = this.selected;
@@ -659,10 +658,9 @@ export class App {
         },
       });
     }
-    if (!isDrum(kind)) {
-      targets.push(this.paramTarget(ch, 'track:chord'));
-      targets.push(this.paramTarget(ch, MIX_PREFIX + 'gate'));
-    }
+    targets.push(isDrum(kind) ? null : this.paramTarget(ch, 'track:chord'));
+    targets.push(this.paramTarget(ch, MIX_PREFIX + 'pan'));
+    targets.push(this.paramTarget(ch, MIX_PREFIX + 'dyn'));
     return targets;
   }
 
