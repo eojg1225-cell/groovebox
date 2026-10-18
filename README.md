@@ -79,7 +79,7 @@ A title screen fades into the panel; the first touch switches sound on (browsers
 | LEAD (mono; DX7-style: one feedback modulator into three carriers playing simple waves) | ODD 2:3 → ORGAN (drawbar carriers 1 : 2 : 3 — bass or lead) → SAW 1:1 → OCT 1:2 → FIFTH 3:2 (carrier ratios). INTENSITY 0 = carrier 1 alone, one clear note; CARRIERS (FUNC column 7 bottom) brings carriers 2 / 3 in under it — at 50 % still a readable lead — and the top quarter turns it into the full stack with the DX7 bite |
 | PLUCK (6 voices; SOUND column 7 CHORD / ARP OCT, column 8 ARP / ARP RATE) | STEEL → GLASS PLUCK → SAW PLUCK → SQUARE PLUCK → RAGE DONK | oscillators / glide, envelopes, level |
 
-CHORD, LEAD and PLUCK sit 14 dB down at the output (sustained synths would swamp the drums otherwise): full VOLUME is a loud lead, half (their default) sits in the mix. FLT DEC has 1 s at the middle of its knob (2 ms … 10 s).
+CHORD, LEAD and PLUCK sit 14 dB down at the output (sustained synths would swamp the drums otherwise; CHORD 10 % louder and LEAD 20 % quieter than that, so their defaults balance): full VOLUME is a loud lead, half (their default) sits in the mix. FLT DEC has 1 s at the middle of its knob (2 ms … 10 s).
 
 Five sounds per type. **Envelopes are the type's own, not TIMBRE's:** the drums' decays and ring lengths and the synths' whole amp ADSR (ATTACK / DECAY / SUSTAIN / RELEASE of both oscillators) and their width (DETUNE, UNISON) stay as you set them whichever sound is chosen (INTENSITY never changes them either), so sounds can be swapped mid-groove without the envelope going out of whack. TIMBRE still shapes the filter envelope (part of each sound's character).
 

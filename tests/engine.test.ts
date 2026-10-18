@@ -1949,7 +1949,9 @@ describe('PAD on the 3 carrier engine', () => {
 
 describe('CHORD / LEAD / PLUCK level, CHORD stabs, FLT DEC curve', () => {
   it('the sustained synths sit -14 dB; older saves scale VOLUME up so the mix is unchanged', () => {
-    for (const k of ['pad', 'lead', 'pluck'] as const) expect(INSTRUMENTS[k].gain).toBeCloseTo(0.2);
+    expect(INSTRUMENTS.pluck.gain).toBeCloseTo(0.2);
+    expect(INSTRUMENTS.pad.gain).toBeCloseTo(0.22); // CHORD +10 %
+    expect(INSTRUMENTS.lead.gain).toBeCloseTo(0.16); // LEAD -20 %
     expect(INSTRUMENTS.bass.gain ?? 1).toBe(1);
     const p = createDefaultProject();
     expect(p.channels[5].volume).toBe(0.5);

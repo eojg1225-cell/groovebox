@@ -173,6 +173,9 @@ export function liveContribution(t: LiveTarget, offset: number): number {
 
 /** CHORD / LEAD / PLUCK output trim (-14 dB). */
 export const SYNTH_TRIM = 0.2;
+/** Per type balance on top of it: CHORD +10 %, LEAD -20 % (so their defaults sit together). */
+const CHORD_GAIN = SYNTH_TRIM * 1.1;
+const LEAD_GAIN = SYNTH_TRIM * 0.8;
 
 export interface InstrumentEntry {
   name: string;
@@ -229,11 +232,11 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: funcPage(SYNTH_FUNC_TOP, [...SYNTH_FUNC_BOTTOM, 'detune', _]),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED) },
   pad: {
-    name: 'CHORD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'unison'], ['fenv', 'fm']),
+    name: 'CHORD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'unison'], ['fenv', 'fm']),
     funcLayout: funcPage([...SYNTH_FUNC_TOP.slice(0, 3), 'carriers', ...SYNTH_FUNC_TOP.slice(4)], ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'detune', _]),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED) },
   lead: {
-    name: 'LEAD', gain: SYNTH_TRIM, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['glide', 'carriers'], ['fenv', 'fm']),
+    name: 'LEAD', gain: LEAD_GAIN, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS, layout: soundPage(SYNTH_ELEMENTS, ['glide', 'carriers'], ['fenv', 'fm']),
     funcLayout: funcPage(SYNTH_FUNC_TOP, ['feedback', ...SYNTH_FUNC_BOTTOM.slice(1), 'detune', _]),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED) },
   pluck: {

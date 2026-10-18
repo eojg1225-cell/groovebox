@@ -12,7 +12,7 @@ import {
   type ChannelState, type Project, type SoundKind,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, mirrorOsc2, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, mirrorOsc2, presetSound } from '../instruments/registry';
 import { deriveTrims, hiddenSound } from '../instruments/trims';
 import { remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
@@ -277,7 +277,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.lfoOn = src.lfoOn === true;
   ch.volume = num(src.volume, ch.volume, 0, 1);
   // v20: CHORD / LEAD / PLUCK got a -14 dB output trim; scale the volume up to match.
-  const trim = ch.instrument === 'none' ? 1 : INSTRUMENTS[ch.instrument].gain ?? 1;
+  const trim = ch.instrument === 'none' || INSTRUMENTS[ch.instrument].gain === undefined ? 1 : SYNTH_TRIM;
   if (version < 20 && trim < 1) ch.volume = Math.min(1, ch.volume / trim);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.mute = src.mute === true;
