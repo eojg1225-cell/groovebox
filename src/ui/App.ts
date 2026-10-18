@@ -364,14 +364,16 @@ export class App {
     const heard = this.status?.patterns[ch] ?? c.activePattern;
     const head = this.status?.steps[ch] ?? -1;
     // Other lanes, PLAY mode and live recording follow the playhead's 16-step block.
-    const following = ch !== this.selected || this.mode === 'play' || this.recording;
+    // (Placing a flag while recording keeps the bar chosen with FUNC + ◀ / ▶ instead.)
+    const following = ch !== this.selected || this.mode === 'play' || (this.recording && !this.placing);
     let page: number;
     if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
     else if (!stepsOnStrip(c.instrument) && this.mode === 'record') {
       // Step entry: the cursor's block, or while a note is being tied, the block its end is in
       // (a tie runs on past the bar line into the next block, and round past the loop end).
       const at = this.entry ? (this.entry.index + c.patterns[c.activePattern].steps[this.entry.index].gate - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
-      page = Math.floor(at / 16);
+      // Placing RING / SLIDE / ACCENT / GHOST: the bar chosen with FUNC + ◀ / ▶.
+      page = this.placing ? this.viewPage[ch] : Math.floor(at / 16);
     }
     else page = this.viewPage[ch];
     return Math.min(page, this.pageCount(ch) - 1);
@@ -864,6 +866,10 @@ export class App {
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
+    } else if ((id === 'cur-' || id === 'cur+') && this.func && this.mode !== 'design') {
+      // FUNC + ◀ / ▶: the previous / next bar (16-step block) on the strip, whatever it shows.
+      this.changeBar(id === 'cur+' ? 1 : -1);
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
     } else if ((id === 'cur-' || id === 'cur+') && this.drumHold) {
       // Holding a drum step: ▶ adds a hit inside it (roll), ◀ takes one away.
       this.changeRoll(id === 'cur+' ? 1 : -1);
@@ -1473,6 +1479,29 @@ export class App {
     this.preview = null;
   }
 
+  /**
+   * FUNC + ◀ / ▶: show another bar of the selected track's pattern. In step entry the cursor
+   * moves with it (same place in the next bar), so the keyboard writes into the bar shown.
+   */
+  private changeBar(delta: number): void {
+    const ch = this.selected;
+    const pages = this.pageCount();
+    if (pages <= 1) {
+      this.flash('ONE BAR PATTERN');
+      return;
+    }
+    if (this.mode === 'play' || (this.recording && !this.placing)) {
+      this.flash('THE STRIP FOLLOWS THE PLAYHEAD');
+      return;
+    }
+    const page = (this.visiblePage(ch) + delta + pages) % pages;
+    this.viewPage[ch] = page;
+    if (!stepsOnStrip(this.channel.instrument) && this.mode === 'record' && !this.entry) {
+      this.cursor[ch] = page * 16 + (this.cursor[ch] % 16);
+    }
+    this.flash(`BAR ${page + 1}/${pages}`);
+  }
+
   private moveCursor(delta: number): void {
     const len = this.pattern.length;
     this.cursor[this.selected] = (this.cursor[this.selected] + delta + len) % len;
@@ -1638,7 +1667,7 @@ export class App {
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || !!this.drumHold);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || !!this.drumHold || (this.func && this.mode !== 'design'));
     this.panel.setButtonEnabled('rest', rec);
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
