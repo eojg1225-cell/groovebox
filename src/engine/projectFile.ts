@@ -9,7 +9,8 @@
  */
 import {
   MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS,
-  type ChannelState, type Project, type SoundKind,
+  emptyPattern, initPatterns, patchOf,
+  type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
 } from './project';
 import { applyPreset, defaultSend, liveDefaults, createDefaultProject } from './defaultProject';
 import { PAD_DEFAULT_ENVELOPE, PAD_ENVELOPE_V26 } from '../instruments/Synth';
@@ -57,9 +58,48 @@ export interface StoredStep {
   l?: Record<string, number>;
 }
 
+/** A patch: s = sound values, t = SOUND page trims, p = preset index. */
+export interface StoredPatch {
+  s: Record<string, number>;
+  t: Record<string, number>;
+  p?: number;
+}
+
 export interface StoredPattern {
   len: number;
   steps: StoredStep[];
+  /** v31: the pattern's own patch (not written for the active pattern: that is `sounds`). */
+  patch?: StoredPatch;
+  /** v31: the last SAVEd notes / patch, only while they differ (edited since). */
+  saved?: { len: number; steps: StoredStep[] };
+  savedPatch?: StoredPatch;
+}
+
+function storeSteps(steps: Step[]): StoredStep[] {
+  return steps.flatMap((s, i): StoredStep[] => {
+    if (!s.active) return s.rest ? [{ i, x: 1 }] : [];
+    const out: StoredStep = { i, n: s.note, v: s.velocity };
+    if (s.gate > 1) out.g = s.gate;
+    if (s.accent) out.a = 1;
+    if (s.ring) out.r = 1;
+    if (s.slide) out.s = 1;
+    if (s.locks && Object.keys(s.locks).length) out.l = { ...s.locks };
+    return [out];
+  });
+}
+
+function storePatch(p: Patch): StoredPatch {
+  const out: StoredPatch = { s: { ...p.sound }, t: { ...p.trims } };
+  if (p.preset !== undefined) out.p = p.preset;
+  return out;
+}
+
+function storePattern(c: ChannelState, pat: Pattern, p: number): StoredPattern {
+  const out: StoredPattern = { len: pat.length, steps: storeSteps(pat.steps) };
+  if (c.instrument !== 'none' && p !== c.activePattern) out.patch = storePatch(patchOf(c, p));
+  if (pat.notesDirty && pat.savedNotes) out.saved = { len: pat.savedNotes.length, steps: storeSteps(pat.savedNotes.steps) };
+  if (pat.patchDirty && pat.savedPatch) out.savedPatch = storePatch(pat.savedPatch);
+  return out;
 }
 
 export interface StoredChannel {
@@ -137,19 +177,7 @@ export function toStored(p: Project): StoredProject {
       lfoOn: c.lfoOn,
       mute: c.mute,
       activePattern: c.activePattern,
-      patterns: c.patterns.map((pat) => ({
-        len: pat.length,
-        steps: pat.steps.flatMap((s, i): StoredStep[] => {
-          if (!s.active) return s.rest ? [{ i, x: 1 }] : [];
-          const out: StoredStep = { i, n: s.note, v: s.velocity };
-          if (s.gate > 1) out.g = s.gate;
-          if (s.accent) out.a = 1;
-          if (s.ring) out.r = 1;
-          if (s.slide) out.s = 1;
-          if (s.locks && Object.keys(s.locks).length) out.l = { ...s.locks };
-          return [out];
-        }),
-      })),
+      patterns: c.patterns.map((pat, p) => storePattern(c, pat, p)),
     })),
   };
 }
@@ -211,6 +239,45 @@ function liveIdValid(kind: InstrumentKind, id: string): boolean {
   if (id.startsWith('macro:')) return LIVE_MACROS[kind].some((m) => m.id === id);
   if (id.includes(':')) return true;
   return INSTRUMENTS[kind].params.some((p) => p.id === id);
+}
+
+/** A stored pattern's length and notes into `pat` (its steps start empty). */
+function readNotes(sp: Obj, pat: { length: number; steps: Step[] }, instrument: InstrumentKind, version: number): void {
+  pat.length = Math.round(num(sp.len ?? sp.length, pat.length, 1, MAX_STEPS));
+  for (const s of readSteps(sp)) {
+    const step = pat.steps[s.i];
+    if (s.rest) {
+      step.rest = true;
+      continue;
+    }
+    step.active = true;
+    if (s.ring) step.ring = true;
+    step.slide = s.slide;
+    // v30: a drum step's own hit count (2-8 per step) became the ROLL flag (ROLL RATE).
+    if (s.roll > 1 && isDrum(instrument)) step.slide = true;
+    step.note = s.note;
+    step.velocity = s.vel;
+    step.gate = s.gate;
+    step.accent = s.accent;
+    if (s.locks) step.locks = s.locks;
+    if (version < 30 && step.locks?.rolldiv !== undefined) step.locks.rolldiv = rollRateV30(step.locks.rolldiv);
+  }
+}
+
+/** A stored patch (v31) for a type: known values, missing ones from TIMBRE / INTENSITY. */
+function readPatch(kind: SoundKind, x: unknown): Patch | undefined {
+  if (!isObj(x) || !isObj(x.s)) return undefined;
+  const specs = INSTRUMENTS[kind].params;
+  const values = numbers(x.s);
+  const sound: Record<string, number> = { ...presetSound(kind, 0) };
+  for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
+  const hidden = hiddenSound(kind, sound, specs);
+  for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
+  const trims = numbers(x.t);
+  pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
+  const patch: Patch = { sound, trims };
+  if (typeof x.p === 'number') patch.preset = x.p;
+  return patch;
 }
 
 function readChannel(src: Obj, ch: ChannelState, version: number): void {
@@ -369,24 +436,22 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     const sp = src.patterns[p];
     if (!isObj(sp)) continue;
     const pat = ch.patterns[p];
-    pat.length = Math.round(num(sp.len ?? sp.length, pat.length, 1, MAX_STEPS));
-    for (const s of readSteps(sp)) {
-      const step = pat.steps[s.i];
-      if (s.rest) {
-        step.rest = true;
-        continue;
-      }
-      step.active = true;
-      if (s.ring) step.ring = true;
-      step.slide = s.slide;
-      // v30: a drum step's own hit count (2-8 per step) became the ROLL flag (ROLL RATE).
-      if (s.roll > 1 && isDrum(ch.instrument)) step.slide = true;
-      step.note = s.note;
-      step.velocity = s.vel;
-      step.gate = s.gate;
-      step.accent = s.accent;
-      if (s.locks) step.locks = s.locks;
-      if (version < 30 && step.locks?.rolldiv !== undefined) step.locks.rolldiv = rollRateV30(step.locks.rolldiv);
+    readNotes(sp, pat, ch.instrument, version);
+    // v31: each pattern's own patch, and what was last SAVEd while it differs.
+    if (version < 31 || ch.instrument === 'none') continue;
+    if (p !== ch.activePattern) pat.patch = readPatch(ch.instrument, sp.patch);
+    if (isObj(sp.saved)) {
+      // Empty steps on the note a fresh pattern of this type has (as the working ones).
+      const kind = INSTRUMENTS[ch.instrument];
+      const saved = emptyPattern(kind.drum ? 36 : kind.baseNote);
+      readNotes(sp.saved, saved, ch.instrument, version);
+      pat.savedNotes = { length: saved.length, steps: saved.steps };
+      pat.notesDirty = true;
+    }
+    const savedPatch = readPatch(ch.instrument, sp.savedPatch);
+    if (savedPatch) {
+      pat.savedPatch = savedPatch;
+      pat.patchDirty = true;
     }
   }
   // Before v12 SLIDE was marked on the note slid into; now on the note that slides.
@@ -493,6 +558,9 @@ export function fromStored(data: unknown): Project | null {
       applyPreset(t8, 'pluck', 0);
     }
   }
+  // v31: every pattern has its own patch (before: the track's one sound on all four) and
+  // saved versions (before: nothing edited since).
+  for (const c of p.channels) initPatterns(c);
   // v15: the mixer CUTOFF went (the sound's filter is CUTOFF) and each type got its own
   // live knobs (two sound controls; VOLUME with FUNC); v16: they became relative, with
   // macros. Every track takes its type's.

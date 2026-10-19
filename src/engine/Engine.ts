@@ -3,7 +3,7 @@ import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
   MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, type Song,
-  type InstrumentKind, type Project, type Step,
+  type InstrumentKind, type Project, type Step, patchOf,
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
 import type { Instrument } from '../instruments/Instrument';
@@ -29,6 +29,9 @@ const CHUNK = 64;
 export const LOCK_SLOTS = 32;
 
 const STEP_SLOTS = NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS;
+/** Shortest patch glide (an immediate pattern switch), and the glide back from a cancelled switch, s. */
+const MIN_PATCH_GLIDE = 0.05;
+const CANCEL_PATCH_GLIDE = 0.2;
 
 /**
  * Per-hit tone: the channel output passes a gentle 12 dB low-pass whose cutoff follows the
@@ -108,6 +111,23 @@ export class Engine {
   private readonly kind: InstrumentKind[] = new Array(NUM_CHANNELS).fill('none');
   /** Channel's own sound values per param slot (what applies when no lock). */
   private readonly baseValue = new Float32Array(NUM_CHANNELS * LOCK_SLOTS);
+  /** Each pattern's patch: [(ch * NUM_PATTERNS + pattern) * LOCK_SLOTS + slot]. */
+  private readonly patchValue = new Float32Array(NUM_CHANNELS * NUM_PATTERNS * LOCK_SLOTS);
+  /**
+   * Patch glides: a track's sound moving (normalised, per slot) to pattern glidePattern's
+   * patch, over glideTotal frames (to the bar line its pattern switch lands on). Coarse
+   * parameters switch when the pattern does. -1 = no glide.
+   */
+  private readonly glidePattern = new Int8Array(NUM_CHANNELS).fill(-1);
+  private readonly glideFrom = new Float32Array(NUM_CHANNELS * LOCK_SLOTS);
+  private readonly glideTo = new Float32Array(NUM_CHANNELS * LOCK_SLOTS);
+  private readonly glideDone = new Float64Array(NUM_CHANNELS);
+  private readonly glideTotal = new Float64Array(NUM_CHANNELS);
+  /** The glide waits for a song row to switch the pattern (a waiting switch: pendingPattern). */
+  private readonly glideWait = new Uint8Array(NUM_CHANNELS);
+  /** RESET (notes too): a pattern's saved notes, swapped in at the next bar line. */
+  private readonly pendingNotes: ({ length: number; steps: Step[] } | null)[] = new Array(NUM_CHANNELS * NUM_PATTERNS).fill(null);
+  private notesPending = false;
   /** Whether a lock is currently applied per channel/param slot. */
   private readonly lockApplied = new Uint8Array(NUM_CHANNELS * LOCK_SLOTS);
   /**
@@ -272,15 +292,10 @@ export class Engine {
       case 'setPatternLength':
         this.patternLength[msg.channel * NUM_PATTERNS + msg.pattern] = Math.max(1, Math.min(MAX_STEPS, msg.length));
         break;
-      case 'selectPattern':
-        if (!this.playing || msg.immediate) {
-          this.activePattern[msg.channel] = msg.pattern;
-          this.pendingPattern[msg.channel] = -1;
-        } else {
-          this.pendingPattern[msg.channel] = msg.pattern;
-        }
-        break;
-      case 'setSound': this.setSound(msg.channel, msg.id, msg.value); break;
+      case 'selectPattern': this.selectPattern(msg.channel, msg.pattern, msg.immediate); break;
+      case 'setSound': this.setPatchSound(msg.channel, msg.pattern ?? this.editedPattern(msg.channel), msg.id, msg.value); break;
+      case 'setPatch': this.setPatch(msg.channel, msg.pattern, msg.sound, msg.glide); break;
+      case 'swapNotes': this.swapNotes(msg.channel, msg.pattern, msg.length, msg.steps); break;
       case 'setOffset': this.setOffset(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setListenLatency': this.listenFrames = Math.max(0, msg.ms) * 0.001 * this.sampleRate; break;
@@ -309,7 +324,11 @@ export class Engine {
         this.setPlaying(msg.playing);
         break;
       case 'setSong': this.setSong(msg.song); break;
-      case 'songJump': if (this.songOn) this.songJumpTo = Math.max(0, Math.min(this.songLength - 1, msg.row)); break;
+      case 'songJump':
+        if (!this.songOn) break;
+        this.songJumpTo = Math.max(0, Math.min(this.songLength - 1, msg.row));
+        this.glideToRow(this.songJumpTo, this.framesAhead((16 - (this.globalStep % 16)) % 16));
+        break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity, false, msg.slideFrom ?? -1); break;
       case 'release': this.release(msg.channel, msg.note); break;
       case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
@@ -367,6 +386,13 @@ export class Engine {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const c = p.channels[ch];
       this.setInstrument(ch, c.instrument, c.instrument === 'none' ? {} : (c.sounds[c.instrument] ?? {}));
+      this.pendingPattern[ch] = -1;
+      this.activePattern[ch] = c.activePattern;
+      for (let pat = 0; pat < NUM_PATTERNS; pat++) {
+        this.pendingNotes[ch * NUM_PATTERNS + pat] = null;
+        if (c.instrument !== 'none') this.storePatch(ch, pat, patchOf(c, pat).sound);
+      }
+      this.enterPattern(ch, c.activePattern, true);
       for (const id in c.liveOffset) this.setOffset(ch, id, c.liveOffset[id]);
       this.chord[ch] = c.chord;
       this.notes[ch] = c.notes ?? MAX_CHORD_NOTES;
@@ -384,8 +410,6 @@ export class Engine {
       this.volume[ch].setImmediate(c.mute ? 0 : c.volume);
       this.pan[ch].setImmediate(c.pan);
       this.cuts[ch].settle();
-      this.activePattern[ch] = c.activePattern;
-      this.pendingPattern[ch] = -1;
       for (let pat = 0; pat < NUM_PATTERNS; pat++) {
         this.patternLength[ch * NUM_PATTERNS + pat] = c.patterns[pat].length;
         for (let i = 0; i < MAX_STEPS; i++) this.writeStep(ch, pat, i, c.patterns[pat].steps[i]);
@@ -411,11 +435,11 @@ export class Engine {
     this.skipStep.fill(-1);
     this.rollLeft.fill(0);
     this.runLeft.fill(0);
+    this.applyPendingNotes();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-      if (this.pendingPattern[ch] >= 0) {
-        this.activePattern[ch] = this.pendingPattern[ch];
-        this.pendingPattern[ch] = -1;
-      }
+      // A switch waiting for its bar line happens now, and every patch glide lands.
+      if (this.pendingPattern[ch] >= 0) this.landPattern(ch);
+      if (this.glidePattern[ch] >= 0) this.finishGlide(ch);
       if (!playing) {
         if (this.arpHeld[ch]) this.stopArp(ch);
         this.current[ch]?.noteOff(-1);
@@ -431,6 +455,7 @@ export class Engine {
   process(outL: Float32Array, outR: Float32Array, frames: number): void {
     outL.fill(0, 0, frames);
     outR.fill(0, 0, frames);
+    this.stepPatchGlides(frames);
     let pos = 0;
     while (pos < frames) {
       if (this.playing && this.framesToStep <= 0) {
@@ -509,15 +534,13 @@ export class Engine {
 
   private fireStep(): void {
     const stepLen = this.stepFrames(this.globalStep);
+    if (this.globalStep % 16 === 0 && this.notesPending) this.applyPendingNotes();
     if (this.songOn && this.globalStep % 16 === 0) this.songBarLine();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const inst = this.current[ch];
       if (!inst) continue;
       // Quantised pattern switch at the channel's loop start.
-      if (this.position[ch] === 0 && this.pendingPattern[ch] >= 0) {
-        this.activePattern[ch] = this.pendingPattern[ch];
-        this.pendingPattern[ch] = -1;
-      }
+      if (this.position[ch] === 0 && this.pendingPattern[ch] >= 0) this.landPattern(ch);
       const pat = ch * NUM_PATTERNS + this.activePattern[ch];
       const len = this.patternLength[pat];
       const idx = this.position[ch] % len;
@@ -585,14 +608,35 @@ export class Engine {
   private songBarLine(): void {
     if (this.songBar < 0) {
       this.enterRow(this.songRow);
-      return;
+    } else {
+      this.songBar++;
+      if (this.songJumpTo >= 0) {
+        this.enterRow(this.songJumpTo);
+        this.songJumpTo = -1;
+      } else if (this.songBar >= this.songBars[this.songRow]) {
+        this.enterRow((this.songRow + 1) % this.songLength); // the end loops to the top
+      }
     }
-    this.songBar++;
-    if (this.songJumpTo >= 0) {
-      this.enterRow(this.songJumpTo);
-      this.songJumpTo = -1;
-    } else if (this.songBar >= this.songBars[this.songRow]) {
-      this.enterRow((this.songRow + 1) % this.songLength); // the end loops to the top
+    // The row's last bar: each track's sound glides over it to the next row's patch.
+    if (this.songBar === this.songBars[this.songRow] - 1 && this.songJumpTo < 0) {
+      this.glideToRow((this.songRow + 1) % this.songLength, this.framesAhead(16));
+    }
+  }
+
+  /**
+   * Song: tracks whose pattern changes in `row` glide to its patch over `frames`; ones
+   * already gliding elsewhere that keep their pattern glide back.
+   */
+  private glideToRow(row: number, frames: number): void {
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      const p = this.songPatterns[row * NUM_CHANNELS + ch];
+      if (p < 0) continue;
+      if (p !== this.activePattern[ch]) {
+        this.startGlide(ch, p, frames);
+        this.glideWait[ch] = 1;
+      } else if (this.glidePattern[ch] >= 0 && this.glidePattern[ch] !== p) {
+        this.startGlide(ch, p, frames);
+      }
     }
   }
 
@@ -603,6 +647,7 @@ export class Engine {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const p = this.songPatterns[row * NUM_CHANNELS + ch];
       this.pendingPattern[ch] = -1;
+      this.glideWait[ch] = 0;
       this.position[ch] = 0;
       this.runLeft[ch] = 0;
       this.rollLeft[ch] = 0;
@@ -611,7 +656,7 @@ export class Engine {
         this.songOff[ch] = 1;
       } else {
         this.songOff[ch] = 0;
-        this.activePattern[ch] = p;
+        if (p !== this.activePattern[ch]) this.enterPattern(ch, p, this.glidePattern[ch] !== p);
       }
     }
   }
@@ -828,8 +873,12 @@ export class Engine {
     // Locks are stored by parameter slot, which means something else on another instrument.
     const from = ch * NUM_PATTERNS * MAX_STEPS * LOCK_SLOTS;
     this.locks.fill(NaN, from, from + NUM_PATTERNS * MAX_STEPS * LOCK_SLOTS);
+    this.glidePattern[ch] = -1;
     const inst = this.current[ch];
-    if (inst) inst.params.forEach((spec, slot) => this.setSound(ch, spec.id, sound[spec.id] ?? spec.defaultValue, slot));
+    if (inst) {
+      inst.params.forEach((spec, slot) => this.setSound(ch, spec.id, sound[spec.id] ?? spec.defaultValue, slot));
+      for (let pat = 0; pat < NUM_PATTERNS; pat++) this.storePatch(ch, pat, sound);
+    }
   }
 
   /** Apply the step's locks; params locked on the previous step but not this one revert. */
@@ -1132,6 +1181,200 @@ export class Engine {
     const n = Math.min(inst.params.length, LOCK_SLOTS);
     for (let k = 0; k < n; k++) if (inst.params[k].id === id) return k;
     return -1;
+  }
+
+  // ------------------------------------------------------------------ patches (one per pattern)
+
+  /** The pattern a sound edit without a pattern goes to: the one switched to, else playing. */
+  private editedPattern(ch: number): number {
+    return this.pendingPattern[ch] >= 0 ? this.pendingPattern[ch] : this.activePattern[ch];
+  }
+
+  /** Frames until the step `steps` steps after the next one starts (0 = the next step). */
+  private framesAhead(steps: number): number {
+    let f = Math.max(0, this.framesToStep);
+    for (let k = 0; k < steps; k++) f += this.stepFrames(this.globalStep + k);
+    return f;
+  }
+
+  /** Frames until the next bar line (a bar line under a step away: the one after). */
+  private framesToBar(): number {
+    const steps = (16 - (this.globalStep % 16)) % 16;
+    const f = this.framesAhead(steps);
+    return f < this.stepFrames(this.globalStep) ? this.framesAhead(steps + 16) : f;
+  }
+
+  /** Write a whole patch for a pattern (values by param id; missing = the default). */
+  private storePatch(ch: number, pat: number, sound: Record<string, number>): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const base = (ch * NUM_PATTERNS + pat) * LOCK_SLOTS;
+    const n = Math.min(inst.params.length, LOCK_SLOTS);
+    for (let k = 0; k < n; k++) this.patchValue[base + k] = sound[inst.params[k].id] ?? inst.params[k].defaultValue;
+  }
+
+  /** One value of a pattern's patch; heard now when that pattern is (or is gliding in). */
+  private setPatchSound(ch: number, pat: number, id: string, value: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const slot = this.slotOf(inst, id);
+    if (slot < 0) {
+      if (pat === this.activePattern[ch]) this.setSound(ch, id, value);
+      return;
+    }
+    this.patchValue[(ch * NUM_PATTERNS + pat) * LOCK_SLOTS + slot] = value;
+    const gliding = this.glidePattern[ch];
+    if (gliding < 0) {
+      if (pat === this.activePattern[ch]) this.setSound(ch, id, value, slot);
+    } else if (pat === gliding) {
+      const spec = inst.params[slot];
+      if (spec.coarse || spec.options) {
+        if (pat === this.activePattern[ch]) this.setSound(ch, id, value, slot);
+      } else {
+        this.glideTo[ch * LOCK_SLOTS + slot] = toNorm(spec, value);
+      }
+    }
+  }
+
+  /** A whole patch for a pattern: heard now, or (glide, playing) glided to by the next bar line. */
+  private setPatch(ch: number, pat: number, sound: Record<string, number>, glide: boolean): void {
+    if (!this.current[ch]) return;
+    this.storePatch(ch, pat, sound);
+    const target = this.glidePattern[ch] >= 0 ? this.glidePattern[ch] : this.activePattern[ch];
+    if (pat !== target) return;
+    if (glide && this.playing) this.startGlide(ch, pat, Math.max(this.glidePattern[ch] >= 0 ? this.glideTotal[ch] - this.glideDone[ch] : 0, this.framesToBar()));
+    else {
+      this.glidePattern[ch] = -1;
+      this.enterPattern(ch, pat, true);
+    }
+  }
+
+  /** Switch pattern: stopped at once; playing at the loop end (or now), the sound gliding in. */
+  private selectPattern(ch: number, pat: number, immediate: boolean): void {
+    if (!this.playing) {
+      this.pendingPattern[ch] = -1;
+      this.glidePattern[ch] = -1;
+      this.enterPattern(ch, pat, true);
+      return;
+    }
+    if (pat === this.activePattern[ch]) {
+      // Back to the pattern playing: a waiting switch is cancelled and the sound glides back.
+      if (this.pendingPattern[ch] >= 0 || this.glidePattern[ch] >= 0) {
+        this.pendingPattern[ch] = -1;
+        this.startGlide(ch, pat, CANCEL_PATCH_GLIDE * this.sampleRate);
+      }
+      return;
+    }
+    if (immediate) {
+      this.pendingPattern[ch] = -1;
+      this.startGlide(ch, pat, 0);
+      this.enterPattern(ch, pat, false);
+      return;
+    }
+    this.pendingPattern[ch] = pat;
+    const len = this.patternLength[ch * NUM_PATTERNS + this.activePattern[ch]];
+    this.startGlide(ch, pat, this.framesAhead((len - (this.position[ch] % len)) % len));
+  }
+
+  /** A switch waiting for the loop end happens. */
+  private landPattern(ch: number): void {
+    const pat = this.pendingPattern[ch];
+    this.pendingPattern[ch] = -1;
+    this.enterPattern(ch, pat, this.glidePattern[ch] !== pat);
+  }
+
+  /**
+   * The track plays pattern `pat` from now: its coarse settings switch now; the rest too
+   * when `snap`, else a running glide brings them in.
+   */
+  private enterPattern(ch: number, pat: number, snap: boolean): void {
+    this.activePattern[ch] = pat;
+    const inst = this.current[ch];
+    if (!inst) return;
+    const base = (ch * NUM_PATTERNS + pat) * LOCK_SLOTS;
+    const n = Math.min(inst.params.length, LOCK_SLOTS);
+    for (let k = 0; k < n; k++) {
+      const spec = inst.params[k];
+      if (snap || spec.coarse || spec.options) this.setSound(ch, spec.id, this.patchValue[base + k], k);
+    }
+    if (snap && this.glidePattern[ch] === pat) this.glidePattern[ch] = -1;
+  }
+
+  /** Start gliding the track's sound to pattern pat's patch over `frames` (at least MIN_PATCH_GLIDE). */
+  private startGlide(ch: number, pat: number, frames: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const base = ch * LOCK_SLOTS;
+    const from = (ch * NUM_PATTERNS + pat) * LOCK_SLOTS;
+    const n = Math.min(inst.params.length, LOCK_SLOTS);
+    for (let k = 0; k < n; k++) {
+      const spec = inst.params[k];
+      this.glideFrom[base + k] = toNorm(spec, this.baseValue[base + k]);
+      this.glideTo[base + k] = toNorm(spec, this.patchValue[from + k]);
+    }
+    this.glidePattern[ch] = pat;
+    this.glideWait[ch] = 0;
+    this.glideDone[ch] = 0;
+    this.glideTotal[ch] = Math.max(frames, MIN_PATCH_GLIDE * this.sampleRate);
+  }
+
+  /** Move the patch glides on by `frames` (once per block). */
+  private stepPatchGlides(frames: number): void {
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      const pat = this.glidePattern[ch];
+      if (pat < 0) continue;
+      const inst = this.current[ch];
+      if (!inst) { this.glidePattern[ch] = -1; continue; }
+      if (this.glideDone[ch] >= this.glideTotal[ch]) {
+        // Arrived: done once the pattern plays (its switch may still wait for its step);
+        // a switch that will not come (cancelled) glides back.
+        if (this.activePattern[ch] === pat && this.pendingPattern[ch] < 0) this.finishGlide(ch);
+        else if (this.pendingPattern[ch] !== pat && !this.glideWait[ch]) this.startGlide(ch, this.activePattern[ch], CANCEL_PATCH_GLIDE * this.sampleRate);
+        continue;
+      }
+      this.glideDone[ch] += frames;
+      const t = Math.min(1, this.glideDone[ch] / this.glideTotal[ch]);
+      const base = ch * LOCK_SLOTS;
+      const n = Math.min(inst.params.length, LOCK_SLOTS);
+      for (let k = 0; k < n; k++) {
+        const spec = inst.params[k];
+        if (spec.coarse || spec.options) continue;
+        const a = this.glideFrom[base + k];
+        const b = this.glideTo[base + k];
+        if (a === b) continue;
+        const v = toValue(spec, a + (b - a) * t);
+        this.baseValue[base + k] = v;
+        if (!this.lockApplied[base + k]) this.applyParam(ch, inst, spec.id, this.withOffset(ch, k, v));
+      }
+    }
+  }
+
+  /** A glide ends: the playing pattern's patch exactly (coarse settings included). */
+  private finishGlide(ch: number): void {
+    this.glidePattern[ch] = -1;
+    this.glideWait[ch] = 0;
+    this.enterPattern(ch, this.activePattern[ch], true);
+  }
+
+  /** RESET with notes: a pattern's saved notes go in at the next bar line (now when stopped). */
+  private swapNotes(ch: number, pat: number, length: number, steps: Step[]): void {
+    this.pendingNotes[ch * NUM_PATTERNS + pat] = { length, steps };
+    this.notesPending = true;
+    if (!this.playing) this.applyPendingNotes();
+  }
+
+  private applyPendingNotes(): void {
+    if (!this.notesPending) return;
+    this.notesPending = false;
+    for (let k = 0; k < this.pendingNotes.length; k++) {
+      const next = this.pendingNotes[k];
+      if (!next) continue;
+      this.pendingNotes[k] = null;
+      const ch = Math.floor(k / NUM_PATTERNS);
+      const pat = k % NUM_PATTERNS;
+      this.patternLength[k] = Math.max(1, Math.min(MAX_STEPS, next.length));
+      for (let i = 0; i < MAX_STEPS && i < next.steps.length; i++) this.writeStep(ch, pat, i, next.steps[i]);
+    }
   }
 
   private setSound(ch: number, id: string, value: number, knownSlot = -1): void {

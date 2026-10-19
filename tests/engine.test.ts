@@ -2,10 +2,10 @@ import { DRIVE_RISE, driveCompGain } from '../src/instruments/driveComp';
 import { CHORD_NAMES as CHORD_LIST, chordVoicing } from '../src/engine/chords';
 import { dynVelocity } from '../src/engine/mixParams';
 import { describe, expect, it } from 'vitest';
-import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
+import { Engine, LOCK_SLOTS, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
 import { djCutoff, formatValue, toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
-import { DYNAMIC_VELOCITY, emptyPattern, type Project, type SoundKind } from '../src/engine/project';
+import { DYNAMIC_VELOCITY, NUM_PATTERNS, editPattern, emptyPattern, initPatterns, lockProject, patchOf, type Project, type SoundKind } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
@@ -257,6 +257,85 @@ describe('sequencer', () => {
     near(onsets(first), [0]);
     // Loop ends at 96000; pattern B's step 2 is 12000 later. Offsets are relative to `rest`.
     near(onsets(rest), [96000 + 12000 - first.length]);
+  });
+
+  describe('pattern patches', () => {
+    const specs = INSTRUMENTS.bass.params;
+    const slot = (id: string) => specs.findIndex((q) => q.id === id);
+    const coarse = specs.find((q) => q.coarse || q.options)!;
+    const base = (e: Engine, id: string) => (e as unknown as { baseValue: Float32Array }).baseValue[4 * LOCK_SLOTS + slot(id)];
+    /** BASS (track 5): pattern A cutoff 200 Hz, pattern B 2 kHz and another coarse setting. */
+    const setup = () => {
+      const p = kickProject([0]);
+      const c = p.channels[4];
+      c.sounds.bass = { ...c.sounds.bass!, cutoff: 200 };
+      p.channels.forEach(initPatterns);
+      c.patterns[1].patch = { sound: { ...c.sounds.bass, cutoff: 2000, [coarse.id]: coarse.max === c.sounds.bass[coarse.id] ? coarse.min : coarse.max }, trims: {} };
+      return { p, e: engineWith(p), b: c.patterns[1].patch.sound };
+    };
+
+    it('glides from the switch to the loop end, coarse settings at the loop end', () => {
+      const { e, b } = setup();
+      const a = base(e, coarse.id);
+      e.handleMessage({ type: 'transport', playing: true });
+      render(e, 0.5); // 24000 of the 96000-frame loop
+      e.handleMessage({ type: 'selectPattern', channel: 4, pattern: 1, immediate: false });
+      render(e, 0.5); // a third of the way to the loop end
+      const n = toNorm(specs[slot('cutoff')], base(e, 'cutoff'));
+      const from = toNorm(specs[slot('cutoff')], 200);
+      const to = toNorm(specs[slot('cutoff')], 2000);
+      expect((n - from) / (to - from)).toBeGreaterThan(0.25);
+      expect((n - from) / (to - from)).toBeLessThan(0.42);
+      expect(base(e, coarse.id)).toBe(a);
+      render(e, 1.1); // past the loop end
+      expect(base(e, 'cutoff')).toBeCloseTo(2000, 3);
+      expect(base(e, coarse.id)).toBe(b[coarse.id]);
+    });
+
+    it('glides back when the switch is cancelled', () => {
+      const { e } = setup();
+      e.handleMessage({ type: 'transport', playing: true });
+      render(e, 0.25);
+      e.handleMessage({ type: 'selectPattern', channel: 4, pattern: 1, immediate: false });
+      render(e, 1);
+      expect(base(e, 'cutoff')).toBeGreaterThan(300);
+      e.handleMessage({ type: 'selectPattern', channel: 4, pattern: 0, immediate: false });
+      render(e, 0.5);
+      expect(base(e, 'cutoff')).toBeCloseTo(200, 3);
+      render(e, 1.5); // the loop end passes: still pattern A
+      expect(base(e, 'cutoff')).toBeCloseTo(200, 3);
+    });
+
+    it('switches at once when stopped, and edits only the pattern they name', () => {
+      const { e } = setup();
+      e.handleMessage({ type: 'setSound', channel: 4, pattern: 1, id: 'cutoff', value: 3000 });
+      expect(base(e, 'cutoff')).toBeCloseTo(200, 3);
+      e.handleMessage({ type: 'selectPattern', channel: 4, pattern: 1, immediate: false });
+      expect(base(e, 'cutoff')).toBeCloseTo(3000, 3);
+    });
+
+    it('glides a song row change over the row\'s last bar', () => {
+      const { e } = setup();
+      e.handleMessage({ type: 'setSong', song: { rows: [{ bars: 2, patterns: [0, 0, 0, 0, 0, 0, 0, 0] }, { bars: 2, patterns: [0, 0, 0, 0, 1, 0, 0, 0] }] } });
+      e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 0 });
+      render(e, 2.1); // into bar 2 (the last of row 1)
+      const mid = base(e, 'cutoff');
+      expect(mid).toBeGreaterThan(200);
+      expect(mid).toBeLessThan(2000);
+      render(e, 2); // row 2
+      expect(base(e, 'cutoff')).toBeCloseTo(2000, 3);
+    });
+
+    it('RESET with notes swaps a pattern\'s notes in at the next bar line', () => {
+      const p = kickProject([]);
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const first = render(e, 0.5).l;
+      const steps = emptyPattern().steps;
+      steps[0].active = true;
+      e.handleMessage({ type: 'swapNotes', channel: 0, pattern: 0, length: 16, steps });
+      near(onsets(render(e, 2).l), [96000 - first.length]);
+    });
   });
 
   it('mute silences a channel', () => {
@@ -895,7 +974,41 @@ describe('project', () => {
 
   it('survives a round trip through the stored format', () => {
     const p = busy();
+    p.channels.forEach(initPatterns);
+    lockProject(p);
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))).toEqual(p);
+  });
+
+  it('keeps each pattern its own patch and its unsaved edits through the stored format', () => {
+    const p = busy();
+    p.channels.forEach(initPatterns);
+    lockProject(p);
+    const c = p.channels[4];
+    editPattern(c, 1);
+    c.sounds.bass!.cutoff = 333;
+    c.patterns[1].patchDirty = true;
+    c.patterns[1].steps[3].active = true;
+    c.patterns[1].notesDirty = true;
+    editPattern(c, 0);
+    expect(patchOf(c, 1).sound.cutoff).toBe(333);
+    expect(patchOf(c, 0).sound.cutoff).not.toBe(333);
+    const back = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
+    expect(back).toEqual(p);
+    expect(back.channels[4].patterns[1].savedPatch!.sound.cutoff).not.toBe(333);
+    expect(back.channels[4].patterns[1].savedNotes!.steps[3].active).toBe(false);
+  });
+
+  it('gives every pattern of an older project the track sound, saved as it is', () => {
+    const stored = toStored(busy()) as unknown as { version: number; channels: { patterns: Record<string, unknown>[] }[] };
+    stored.version = 30;
+    for (const c of stored.channels) for (const pat of c.patterns) delete pat.patch;
+    const p = fromStored(JSON.parse(JSON.stringify(stored)))!;
+    const c = p.channels[4];
+    for (let i = 0; i < NUM_PATTERNS; i++) {
+      expect(patchOf(c, i).sound).toEqual(c.sounds.bass);
+      expect(c.patterns[i].notesDirty).toBe(false);
+      expect(c.patterns[i].patchDirty).toBe(false);
+    }
   });
 
   it('stores only steps with notes (compact)', () => {

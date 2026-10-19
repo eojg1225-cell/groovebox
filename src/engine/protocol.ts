@@ -13,8 +13,16 @@ export type MainToWorklet =
   | { type: 'loadProject'; project: Project }
   | { type: 'setStep'; channel: number; pattern: number; index: number; step: Step }
   | { type: 'setPatternLength'; channel: number; pattern: number; length: number }
-  /** Switch pattern; quantised to the end of the channel's loop unless immediate or stopped. */
+  /**
+   * Switch pattern; quantised to the end of the channel's loop unless immediate or stopped.
+   * Its patch glides in from now until then (coarse settings switch with the pattern); the
+   * playing pattern again = a waiting switch is cancelled (the sound glides back).
+   */
   | { type: 'selectPattern'; channel: number; pattern: number; immediate: boolean }
+  /** Pattern `pattern`'s whole patch; glide = (playing) glide there by the next bar line. */
+  | { type: 'setPatch'; channel: number; pattern: number; sound: Record<string, number>; glide: boolean }
+  /** RESET with notes: a pattern's (saved) notes replace its steps at the next bar line. */
+  | { type: 'swapNotes'; channel: number; pattern: number; length: number; steps: Step[] }
   /** Change a channel's instrument (clears its parameter locks) and set its full sound. */
   | { type: 'setInstrument'; channel: number; kind: InstrumentKind; sound: Record<string, number> }
   /** Chord mode index (0 = off). */
@@ -28,8 +36,11 @@ export type MainToWorklet =
   | { type: 'setForce'; channel: number; ring: boolean; slide: boolean; velocity?: number }
   /** Release a note started with trigger/recordNote (note = the played root). */
   | { type: 'release'; channel: number; note: number }
-  /** Instrument parameter in real units. */
-  | { type: 'setSound'; channel: number; id: string; value: number }
+  /**
+   * Instrument parameter in real units, in pattern `pattern`'s patch (absent = the pattern
+   * switched to, else the one playing); heard when that pattern plays.
+   */
+  | { type: 'setSound'; channel: number; id: string; value: number; pattern?: number }
   /** A relative LIVE knob (id = macro or sound param), -1..1 (0 = centred). */
   | { type: 'setOffset'; channel: number; id: string; value: number }
   | { type: 'setMix'; channel: number; id: MixParam; value: number }

@@ -4,7 +4,7 @@
  * ProjectStore interface, so a cloud store can take its place later: records are keyed by
  * a fixed random id, the slot is just where an id sits.
  */
-import type { Project } from '../engine/project';
+import { NUM_PATTERNS, PROJECT_VERSION, cloneNotes, clonePatch, patchOf, type Project } from '../engine/project';
 import { fromStored, toStored } from '../engine/projectFile';
 
 export const SLOTS_PER_BANK = 16;
@@ -80,6 +80,39 @@ function parse(raw: string | null): Project | null {
   }
 }
 
+function storedVersion(raw: string | null): number {
+  try {
+    const v = (JSON.parse(raw ?? 'null') as { version?: unknown } | null)?.version;
+    return typeof v === 'number' ? v : 0;
+  } catch {
+    return PROJECT_VERSION;
+  }
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+function sameValues(a: Record<string, number>, b: Record<string, number>): boolean {
+  for (const k in a) if (Math.abs(a[k] - (b[k] ?? NaN)) > 1e-9 || !(k in b)) return false;
+  for (const k in b) if (!(k in a)) return false;
+  return true;
+}
+
+/** Each pattern's saved notes / patch taken from the project's saved copy (same track type). */
+export function adoptSaved(work: Project, saved: Project): void {
+  work.channels.forEach((c, ch) => {
+    const s = saved.channels[ch];
+    if (!s || s.instrument !== c.instrument) return;
+    for (let p = 0; p < NUM_PATTERNS; p++) {
+      const pat = c.patterns[p];
+      pat.savedNotes = cloneNotes(s.patterns[p]);
+      pat.notesDirty = !same(pat.savedNotes, cloneNotes(pat));
+      pat.savedPatch = clonePatch(patchOf(s, p));
+      const now = patchOf(c, p);
+      pat.patchDirty = !sameValues(pat.savedPatch.sound, now.sound) || !sameValues(pat.savedPatch.trims, now.trims);
+    }
+  });
+}
+
 class LocalProjectStore implements ProjectStore {
   slots(): (SlotEntry | null)[] {
     let list: unknown = null;
@@ -132,7 +165,13 @@ class LocalProjectStore implements ProjectStore {
   }
 
   loadWork(id: string): Project | null {
-    return parse(get(work(id)));
+    const raw = get(work(id));
+    const project = parse(raw);
+    if (!project) return null;
+    // Before v31 nothing kept saved versions per pattern: they come from the saved copy.
+    const saved = storedVersion(raw) < 31 ? this.load(id) : null;
+    if (saved) adoptSaved(project, saved);
+    return project;
   }
 
   saveWork(id: string, project: Project): void {

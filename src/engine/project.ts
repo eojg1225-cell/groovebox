@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 30;
+export const PROJECT_VERSION = 31;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 5;
@@ -12,8 +12,6 @@ export const MAX_STEPS = 64;
 /** Most hits a ROLL step can have. */
 export const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D'] as const;
-/** Patterns with their own button on the panel; D (and A-D for any track) via hold track + FX 1/2/3/LFO. */
-export const PANEL_PATTERNS = ['A', 'B', 'C'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 /** Song: up to this many rows, each up to SONG_MAX_BARS bars. */
 export const SONG_MAX_ROWS = 64;
@@ -85,11 +83,38 @@ export function setStepDynamic(step: Step, d: Dynamic): void {
   step.velocity = DYNAMIC_VELOCITY[d];
 }
 
+/**
+ * A pattern's sound (v31: each pattern A-D has its own) for the track's type: the values,
+ * the SOUND page trims on top of TIMBRE / INTENSITY, and the preset it came from.
+ */
+export interface Patch {
+  sound: Record<string, number>;
+  trims: Record<string, number>;
+  preset?: number;
+}
+
+/** A pattern's notes as last SAVEd. */
+export interface SavedNotes {
+  length: number;
+  steps: Step[];
+}
+
 export interface Pattern {
   /** 1..MAX_STEPS; the channel loops at this length (polymeter). */
   length: number;
   /** Always MAX_STEPS entries. */
   steps: Step[];
+  /**
+   * This pattern's patch. The pattern being edited (the channel's activePattern) keeps its
+   * patch in the channel's sounds / trims / presets instead, so read it with patchOf.
+   */
+  patch?: Patch;
+  /** The notes and patch as last SAVEd (SAVE / SAVE PROJECT); RESET goes back to them. */
+  savedNotes?: SavedNotes;
+  savedPatch?: Patch;
+  /** Edited since the last SAVE (shown as * on the screen). */
+  notesDirty?: boolean;
+  patchDirty?: boolean;
 }
 
 export interface ChannelState {
@@ -195,4 +220,94 @@ export function emptyChannel(): ChannelState {
     patterns: Array.from({ length: NUM_PATTERNS }, () => emptyPattern()),
     activePattern: 0,
   };
+}
+
+function copyStep(s: Step): Step {
+  const out: Step = { ...s };
+  if (s.locks) out.locks = { ...s.locks };
+  return out;
+}
+
+export function clonePatch(p: Patch): Patch {
+  const out: Patch = { sound: { ...p.sound }, trims: { ...p.trims } };
+  if (p.preset !== undefined) out.preset = p.preset;
+  return out;
+}
+
+export function cloneNotes(p: SavedNotes): SavedNotes {
+  return { length: p.length, steps: p.steps.map(copyStep) };
+}
+
+/** The patch of the pattern being edited: the channel's own sound for its type. */
+function currentPatch(c: ChannelState): Patch {
+  if (c.instrument === 'none') return { sound: {}, trims: {} };
+  const k = c.instrument;
+  const p: Patch = { sound: (c.sounds[k] ??= {}), trims: (c.trims[k] ??= {}) };
+  if (c.presets[k] !== undefined) p.preset = c.presets[k];
+  return p;
+}
+
+/** Pattern p's patch (the edited pattern's lives in the channel's sound). Not a copy. */
+export function patchOf(c: ChannelState, p: number): Patch {
+  const pat = c.patterns[p];
+  return p === c.activePattern || !pat?.patch ? currentPatch(c) : pat.patch;
+}
+
+/** Replace pattern p's patch. */
+export function setPatchOf(c: ChannelState, p: number, patch: Patch): void {
+  if (p !== c.activePattern) {
+    c.patterns[p].patch = clonePatch(patch);
+    return;
+  }
+  if (c.instrument === 'none') return;
+  const k = c.instrument;
+  c.sounds[k] = { ...patch.sound };
+  c.trims[k] = { ...patch.trims };
+  if (patch.preset !== undefined) c.presets[k] = patch.preset;
+}
+
+/**
+ * Edit another pattern: the edited pattern's patch goes back into it and the new one's
+ * comes into the channel's sound.
+ */
+export function editPattern(c: ChannelState, p: number): void {
+  if (p === c.activePattern) return;
+  const next = c.patterns[p].patch ?? clonePatch(currentPatch(c));
+  c.patterns[c.activePattern].patch = clonePatch(currentPatch(c));
+  c.activePattern = p;
+  delete c.patterns[p].patch; // the edited pattern's patch is the channel's sound
+  setPatchOf(c, p, next);
+}
+
+/** Every pattern gets its own patch and saved versions (missing ones: as it is now). */
+export function initPatterns(c: ChannelState): void {
+  c.patterns.forEach((pat, p) => {
+    if (p !== c.activePattern && !pat.patch) pat.patch = clonePatch(currentPatch(c));
+    if (!pat.savedNotes) {
+      pat.savedNotes = cloneNotes(pat);
+      pat.notesDirty = false;
+    }
+    if (!pat.savedPatch) {
+      pat.savedPatch = clonePatch(patchOf(c, p));
+      pat.patchDirty = false;
+    }
+  });
+}
+
+/** SAVE: the pattern's notes and / or patch as they are now become its saved version. */
+export function lockPattern(c: ChannelState, p: number, notes: boolean, patch: boolean): void {
+  const pat = c.patterns[p];
+  if (notes) {
+    pat.savedNotes = cloneNotes(pat);
+    pat.notesDirty = false;
+  }
+  if (patch) {
+    pat.savedPatch = clonePatch(patchOf(c, p));
+    pat.patchDirty = false;
+  }
+}
+
+/** SAVE PROJECT: every pattern and patch saved. */
+export function lockProject(p: Project): void {
+  for (const c of p.channels) for (let i = 0; i < NUM_PATTERNS; i++) lockPattern(c, i, true, true);
 }
