@@ -152,7 +152,7 @@ export interface DrumVoice {
 }
 export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick };
 export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare };
-export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 1.5, driveRise: DRIVE_RISE.hat };
+export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
