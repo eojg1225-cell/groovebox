@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 29;
+export const PROJECT_VERSION = 30;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 5;
@@ -10,7 +10,6 @@ export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 4;
 export const MAX_STEPS = 64;
 /** Most hits a ROLL step can have. */
-export const MAX_ROLL = 8;
 export const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D'] as const;
 /** Patterns with their own button on the panel; D (and A-D for any track) via hold track + FX 1/2/3/LFO. */
@@ -53,8 +52,8 @@ export interface Step {
   /**
    * SLIDE (TB-303 style): this note is held until the next note and glides into it (legato,
    * no new attack), its envelopes held up until then. Before v12 the flag sat on the note
-   * slid into. On drum tracks the same flag is ROLL: the hit repeats at the sound's ROLL DIV
-   * (it wins over a `roll` count).
+   * slid into. On drum tracks the same flag is ROLL: consecutive ROLL steps roll as one run
+   * at the sound's ROLL RATE (hits per step).
    */
   slide: boolean;
   accent: boolean;
@@ -65,8 +64,6 @@ export interface Step {
   ring?: boolean;
   /** REST: an explicit stop marker (no note); ends a ringing note. */
   rest?: boolean;
-  /** ROLL: hits per step (2-8 = evenly spaced repeats inside the step); absent = 1. */
-  roll?: number;
   /**
    * Optional per-step parameter locks (sound param id -> value), written by motion
    * recording. Absent = the channel's own value.

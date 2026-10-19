@@ -5,12 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { Engine, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
 import { djCutoff, formatValue, toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
-import { emptyPattern, type Project, type SoundKind } from '../src/engine/project';
+import { DYNAMIC_VELOCITY, emptyPattern, type Project, type SoundKind } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
-import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
+import { Drum, ROLL_DIVS, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { midiToHz } from '../src/instruments/dsp';
 import { Delay } from '../src/fx/Delay';
@@ -1107,13 +1107,31 @@ describe('drum element envelopes', () => {
 });
 
 describe('slides and rolls', () => {
-  it('ROLL plays evenly spaced hits inside the step', () => {
-    const p = kickProject([0, 4], { bpm: 120 });
-    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01 };
-    p.channels[0].patterns[0].steps[0].roll = 3; // 6000 frames / 3
+  it('consecutive ROLL steps roll as one run at ROLL RATE, ramping from the first step to the last', () => {
+    const p = kickProject([0, 1, 2, 3, 6], { bpm: 120 });
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 1 }; // 1:2
+    const steps = p.channels[0].patterns[0].steps;
+    for (const i of [0, 1, 2, 3]) steps[i].slide = true;
+    Object.assign(steps[0], { velocity: DYNAMIC_VELOCITY.ghost });
+    Object.assign(steps[3], { velocity: DYNAMIC_VELOCITY.accent, accent: true });
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
-    near(onsets(render(e, 0.6).l), [0, 2000, 4000, 24000]);
+    const l = render(e, 0.8).l;
+    // 4 steps x 2 = 8 hits, 3000 frames apart, then the plain hit on step 7.
+    near(onsets(l, 0.005, 1500), [0, 3000, 6000, 9000, 12000, 15000, 18000, 21000, 36000]);
+    const peak = (at: number) => stats(l.subarray(at, at + 500)).peak;
+    expect(peak(21000)).toBeGreaterThan(peak(0) * 1.3); // ghost ... accent: a crescendo
+    expect(peak(12000)).toBeGreaterThan(peak(0));
+    expect(peak(12000)).toBeLessThan(peak(21000));
+  });
+
+  it('a run rolls evenly straight through swing', () => {
+    const p = kickProject([0, 1], { bpm: 120, swing: 66 });
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 1 };
+    for (const i of [0, 1]) p.channels[0].patterns[0].steps[i].slide = true;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 0.2).l, 0.005, 1500).slice(0, 4), [0, 3000, 6000, 9000], 8);
   });
 
   const bass = () => {
@@ -1164,16 +1182,16 @@ describe('slides and rolls', () => {
     expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
   });
 
-  it('on drum tracks the SLIDE flag is ROLL at the sound\'s ROLL DIV (a count is overridden)', () => {
+  it('on drum tracks the SLIDE flag is ROLL at the sound\'s ROLL RATE (hits per step)', () => {
     const p = kickProject([0, 4], { bpm: 120 });
-    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 1 }; // 1/32T
-    Object.assign(p.channels[0].patterns[0].steps[0], { slide: true, roll: 2 });
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 2 }; // 1:3
+    Object.assign(p.channels[0].patterns[0].steps[0], { slide: true });
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
     near(onsets(render(e, 0.6).l, 0.005, 1500), [0, 2000, 4000, 24000]);
-    // ROLL DIV changes the roll.
+    // ROLL RATE changes the roll.
     const e2 = engineWith(p);
-    e2.handleMessage({ type: 'setSound', channel: 0, id: 'rolldiv', value: 0 }); // 1/32
+    e2.handleMessage({ type: 'setSound', channel: 0, id: 'rolldiv', value: 1 }); // 1:2
     e2.handleMessage({ type: 'transport', playing: true });
     const o2 = onsets(render(e2, 0.6).l, 0.005, 1500);
     near(o2, [0, 3000, 24000]);
@@ -2253,10 +2271,10 @@ describe('PLAY mode RING / SLIDE (all notes)', () => {
     expect(peak(0.45)).toBeLessThan(peak() * 0.75);
   });
 
-  it('SLIDE on a drum track rolls every hit at its ROLL DIV', () => {
+  it('SLIDE on a drum track rolls every hit at its ROLL RATE', () => {
     const hits = (force: boolean) => {
       const p = kickProject([0], { bpm: 120 });
-      p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 0 }; // 1/32: 2 per step
+      p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 1 }; // 1:2
       const e = engineWith(p);
       if (force) e.handleMessage({ type: 'setForce', channel: 0, ring: false, slide: true });
       e.handleMessage({ type: 'transport', playing: true });
@@ -2624,5 +2642,21 @@ describe('LEAD voices', () => {
     // A 4th note takes the oldest voice: the first note no longer matters.
     expect(diff(lead([57, 60, 64, 67]), lead([57, 60, 64, 67], 3, 0))).toBeLessThan(1e-6);
     expect(diff(lead([57, 60, 64]), lead([57, 60, 64], 3, 0))).toBeGreaterThan(0.01);
+  });
+});
+
+describe('v30: ROLL RATE and roll runs', () => {
+  it('ROLL DIV becomes ROLL RATE at the same speed; per-step hit counts become ROLL', () => {
+    expect(ROLL_DIVS.map((r) => r.name)).toEqual(['1:1', '1:2', '1:3', '1:4', '1:6', '1:8']);
+    expect(presetSound('kick', 0).rolldiv).toBe(3); // 1:4
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 29;
+    stored.channels[0].sounds.kick.rolldiv = 0; // 1/32
+    stored.channels[0].patterns[0].steps = [{ i: 0, n: 36, v: 0.8, k: 3 }, { i: 1, n: 36, v: 0.8, l: { rolldiv: 2 } }];
+    const q = fromStored(stored)!;
+    expect(q.channels[0].sounds.kick!.rolldiv).toBe(1); // 1:2, the same 2 hits per step
+    expect(q.channels[0].patterns[0].steps[0].slide).toBe(true);
+    expect(q.channels[0].patterns[0].steps[1].locks!.rolldiv).toBe(3); // 1/64 -> 1:4
   });
 });

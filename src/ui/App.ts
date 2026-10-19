@@ -28,10 +28,13 @@
  * RESET: every parameter returns to the saved project (or, if none was saved, to how the
  * session started): while playing it glides back to land on the next bar line, stopped
  * it jumps. Tempo, master volume, routing, mutes and patterns are left alone.
- * SLIDE: in step entry, holding a key and pressing another enters the new note on the step
- * after the held one, sliding into it (legato). Bass / lead also slide when played legato.
- * ROLL (drum steps): hold a step and press ▶ / ◀ for more / fewer hits inside it; hold a
- * step and tap another to roll from one to the other (a crescendo of double hits).
+ * SLIDE: placed with the SLIDE button (tap it, then tap notes). Bass / lead also slide when
+ * played legato. In step entry a key pressed while another is held goes on the step after it.
+ * ROLL (drum steps): consecutive ROLL steps roll as one run at the sound's ROLL RATE (hits per
+ * step), velocity ramping from the first step's dynamic to the last's (GHOST ... ACCENT = a
+ * crescendo). Drum lanes paint: slide along the strip (or press the next step while one is
+ * held) and every step joins the stroke, which adds or erases as decided by the first step.
+ * BAR (hold) + ◀ / ▶: the previous / next bar of a long pattern on the strip; a tap = next.
  * MOTION REC (RECORD mode, while playing): live-knob moves on instrument parameters
  * become per-step locks on that track, and keyboard notes are written to the nearest step.
  */
@@ -42,7 +45,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_ROLL, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
@@ -58,6 +61,9 @@ import type { DesignView, LaneCell, LiveView, SongView } from './views';
 
 export type Mode = 'record' | 'play' | 'design' | 'song';
 
+
+/** What a drum-lane paint stroke does to each step it reaches. */
+type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
 /** Hold ACCENT / GHOST / RING this long (keyboard tracks, RECORD) to paint them onto steps. */
 /** A relative live knob: -100..+100 % around the sound as set (centre). */
 const OFFSET_SPEC: ParamSpec = { id: 'offset', name: 'OFFSET', min: -100, max: 100, defaultValue: 0, unit: '%', curve: 'linear', decimals: 0 };
@@ -187,10 +193,15 @@ export class App {
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   private entry: { button: number; index: number } | null = null;
   /**
-   * Drum step held down (RECORD): ▶ / ◀ change its roll, another step makes a roll range.
-   * remove = it was already a hit (it is removed on release unless the hold was used).
+   * A paint stroke on a drum lane (RECORD): the first step pressed decides what every step
+   * the finger slides onto gets (a hit with the armed flags, the flags set / cleared, a rest,
+   * or erased). It lasts while any strip button is down.
    */
-  private drumHold: { button: number; index: number; remove: boolean; used: boolean } | null = null;
+  private stroke: { kind: StrokeKind } | null = null;
+  private readonly stripDown = new Set<number>();
+  /** BAR held: ◀ / ▶ move the strip's bar; released unused = next bar. */
+  private barHeld = false;
+  private barUsed = false;
   /** Note sounding from a ◀ / ▶ step preview, released after the step's length. */
   private preview: { channel: number; note: number; timer: ReturnType<typeof setTimeout> } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
@@ -258,7 +269,6 @@ export class App {
       step.accent = m.accent;
       step.gate = m.gate;
       step.slide = m.slide;
-      delete step.roll;
     } else {
       step.locks = { ...step.locks, [m.id]: m.value };
     }
@@ -746,6 +756,12 @@ export class App {
         if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK');
         this.refreshPanel();
       }
+      if (id === 'steppage' && this.barHeld) {
+        // BAR tapped (no ◀ / ▶ meanwhile): the next bar.
+        this.barHeld = false;
+        if (!this.barUsed) this.changeBar(1);
+        this.refreshPanel();
+      }
       if (id === 'copy') {
         this.copyHeld = false;
         if (!this.copyUsed) this.flash('HOLD COPY + TRACK / FX 1-3 LFO');
@@ -895,17 +911,16 @@ export class App {
     } else if (id === 'len') {
       this.cycleLength();
     } else if (id === 'steppage') {
-      this.viewPage[this.selected] = (this.visiblePage(this.selected) + 1) % this.pageCount();
+      // BAR: held for ◀ / ▶, a tap (on release) = the next bar.
+      this.barHeld = true;
+      this.barUsed = false;
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
-    } else if ((id === 'cur-' || id === 'cur+') && this.func && this.mode !== 'design') {
-      // FUNC + ◀ / ▶: the previous / next bar (16-step block) on the strip, whatever it shows.
+    } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
+      // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip.
       this.changeBar(id === 'cur+' ? 1 : -1);
-      if (this.funcHeld) this.funcUsed = true; // not a latching tap
-    } else if ((id === 'cur-' || id === 'cur+') && this.drumHold) {
-      // Holding a drum step: ▶ adds a hit inside it (roll), ◀ takes one away.
-      this.changeRoll(id === 'cur+' ? 1 : -1);
+      this.barUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
       // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
       this.tie(id === 'cur+' ? 1 : -1);
@@ -922,7 +937,6 @@ export class App {
       step.ring = false;
       step.slide = false;
       step.rest = true;
-      delete step.roll;
       delete step.locks;
       this.sendStep(this.cursor[this.selected], step);
       this.moveCursor(1);
@@ -1149,6 +1163,7 @@ export class App {
 
   private onStrip(button: number): void {
     const ch = this.selected;
+    this.stripDown.add(button);
     if (this.clearHeld && this.mode !== 'design') {
       const index = this.visiblePage(ch) * 16 + button;
       if (index < this.pattern.length) this.clearStep(index);
@@ -1177,25 +1192,11 @@ export class App {
       } else if (this.mode === 'record') {
         // Step entry: write a one-step note at the cursor and hear it. The cursor moves
         // on when the key is released (past any steps tied with ▶ meanwhile).
-        // SLIDE: with a key still held, the new note goes right after the held one and
-        // the held note slides into it.
+        // A key pressed while another is still held goes right after the held note.
         let index = this.cursor[ch];
-        let slideFrom = -1;
         if (this.entry && this.entry.button !== button) {
           const prev = this.pattern.steps[this.entry.index];
           index = (this.entry.index + prev.gate) % this.pattern.length; // wraps past the end
-          if (index === this.entry.index) {
-            this.heldNotes.delete(button);
-            this.flash('NO ROOM TO SLIDE');
-            return;
-          }
-          // The held note slides into this one: it carries the SLIDE flag (synths only;
-          // on PERC the flag is ROLL).
-          if (!isDrum(this.channel.instrument)) {
-            slideFrom = prev.note;
-            prev.slide = true;
-            this.sendStep(this.entry.index, prev);
-          }
         }
         const step = this.pattern.steps[index];
         step.active = true;
@@ -1204,11 +1205,9 @@ export class App {
         step.ring = this.ring;
         step.rest = false;
         step.slide = this.slideArm; // ROLL on PERC
-        delete step.roll;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
-        this.send({ type: 'trigger', channel: ch, note, velocity: vel, slideFrom });
-        if (slideFrom >= 0) this.flash(`SLIDE ${noteName(slideFrom)} > ${noteName(note)}`);
+        this.send({ type: 'trigger', channel: ch, note, velocity: vel });
         this.entry = { button, index };
         this.save();
       } else {
@@ -1218,50 +1217,75 @@ export class App {
       return;
     }
 
-    // Drum lane. REST armed: toggle a rest marker. Otherwise a new hit takes the armed
-    // flags; with any flag armed a hit is never removed: ACCENT / GHOST (exclusive) turn
-    // another dynamic into the armed one or the same one back to normal, RING and ROLL (the
-    // SLIDE button) toggle - each on its own. Nothing armed: a hit is removed (on release).
+    // Drum lane: a paint stroke. The first step pressed decides it - REST armed: rests on /
+    // off; an empty step: hits (with the armed flags); a hit with flags armed: those flags on
+    // / off (ACCENT / GHOST: the armed one, or back to normal); a hit, nothing armed: erase.
+    // Every step the stroke reaches (sliding along, or the next press while one is held)
+    // gets the same.
     const index = this.visiblePage(ch) * 16 + button;
     if (index >= this.pattern.length) return;
     const step = this.pattern.steps[index];
     const armed = this.dynamic !== 'normal' || this.ring || this.slideArm;
-    if (this.restArm) {
-      step.rest = !step.rest;
-      step.active = false;
-      step.ring = false;
-      step.slide = false;
-      delete step.roll;
-      delete step.locks;
-    } else if (this.drumHold && this.drumHold.button !== button) {
-      // A step is held: roll from it to this one.
-      this.rollRange(this.drumHold.index, index);
-      this.drumHold.used = true;
-      return;
-    } else if (!step.active) {
-      step.active = true;
-      step.rest = false;
-      step.ring = this.ring;
-      step.slide = this.slideArm;
-      delete step.roll;
-      setStepDynamic(step, this.dynamic);
-      if (!this.playing) this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
-      this.drumHold = { button, index, remove: false, used: false };
-    } else if (armed) {
-      if (this.dynamic !== 'normal') setStepDynamic(step, stepDynamic(step) === this.dynamic ? 'normal' : this.dynamic);
-      if (this.ring) step.ring = !step.ring;
-      if (this.slideArm) {
-        step.slide = !step.slide;
-        if (step.slide) delete step.roll; // ROLL DIV replaces a ▶ / ◀ count
-      }
-      this.drumHold = { button, index, remove: false, used: false };
-    } else {
-      // Already a hit: removed when released, unless the hold is used for a roll.
-      this.drumHold = { button, index, remove: true, used: false };
-      return;
+    if (!this.stroke) {
+      const kind: StrokeKind = this.restArm ? (step.rest ? 'rest-off' : 'rest-on')
+        : !step.active ? 'add'
+        : !armed ? 'erase'
+        : this.flagsOn(step) ? 'flags-off' : 'flags-on';
+      this.stroke = { kind };
+    }
+    if (this.paintDrumStep(step, this.stroke.kind) && !this.playing) {
+      this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
     }
     this.sendStep(index, step);
     this.save();
+  }
+
+  /** The armed flags are all already on this hit (so a stroke from it takes them off). */
+  private flagsOn(step: Step): boolean {
+    if (this.dynamic !== 'normal' && stepDynamic(step) !== this.dynamic) return false;
+    if (this.ring && !step.ring) return false;
+    if (this.slideArm && !step.slide) return false;
+    return true;
+  }
+
+  /** One step of a drum-lane paint stroke. True when a hit was added (to audition it). */
+  private paintDrumStep(step: Step, kind: StrokeKind): boolean {
+    switch (kind) {
+      case 'rest-on':
+      case 'rest-off':
+      case 'erase':
+        step.rest = kind === 'rest-on';
+        step.active = false;
+        step.ring = false;
+        step.slide = false;
+        delete step.locks;
+        return false;
+      case 'add': {
+        const added = !step.active;
+        step.active = true;
+        step.rest = false;
+        if (added) {
+          step.ring = this.ring;
+          step.slide = this.slideArm;
+          setStepDynamic(step, this.dynamic);
+        } else {
+          // Already a hit: the stroke adds the armed flags to it.
+          if (this.ring) step.ring = true;
+          if (this.slideArm) step.slide = true;
+          if (this.dynamic !== 'normal') setStepDynamic(step, this.dynamic);
+        }
+        return added;
+      }
+      default: {
+        // Flags on / off a hit (empty steps are passed over).
+        if (!step.active) return false;
+        const on = kind === 'flags-on';
+        if (this.ring) step.ring = on;
+        if (this.slideArm) step.slide = on;
+        if (this.dynamic !== 'normal') setStepDynamic(step, on ? this.dynamic : 'normal');
+        return false;
+      }
+    }
   }
 
   /** RECORD: a flag (RING / SLIDE / ACCENT / GHOST) is being placed on the strip. */
@@ -1285,7 +1309,6 @@ export class App {
       if (id === 'ring') step.ring = !step.ring;
       else if (id === 'slide') {
         step.slide = !step.slide;
-        if (step.slide) delete step.roll;
       } else {
         const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
         setStepDynamic(step, stepDynamic(step) === d ? 'normal' : d);
@@ -1318,43 +1341,6 @@ export class App {
     return c.instrument === 'bass' || c.instrument === 'lead';
   }
 
-  /** ▶ / ◀ on a held drum step: one more / fewer hit inside it (1-MAX_ROLL). */
-  private changeRoll(delta: number): void {
-    const hold = this.drumHold;
-    if (!hold) return;
-    const step = this.pattern.steps[hold.index];
-    const roll = Math.max(1, Math.min(MAX_ROLL, (step.active ? step.roll ?? 1 : 0) + delta));
-    step.active = true;
-    step.rest = false;
-    step.slide = false; // a count replaces the ROLL flag
-    if (roll > 1) step.roll = roll;
-    else delete step.roll;
-    hold.used = true;
-    this.sendStep(hold.index, step);
-    this.flash(roll > 1 ? `ROLL ${roll} HITS` : 'ROLL OFF');
-    this.save();
-  }
-
-  /** Roll from step `from` to step `to`: every step a double hit, rising in velocity. */
-  private rollRange(from: number, to: number): void {
-    const n = Math.abs(to - from);
-    const dir = to > from ? 1 : -1;
-    for (let k = 0; k <= n; k++) {
-      const i = from + k * dir;
-      const step = this.pattern.steps[i];
-      step.active = true;
-      step.rest = false;
-      step.ring = false;
-      step.slide = false;
-      step.roll = 2;
-      step.velocity = DYNAMIC_VELOCITY.ghost + ((1 - DYNAMIC_VELOCITY.ghost) * k) / n;
-      step.accent = k === n;
-      this.sendStep(i, step);
-    }
-    this.flash(`ROLL ${Math.min(from, to) + 1}-${Math.max(from, to) + 1}`);
-    this.save();
-  }
-
   /** CLEAR + step: empty it; a note tied over it now ends just before it. */
   private clearStep(index: number): void {
     const steps = this.pattern.steps;
@@ -1369,7 +1355,6 @@ export class App {
     step.rest = false;
     step.slide = false;
     step.gate = 1;
-    delete step.roll;
     delete step.locks;
     this.sendStep(index, step);
     this.clearUsed = true;
@@ -1415,7 +1400,6 @@ export class App {
       step.rest = false;
       step.slide = false;
       step.gate = 1;
-      delete step.roll;
       delete step.locks;
       this.sendStep(i, step, ch);
     });
@@ -1425,20 +1409,8 @@ export class App {
   }
 
   private releaseKey(button: number): void {
-    if (this.drumHold?.button === button) {
-      const hold = this.drumHold;
-      this.drumHold = null;
-      if (hold.remove && !hold.used) {
-        const step = this.pattern.steps[hold.index];
-        step.active = false;
-        step.ring = false;
-        delete step.roll;
-        delete step.locks;
-        this.sendStep(hold.index, step);
-        this.save();
-      }
-      this.refreshPanel();
-    }
+    this.stripDown.delete(button);
+    if (this.stripDown.size === 0) this.stroke = null;
     const note = this.heldNotes.get(button);
     if (note === undefined) return;
     this.heldNotes.delete(button);
@@ -1701,7 +1673,9 @@ export class App {
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || !!this.drumHold || (this.func && this.mode !== 'design'));
+    // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
+    this.panel.setStripSlide((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design'));
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld);
     this.panel.setButtonEnabled('rest', rec);
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
@@ -1811,7 +1785,7 @@ export class App {
         const step = pattern.steps[index];
         const d = step.active && !off ? stepDynamic(step) : null;
         const flagged = d !== null && (view === 'ring' ? !!step.ring : view === 'slide' ? !!step.slide : true);
-        const roll = d === null ? 0 : step.slide && isDrum(c.instrument) ? this.rollHits(c) : step.roll && step.roll > 1 ? step.roll : 0;
+        const roll = d !== null && step.slide && isDrum(c.instrument) ? this.rollHits(c) : 0;
         this.panel.setButtonText(id, roll ? `${index + 1}<small>×${roll}</small>` : String(index + 1));
         this.panel.setButtonFlag(id, 'off', off);
         this.panel.setButtonFlag(id, 'lit', d !== null);
@@ -1824,9 +1798,7 @@ export class App {
       }
     }
 
-    const start = page * 16 + 1;
-    const end = Math.min(pattern.length, start + 15);
-    this.panel.setButtonText('steppage', `${start}-${end}<small>${this.mode === 'play' ? 'FOLLOW' : 'VIEW'}</small>`);
+    this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
 
     const blink = Math.floor(now / 250) % 2 === 0;
     PATTERN_NAMES.forEach((name, p) => {
@@ -1901,7 +1873,7 @@ export class App {
           ring: step.active && !!step.ring,
           rest: !step.active && !!step.rest,
           slide: step.active && step.slide && !isDrum(lc.instrument),
-          roll: !step.active ? 0 : step.slide && isDrum(lc.instrument) ? this.rollHits(lc) : step.roll ?? 1,
+          roll: !step.active ? 0 : step.slide && isDrum(lc.instrument) ? this.rollHits(lc) : 1,
         });
       }
       return {

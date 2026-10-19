@@ -2,7 +2,7 @@ import { dynVelocity } from './mixParams';
 import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
-  MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, type Song,
+  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, type Song,
   type InstrumentKind, type Project, type Step,
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
@@ -88,7 +88,6 @@ export class Engine {
   private readonly stepRest = new Uint8Array(STEP_SLOTS);
   private readonly stepSlide = new Uint8Array(STEP_SLOTS);
   /** Hits per step (ROLL), 1 = a single hit. */
-  private readonly stepRoll = new Uint8Array(STEP_SLOTS).fill(1);
   /** Note length in steps (1 = until the next step starts). */
   private readonly stepGate = new Uint8Array(STEP_SLOTS).fill(1);
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
@@ -165,6 +164,11 @@ export class Engine {
   private readonly rollEvery = new Float64Array(NUM_CHANNELS);
   private readonly rollNote = new Float32Array(NUM_CHANNELS);
   private readonly rollVel = new Float32Array(NUM_CHANNELS);
+  /** The roll run: its last step's velocity, hits in all, hits played, steps still to come. */
+  private readonly rollVelEnd = new Float32Array(NUM_CHANNELS);
+  private readonly rollHits = new Uint16Array(NUM_CHANNELS);
+  private readonly rollIndex = new Uint16Array(NUM_CHANNELS);
+  private readonly runLeft = new Uint16Array(NUM_CHANNELS);
   // ARP (sound params "arp" / "arprate"): while a note is held its chord tones are played in
   // turn. Mode (0 = off), rate in steps, and per track the held root, its velocity, the next
   // note's index, frames until it, and the arp note sounding now (-1 = none).
@@ -405,6 +409,7 @@ export class Engine {
     this.currentStep.fill(-1);
     this.skipStep.fill(-1);
     this.rollLeft.fill(0);
+    this.runLeft.fill(0);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       if (this.pendingPattern[ch] >= 0) {
         this.activePattern[ch] = this.pendingPattern[ch];
@@ -519,7 +524,10 @@ export class Engine {
       const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0;
       // SLIDE: the held note was marked to slide, so it glides into this one (no release).
       const slideFrom = hit && this.sliding[ch] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
-      this.rollLeft[ch] = 0;
+      // Inside a roll run its hits are already scheduled; otherwise a roll ends here.
+      const inRun = this.runLeft[ch] > 0;
+      if (inRun) this.runLeft[ch]--;
+      else this.rollLeft[ch] = 0;
       if (slideFrom >= 0) {
         this.gateSteps[ch] = 0;
         this.ringing[ch] = 0;
@@ -541,10 +549,10 @@ export class Engine {
         } else if (this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen); // its last step
       }
       this.applyLocks(ch, s);
-      if (hit) {
+      if (hit && !inRun) {
         const ring = this.stepRing[s] === 1 || this.forceRing[ch] === 1;
         const slideFlag = this.stepSlide[s] === 1 || this.forceSlide[ch] === 1;
-        // On drum tracks the SLIDE flag is ROLL: the hit repeats at ROLL DIV.
+        // On drum tracks the SLIDE flag is ROLL: the hit repeats at ROLL RATE.
         const drumRoll = this.rollDiv[ch] > 0 && slideFlag;
         // A SLIDE note is held (like RING) until the next note, which it glides into.
         const slide = this.rollDiv[ch] === 0 && slideFlag;
@@ -556,14 +564,7 @@ export class Engine {
         this.gateAt[ch] = -1;
         if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
         this.sliding[ch] = slide ? 1 : 0;
-        const roll = drumRoll ? this.rollDiv[ch] : this.stepRoll[s];
-        if (roll > 1) {
-          this.rollLeft[ch] = roll - 1;
-          this.rollEvery[ch] = stepLen / roll;
-          this.rollAt[ch] = stepLen / roll;
-          this.rollNote[ch] = this.stepNote[s];
-          this.rollVel[ch] = vel;
-        }
+        if (drumRoll) this.startRollRun(ch, pat, idx, len, vel);
       }
       this.skipStep[ch] = -1;
       this.currentStep[ch] = idx;
@@ -602,6 +603,8 @@ export class Engine {
       const p = this.songPatterns[row * NUM_CHANNELS + ch];
       this.pendingPattern[ch] = -1;
       this.position[ch] = 0;
+      this.runLeft[ch] = 0;
+      this.rollLeft[ch] = 0;
       if (p < 0) {
         if (!this.songOff[ch] && this.gateSteps[ch] > 0) this.releaseGate(ch);
         this.songOff[ch] = 1;
@@ -655,15 +658,47 @@ export class Engine {
     this.kickHit(ch);
   }
 
-  /** One ROLL repeat: re-strike the step's note (same velocity), then schedule the next. */
+  /**
+   * A ROLL run: the consecutive ROLL steps from here (to the pattern's end) roll as one, at
+   * ROLL RATE hits per step from the start of the first step to the end of the last, evenly
+   * (straight through swing). Velocity ramps hit by hit from the first step's to the last's.
+   * Forced ROLL (PLAY) rolls each hit on its own, at its own dynamic.
+   */
+  private startRollRun(ch: number, pat: number, idx: number, len: number, vel: number): void {
+    let steps = 1;
+    let last = vel;
+    if (this.forceSlide[ch] === 0) {
+      for (let i = idx + 1; i < len; i++) {
+        const s = pat * MAX_STEPS + i;
+        if (this.stepActive[s] !== 1 || this.stepSlide[s] !== 1) break;
+        steps++;
+        last = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
+      }
+    }
+    const hits = steps * this.rollDiv[ch];
+    this.runLeft[ch] = steps - 1;
+    this.rollLeft[ch] = hits - 1;
+    this.rollHits[ch] = hits;
+    this.rollIndex[ch] = 0;
+    this.rollEvery[ch] = ((60 / this.bpm / 4) * this.sampleRate) / this.rollDiv[ch];
+    this.rollAt[ch] = this.rollEvery[ch];
+    this.rollNote[ch] = this.stepNote[pat * MAX_STEPS + idx];
+    this.rollVel[ch] = vel;
+    this.rollVelEnd[ch] = last;
+  }
+
+  /** One ROLL repeat: re-strike the run's note (on its velocity ramp), then schedule the next. */
   private rollHit(ch: number): void {
     const inst = this.current[ch];
     this.rollLeft[ch]--;
     this.rollAt[ch] += this.rollEvery[ch];
+    const k = ++this.rollIndex[ch];
     if (!inst) return;
     const note = this.rollNote[ch];
     const intervals = chordVoicing(this.chord[ch], this.notes[ch]);
-    const vel = dynVelocity(this.rollVel[ch], this.dynDepth[ch]);
+    const v0 = this.rollVel[ch];
+    const ramp = this.rollHits[ch] > 1 ? k / (this.rollHits[ch] - 1) : 0;
+    const vel = dynVelocity(v0 + (this.rollVelEnd[ch] - v0) * ramp, this.dynDepth[ch]);
     for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], vel, note, this.ringing[ch] === 1);
     this.kickHit(ch);
   }
@@ -869,7 +904,6 @@ export class Engine {
     this.stepRing[s] = 0;
     this.stepRest[s] = 0;
     this.stepSlide[s] = 0;
-    this.stepRoll[s] = 1;
     this.stepGate[s] = 1;
     // The note already sounded now; don't play it again when that step comes round.
     if (isNext) this.skipStep[ch] = index;
@@ -1119,7 +1153,6 @@ export class Engine {
     this.stepRing[s] = step.ring ? 1 : 0;
     this.stepRest[s] = step.rest && !step.active ? 1 : 0;
     this.stepSlide[s] = step.slide && step.active ? 1 : 0;
-    this.stepRoll[s] = Math.max(1, Math.min(MAX_ROLL, Math.round(step.roll ?? 1)));
     this.stepGate[s] = Math.max(1, Math.min(MAX_STEPS, Math.round(step.gate || 1)));
     const base = s * LOCK_SLOTS;
     this.locks.fill(NaN, base, base + LOCK_SLOTS);

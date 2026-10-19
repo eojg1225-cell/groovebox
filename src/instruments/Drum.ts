@@ -37,9 +37,12 @@ const ATTACK = { min: 0.0005, max: 2, defaultValue: 0.0005, unit: 'S', curve: 'e
  * ROLL DIV: hits per step of a ROLL step (the SLIDE button is ROLL on drum tracks), named
  * as note values at 16th-note steps.
  */
+/** ROLL RATE: hits per step (1:n) of a ROLL run (ids 'rolldiv'; before v30 the list began at 1:2). */
 export const ROLL_DIVS = [
-  { name: '1/32', hits: 2 }, { name: '1/32T', hits: 3 }, { name: '1/64', hits: 4 }, { name: '1/64T', hits: 6 }, { name: '1/128', hits: 8 },
+  { name: '1:1', hits: 1 }, { name: '1:2', hits: 2 }, { name: '1:3', hits: 3 }, { name: '1:4', hits: 4 }, { name: '1:6', hits: 6 }, { name: '1:8', hits: 8 },
 ] as const;
+/** ROLL RATE 1:4: a plain ROLL sounds like a roll, not a double. */
+export const DEFAULT_ROLL_RATE = 3;
 
 /** Every drum parameter; each drum type exposes a subset with its own defaults. */
 const ALL: Record<string, ParamSpec> = Object.fromEntries(([
@@ -83,7 +86,7 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'drive', name: 'DRIVE', min: 1, max: 200, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // ROLL DIV: how fast a ROLL step repeats (read by the engine; the voice ignores it).
-  choice('rolldiv', 'ROLL DIV', ROLL_DIVS.map((r) => r.name), 0),
+  choice('rolldiv', 'ROLL RATE', ROLL_DIVS.map((r) => r.name), DEFAULT_ROLL_RATE),
   midFreq(1000),
 ] as ParamSpec[]).map((p) => [p.id, p]));
 

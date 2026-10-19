@@ -44,7 +44,7 @@ export const MODES = [
 /** Function row: groups of [id, label] (labels may contain <small> lines). */
 export const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
-  [['len', '16<small>STEPS</small>'], ['steppage', '1-16<small>VIEW</small>'], ['clear', 'CLEAR<small>HOLD</small>'], ['copy', 'COPY<small>HOLD</small>']],
+  [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['clear', 'CLEAR<small>HOLD</small>'], ['copy', 'COPY<small>HOLD</small>']],
   [['oct-', 'OCT −'], ['oct+', 'OCT +']],
   [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],
 ];
@@ -66,6 +66,11 @@ export class Panel implements ControlSurface {
   private readonly masterKnobs = new Map<string, Knob>();
   private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
+
+  private stripSlide = false;
+  private readonly stepIds = new Map<HTMLElement, string>();
+  /** Pointer id -> the step it is pressing now (it may have slid on from where it went down). */
+  private readonly stripPointers = new Map<number, string>();
 
   constructor(host: HTMLElement, cfg: PanelConfig) {
     const root = document.createElement('div');
@@ -145,7 +150,7 @@ export class Panel implements ControlSurface {
       led.className = 'led';
       leds.appendChild(led);
       this.leds.push(led);
-      const b = this.makeButton(`step${i}`, String(i), 'step');
+      const b = this.makeStep(`step${i}`, String(i));
       if ((i - 1) % 4 === 0) b.classList.add('beat');
       steps.appendChild(b);
     }
@@ -263,6 +268,50 @@ export class Panel implements ControlSurface {
     if (this.disabled.has(id) && pressed) return;
     if (pressed) this.buttons.get(id)?.classList.add('down');
     this.emitter.emit({ type: 'button', id, pressed });
+  }
+
+  /** Sliding along the strip presses each step in turn (paint strokes); set by the app. */
+  setStripSlide(on: boolean): void {
+    this.stripSlide = on;
+  }
+
+  /**
+   * A strip button. With strip sliding on, a finger (or the mouse) moving onto another step
+   * presses that one and then releases the one before, as a finger rolled along hardware
+   * buttons would.
+   */
+  private makeStep(id: string, label: string): HTMLElement {
+    const b = document.createElement('div');
+    b.className = 'step';
+    b.innerHTML = label;
+    b.setAttribute('role', 'button');
+    this.stepIds.set(b, id);
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      b.setPointerCapture(e.pointerId);
+      this.stripPointers.set(e.pointerId, id);
+      this.press(id, true);
+    });
+    b.addEventListener('pointermove', (e) => {
+      const cur = this.stripPointers.get(e.pointerId);
+      if (!cur || !this.stripSlide) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('.step');
+      const next = el ? this.stepIds.get(el as HTMLElement) : undefined;
+      if (!next || next === cur || [...this.stripPointers.values()].includes(next)) return;
+      this.stripPointers.set(e.pointerId, next);
+      this.press(next, true);
+      this.press(cur, false);
+    });
+    const release = (e: PointerEvent) => {
+      const cur = this.stripPointers.get(e.pointerId);
+      if (!cur) return;
+      this.stripPointers.delete(e.pointerId);
+      this.press(cur, false);
+    };
+    b.addEventListener('pointerup', release);
+    b.addEventListener('pointercancel', release);
+    this.buttons.set(id, b);
+    return b;
   }
 
   private makeButton(id: string, label: string, cls: string): HTMLElement {

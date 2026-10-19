@@ -8,13 +8,19 @@
  * because the rest of the format changed.
  */
 import {
-  MAX_ROLL, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS,
+  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS,
   type ChannelState, type Project, type SoundKind,
 } from './project';
 import { applyPreset, defaultSend, liveDefaults, createDefaultProject } from './defaultProject';
 import { PAD_DEFAULT_ENVELOPE, PAD_ENVELOPE_V26 } from '../instruments/Synth';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, mirrorOsc2, pageParams, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, isDrum, mirrorOsc2, pageParams, presetSound } from '../instruments/registry';
+import { ROLL_DIVS } from '../instruments/Drum';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
+
+/** v30: ROLL DIV 1/32 ... 1/128 became ROLL RATE 1:1 ... 1:8 (one more option in front). */
+function rollRateV30(v: number): number {
+  return Math.min(ROLL_DIVS.length - 1, Math.round(v) + 1);
+}
 
 /** Parameters TIMBRE took over in v26 (they were the type's own before). */
 const MORPHED_V26: Partial<Record<SoundKind, readonly string[]>> = {
@@ -140,7 +146,6 @@ export function toStored(p: Project): StoredProject {
           if (s.accent) out.a = 1;
           if (s.ring) out.r = 1;
           if (s.slide) out.s = 1;
-          if (s.roll && s.roll > 1) out.k = s.roll;
           if (s.locks && Object.keys(s.locks).length) out.l = { ...s.locks };
           return [out];
         }),
@@ -192,7 +197,7 @@ function readSteps(pattern: Obj): ReadStep[] {
       accent: compact ? s.a === 1 : s.accent === true,
       ring: compact ? s.r === 1 : s.ring === true,
       slide: compact ? s.s === 1 : s.slide === true,
-      roll: Math.round(num(compact ? s.k : s.roll, 1, 1, MAX_ROLL)),
+      roll: Math.round(num(compact ? s.k : s.roll, 1, 1, 8)),
       rest: false,
       locks: Object.keys(locks).length ? locks : undefined,
     });
@@ -229,6 +234,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       if (version < 13 && values.glide !== undefined) values.glide = Math.max(values.glide, 0.06);
       // Before v14 the synths' OSC 2 shared OSC 1's SUSTAIN / RELEASE.
       mirrorOsc2(values);
+      if (version < 30 && values.rolldiv !== undefined) values.rolldiv = rollRateV30(values.rolldiv);
       // v19: a fifth TIMBRE sound per type; older positions move so each sound stays itself.
       if (version < 19 && values.timbre !== undefined) values.timbre = remapTimbreV18(k, values.timbre);
       // v23: PERC's metal is tuned as an interval above the tone instead of in Hz.
@@ -373,12 +379,14 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       step.active = true;
       if (s.ring) step.ring = true;
       step.slide = s.slide;
-      if (s.roll > 1) step.roll = s.roll;
+      // v30: a drum step's own hit count (2-8 per step) became the ROLL flag (ROLL RATE).
+      if (s.roll > 1 && isDrum(ch.instrument)) step.slide = true;
       step.note = s.note;
       step.velocity = s.vel;
       step.gate = s.gate;
       step.accent = s.accent;
       if (s.locks) step.locks = s.locks;
+      if (version < 30 && step.locks?.rolldiv !== undefined) step.locks.rolldiv = rollRateV30(step.locks.rolldiv);
     }
   }
   // Before v12 SLIDE was marked on the note slid into; now on the note that slides.
