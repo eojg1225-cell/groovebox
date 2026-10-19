@@ -36,8 +36,11 @@ const OCTAVES = ['-2', '-1', '0', '+1', '+2'] as const;
 const MAX_VOICES = 6;
 /** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
-/** A SLIDE note's envelopes hold at least this level until the slide ends (added sustain). */
-const SLIDE_SUSTAIN = 0.75;
+/**
+ * A slide is one held note: from a SLIDE note to the note it lands on, the envelopes hold at
+ * full level (no decay) until that last note is released.
+ */
+const SLIDE_SUSTAIN = 1;
 /**
  * 3 CARRIER modulation index from FM (0..1) on a DX7-like level curve: like an operator's
  * OUTPUT LEVEL (FM 1 = 99), about 6 dB per 8 levels, so most of the knob is subtle (FM 0.6
@@ -206,7 +209,7 @@ class Voice {
   velocity = 1;
   /** Pitch glide coefficient in use (1 = on pitch; the SLIDE time while sliding). */
   glide = 1;
-  /** A SLIDE note: its envelopes hold up (SLIDE_SUSTAIN) until the note it slides into. */
+  /** Part of a slide: its envelopes hold at full level (SLIDE_SUSTAIN) until released. */
   hold = false;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
   /** 3 CARRIER: carriers 2 / 3 phases and the modulator's last two outputs (feedback). */
@@ -290,9 +293,8 @@ export class Synth implements Instrument {
         s.targetFreq = freq;
         s.glide = this.slideCoeff;
         s.velocity = velocity;
-        // The slide has landed: unless this note slides on too, decay back to SUSTAIN.
-        s.hold = slide;
-        if (!slide) for (let k = 0; k < 2; k++) if (s.stage[k] === STAGE_SUSTAIN) s.stage[k] = STAGE_DECAY;
+        // The slide has landed: the note stays held at full level until it is released.
+        s.hold = true;
         return;
       }
     }

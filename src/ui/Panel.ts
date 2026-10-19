@@ -103,8 +103,8 @@ export class Panel implements ControlSurface {
       // MUTE and SOLO side by side under each channel.
       const pair = document.createElement('div');
       pair.className = 'mute-solo';
-      pair.appendChild(this.makeButton(`mute${ch}`, 'MUTE', 'btn mute'));
-      pair.appendChild(this.makeButton(`solo${ch}`, 'SOLO', 'btn solo'));
+      pair.appendChild(this.makeButton(`mute${ch}`, 'M', 'btn mute'));
+      pair.appendChild(this.makeButton(`solo${ch}`, 'S', 'btn solo'));
       q('.mutes').appendChild(pair);
     }
     for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));

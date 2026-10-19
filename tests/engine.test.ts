@@ -1192,7 +1192,7 @@ describe('slides and rolls', () => {
     expect(Math.abs(crossings(slow, 0.05) - crossings(fast, 0.05))).toBeLessThanOrEqual(1);
   });
 
-  it('a SLIDE note holds its envelopes up (added sustain), then decays after landing', () => {
+  it('a slide is one held note: full level through the slide and the note it lands on, until released', () => {
     const stab = () => {
       const s = bass();
       s.setParam('decay', 0.05);
@@ -1212,7 +1212,9 @@ describe('slides and rolls', () => {
     held.noteOn(45, 1, 45, false, -1, true);
     expect(level(plain, 0.3)).toBeLessThan(0.02);
     expect(level(held, 0.3)).toBeGreaterThan(0.2);
-    held.noteOn(52, 1, 52, false, 45); // lands, not sliding on
+    held.noteOn(52, 1, 52, false, 45); // lands, not sliding on: still held
+    expect(level(held, 0.4)).toBeGreaterThan(0.2);
+    held.noteOff(52);
     expect(level(held, 0.4)).toBeLessThan(0.02);
   });
 

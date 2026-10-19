@@ -110,4 +110,6 @@ Keyboard: Space play/stop · Z FUNC (hold) · 1-8 select channel · Shift+1-8 mu
 
 **Live recording and latency:** notes played live while recording land on the step you heard, not the one the engine was on when your tap arrived. The browser's reported output latency (shown as OUT …MS) plus a small allowance for touch is taken off, so recording works with the delay a phone or tablet adds (also Bluetooth, if the device reports it).
 
-**MUTE / SOLO:** each track has MUTE and SOLO under its button (keyboard Shift+1-8 / Alt+1-8). Any SOLO on mutes every track that is not soloed; SOLO is a performance switch and is not saved. **LEAD** plays up to 3 voices, so a note's release rings under the next one.
+**MUTE / SOLO:** each track has MUTE (M) and SOLO (S) under its button (keyboard Shift+1-8 / Alt+1-8). Any SOLO on mutes every track that is not soloed; SOLO is a performance switch and is not saved. **LEAD** plays up to 3 voices, so a note's release rings under the next one.
+
+**SLIDE** on the synths is one held note: from the SLIDE note through the note it lands on, the level stays full (no decay) until that last note ends.
