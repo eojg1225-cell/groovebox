@@ -1412,6 +1412,8 @@ export class App {
 
   /** Paint flags onto the note on a step. */
   private paintStep(index: number, ids: Iterable<string>): void {
+    // A step a note is tied over: the flag goes on that note.
+    if (!this.pattern.steps[index].active) index = coveringNote(this.pattern.steps, this.pattern.length, index)?.[0] ?? index;
     const step = this.pattern.steps[index];
     if (!step.active) {
       this.flash('NO NOTE ON THIS STEP');
@@ -2106,17 +2108,24 @@ export class App {
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding);
         this.panel.setButtonFlag(id, 'cursor', note === cursorNote);
-        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie']) this.panel.setButtonFlag(id, f, false);
       }
     } else {
       // RING or SLIDE / ROLL armed (or painting): every hit is dim (like a ghost note) and
       // the ones with that flag light up fully; the other flags are not shown.
       const view = this.ring ? 'ring' : this.slideArm ? 'slide' : null;
+      // Pitched tracks: steps a note is tied over show as a line through the strip, with
+      // that note's flags.
+      const pitched = !stepsOnStrip(c.instrument);
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
         const index = page * 16 + i;
         const off = index >= pattern.length;
-        const step = pattern.steps[index];
+        const own = pattern.steps[index];
+        const cover = pitched && !off && !own.active ? coveringNote(pattern.steps, pattern.length, index) : null;
+        const tie = !!cover && cover[1] > 0;
+        const step = tie ? pattern.steps[cover![0]] : own;
+        this.panel.setButtonFlag(id, 'tie', tie);
         const d = step.active && !off ? stepDynamic(step) : null;
         const flagged = d !== null && (view === 'ring' ? !!step.ring : view === 'slide' ? !!step.slide : true);
         const roll = d !== null && step.slide && isDrum(c.instrument) ? this.rollHits(c) : 0;
@@ -2129,6 +2138,7 @@ export class App {
         this.panel.setButtonFlag(id, 'ring', !view && d !== null && !!step.ring);
         this.panel.setButtonFlag(id, 'rest', !off && !step.active && !!step.rest);
         for (const f of ['black', 'cursor']) this.panel.setButtonFlag(id, f, false);
+        if (tie) this.panel.setButtonText(id, String(index + 1));
       }
     }
 

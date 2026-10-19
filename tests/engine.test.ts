@@ -259,6 +259,25 @@ describe('sequencer', () => {
     near(onsets(rest), [96000 + 12000 - first.length]);
   });
 
+  it('a held note changing dynamic (slide ghost -> accent) moves its level smoothly', () => {
+    const p = kickProject([]);
+    const c = p.channels[4];
+    c.sounds.bass = { ...c.sounds.bass!, drive: 1, crush: 0 };
+    const a = c.patterns[0].steps[0];
+    Object.assign(a, { active: true, note: 45, slide: true, velocity: DYNAMIC_VELOCITY.ghost });
+    Object.assign(c.patterns[0].steps[1], { active: true, note: 45, accent: true, velocity: DYNAMIC_VELOCITY.accent });
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const { l } = render(e, 0.25);
+    // The biggest sample-to-sample step around the change vs. just before it.
+    const jump = (from: number, to: number) => {
+      let m = 0;
+      for (let i = from + 1; i < to; i++) m = Math.max(m, Math.abs(l[i] - l[i - 1]));
+      return m;
+    };
+    expect(jump(6000, 6200)).toBeLessThan(jump(5000, 5990) * 2.5);
+  });
+
   describe('pattern patches', () => {
     const specs = INSTRUMENTS.bass.params;
     const slot = (id: string) => specs.findIndex((q) => q.id === id);

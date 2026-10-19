@@ -32,6 +32,8 @@ const STEP_SLOTS = NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS;
 /** Shortest patch glide (an immediate pattern switch), and the glide back from a cancelled switch, s. */
 const MIN_PATCH_GLIDE = 0.05;
 const CANCEL_PATCH_GLIDE = 0.2;
+/** The hit tone (velocity colour) moves to a new hit's cutoff over about this long, s: no click on legato / tied notes. */
+const TONE_SMOOTH = 0.003;
 
 /**
  * Per-hit tone: the channel output passes a gentle 12 dB low-pass whose cutoff follows the
@@ -141,6 +143,9 @@ export class Engine {
   private readonly pan: Smoother[] = [];
   private readonly toneL: Svf[] = [];
   private readonly toneR: Svf[] = [];
+  /** The hit tone's cutoff now and where it is going (Hz). */
+  private readonly toneNow = new Float32Array(NUM_CHANNELS).fill(hitToneCutoff(1));
+  private readonly toneTarget = new Float32Array(NUM_CHANNELS).fill(hitToneCutoff(1));
   private readonly volumeValue = new Float32Array(NUM_CHANNELS).fill(0.8);
   /** The track type's output trim (InstrumentEntry.gain), applied with the volume. */
   private readonly typeGain = new Float32Array(NUM_CHANNELS).fill(1);
@@ -349,6 +354,17 @@ export class Engine {
   private applyParam(ch: number, inst: Instrument, id: string, value: number): void {
     if (id === 'midfreq') this.cuts[ch].setFreq(value);
     else inst.setParam(id, value);
+  }
+
+  /** The hit tone glides (in octaves) towards the latest hit's cutoff. */
+  private moveTone(ch: number, n: number): void {
+    const to = this.toneTarget[ch];
+    const k = 1 - Math.exp(-n / (TONE_SMOOTH * this.sampleRate));
+    let fc = this.toneNow[ch] * Math.pow(to / this.toneNow[ch], k);
+    if (Math.abs(fc - to) < to * 0.002) fc = to;
+    this.toneNow[ch] = fc;
+    this.toneL[ch].setup(fc, 0, this.sampleRate);
+    this.toneR[ch].setup(fc, 0, this.sampleRate);
   }
 
   /** Tempo-synced onboard effects (PLUCK's delay) follow the tempo. */
@@ -684,9 +700,7 @@ export class Engine {
     if (!inst) return;
     velocity = dynVelocity(velocity, this.dynDepth[ch]);
     if (this.gateSteps[ch] > 0 && slideFrom < 0) this.releaseGate(ch);
-    const fc = hitToneCutoff(velocity);
-    this.toneL[ch].setup(fc, 0, this.sampleRate);
-    this.toneR[ch].setup(fc, 0, this.sampleRate);
+    this.toneTarget[ch] = hitToneCutoff(velocity);
     if (this.arpMode[ch] > 0) {
       // ARP: start stepping through the chord from its first note.
       this.stopArp(ch);
@@ -1005,6 +1019,7 @@ export class Engine {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const inst = this.current[ch];
       if (!inst) continue;
+      if (this.toneNow[ch] !== this.toneTarget[ch]) this.moveTone(ch, n);
       sl.fill(0, 0, n);
       sr.fill(0, 0, n);
       const lfo = lfoActive && this.lfoOn[ch] === 1;

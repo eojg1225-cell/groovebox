@@ -41,6 +41,8 @@ const SLIDE_SECONDS = 0.06;
  * full level (no decay) until that last note is released.
  */
 const SLIDE_SUSTAIN = 1;
+/** A held note's level follows a new velocity (slide, mono retrigger) over about this long, s. */
+const VEL_SMOOTH = 0.004;
 /**
  * 3 CARRIER modulation index from FM (0..1) on a DX7-like level curve: like an operator's
  * OUTPUT LEVEL (FM 1 = 99), about 6 dB per 8 levels, so most of the knob is subtle (FM 0.6
@@ -207,6 +209,8 @@ class Voice {
   freq = 110;
   targetFreq = 110;
   velocity = 1;
+  /** The level in use: follows velocity over VEL_SMOOTH (no click when a held note changes dynamic). */
+  vel = 1;
   /** Pitch glide coefficient in use (1 = on pitch; the SLIDE time while sliding). */
   glide = 1;
   /** Part of a slide: its envelopes hold at full level (SLIDE_SUSTAIN) until released. */
@@ -228,6 +232,7 @@ class Voice {
 
 export class Synth implements Instrument {
   private readonly sr: number;
+  private readonly velK: number;
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
   /** 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three carriers). */
@@ -263,6 +268,7 @@ export class Synth implements Instrument {
   /** driveRise: the type's DRIVE level compensation curve (driveComp.ts). */
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>, private readonly driveRise?: readonly number[]) {
     this.sr = sampleRate;
+    this.velK = 1 - Math.exp(-1 / (VEL_SMOOTH * sampleRate));
     this.duckAttackInc = 1 / (DUCK_ATTACK * sampleRate);
     if (fixed.onboard) {
       this.delay = new Delay(sampleRate, ONBOARD_DELAY_SECONDS);
@@ -313,6 +319,7 @@ export class Synth implements Instrument {
     v.hold = slide;
     v.velocity = velocity;
     if (!sounding(v)) {
+      v.vel = velocity;
       for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
       v.fb1 = v.fb2 = 0;
       v.cf1 = v.cf2 = 0;
@@ -494,6 +501,7 @@ export class Synth implements Instrument {
 
   private renderVoices(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     const sr = this.sr;
+    const velK = this.velK;
     const det = Math.pow(2, (this.detune * 0.35) / 12); // up to ~35 cents apart
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const count = this.voiceCount;
@@ -613,7 +621,8 @@ export class Synth implements Instrument {
         }
         v.filter.process(mix * 0.5);
 
-        let out = v.filter.low * v.velocity * this.level;
+        v.vel += (v.velocity - v.vel) * velK;
+        let out = v.filter.low * v.vel * this.level;
         if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * this.driveComp;
         outL[i] += out;
         outR[i] += out;
