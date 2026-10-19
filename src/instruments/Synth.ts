@@ -247,7 +247,7 @@ export class Synth implements Instrument {
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
   private filterMod = 0;
   private drive = 1; private crush = 0; private level = 0.7; private driveComp = 1;
-  private holdCount = 0; private held = 0;
+  private crushPhase = 1; private held = 0;
   /** Per element (OSC 1, OSC 2). */
   private readonly attackInc = new Float64Array([1, 1]);
   private readonly decayMul = new Float64Array(2);
@@ -486,14 +486,16 @@ export class Synth implements Instrument {
 
   private renderCrush(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     if (this.crush <= 0) return;
-    const hold = 1 + Math.floor(this.crush * this.crush * 24);
+    // Sample-rate reduction: a new sample every 1 + crush^2 x 24 samples, on a fractional
+    // clock so the rate falls smoothly (whole-sample holds jumped 48 -> 24 kHz at 0.2).
+    const step = 1 / (1 + this.crush * this.crush * 24);
     const levels = Math.pow(2, 16 - this.crush * 12);
     for (let i = start; i < end; i++) {
-      if (this.holdCount <= 0) {
+      this.crushPhase += step;
+      if (this.crushPhase >= 1) {
+        this.crushPhase -= 1;
         this.held = Math.round(outL[i] * levels) / levels;
-        this.holdCount = hold;
       }
-      this.holdCount--;
       outL[i] = this.held;
       outR[i] = this.held;
     }

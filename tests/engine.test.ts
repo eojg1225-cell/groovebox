@@ -278,6 +278,26 @@ describe('sequencer', () => {
     expect(jump(6000, 6200)).toBeLessThan(jump(5000, 5990) * 2.5);
   });
 
+  it('CRUSH lowers the sample rate smoothly (no jump at a whole-sample hold)', () => {
+    const hat = (crush: number) => {
+      const p = kickProject([]);
+      p.channels[2].sounds.hat = { ...p.channels[2].sounds.hat!, crush };
+      p.channels[2].patterns[0].steps[0].active = true;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return render(e, 0.1).l;
+    };
+    const clean = hat(0);
+    const err = (c: number) => {
+      const x = hat(c);
+      let d = 0, n = 0;
+      for (let i = 0; i < x.length; i++) { d += (x[i] - clean[i]) ** 2; n += clean[i] ** 2; }
+      return Math.sqrt(d / n);
+    };
+    const errs = [0.17, 0.19, 0.2, 0.21, 0.23].map(err);
+    for (let i = 1; i < errs.length; i++) expect(errs[i] / errs[i - 1]).toBeLessThan(1.6);
+  });
+
   describe('pattern patches', () => {
     const specs = INSTRUMENTS.bass.params;
     const slot = (id: string) => specs.findIndex((q) => q.id === id);

@@ -232,7 +232,7 @@ export class Drum implements Instrument {
   private impulse = false;
   private fCounter = 0;
   private velocity = 1;
-  private holdCount = 0; private held = 0;
+  private crushPhase = 1; private held = 0;
 
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], private readonly voice: DrumVoice) {
     this.sr = sampleRate;
@@ -380,7 +380,9 @@ export class Drum implements Instrument {
       return;
     }
     const dtBase = 1 / this.sr;
-    const hold = 1 + Math.floor(this.crush * this.crush * 24);
+    // Sample-rate reduction: a new sample every 1 + crush^2 x 24 samples, on a fractional
+    // clock so the rate falls smoothly (whole-sample holds jumped 48 -> 24 kHz at 0.2).
+    const step = 1 / (1 + this.crush * this.crush * 24);
     const levels = Math.pow(2, 16 - this.crush * 12);
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const tPitch = this.tPitch * this.tune * this.pitchMod;
@@ -508,11 +510,11 @@ export class Drum implements Instrument {
       }
       if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * 0.8 * this.driveComp;
       if (this.crush > 0) {
-        if (this.holdCount <= 0) {
+        this.crushPhase += step;
+        if (this.crushPhase >= 1) {
+          this.crushPhase -= 1;
           this.held = Math.round(out * levels) / levels;
-          this.holdCount = hold;
         }
-        this.holdCount--;
         out = this.held;
       }
       if (this.fadeLeft > 0) {
