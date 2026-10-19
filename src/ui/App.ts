@@ -62,6 +62,9 @@ import type { DesignView, LaneCell, LiveView, SongView } from './views';
 export type Mode = 'record' | 'play' | 'design' | 'song';
 
 
+/** PLAY's pages: SOUND (live knobs) and MIX. */
+const PLAY_PAGES = 2;
+
 /** What a drum-lane paint stroke does to each step it reaches. */
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
 /** Hold ACCENT / GHOST / RING this long (keyboard tracks, RECORD) to paint them onto steps. */
@@ -141,6 +144,8 @@ export class App {
   selected = 0;
   mode: Mode = 'record';
   designPage = 0;
+  /** PLAY's page: 0 = SOUND (the live knobs), 1 = MIX (as in DESIGN). PROJECT is DESIGN only. */
+  playPage = 0;
   /**
    * RECORD: RING / SLIDE / ACCENT / GHOST tapped on = placing that flag: the strip shows the steps and a tap
    * puts it on / takes it off a note (drum lanes: new hits get it too); tapped again = back.
@@ -707,6 +712,7 @@ export class App {
       const t = pages[this.designPage].targets();
       return Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null);
     }
+    if (this.playMix) return this.mixTargets();
     // Live knobs: column = track, rows = live knob 1 / 2 (FUNC: 3 / 4).
     const out: (KnobTarget | null)[] = [];
     for (let row = 0; row < 2; row++) {
@@ -817,6 +823,7 @@ export class App {
       this.send({ type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: this.songRow });
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
+      this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
       // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY.
       if (this.mode !== 'record') { this.ring = false; this.slideArm = false; this.dynamic = 'normal'; }
       if (this.mode !== 'play') {
@@ -849,7 +856,8 @@ export class App {
       this.selectPattern(this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
     } else if ((m = /^dpage(\d)$/.exec(id))) {
       const page = Number(m[1]);
-      this.designPage = page;
+      if (this.mode === 'play') this.playPage = page;
+      else this.designPage = page;
       this.fxView = 0; // back from a bus to the DESIGN pages
       this.touchedKnob = -1;
     } else if ((m = /^fx([1-4])$/.exec(id))) {
@@ -1642,12 +1650,15 @@ export class App {
         this.panel.setButtonFlag(id, 'pattern', false);
       }
     }
-    const pages = this.mode === 'design' ? this.designPages() : [];
+    // DESIGN: SOUND / MIX / PROJECT. PLAY: SOUND (live knobs) / MIX; PROJECT shown but off.
+    const names = this.pageNames();
+    const current = this.mode === 'play' ? this.playPage : this.designPage;
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
-      const page = pages[i];
-      this.panel.setButtonText(`dpage${i}`, page ? page.name : '');
-      this.panel.setButtonEnabled(`dpage${i}`, !!page);
-      this.panel.setButtonLit(`dpage${i}`, !!page && i === this.designPage && this.fxView === 0);
+      const name = names[i];
+      const usable = !!name && (this.mode === 'design' || i < PLAY_PAGES);
+      this.panel.setButtonText(`dpage${i}`, name ?? '');
+      this.panel.setButtonEnabled(`dpage${i}`, usable);
+      this.panel.setButtonLit(`dpage${i}`, usable && i === current && this.fxView === 0);
     }
     this.panel.setButtonLit('clear', this.clearHeld);
     this.panel.setButtonLit('reset', this.glides.size > 0);
@@ -1959,9 +1970,20 @@ export class App {
     };
   }
 
+  /** The page buttons' names in this mode (none in RECORD / SONG). */
+  private pageNames(): string[] {
+    return this.mode === 'design' || this.mode === 'play' ? this.designPages().map((p) => p.name) : [];
+  }
+
+  /** PLAY with its MIX page open (and no bus open): the knobs and screen are the MIX page. */
+  get playMix(): boolean {
+    return this.mode === 'play' && this.playPage === 1 && this.fxView === 0;
+  }
+
   designView(now: number, audio: AudioInfo): DesignView {
     const c = this.channel;
-    const pages = this.designPages();
+    const pages = this.designPages().slice(0, this.mode === 'play' ? PLAY_PAGES : undefined);
+    const current = this.mode === 'play' ? this.playPage : this.designPage;
     const f = this.footer(audio);
     const liveName = (id: string) => this.liveName(c, id);
     return {
@@ -1969,8 +1991,8 @@ export class App {
       kindLabel: c.instrument !== 'none' && c.sounds[c.instrument]?.timbre !== undefined
         ? timbreName(c.instrument, c.sounds[c.instrument]!.timbre)
         : this.presetName(c),
-      pages: pages.map((p, i) => (this.func && i === this.designPage ? `${p.name} FN` : p.name)),
-      page: this.designPage,
+      pages: pages.map((p, i) => (this.func && i === current ? `${p.name} FN` : p.name)),
+      page: current,
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
       liveLabel: this.func

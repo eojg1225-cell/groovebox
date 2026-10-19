@@ -113,3 +113,5 @@ Keyboard: Space play/stop · Z FUNC (hold) · 1-8 select channel · Shift+1-8 mu
 **MUTE / SOLO:** each track has MUTE (M) and SOLO (S) under its button (keyboard Shift+1-8 / Alt+1-8). Any SOLO on mutes every track that is not soloed; SOLO is a performance switch and is not saved. **LEAD** plays up to 3 voices, so a note's release rings under the next one.
 
 **SLIDE** on the synths is one held note: from the SLIDE note through the note it lands on, the level stays full (no decay) until that last note ends.
+
+**PLAY pages:** in PLAY the page buttons read SOUND and MIX. SOUND (where PLAY always starts) is the live knobs; MIX is the same MIX page as in DESIGN (VOLUME / PAN, with FUNC SEND / MID CUT), so you can ride the mix while performing. PROJECT stays in DESIGN.
