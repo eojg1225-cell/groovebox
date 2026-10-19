@@ -176,7 +176,13 @@ describe('instruments', () => {
     expect([INSTRUMENTS.pluck.layout[7], INSTRUMENTS.pluck.layout[15]]).toEqual(['track:chord', 'detune']);
     // Drums: no sound FUNC layer, only the track setup (PRESET, LIVE, MID FREQ).
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:')), k).toBe(true);
-    for (const k of ['pad', 'lead'] as const) expect(INSTRUMENTS[k].funcLayout.slice(1, 3), k).toEqual(['sustain', 'sustain2']);
+    // PAD / LEAD hold their notes: ATTACK / RELEASE on the page, DECAY / SUSTAIN on FUNC.
+    for (const k of ['pad', 'lead'] as const) {
+      const l = INSTRUMENTS[k].layout;
+      expect([l[1], l[9], l[2], l[10]], k).toEqual(['attack', 'release', 'attack2', 'release2']);
+      const f = INSTRUMENTS[k].funcLayout;
+      expect([f[1], f[9], f[2], f[10]], k).toEqual(['decay', 'sustain', 'decay2', 'sustain2']);
+    }
     for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) {
       expect(INSTRUMENTS[k].funcLayout, k).not.toContain('shape'); // TIMBRE's
     }
@@ -2591,5 +2597,30 @@ describe('MID CUT per track (MIX, FUNC) at the sound\'s MID FREQ', () => {
     const q = fromStored(stored)!;
     expect(q.sendWet[1]).toEqual([0.6, 0.1, 0.2, 0.3]);
     expect(q.sendWet[2]).toEqual([0, 0, 0.4, 0.7]);
+  });
+});
+
+describe('LEAD voices', () => {
+  it('plays 3 voices: a released note rings on under the next, a 4th steals the oldest', () => {
+    // Each note plays 2000 frames, then is released (long RELEASE); the last window is compared.
+    const lead = (notes: number[], voices = 3, firstVel = 1) => {
+      const s = new Synth(SR, LEAD_PARAMS, { ...LEAD_FIXED, voices });
+      const sound: Record<string, number> = { ...presetSound('lead', 0), sustain: 1, sustain2: 1, release: 2, release2: 2 };
+      for (const id in sound) s.setParam(id, sound[id]);
+      const l = new Float32Array(2000 * notes.length + 2000);
+      notes.forEach((n, i) => {
+        s.noteOn(n, i === 0 ? firstVel : 1, n, false);
+        s.render(l, new Float32Array(l.length), i * 2000, (i + 1) * 2000);
+        s.noteOff(n);
+      });
+      s.render(l, new Float32Array(l.length), notes.length * 2000, l.length);
+      return l.subarray(l.length - 1000);
+    };
+    const diff = (a: Float32Array, b: Float32Array) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0);
+    // 3 notes: the first two still ring under the third (unlike one voice).
+    expect(diff(lead([57, 60, 64]), lead([57, 60, 64], 1))).toBeGreaterThan(0.01);
+    // A 4th note takes the oldest voice: the first note no longer matters.
+    expect(diff(lead([57, 60, 64, 67]), lead([57, 60, 64, 67], 3, 0))).toBeLessThan(1e-6);
+    expect(diff(lead([57, 60, 64]), lead([57, 60, 64], 3, 0))).toBeGreaterThan(0.01);
   });
 });

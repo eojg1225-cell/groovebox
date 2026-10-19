@@ -160,13 +160,12 @@ export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
 export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: 3, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
-export const LEAD_FIXED = { voice: 1, sub: 0, unison: 0, algo: 1 };
+/** LEAD: 3 voices, so a note's release rings under the next one (and live chords work). */
+export const LEAD_FIXED = { voice: 0, voices: 3, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS, envlink: 1, onboard: 1 };
 
-/** The two elements' ATTACK / DECAY ids (on the SOUND page, see registry). */
-export const SYNTH_ELEMENTS = ['attack', 'decay', 'attack2', 'decay2'];
 /** SIDECHAIN: how fast a KICK hit pulls the level down (no click). */
 const DUCK_ATTACK = 0.003;
 /** PLUCK's onboard room and delay. */
@@ -232,6 +231,7 @@ export class Synth implements Instrument {
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35;
   private fmMod = 0; private fmEff = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
+  private polyLimit = MAX_VOICES; private voiceCount = MAX_VOICES;
   private cFeedback = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
@@ -279,7 +279,7 @@ export class Synth implements Instrument {
     if (slideFrom >= 0) {
       // Legato: the oldest still-held voice of that group glides here, envelopes untouched.
       let s: Voice | null = null;
-      const count = this.mono ? 1 : MAX_VOICES;
+      const count = this.voiceCount;
       for (let i = 0; i < count; i++) {
         const c = this.voices[i];
         if (c.group === slideFrom && held(c) && (!s || c.age < s.age)) s = c;
@@ -369,8 +369,9 @@ export class Synth implements Instrument {
       case 'octave': this.octave = Math.round(value) - 2; break;
       case 'voice':
         this.mono = Math.round(value) === 1;
-        if (this.mono) for (let i = 1; i < MAX_VOICES; i++) this.voices[i].stage.fill(STAGE_OFF);
+        this.updateVoiceCount();
         break;
+      case 'voices': this.polyLimit = Math.max(1, Math.min(MAX_VOICES, Math.round(value))); this.updateVoiceCount(); break;
       case 'glide':
         this.slideCoeff = value <= 0.0005 ? 1 : 1 - Math.exp(-1 / (value * sr));
         break;
@@ -493,7 +494,7 @@ export class Synth implements Instrument {
     const sr = this.sr;
     const det = Math.pow(2, (this.detune * 0.35) / 12); // up to ~35 cents apart
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
-    const count = this.mono ? 1 : MAX_VOICES;
+    const count = this.voiceCount;
     const fmod = this.filterMod === 0 ? 1 : Math.pow(2, this.filterMod);
     const uni = this.unison;
     if (uni > 0) {
@@ -644,10 +645,17 @@ export class Synth implements Instrument {
     }
   }
 
-  /** Free voice, else the oldest one. */
+  /** Voices in use: 1 (MONO), else the type's limit (PLUCK / PAD 6, LEAD 3); the rest fall silent. */
+  private updateVoiceCount(): void {
+    this.voiceCount = this.mono ? 1 : this.polyLimit;
+    for (let i = this.voiceCount; i < MAX_VOICES; i++) this.voices[i].stage.fill(STAGE_OFF);
+  }
+
+  /** Free voice, else the oldest one (of the voices in use). */
   private allocate(): Voice {
     let oldest = this.voices[0];
-    for (const v of this.voices) {
+    for (let i = 0; i < this.voiceCount; i++) {
+      const v = this.voices[i];
       if (!sounding(v)) return v;
       if (v.age < oldest.age) oldest = v;
     }

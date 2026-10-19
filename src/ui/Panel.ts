@@ -10,7 +10,7 @@
  *   [ step LEDs                                    ] [ PLAY ]
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
- * Control ids: mode:record|play|design, ch1..6, mute1..6, patA..C, savepatch,
+ * Control ids: mode:record|play|design, ch1..6, mute1..6, solo1..8, patA..C, savepatch,
  * saveproject, reset, dpage0..2, fx1..fx3 + fx4 (LFO), play, clear (held: CLEAR + step / channel),
  * copy (held: COPY + channel = same pattern slot there, COPY + FX 1-3 / LFO = pattern A-D),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
@@ -100,7 +100,12 @@ export class Panel implements ControlSurface {
     for (const m of MODES) q('.modes').appendChild(this.makeButton(`mode:${m.id}`, m.label, 'btn mode'));
     for (let ch = 1; ch <= cfg.channels; ch++) {
       q('.channels').appendChild(this.makeButton(`ch${ch}`, String(ch), 'btn ch'));
-      q('.mutes').appendChild(this.makeButton(`mute${ch}`, 'MUTE', 'btn mute'));
+      // MUTE and SOLO side by side under each channel.
+      const pair = document.createElement('div');
+      pair.className = 'mute-solo';
+      pair.appendChild(this.makeButton(`mute${ch}`, 'MUTE', 'btn mute'));
+      pair.appendChild(this.makeButton(`solo${ch}`, 'SOLO', 'btn solo'));
+      q('.mutes').appendChild(pair);
     }
     for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     q('.patterns').appendChild(this.makeButton('savepatch', 'SAVE<small>PATCH</small>', 'btn save'));
@@ -283,7 +288,7 @@ export class Panel implements ControlSurface {
   }
 
   /**
-   * Space: play. Z: FUNC (hold). 1-8: select channel, Shift+1-8: mute.
+   * Space: play. Z: FUNC (hold). 1-8: select channel, Shift+1-8: mute, Alt+1-8: solo.
    * Q..I: strip buttons 1-8, A..K: strip buttons 9-16.
    */
   private installKeyboard(): void {
@@ -292,7 +297,7 @@ export class Panel implements ControlSurface {
       if (e.code === 'Space') return 'play';
       if (e.code === 'KeyZ') return 'func';
       const digit = /^Digit([1-8])$/.exec(e.code);
-      if (digit) return e.shiftKey ? `mute${digit[1]}` : `ch${digit[1]}`;
+      if (digit) return e.shiftKey ? `mute${digit[1]}` : e.altKey ? `solo${digit[1]}` : `ch${digit[1]}`;
       const key = /^Key([A-Z])$/.exec(e.code);
       if (key) {
         const i = stepKeys.indexOf(key[1]);

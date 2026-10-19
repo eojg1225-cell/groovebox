@@ -12,7 +12,7 @@ import {
 } from './Drum';
 import {
   BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS, PLUCK_FIXED, PLUCK_PARAMS, PLUCK_PRESETS,
-  PAD_FIXED, PAD_PARAMS, PAD_PRESETS, SYNTH_ELEMENTS, Synth,
+  PAD_FIXED, PAD_PARAMS, PAD_PRESETS, Synth,
 } from './Synth';
 import { DRIVE_RISE } from './driveComp';
 
@@ -23,9 +23,9 @@ const ROW = PAGE_SLOTS / 2;
 /**
  * The SOUND page, the same frame on every track: the sound first, then DRIVE / CRUSH, then
  * the performance pair.
- * Synths: 1 TIMBRE / INT, 2 OSC 1 ATTACK / DECAY, 3 OSC 2 ATTACK / DECAY, 4 CUTOFF / RESO,
- * 5 FILTER ATTACK / DECAY, 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 `perform` (BASS SLIDE /
- * SUB, LEAD SLIDE / DETUNE, CHORD and PLUCK CHORD / DETUNE).
+ * PAD / LEAD: 1 TIMBRE / INT, 2 OSC 1 ATTACK / RELEASE, 3 OSC 2 ATTACK / RELEASE, 4 CUTOFF /
+ * RESO, 5 FILTER ATTACK / DECAY, 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 `perform` (LEAD
+ * SLIDE / DETUNE, PAD CHORD / DETUNE). BASS and PLUCK have their own pages (below).
  */
 export function soundPage(elements: readonly string[], perform: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;
@@ -96,13 +96,21 @@ const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
 const BASS_FUNC = funcPage([_, _, _, _, _, _, _, 'octave'], [_, _, _, _, _, _, _, 'detune']);
 /** PLUCK FUNC: DECAY / RELEASE, DLY MIX / VERB, UNISON, OCTAVE / ARP OCT, ARP / ARP RATE. */
 const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', 'unison', _, _, 'octave', 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
-/** A synth FUNC layer: SUSTAIN / RELEASE on the element columns, the rest as given (columns 1, 4, 7, 8). */
-function susRel(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
+/**
+ * PAD / LEAD FUNC layer: each oscillator's DECAY / SUSTAIN on the element columns (their
+ * ATTACK / RELEASE are on the page), the rest as given (columns 1, 4, 7, 8).
+ */
+function decSus(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
   return funcPage(
-    [top[0], 'sustain', 'sustain2', top[1], _, _, top[2], top[3]],
-    [bottom[0], 'release', 'release2', bottom[1], _, _, bottom[2], bottom[3]],
+    [top[0], 'decay', 'decay2', top[1], _, _, top[2], top[3]],
+    [bottom[0], 'sustain', 'sustain2', bottom[1], _, _, bottom[2], bottom[3]],
   );
 }
+/**
+ * PAD / LEAD: held notes (high SUSTAIN), so RELEASE shapes what is heard: each oscillator's
+ * ATTACK / RELEASE on modules 2-3.
+ */
+const HELD_ELEMENTS = ['attack', 'release', 'attack2', 'release2'];
 
 /**
  * Every track's FUNC layer also holds the track's setup (the same slots on every type):
@@ -297,13 +305,13 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    layout: soundPage(SYNTH_ELEMENTS, ['track:chord', 'detune']),
-    funcLayout: trackFunc(susRel([_, 'carriers', _, 'octave'], ['feedback', _, _, 'unison'])),
+    layout: soundPage(HELD_ELEMENTS, ['track:chord', 'detune']),
+    funcLayout: trackFunc(decSus([_, 'carriers', _, 'octave'], ['feedback', _, _, 'unison'])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: LEAD_GAIN, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
-    layout: soundPage(SYNTH_ELEMENTS, ['glide', 'detune']),
-    funcLayout: trackFunc(susRel([_, _, _, 'octave'], [_, _, _, _])),
+    layout: soundPage(HELD_ELEMENTS, ['glide', 'detune']),
+    funcLayout: trackFunc(decSus([_, _, _, 'octave'], [_, _, _, _])),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'macro:sustain'], liveFunc: ['macro:space', 'macro:bite'], params: PLUCK_PARAMS,

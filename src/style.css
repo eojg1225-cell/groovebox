@@ -111,8 +111,10 @@ html, body {
 .btn.mode.lit { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .btn.ch { height: 56px; font-size: 22px; line-height: 1; }
 .btn.ch small { font-size: 10px; letter-spacing: 0.06em; margin-top: 5px; opacity: 0.8; white-space: nowrap; }
-.btn.mute { height: 30px; font-size: 11px; }
+.mute-solo { display: flex; gap: 3px; }
+.btn.mute, .btn.solo { height: 30px; font-size: 9px; letter-spacing: 0.02em; flex: 1; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
+.btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
 .btn.pat { height: 40px; font-size: 18px; }
 .btn.pat.playing { border-color: var(--accent); }
 .btn.save { height: 40px; font-size: 12px; line-height: 1; flex: 0.9; }

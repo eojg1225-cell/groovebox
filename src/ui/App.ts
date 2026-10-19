@@ -174,6 +174,8 @@ export class App {
   private copyUsed = false;
   /** Channel button held down (its pattern A-D on the FX 1-3 / LFO buttons), and if it was used. */
   private heldTrack = -1;
+  /** SOLO per track (not saved): any on mutes every track that is not. */
+  private readonly soloed: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private heldUsed = false;
   /** ACCENT / GHOST / RING held down (timer to start painting), and those painting steps. */
   /** SONG cursor: row, and column (0 = BARS, 1-8 = tracks); which 16 rows the strip shows. */
@@ -225,8 +227,25 @@ export class App {
   syncMessages(): MainToWorklet[] {
     return [
       { type: 'loadProject', project: this.project },
+      ...this.muteMessages(),
       { type: 'transport', playing: this.playing },
     ];
+  }
+
+  /**
+   * Heard muted: MUTE on, or another track SOLOed and not this one. SOLO is a performance
+   * switch (not saved); MUTE is the project's.
+   */
+  silenced(ch: number): boolean {
+    return this.project.channels[ch].mute || (this.soloed.some((s) => s) && !this.soloed[ch]);
+  }
+
+  private muteMessages(): MainToWorklet[] {
+    return this.project.channels.map((_, ch) => ({ type: 'setMix', channel: ch, id: 'mute', value: this.silenced(ch) ? 1 : 0 }));
+  }
+
+  private sendMutes(): void {
+    for (const msg of this.muteMessages()) this.send(msg);
   }
 
   /** Motion-record results from the worklet: mirror them into the project. */
@@ -804,8 +823,12 @@ export class App {
       const ch = Number(m[1]) - 1;
       const c = this.project.channels[ch];
       c.mute = !c.mute;
-      this.send({ type: 'setMix', channel: ch, id: 'mute', value: c.mute ? 1 : 0 });
+      this.sendMutes();
       this.save();
+    } else if ((m = /^solo(\d)$/.exec(id))) {
+      const ch = Number(m[1]) - 1;
+      this.soloed[ch] = !this.soloed[ch];
+      this.sendMutes();
     } else if ((m = /^pat([A-D])$/.exec(id))) {
       this.selectPattern(this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
     } else if ((m = /^dpage(\d)$/.exec(id))) {
@@ -1626,6 +1649,7 @@ export class App {
       this.panel.setButtonLit(`ch${ch + 1}`, sendView ? this.onBus(c, this.fxView) : ch === this.selected);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
+      this.panel.setButtonLit(`solo${ch + 1}`, this.soloed[ch]);
       this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
       this.panel.setBadge(ch, this.mode === 'design' || sendView ? 'dim' : ch === this.selected ? 'lit' : '');
     }
@@ -1885,7 +1909,7 @@ export class App {
         cells,
         playhead: head >= 0 && Math.floor(head / 16) === page ? head % 16 : -1,
         cursor: i === ch && pitched && this.mode === 'record' && Math.floor(this.cursor[i] / 16) === page ? this.cursor[i] % 16 : -1,
-        muted: lc.mute,
+        muted: this.silenced(i),
         selected: i === ch,
       };
     });
