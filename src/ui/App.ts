@@ -953,6 +953,8 @@ export class App {
       // RECORD: tap = place this flag on the strip (one at a time), tap again = back.
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : id === 'dyn:ghost' ? 'ghost' : 'normal';
       const on = id === 'ring' ? !this.ring : id === 'slide' ? !this.slideArm : this.dynamic !== d;
+      // Placing opens on the bar step entry is in (the cursor's).
+      if (on && !this.placing && this.flagPaintable && !this.recording) this.viewPage[this.selected] = Math.floor(this.cursor[this.selected] / 16);
       this.ring = id === 'ring' && on;
       this.slideArm = id === 'slide' && on;
       this.dynamic = on ? d : 'normal';
@@ -2002,7 +2004,8 @@ export class App {
     this.panel.setButtonLit('dyn:ghost', dyn === 'ghost');
     this.panel.setButtonEnabled('ring', rec || play);
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || (this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1));
+    // BAR: not where the strip follows the playhead (PLAY, live recording unless placing).
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || (this.mode !== 'play' && !(this.recording && !this.placing) && this.pageCount() > 1));
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design'));
