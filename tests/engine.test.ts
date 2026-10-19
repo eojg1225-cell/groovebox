@@ -2271,17 +2271,18 @@ describe('PLAY mode RING / SLIDE (all notes)', () => {
     expect(peak(0.45)).toBeLessThan(peak() * 0.75);
   });
 
-  it('SLIDE on a drum track rolls every hit at its ROLL RATE', () => {
-    const hits = (force: boolean) => {
-      const p = kickProject([0], { bpm: 120 });
+  it('ROLL in PLAY rolls through consecutive hits, the last one ending it; lone hits stay single', () => {
+    const run = (force: boolean) => {
+      const p = kickProject([0, 1, 2, 6], { bpm: 120 });
       p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 1 }; // 1:2
       const e = engineWith(p);
       if (force) e.handleMessage({ type: 'setForce', channel: 0, ring: false, slide: true });
       e.handleMessage({ type: 'transport', playing: true });
-      const l = render(e, 0.12).l;
-      return stats(l.subarray(SR * 0.0625, SR * 0.07)).peak; // the second half of step 1
+      return onsets(render(e, 0.8).l, 0.005, 1500);
     };
-    expect(hits(true)).toBeGreaterThan(hits(false) * 10 + 1e-3);
+    near(run(false), [0, 6000, 12000, 36000]);
+    // Steps 1-2 roll (2 hits each), step 3 ends it with one hit; step 7 has nothing after it.
+    near(run(true), [0, 3000, 6000, 9000, 12000, 36000]);
   });
 });
 

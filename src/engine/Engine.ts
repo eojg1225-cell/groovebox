@@ -164,9 +164,10 @@ export class Engine {
   private readonly rollEvery = new Float64Array(NUM_CHANNELS);
   private readonly rollNote = new Float32Array(NUM_CHANNELS);
   private readonly rollVel = new Float32Array(NUM_CHANNELS);
-  /** The roll run: its last step's velocity, hits in all, hits played, steps still to come. */
+  /** The roll run: its end velocity, hits played, steps still to come. */
   private readonly rollVelEnd = new Float32Array(NUM_CHANNELS);
-  private readonly rollHits = new Uint16Array(NUM_CHANNELS);
+  /** Hits over which the velocity ramps from the run's first step to its end. */
+  private readonly rollRamp = new Uint16Array(NUM_CHANNELS);
   private readonly rollIndex = new Uint16Array(NUM_CHANNELS);
   private readonly runLeft = new Uint16Array(NUM_CHANNELS);
   // ARP (sound params "arp" / "arprate"): while a note is held its chord tones are played in
@@ -662,23 +663,30 @@ export class Engine {
    * A ROLL run: the consecutive ROLL steps from here (to the pattern's end) roll as one, at
    * ROLL RATE hits per step from the start of the first step to the end of the last, evenly
    * (straight through swing). Velocity ramps hit by hit from the first step's to the last's.
-   * Forced ROLL (PLAY) rolls each hit on its own, at its own dynamic.
+   * Forced ROLL (PLAY) rolls through runs of consecutive hits instead: from the first hit up
+   * to the last one, which plays plainly as the roll's end (the ramp leads into it); a hit
+   * with no hit right after it does not roll.
    */
   private startRollRun(ch: number, pat: number, idx: number, len: number, vel: number): void {
+    const forced = this.forceSlide[ch] === 1;
     let steps = 1;
     let last = vel;
-    if (this.forceSlide[ch] === 0) {
-      for (let i = idx + 1; i < len; i++) {
-        const s = pat * MAX_STEPS + i;
-        if (this.stepActive[s] !== 1 || this.stepSlide[s] !== 1) break;
-        steps++;
-        last = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
-      }
+    for (let i = idx + 1; i < len; i++) {
+      const s = pat * MAX_STEPS + i;
+      if (this.stepActive[s] !== 1 || (!forced && this.stepSlide[s] !== 1)) break;
+      steps++;
+      last = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
+    }
+    if (forced) {
+      // The last consecutive hit ends the roll: it fires on its own step.
+      if (steps === 1) return;
+      steps--;
     }
     const hits = steps * this.rollDiv[ch];
+    // Stored runs end on their last hit; a forced roll ramps on into the hit that ends it.
+    this.rollRamp[ch] = forced ? hits : hits - 1;
     this.runLeft[ch] = steps - 1;
     this.rollLeft[ch] = hits - 1;
-    this.rollHits[ch] = hits;
     this.rollIndex[ch] = 0;
     this.rollEvery[ch] = ((60 / this.bpm / 4) * this.sampleRate) / this.rollDiv[ch];
     this.rollAt[ch] = this.rollEvery[ch];
@@ -697,7 +705,7 @@ export class Engine {
     const note = this.rollNote[ch];
     const intervals = chordVoicing(this.chord[ch], this.notes[ch]);
     const v0 = this.rollVel[ch];
-    const ramp = this.rollHits[ch] > 1 ? k / (this.rollHits[ch] - 1) : 0;
+    const ramp = this.rollRamp[ch] > 0 ? Math.min(1, k / this.rollRamp[ch]) : 0;
     const vel = dynVelocity(v0 + (this.rollVelEnd[ch] - v0) * ramp, this.dynDepth[ch]);
     for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], vel, note, this.ringing[ch] === 1);
     this.kickHit(ch);
