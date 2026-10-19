@@ -52,15 +52,34 @@ import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, presetSound, stepsOnStrip } from '../instruments/registry';
 import { saveSession } from '../storage/session';
+import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { loadSavedProject, savePatch, saveProject, userPatches } from '../storage/saved';
+import { loadSavedProject, savePatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
-import type { DesignView, LaneCell, LiveView, SongView } from './views';
+import type { DesignView, LaneCell, LiveView, ProjectView, SongView } from './views';
 
 export type Mode = 'record' | 'play' | 'design' | 'song';
 
+
+/** SAVE / LOAD state. */
+interface ProjectMenu {
+  kind: 'save' | 'load';
+  bank: number;
+  name: string[];
+  cursor: number;
+  /** A slot waiting for its second tap (overwrite / delete), -1 = none. */
+  confirm: number;
+}
+
+/** Name entry: what knobs 1-4 dial in at the cursor. */
+const NAME_SETS: readonly [string, string][] = [
+  ['A-Z', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'],
+  ['a-z', 'abcdefghijklmnopqrstuvwxyz'],
+  ['0-9', '0123456789'],
+  ['SYMBOL', " -_.!#&+=()?%:/'*"],
+];
 
 /** PLAY's pages: SOUND (live knobs) and MIX. */
 const PLAY_PAGES = 2;
@@ -217,14 +236,16 @@ export class App {
   private status: Status | null = null;
   private statusAt = 0;
   /** State RESET returns to when nothing has been saved: the project as the session began. */
-  private readonly baseline: Project;
+  private baseline: Project;
+  /** SAVE / LOAD (stopped only): name entry and the 64 slots, 16 to a bank on the strip. */
+  projMenu: ProjectMenu | null = null;
   private glides = new Map<string, Glide>();
   private glideStart = 0;
   private glideEnd = 0;
   private targets: (KnobTarget | null)[] = [];
 
   constructor(
-    readonly project: Project,
+    public project: Project,
     private readonly panel: Panel,
     private send: (msg: MainToWorklet) => void,
   ) {
@@ -702,6 +723,7 @@ export class App {
 
   /** The 16 knob targets for the current mode. */
   private computeTargets(): (KnobTarget | null)[] {
+    if (this.projMenu) return this.nameTargets();
     // FUNC layers exist for the SOUND / TRACK pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.mode === 'song') return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
@@ -734,6 +756,10 @@ export class App {
     const id = e.id;
     let m: RegExpExecArray | null;
     if (id === 'func') return this.onFunc(e.pressed);
+    if (this.projMenu && this.onProjectMenu(id, e.pressed)) {
+      this.refreshPanel();
+      return;
+    }
     if (!e.pressed) {
       if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
       if ((m = /^ch(\d)$/.exec(id)) && this.heldTrack === Number(m[1]) - 1) {
@@ -889,7 +915,9 @@ export class App {
     } else if (id === 'reset') {
       this.startReset();
     } else if (id === 'saveproject') {
-      this.flash(saveProject(this.project) ? 'PROJECT SAVED' : 'SAVE FAILED');
+      // SAVE PROJECT = name + slot; FUNC + SAVE PROJECT = load another (stopped only).
+      if (this.funcHeld) this.funcUsed = true;
+      this.openProjectMenu(this.func ? 'load' : 'save');
     } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.mode === 'play') {
       // PLAY: a live effect on the selected track's notes, tap on / tap off.
       const ch = this.selected;
@@ -960,7 +988,8 @@ export class App {
    * curve), landing on the next bar line; stopped, it jumps there now.
    */
   private startReset(): void {
-    const saved = loadSavedProject() ?? this.baseline;
+    const openId = projectStore.openId();
+    const saved = (openId ? projectStore.load(openId) : null) ?? loadSavedProject() ?? this.baseline;
     const glides = new Map<string, Glide>();
     const add = (key: string, spec: ParamSpec, current: number, target: number, set: (v: number) => void) => {
       if (Math.abs(current - target) < 1e-9) return;
@@ -1607,6 +1636,211 @@ export class App {
 
   private save(): void {
     saveSession(this.project);
+    saveWorkSoon(this.project);
+  }
+
+  // ---------------------------------------------------------------- projects
+
+  private openProjectMenu(kind: 'save' | 'load'): void {
+    if (this.playing) {
+      this.flash(kind === 'save' ? 'STOP TO SAVE' : 'STOP TO LOAD');
+      return;
+    }
+    this.funcLatched = false;
+    const slots = projectStore.slots();
+    const openId = projectStore.openId();
+    const at = slots.findIndex((e) => !!e && e.id === openId);
+    const name = (at >= 0 ? slots[at]!.name : 'PROJECT').slice(0, NAME_LENGTH);
+    this.projMenu = { kind, bank: at >= 0 ? Math.floor(at / SLOTS_PER_BANK) : 0, name: [...name], cursor: Math.min(name.length, NAME_LENGTH - 1), confirm: -1 };
+    this.touchedKnob = -1;
+  }
+
+  private closeProjectMenu(): void {
+    this.projMenu = null;
+    this.barHeld = false;
+  }
+
+  /** A button while SAVE / LOAD is open. True = handled here (others are ignored, a few pass). */
+  private onProjectMenu(id: string, pressed: boolean): boolean {
+    const menu = this.projMenu!;
+    let m: RegExpExecArray | null;
+    if (!pressed) {
+      if (id === 'steppage') { this.barHeld = false; return true; }
+      return !(id === 'clear' || id === 'copy' || id.startsWith('mode:'));
+    }
+    if (id.startsWith('mode:') || id === 'play') {
+      this.closeProjectMenu();
+      return false;
+    }
+    if (id === 'clear') return false; // CLEAR held + slot = delete (LOAD)
+    if (id === 'saveproject') {
+      if (this.funcHeld) this.funcUsed = true;
+      if (menu.kind === 'save' && this.func) this.openProjectMenu('load');
+      else this.closeProjectMenu();
+      return true;
+    }
+    if (id === 'steppage') {
+      this.barHeld = true;
+      this.barUsed = true;
+      return true;
+    }
+    if (id === 'cur-' || id === 'cur+') {
+      const d = id === 'cur+' ? 1 : -1;
+      if (menu.kind === 'load' || this.barHeld) {
+        menu.bank = (menu.bank + d + PROJECT_BANKS) % PROJECT_BANKS;
+        menu.confirm = -1;
+      } else {
+        menu.cursor = Math.max(0, Math.min(Math.min(menu.name.length, NAME_LENGTH - 1), menu.cursor + d));
+      }
+      return true;
+    }
+    if ((m = /^step(\d+)$/.exec(id))) {
+      const slot = menu.bank * SLOTS_PER_BANK + Number(m[1]) - 1;
+      if (menu.kind === 'save') this.saveToSlot(slot);
+      else if (this.clearHeld) this.deleteSlot(slot);
+      else this.loadFromSlot(slot);
+      return true;
+    }
+    return true;
+  }
+
+  private saveToSlot(slot: number): void {
+    const menu = this.projMenu!;
+    const name = menu.name.join('').trim() || 'PROJECT';
+    const entry = projectStore.slots()[slot];
+    const openId = projectStore.openId();
+    const own = !!entry && entry.id === openId;
+    if (entry && !own && menu.confirm !== slot) {
+      menu.confirm = slot;
+      this.flash(`TAP ${slot + 1} AGAIN TO OVERWRITE`);
+      return;
+    }
+    // Into its own slot: the same project, saved over. Anywhere else: a new one (save as).
+    const saved = projectStore.save(slot, name, this.project, own ? entry.id : undefined);
+    if (!saved) {
+      this.flash('STORAGE FULL - NOT SAVED');
+      return;
+    }
+    projectStore.setOpen(saved.id);
+    this.baseline = JSON.parse(JSON.stringify(this.project)) as Project;
+    this.closeProjectMenu();
+    this.flash(`SAVED ${name} IN ${slot + 1}`);
+  }
+
+  private loadFromSlot(slot: number): void {
+    const entry = projectStore.slots()[slot];
+    if (!entry) {
+      this.flash('EMPTY SLOT');
+      return;
+    }
+    const openId = projectStore.openId();
+    if (entry.id !== openId) {
+      // Keep this project's unsaved edits with it, then open the other one where it was left.
+      if (openId) projectStore.saveWork(openId, this.project);
+      const project = projectStore.loadWork(entry.id) ?? projectStore.load(entry.id);
+      if (!project) {
+        this.flash('COULD NOT LOAD');
+        return;
+      }
+      projectStore.setOpen(entry.id);
+      this.replaceProject(project);
+    }
+    this.closeProjectMenu();
+    this.flash(`LOADED ${entry.name}`);
+  }
+
+  private deleteSlot(slot: number): void {
+    const menu = this.projMenu!;
+    const entry = projectStore.slots()[slot];
+    if (!entry) return;
+    if (menu.confirm !== slot) {
+      menu.confirm = slot;
+      this.flash(`TAP ${slot + 1} AGAIN TO DELETE`);
+      return;
+    }
+    projectStore.remove(slot);
+    menu.confirm = -1;
+    this.clearUsed = true;
+    this.flash(`DELETED ${entry.name}`);
+  }
+
+  /** Open another project: it replaces this one in the UI and the engine (stopped). */
+  private replaceProject(project: Project): void {
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      if (this.forceRing[ch] || this.forceSlide[ch] || this.forceDyn[ch] !== 'normal') this.setForce(ch, false, false, 'normal');
+    }
+    this.project = project;
+    this.baseline = JSON.parse(JSON.stringify(project)) as Project;
+    project.channels.forEach((c, i) => { this.octave[i] = c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote; });
+    this.selected = 0;
+    this.viewPage.fill(0);
+    this.cursor.fill(0);
+    this.soloed.fill(false);
+    this.glides.clear();
+    this.fxView = 0;
+    for (const msg of this.syncMessages()) this.send(msg);
+    this.save();
+  }
+
+  /** The SAVE / LOAD screen. */
+  projectView(): ProjectView {
+    const menu = this.projMenu!;
+    const slots = projectStore.slots();
+    const openId = projectStore.openId();
+    const first = menu.bank * SLOTS_PER_BANK;
+    const now = performance.now();
+    return {
+      kind: menu.kind,
+      bank: menu.bank,
+      banks: PROJECT_BANKS,
+      name: menu.name.join(''),
+      cursor: menu.cursor,
+      slots: Array.from({ length: SLOTS_PER_BANK }, (_, i) => {
+        const e = slots[first + i];
+        return { number: first + i + 1, name: e?.name ?? '', used: !!e, open: !!e && e.id === openId, confirm: first + i === menu.confirm };
+      }),
+      message: now < this.messageUntil ? this.message : '',
+      blink: Math.floor(now / 400) % 2 === 0,
+    };
+  }
+
+  /** The strip while SAVE / LOAD is open: the bank's slots (lit = used, cursor = open). */
+  private updateProjectStrip(): void {
+    const menu = this.projMenu!;
+    const slots = projectStore.slots();
+    const openId = projectStore.openId();
+    for (let i = 0; i < STEP_BUTTONS; i++) {
+      const id = `step${i + 1}`;
+      const slot = menu.bank * SLOTS_PER_BANK + i;
+      const e = slots[slot];
+      this.panel.setButtonText(id, String(slot + 1));
+      this.panel.setButtonFlag(id, 'off', false);
+      this.panel.setButtonFlag(id, 'lit', !!e);
+      this.panel.setButtonFlag(id, 'cursor', !!e && e.id === openId);
+      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, slot === menu.confirm ? 'rec' : '');
+    }
+    this.panel.setButtonText('steppage', `BANK<small>${menu.bank + 1}/${PROJECT_BANKS}</small>`);
+  }
+
+  /** SAVE name entry: knobs 1-4 = capitals, lower case, digits, symbols at the cursor. */
+  private nameTargets(): (KnobTarget | null)[] {
+    const menu = this.projMenu!;
+    const out: (KnobTarget | null)[] = new Array(KNOB_COUNT).fill(null);
+    if (menu.kind !== 'save') return out;
+    NAME_SETS.forEach(([label, chars], k) => {
+      const spec = choice(`name${k}`, label, [...chars]);
+      out[k] = {
+        label, spec, channel: this.selected,
+        get: () => Math.max(0, chars.indexOf(menu.name[menu.cursor] ?? '')),
+        set: (v) => {
+          const c = chars[Math.round(v)] ?? chars[0];
+          while (menu.name.length < menu.cursor) menu.name.push(' ');
+          menu.name[menu.cursor] = c;
+        },
+      };
+    });
+    return out;
   }
 
   // ---------------------------------------------------------------- display
@@ -1682,11 +1916,11 @@ export class App {
     this.panel.setButtonLit('dyn:ghost', dyn === 'ghost');
     this.panel.setButtonEnabled('ring', rec || play);
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
-    this.panel.setButtonEnabled('steppage', this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1);
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || (this.mode !== 'play' && !(kb && rec) && this.pageCount() > 1));
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design'));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || !!this.projMenu);
     this.panel.setButtonEnabled('rest', rec);
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
@@ -1706,7 +1940,7 @@ export class App {
       this.panel.setButtonEnabled('dyn:ghost', false);
       this.panel.setButtonEnabled('len', false);
       this.panel.setButtonEnabled('rest', false);
-      this.panel.setButtonEnabled('steppage', this.songRows.length > 16);
+      this.panel.setButtonEnabled('steppage', this.songRows.length > 16 || !!this.projMenu);
       for (const id of ['oct-', 'oct+', 'cur-', 'cur+']) this.panel.setButtonEnabled(id, true);
       this.panel.root.classList.toggle('keyboard', false);
     } else {
@@ -1745,6 +1979,10 @@ export class App {
   /** Per-frame updates: strip lights/labels, LEDs, pending pattern blink. */
   updateFrame(now: number): void {
     this.stepGlides(now);
+    if (this.projMenu) {
+      this.updateProjectStrip();
+      return;
+    }
     if (this.mode === 'song') {
       this.updateSongFrame();
       return;

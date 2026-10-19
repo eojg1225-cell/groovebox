@@ -292,3 +292,56 @@ export function drawSongView(s: PixelScreen, v: SongView): void {
   });
   drawFooter(s, v, v.footerLeft, '');
 }
+
+export interface ProjectView {
+  kind: 'save' | 'load';
+  bank: number;
+  banks: number;
+  /** SAVE: the name being entered, and the character the knobs set. */
+  name: string;
+  cursor: number;
+  slots: { number: number; name: string; used: boolean; open: boolean; confirm: boolean }[];
+  message: string;
+  blink: boolean;
+}
+
+const PROJ_ROW_H = 8;
+const PROJ_COL_W = 128;
+
+/** SAVE / LOAD PROJECT: the name being entered (SAVE) and the bank's 16 slots, 2 columns of 8. */
+export function drawProjectView(s: PixelScreen, v: ProjectView): void {
+  s.clear();
+  const save = v.kind === 'save';
+  // A loud title band: which one this is can't be missed.
+  s.rect(0, 0, SCREEN_W, 13, save ? INK.warn : INK.hi);
+  s.text(3, 2, save ? 'SAVE' : 'LOAD', INK.bg, 2);
+  s.text(40, 4, 'PROJECT', INK.bg);
+  s.textRight(SCREEN_W - 3, 4, `BANK ${v.bank + 1}/${v.banks}`, INK.bg);
+  let y = 18;
+  if (save) {
+    s.text(3, y + 2, 'NAME', INK.mid);
+    const x = 24;
+    s.text(x, y, v.name, INK.hi, 2, true);
+    // The character the knobs set (blinking underline).
+    if (v.blink) s.rect(x + v.cursor * 8, y + 11, 6, 1, INK.warn);
+    y = 34;
+  }
+  s.rect(0, y - 2, SCREEN_W, 1, INK.dim);
+  v.slots.forEach((slot, i) => {
+    const col = i < 8 ? 0 : 1;
+    const row = i % 8;
+    const x = 3 + col * PROJ_COL_W;
+    const ry = y + row * PROJ_ROW_H;
+    if (slot.confirm) s.rect(x - 2, ry - 1, PROJ_COL_W - 4, PROJ_ROW_H - 1, INK.warn);
+    const ink = slot.confirm ? INK.bg : slot.open ? INK.hi : slot.used ? INK.mid : INK.dim;
+    s.text(x, ry, String(slot.number).padStart(2, '0'), ink);
+    s.text(x + 12, ry, slot.used ? slot.name : '--', ink, 1, true);
+    if (slot.open && !slot.confirm) s.text(x + PROJ_COL_W - 14, ry, '<', INK.hi);
+  });
+  const hint = save
+    ? '< > MOVE  KNOBS 1-4 LETTER  BAR+< > BANK  TAP SLOT = SAVE'
+    : '< > BANK  TAP SLOT = LOAD  CLEAR+SLOT = DELETE';
+  s.rect(0, FOOTER_Y - 3, SCREEN_W, 1, INK.dim);
+  if (v.message) s.text(2, FOOTER_Y, v.message, INK.warn);
+  else s.text(2, FOOTER_Y, hint, INK.mid);
+}

@@ -6,12 +6,13 @@ import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
 import { INK, PixelScreen } from './ui/screen';
-import { drawDesignView, drawLiveView, drawSongView } from './ui/views';
+import { drawDesignView, drawLiveView, drawProjectView, drawSongView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PANEL_PATTERNS } from './engine/project';
 import { createStartProject } from './engine/defaultProject';
 import { loadSession } from './storage/session';
 import { loadSavedProject } from './storage/saved';
+import { projectStore } from './storage/projects';
 import { mirrorToCloud } from './storage/cloud';
 import { textWidth } from './ui/font';
 
@@ -27,8 +28,13 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   void navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
 }
 
-// Working session first (survives reloads), then the saved project, else a fresh one.
-const project = loadSession() ?? loadSavedProject() ?? createStartProject();
+// Working session first (survives reloads), then the open project (where it was left, else
+// as saved), then the project saved before slots, else a fresh one.
+projectStore.slots(); // first run: the project saved before slots becomes slot 1
+const openId = projectStore.openId();
+const project = loadSession()
+  ?? (openId ? projectStore.loadWork(openId) ?? projectStore.load(openId) : null)
+  ?? loadSavedProject() ?? createStartProject();
 // Keep the cloud copy (claude.ai only) in step with what was loaded.
 mirrorToCloud(project);
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
@@ -164,7 +170,8 @@ const frame = (now: number) => {
   if (app.playing !== wasPlaying) { wasPlaying = app.playing; void updateWakeLock(); }
   app.updateFrame(now);
   screen.begin();
-  if (app.mode === 'song') drawSongView(screen, app.songView(now, audio));
+  if (app.projMenu) drawProjectView(screen, app.projectView());
+  else if (app.mode === 'song') drawSongView(screen, app.songView(now, audio));
   else if (app.sendOpen) drawDesignView(screen, app.sendView(now, audio));
   else if (app.mode === 'design' || app.playMix) drawDesignView(screen, app.designView(now, audio));
   else drawLiveView(screen, app.liveView(now, audio));
