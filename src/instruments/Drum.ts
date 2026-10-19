@@ -173,6 +173,11 @@ const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];
 const TWO_PI = Math.PI * 2;
 /** RING: each layer's decay x this (plus RING LEN), so longer DECAY knobs mean longer rings. */
 const RING_STRETCH = 3;
+/**
+ * A drum hit again while still sounding (rolls, fast repeats) would cut the old hit off
+ * dead - a click. The old hit's last output fades out over this long instead, under the new one.
+ */
+const RETRIGGER_FADE = 0.003;
 /** A ringing drum is choked (by the next hit or a rest) with this fade. */
 const CHOKE_SECONDS = 0.012;
 const FILTER_UPDATE = 16;
@@ -231,13 +236,24 @@ export class Drum implements Instrument {
 
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], private readonly voice: DrumVoice) {
     this.sr = sampleRate;
+    this.fadeLen = Math.max(1, Math.round(RETRIGGER_FADE * sampleRate));
     this.chokeMul = decayMul(CHOKE_SECONDS, sampleRate);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
     for (const p of params) this.setParam(p.id, p.defaultValue);
   }
 
+  /** The last sample out, and the retrigger fade: the value fading out and samples left. */
+  private lastOut = 0;
+  private fadeFrom = 0;
+  private fadeLeft = 0;
+  private fadeLen = 1;
+
   noteOn(note: number, velocity: number, _group: number, ring = false): void {
+    // Still sounding: hand its last output to the retrigger fade.
+    const sounding = this.tStage !== OFF || this.mStage !== OFF || this.cStage !== OFF;
+    this.fadeFrom = sounding ? this.lastOut : 0;
+    this.fadeLeft = sounding ? this.fadeLen : 0;
     this.ringing = ring;
     this.tMul = ring ? this.tRingMul : this.tDecayMul;
     this.mMul = ring ? this.mRingMul : this.mDecayMul;
@@ -359,7 +375,10 @@ export class Drum implements Instrument {
   }
 
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
-    if (this.tStage === OFF && this.mStage === OFF && this.cStage === OFF) return;
+    if (this.tStage === OFF && this.mStage === OFF && this.cStage === OFF) {
+      this.lastOut = 0;
+      return;
+    }
     const dtBase = 1 / this.sr;
     const hold = 1 + Math.floor(this.crush * this.crush * 24);
     const levels = Math.pow(2, 16 - this.crush * 12);
@@ -496,6 +515,12 @@ export class Drum implements Instrument {
         this.holdCount--;
         out = this.held;
       }
+      if (this.fadeLeft > 0) {
+        // The cut-off hit's last value, faded out on a half cosine.
+        out += this.fadeFrom * (0.5 - 0.5 * Math.cos((Math.PI * this.fadeLeft) / this.fadeLen));
+        this.fadeLeft--;
+      }
+      this.lastOut = out;
       outL[i] += out;
       outR[i] += out;
     }

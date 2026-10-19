@@ -2661,3 +2661,26 @@ describe('v30: ROLL RATE and roll runs', () => {
     expect(q.channels[0].patterns[0].steps[1].locks!.rolldiv).toBe(3); // 1/64 -> 1:4
   });
 });
+
+describe('drum retrigger', () => {
+  it('a drum hit again while still sounding does not jump (the old hit fades out under the new one)', () => {
+    const kick = new Drum(SR, KICK_PARAMS, KICK_VOICE);
+    const sound: Record<string, number> = { ...presetSound('kick', 0), t_decay: 0.5 };
+    for (const id in sound) kick.setParam(id, sound[id]);
+    const n = 4000;
+    const l = new Float32Array(n);
+    const r = new Float32Array(n);
+    kick.noteOn(36, 1, 36);
+    // Play on to a loud moment, then hit it again (a roll hit while the first still sounds).
+    let at = 1500;
+    kick.render(l, r, 0, at);
+    while (Math.abs(l[at - 1]) < 0.1 && at < 3000) { kick.render(l, r, at, at + 1); at++; }
+    expect(Math.abs(l[at - 1])).toBeGreaterThan(0.1);
+    kick.noteOn(36, 1, 36);
+    kick.render(l, r, at, n);
+    // No sample-to-sample jump at the retrigger bigger than the kick's own movement.
+    let ownMax = 0;
+    for (let i = 1000; i < at - 1; i++) ownMax = Math.max(ownMax, Math.abs(l[i + 1] - l[i]));
+    for (let i = at - 3; i < at + 10; i++) expect(Math.abs(l[i + 1] - l[i]), `sample ${i}`).toBeLessThan(ownMax * 2 + 0.01);
+  });
+});
