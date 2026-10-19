@@ -19,15 +19,20 @@
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
- * Hold a channel button: FX 1 / 2 / 3 / LFO become pattern A / B / C / D for that track.
+ * A-D (under FX): the selected track's pattern (FUNC + A-D = every track; hold a channel +
+ * A-D = that track, unselected). Each pattern has its own patch: RECORD / DESIGN edit the
+ * chosen one; PLAY primes the switch for the loop end and the sound glides there.
+ * SAVE: RECORD = the track's pattern notes, DESIGN = its patch, PLAY = both (FUNC = every
+ * track). Edits since are marked * on the screen.
  * SONG  arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          OCT -/+ row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
- *          the next bar), A/B/C or hold track + FX 1-3/LFO = set a cell. PLAY here plays the
+ *          the next bar), A-D (hold track + A-D) = set a cell, FUNC + A-D = the row. PLAY here plays the
  *          song from the cursor row (it keeps playing in the other modes until STOP).
- * RESET: every parameter returns to the saved project (or, if none was saved, to how the
- * session started): while playing it glides back to land on the next bar line, stopped
- * it jumps. Tempo, master volume, routing, mutes and patterns are left alone.
+ * RESET: every patch returns to its saved version and the rest (mix, FX, LFO) to the saved
+ * project, live knobs centred: while playing it glides back to land on the next bar line,
+ * stopped it jumps. Tapped again: unsaved notes too (swapped in at the bar line). Tempo,
+ * master volume, routing, mutes and the playing patterns are left alone.
  * SLIDE: placed with the SLIDE button (tap it, then tap notes). Bass / lead also slide when
  * played legato. In step entry a key pressed while another is held goes on the step after it.
  * ROLL (drum steps): consecutive ROLL steps roll as one run at the sound's ROLL RATE (hits per
@@ -45,18 +50,19 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
+  cloneNotes, clonePatch, editPattern, initPatterns, lockPattern, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, presetSound, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, stepsOnStrip } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { loadSavedProject, savePatch, userPatches } from '../storage/saved';
+import { loadSavedProject, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, ProjectView, SongView } from './views';
 
@@ -204,10 +210,10 @@ export class App {
   /** CLEAR held, and whether anything was cleared while it was. */
   private clearHeld = false;
   private clearUsed = false;
-  /** COPY held: + channel = copy the current pattern there, + FX 1-3 / LFO = to pattern A-D. */
+  /** COPY held: + channel = copy the current pattern there, + A-D = to that pattern of this track. */
   private copyHeld = false;
   private copyUsed = false;
-  /** Channel button held down (its pattern A-D on the FX 1-3 / LFO buttons), and if it was used. */
+  /** Channel button held down (+ A-D = its pattern; selected on release if A-D was not used). */
   private heldTrack = -1;
   /** SOLO per track (not saved): any on mutes every track that is not. */
   private readonly soloed: boolean[] = new Array(NUM_CHANNELS).fill(false);
@@ -247,6 +253,10 @@ export class App {
   private glides = new Map<string, Glide>();
   private glideStart = 0;
   private glideEnd = 0;
+  /** RESET was just tapped: until then a second tap reverts unsaved notes too. */
+  private resetAgainUntil = 0;
+  /** RESET lit until (the patches' glide to the bar line). */
+  private resetLitUntil = 0;
   private targets: (KnobTarget | null)[] = [];
 
   constructor(
@@ -254,6 +264,7 @@ export class App {
     private readonly panel: Panel,
     private send: (msg: MainToWorklet) => void,
   ) {
+    project.channels.forEach(initPatterns);
     this.baseline = JSON.parse(JSON.stringify(project)) as Project;
     this.octave = project.channels.map((c) => (c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote));
     panel.subscribe((e) => this.onControl(e));
@@ -303,6 +314,7 @@ export class App {
     } else {
       step.locks = { ...step.locks, [m.id]: m.value };
     }
+    this.project.channels[m.channel].patterns[m.pattern].notesDirty = true;
     this.save();
   }
 
@@ -400,7 +412,8 @@ export class App {
       if (patch.liveFunc) c.liveFunc = [...patch.liveFunc];
     }
     const sound = c.sounds[kind] ?? {};
-    for (const id in sound) this.send({ type: 'setSound', channel: ch, id, value: sound[id] });
+    c.patterns[c.activePattern].patchDirty = true;
+    for (const id in sound) this.send({ type: 'setSound', channel: ch, pattern: c.activePattern, id, value: sound[id] });
   }
 
   /** A short message on the screen (from outside the app, e.g. the audio host). */
@@ -441,6 +454,7 @@ export class App {
 
   private sendStep(index: number, step: Step, ch = this.selected): void {
     const c = this.project.channels[ch];
+    c.patterns[c.activePattern].notesDirty = true;
     this.send({ type: 'setStep', channel: ch, pattern: c.activePattern, index, step });
   }
 
@@ -589,8 +603,10 @@ export class App {
     const sound = (c.sounds[kind] ??= {});
     const trims = (c.trims[kind] ??= {});
     const specs = INSTRUMENTS[kind].params;
+    const pattern = c.activePattern;
     sound[id] = v;
-    this.send({ type: 'setSound', channel: ch, id, value: v });
+    c.patterns[pattern].patchDirty = true;
+    this.send({ type: 'setSound', channel: ch, pattern, id, value: v });
     if (id === 'timbre' || id === 'intensity') {
       if (!recompute) return;
       const hidden = hiddenSound(kind, sound, specs);
@@ -599,7 +615,7 @@ export class App {
         if (!spec) continue;
         const value = applyTrim(spec, hidden[pid], trims[pid]);
         sound[pid] = value;
-        this.send({ type: 'setSound', channel: ch, id: pid, value });
+        this.send({ type: 'setSound', channel: ch, pattern, id: pid, value });
       }
     } else if (this.macroParams(kind).has(id)) {
       const spec = specs.find((p) => p.id === id);
@@ -780,10 +796,14 @@ export class App {
             this.touchedKnob = -1;
             if (this.mode === 'design') this.designPage = 0;
           }
-        } else if (this.mode === 'design' && !this.sendOpen && !this.heldUsed) {
-          // DESIGN: a plain tap on a track opens its SOUND page (MIX and PROJECT are global).
-          this.designPage = 0;
-          this.touchedKnob = -1;
+        } else if (!this.sendOpen && !this.heldUsed) {
+          // A plain tap (no A-D meanwhile) selects the track; in DESIGN it opens its SOUND
+          // page (MIX and PROJECT are global).
+          this.selected = this.heldTrack;
+          if (this.mode === 'design') {
+            this.designPage = 0;
+            this.touchedKnob = -1;
+          }
         }
         this.heldTrack = -1;
         this.refreshPanel();
@@ -801,7 +821,7 @@ export class App {
       }
       if (id === 'copy') {
         this.copyHeld = false;
-        if (!this.copyUsed) this.flash('HOLD COPY + TRACK / FX 1-3 LFO');
+        if (!this.copyUsed) this.flash('HOLD COPY + TRACK / A-D');
         this.refreshPanel();
       }
       return;
@@ -812,12 +832,12 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.copyHeld && ((m = /^ch(\d)$/.exec(id)) || (m = /^fx([1-4])$/.exec(id)))) {
-      // COPY + channel: the same pattern slot on that track; COPY + FX 1-3 / LFO: pattern
-      // A-D of this track.
+    if (this.copyHeld && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
+      // COPY + channel: the same pattern slot on that track; COPY + A-D: that pattern of
+      // this track.
       const c = this.channel;
       if (id.startsWith('ch')) this.copyPattern(this.selected, c.activePattern, Number(m[1]) - 1, c.activePattern);
-      else this.copyPattern(this.selected, c.activePattern, this.selected, Number(m[1]) - 1);
+      else this.copyPattern(this.selected, c.activePattern, this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
       this.refreshPanel();
       return;
     }
@@ -836,10 +856,19 @@ export class App {
       this.heldTrack = Number(m[1]) - 1;
       this.heldUsed = false;
     }
-    if ((m = /^fx([1-4])$/.exec(id)) && this.heldTrack >= 0) {
-      // Holding a channel button: FX 1 / 2 / 3 / LFO = pattern A / B / C / D of that track.
-      this.selectPattern(this.heldTrack, Number(m[1]) - 1);
-      this.heldUsed = true;
+    if ((m = /^pat([A-D])$/.exec(id))) {
+      // A-D: the selected track's pattern; holding a channel: that track's; FUNC: every track.
+      const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
+      if (this.heldTrack >= 0) {
+        this.selectPattern(this.heldTrack, pat);
+        this.heldUsed = true;
+      } else if (this.func) {
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) this.selectPattern(ch, pat, false);
+        this.flash(this.mode === 'song' ? `ROW: ALL ${m[1]}` : `ALL TRACKS PAT ${m[1]}`);
+        if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      } else {
+        this.selectPattern(this.selected, pat);
+      }
       this.refreshPanel();
       return;
     }
@@ -868,11 +897,9 @@ export class App {
         this.project.song.rows.push({ bars: 4, patterns: this.project.channels.map((c) => c.activePattern) });
         this.sendSong();
       }
-    } else if ((m = /^ch(\d)$/.exec(id)) && this.sendOpen) {
-      // A bus is open: the channel buttons act on release (FUNC + tap = on / off the bus,
-      // a tap = back to that track).
     } else if ((m = /^ch(\d)$/.exec(id))) {
-      this.selected = Number(m[1]) - 1;
+      // Channel buttons act on release: a tap selects (or, a bus open, FUNC + tap = on /
+      // off the bus, a tap = back to that track); held + A-D = its pattern.
     } else if ((m = /^mute(\d)$/.exec(id))) {
       const ch = Number(m[1]) - 1;
       const c = this.project.channels[ch];
@@ -883,8 +910,6 @@ export class App {
       const ch = Number(m[1]) - 1;
       this.soloed[ch] = !this.soloed[ch];
       this.sendMutes();
-    } else if ((m = /^pat([A-D])$/.exec(id))) {
-      this.selectPattern(this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
     } else if ((m = /^dpage(\d)$/.exec(id))) {
       const page = Number(m[1]);
       if (this.mode === 'play') this.playPage = page;
@@ -902,21 +927,8 @@ export class App {
         this.fxView = this.fxView === n ? 0 : n;
         this.touchedKnob = -1;
       }
-    } else if (id === 'savepatch') {
-      const c = this.channel;
-      if (c.instrument === 'none') {
-        this.flash('NOTHING TO SAVE');
-      } else {
-        const kind = c.instrument;
-        const name = savePatch(kind, c.sounds[kind] ?? presetSound(kind, 0), c.live, c.liveFunc, c.trims[kind] ?? {});
-        if (name) {
-          c.presets[kind] = this.presetNames(kind).lastIndexOf(name);
-          this.save();
-          this.flash(`SAVED ${INSTRUMENTS[kind].name} ${name}`);
-        } else {
-          this.flash('SAVE FAILED');
-        }
-      }
+    } else if (id === 'save') {
+      this.saveCurrent();
     } else if (id === 'reset') {
       this.startReset();
     } else if (id === 'saveproject') {
@@ -989,10 +1001,18 @@ export class App {
   }
 
   /**
-   * RESET: every parameter that differs from the saved project glides back (on its own
-   * curve), landing on the next bar line; stopped, it jumps there now.
+   * RESET: every patch that was edited since its SAVE goes back to it, and every other
+   * parameter that differs from the saved project (mix, FX, LFO) too, with the live knobs
+   * centred: gliding (each on its own curve) to land on the next bar line; stopped, at
+   * once. Tapped again soon after: unsaved notes too.
    */
   private startReset(): void {
+    const now = performance.now();
+    if (now < this.resetAgainUntil) {
+      this.resetAgainUntil = 0;
+      this.resetNotes();
+      return;
+    }
     const openId = projectStore.openId();
     const saved = (openId ? projectStore.load(openId) : null) ?? loadSavedProject() ?? this.baseline;
     const glides = new Map<string, Glide>();
@@ -1015,17 +1035,21 @@ export class App {
       }
       // Relative live knobs glide back to the centre (the sound as set).
       for (const id of Object.keys(c.liveOffset)) fromTarget(this.liveKnob(ch, id, false), 0);
-      // The sound, value by value (not through TIMBRE / INTENSITY, which would recompute
-      // the rest mid-glide). Only when the track is still the same type.
-      if (c.instrument !== 'none' && c.instrument === s.instrument) {
-        const kind = c.instrument;
-        for (const spec of INSTRUMENTS[kind].params) {
-          const cur = c.sounds[kind]?.[spec.id] ?? spec.defaultValue;
-          const dst = s.sounds[kind]?.[spec.id] ?? spec.defaultValue;
-          add(`${ch}:${spec.id}`, spec, cur, dst, (v) => this.setSoundParam(ch, kind, spec.id, v, false));
-        }
+    });
+    // Patches: each edited one back to its saved version (the engine glides the one playing).
+    let patches = 0;
+    this.project.channels.forEach((c, ch) => {
+      if (c.instrument === 'none') return;
+      for (let p = 0; p < NUM_PATTERNS; p++) {
+        const pat = c.patterns[p];
+        if (!pat.patchDirty || !pat.savedPatch) continue;
+        setPatchOf(c, p, pat.savedPatch);
+        pat.patchDirty = false;
+        patches++;
+        this.send({ type: 'setPatch', channel: ch, pattern: p, sound: { ...patchOf(c, p).sound }, glide: true });
       }
     });
+    const notesToo = this.project.channels.some((c) => c.patterns.some((pat) => pat.notesDirty));
     for (const id of Object.keys(LFO_PARAMS) as LfoId[]) fromTarget(this.paramTarget(this.selected, `lfo:${id}`), saved.lfo[id]);
     for (const t of this.sendTargets(0)) if (t?.key) fromTarget(t, saved.fx1[t.key.slice(4)] ?? t.spec.defaultValue);
     for (const k of [1, 2]) {
@@ -1044,12 +1068,12 @@ export class App {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       add(`global:${gid}`, spec, this.project[gid], saved[gid], (v) => this.setGlobal(gid, v));
     }
-    if (glides.size === 0) {
-      this.flash('NOTHING TO RESET');
+    if (notesToo) this.resetAgainUntil = now + 3000;
+    if (glides.size === 0 && patches === 0) {
+      this.flash(notesToo ? 'TAP AGAIN: NOTES TOO' : 'NOTHING TO RESET');
       return;
     }
     this.glides = glides;
-    const now = performance.now();
     this.glideStart = now;
     if (this.playing && this.status?.playing) {
       // Land on the next bar line (if it is under a step away, the one after).
@@ -1061,8 +1085,30 @@ export class App {
       this.flash('RESET AT NEXT BAR');
     } else {
       this.glideEnd = now;
+      this.flash('RESET');
     }
+    if (notesToo) this.flash('TAP AGAIN: NOTES TOO');
+    this.resetLitUntil = this.glideEnd;
+    this.save();
     this.stepGlides(now);
+  }
+
+  /** RESET tapped again: every pattern's unsaved notes go back to its saved ones (at the bar line). */
+  private resetNotes(): void {
+    let n = 0;
+    this.project.channels.forEach((c, ch) => c.patterns.forEach((pat, p) => {
+      if (!pat.notesDirty || !pat.savedNotes) return;
+      const saved = cloneNotes(pat.savedNotes);
+      pat.length = saved.length;
+      pat.steps = saved.steps;
+      pat.notesDirty = false;
+      n++;
+      this.send({ type: 'swapNotes', channel: ch, pattern: p, length: saved.length, steps: saved.steps });
+    }));
+    this.entry = null;
+    this.clampCursor();
+    this.save();
+    this.flash(n === 0 ? 'NOTES ALREADY SAVED' : this.playing ? 'NOTES RESET AT NEXT BAR' : 'NOTES RESET');
   }
 
   /** Move the RESET glides on (called every frame). */
@@ -1076,12 +1122,7 @@ export class App {
     }
     if (t >= 1) {
       this.glides.clear();
-      // Values and TIMBRE / INTENSITY landed together: re-derive the SOUND page trims.
-      for (const c of this.project.channels) {
-        if (c.instrument !== 'none' && c.sounds[c.instrument]) c.trims[c.instrument] = deriveTrims(c.instrument, c.sounds[c.instrument]!, INSTRUMENTS[c.instrument].params);
-      }
       this.save();
-      this.flash('RESET');
     }
     this.refreshPanel();
   }
@@ -1135,8 +1176,6 @@ export class App {
         this.send({ type: 'songJump', row });
         this.flash(`ROW ${row + 1} AT NEXT BAR`);
       }
-    } else if ((m = /^pat([A-D])$/.exec(id))) {
-      if (this.songCol > 0) this.setSongCell(this.songCol - 1, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
     } else if ((m = /^ch(\d)$/.exec(id))) {
       this.songCol = Number(m[1]);
       return false; // and select the track as usual
@@ -1183,19 +1222,50 @@ export class App {
     return out;
   }
 
-  /** Switch a track's pattern (at once while building, at its loop end while performing). */
-  private selectPattern(ch: number, pattern: number): void {
+  /**
+   * Switch a track's pattern, with its patch (at once while building, at its loop end while
+   * performing, the sound gliding there). The chosen pattern is the one edited.
+   */
+  private selectPattern(ch: number, pattern: number, flash = true): void {
     if (this.mode === 'song') {
-      // SONG: the held track's cell in the cursor row.
+      // SONG: the track's cell in the cursor row.
       this.setSongCell(ch, pattern);
       return;
     }
     const c = this.project.channels[ch];
-    c.activePattern = pattern;
-    if (ch === this.selected) this.clampCursor();
+    editPattern(c, pattern);
+    if (ch === this.selected) {
+      this.clampCursor();
+      this.entry = null;
+    }
     this.send({ type: 'selectPattern', channel: ch, pattern, immediate: this.immediateSwitch });
-    this.flash(`${ch + 1} ${this.kindName(c)} PAT ${PATTERN_NAMES[pattern]}`);
+    if (flash) this.flash(`${ch + 1} ${this.kindName(c)} PAT ${PATTERN_NAMES[pattern]}`);
     this.save();
+  }
+
+  /**
+   * SAVE: the selected track's pattern as it is now becomes its saved version - RECORD its
+   * notes, DESIGN its patch, PLAY (and SONG) both. FUNC + SAVE: every track's.
+   */
+  private saveCurrent(): void {
+    const notes = this.mode !== 'design';
+    const patch = this.mode !== 'record';
+    if (this.funcHeld) this.funcUsed = true;
+    const tracks = this.func ? this.project.channels.map((_, ch) => ch) : [this.selected];
+    for (const ch of tracks) {
+      const c = this.project.channels[ch];
+      lockPattern(c, c.activePattern, notes, patch);
+    }
+    this.save();
+    const what = notes && patch ? 'PATTERN + PATCH' : notes ? 'PATTERN' : 'PATCH';
+    const c = this.channel;
+    this.flash(`SAVED ${what} ${this.func ? 'ALL TRACKS' : `${this.selected + 1} ${PATTERN_NAMES[c.activePattern]}`}`);
+  }
+
+  /** Unsaved edits on a pattern (notes or patch): marked * on the screen. */
+  private dirty(c: ChannelState, p = c.activePattern): boolean {
+    const pat = c.patterns[p];
+    return !!pat.notesDirty || !!pat.patchDirty;
   }
 
   private velocity(): number {
@@ -1404,9 +1474,10 @@ export class App {
   }
 
   /**
-   * COPY: a pattern (length, steps, flags) onto another track's / pattern slot. Onto KICK,
-   * SNARE and HAT the notes do not carry over (their hits play as designed); PERC and the
-   * synths keep them. Locks only go to a track of the same type.
+   * COPY: a pattern (length, steps, flags, and onto the same type its patch) onto another
+   * track's / pattern slot. Onto KICK, SNARE and HAT the notes do not carry over (their
+   * hits play as designed); PERC and the synths keep them. Locks only go to a track of the
+   * same type. The copy is an unsaved edit there.
    */
   private copyPattern(fromCh: number, fromPat: number, toCh: number, toPat: number): void {
     if (fromCh === toCh && fromPat === toPat) {
@@ -1427,8 +1498,16 @@ export class App {
       dst.steps[i] = step;
       this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
     });
+    dst.notesDirty = true;
+    // The patch goes along onto a track of the same type.
+    const withPatch = from.instrument === to.instrument && from.instrument !== 'none';
+    if (withPatch) {
+      setPatchOf(to, toPat, clonePatch(patchOf(from, fromPat)));
+      dst.patchDirty = true;
+      this.send({ type: 'setPatch', channel: toCh, pattern: toPat, sound: { ...patchOf(to, toPat).sound }, glide: false });
+    }
     this.copyUsed = true;
-    this.flash(`COPIED ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${this.kindName(to)} ${PATTERN_NAMES[toPat]}`);
+    this.flash(`COPIED ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${PATTERN_NAMES[toPat]}${withPatch ? ' +PATCH' : ''}`);
     this.save();
   }
 
@@ -1492,6 +1571,7 @@ export class App {
     const len = this.pattern.length;
     const next = STEP_LENGTHS.find((l) => l > len) ?? STEP_LENGTHS[0];
     this.pattern.length = Math.min(next, MAX_STEPS);
+    this.pattern.notesDirty = true;
     this.send({
       type: 'setPatternLength', channel: this.selected, pattern: this.channel.activePattern, length: this.pattern.length,
     });
@@ -1722,6 +1802,8 @@ export class App {
       return;
     }
     // Into its own slot: the same project, saved over. Anywhere else: a new one (save as).
+    // Every pattern and patch is saved with it.
+    lockProject(this.project);
     const saved = projectStore.save(slot, name, this.project, own ? entry.id : undefined);
     if (!saved) {
       this.flash('STORAGE FULL - NOT SAVED');
@@ -1775,8 +1857,11 @@ export class App {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       if (this.forceRing[ch] || this.forceSlide[ch] || this.forceDyn[ch] !== 'normal') this.setForce(ch, false, false, 'normal');
     }
+    project.channels.forEach(initPatterns);
     this.project = project;
     this.baseline = JSON.parse(JSON.stringify(project)) as Project;
+    this.resetAgainUntil = 0;
+    this.entry = null;
     project.channels.forEach((c, i) => { this.octave[i] = c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote; });
     this.selected = 0;
     this.viewPage.fill(0);
@@ -1879,17 +1964,7 @@ export class App {
       this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, spec.defaultValue));
     }
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
-      const id = `fx${n}`;
-      if (this.heldTrack >= 0) {
-        // Pattern buttons for the held track.
-        this.panel.setButtonText(id, PATTERN_NAMES[n - 1]);
-        this.panel.setButtonLit(id, this.project.channels[this.heldTrack].activePattern === n - 1);
-        this.panel.setButtonFlag(id, 'pattern', true);
-      } else {
-        this.panel.setButtonText(id, n === 4 ? 'LFO' : String(n));
-        this.panel.setButtonLit(id, this.fxView === n);
-        this.panel.setButtonFlag(id, 'pattern', false);
-      }
+      this.panel.setButtonLit(`fx${n}`, this.fxView === n);
     }
     // DESIGN: SOUND / MIX / PROJECT. PLAY: SOUND (live knobs) / MIX; PROJECT shown but off.
     const names = this.pageNames();
@@ -1902,7 +1977,9 @@ export class App {
       this.panel.setButtonLit(`dpage${i}`, usable && i === current && this.fxView === 0);
     }
     this.panel.setButtonLit('clear', this.clearHeld);
-    this.panel.setButtonLit('reset', this.glides.size > 0);
+    this.panel.setButtonLit('reset', this.glides.size > 0 || performance.now() < this.resetLitUntil);
+    // SAVE: what this mode edits (RECORD the notes, DESIGN the patch, PLAY both).
+    this.panel.setButtonText('save', `SAVE<small>${this.mode === 'record' ? 'PATTERN' : this.mode === 'design' ? 'PATCH' : 'PAT+PATCH'}</small>`);
     this.panel.setButtonEnabled('clear', this.mode !== 'design');
     this.panel.setButtonLit('copy', this.copyHeld);
     this.panel.setButtonEnabled('copy', this.mode !== 'design');
@@ -1975,11 +2052,12 @@ export class App {
     }
     const start = this.songPage * 16 + 1;
     this.panel.setButtonText('steppage', `${start}-${start + 15}<small>ROWS</small>`);
-    // A / B / C show the cursor cell's pattern.
+    // A-D show the cursor cell's pattern.
     const cell = this.songCol > 0 ? (this.songRows[this.songRow]?.patterns[this.songCol - 1] ?? -1) : -1;
     PATTERN_NAMES.forEach((name, p) => {
       this.panel.setButtonFlag(`pat${name}`, 'lit', p === cell);
       this.panel.setButtonFlag(`pat${name}`, 'playing', false);
+      this.panel.setButtonFlag(`pat${name}`, 'dirty', false);
     });
   }
 
@@ -2056,13 +2134,25 @@ export class App {
 
     this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
 
+    this.updatePatternButtons(now);
+    if (this.touchedKnob >= 0 && now - this.touchedAt > 4000) this.touchedKnob = -1;
+  }
+
+  /**
+   * A-D: the selected track's patterns (a channel held: that track's). Lit = chosen, blinking
+   * = waiting for its loop end, outlined = playing; * = unsaved edits.
+   */
+  private updatePatternButtons(now: number): void {
+    const ch = this.heldTrack >= 0 ? this.heldTrack : this.selected;
+    const c = this.project.channels[ch];
+    const playingPattern = this.status?.patterns[ch] ?? c.activePattern;
     const blink = Math.floor(now / 250) % 2 === 0;
     PATTERN_NAMES.forEach((name, p) => {
       const pending = p === c.activePattern && playingPattern !== c.activePattern && this.playing;
       this.panel.setButtonFlag(`pat${name}`, 'lit', p === c.activePattern && (!pending || blink));
-      this.panel.setButtonFlag(`pat${name}`, 'playing', p === playingPattern && p !== c.activePattern);
+      this.panel.setButtonFlag(`pat${name}`, 'playing', this.playing && p === playingPattern && p !== c.activePattern);
+      this.panel.setButtonFlag(`pat${name}`, 'dirty', this.dirty(c, p));
     });
-    if (this.touchedKnob >= 0 && now - this.touchedAt > 4000) this.touchedKnob = -1;
   }
 
   private footer(audio: AudioInfo): { text: string; alert: boolean } {
@@ -2098,9 +2188,9 @@ export class App {
     const playingPattern = this.status?.patterns[ch] ?? c.activePattern;
     return {
       channelLabel: `CH${ch + 1} ${this.kindName(c)}`,
-      patternLabel: this.playing && playingPattern !== c.activePattern
+      patternLabel: (this.playing && playingPattern !== c.activePattern
         ? `PAT ${PATTERN_NAMES[playingPattern]}>${PATTERN_NAMES[c.activePattern]}`
-        : `PAT ${PATTERN_NAMES[c.activePattern]}`,
+        : `PAT ${PATTERN_NAMES[c.activePattern]}`) + (this.dirty(c) ? '*' : ''),
       bpmText: this.project.bpm.toFixed(1),
       playing: this.playing,
       message: performance.now() < this.messageUntil ? this.message : '',

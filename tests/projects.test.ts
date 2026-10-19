@@ -43,6 +43,29 @@ describe('project slots (localStorage)', () => {
     expect(s.openId()).toBeNull();
   });
 
+  it('an older working copy takes its saved versions from the slot\'s saved copy', async () => {
+    const s = await store();
+    const p = createDefaultProject();
+    const e = s.save(0, 'OLD', p)!;
+    // A v30 working copy with a new hit on track 1 and a brighter bass.
+    const work = toStored(p) as unknown as { version: number; channels: { patterns: { steps: unknown[] }[]; sounds: Record<string, Record<string, number>> }[] };
+    work.version = 30;
+    work.channels[0].patterns[0].steps.push({ i: 4, n: 36, v: 0.8 });
+    work.channels[4].sounds.bass.cutoff = 4321;
+    localStorage.setItem(`groovebox.work.${e.id}`, JSON.stringify(work));
+    const loaded = s.loadWork(e.id)!;
+    const kick = loaded.channels[0].patterns[0];
+    expect(kick.steps[4].active).toBe(true);
+    expect(kick.notesDirty).toBe(true);
+    expect(kick.savedNotes!.steps[4].active).toBe(false);
+    const bass = loaded.channels[4].patterns[0];
+    expect(bass.patchDirty).toBe(true);
+    expect(bass.savedPatch!.sound.cutoff).not.toBe(4321);
+    expect(loaded.channels[4].patterns[1].patchDirty).toBe(true); // one sound on all four before
+    expect(loaded.channels[3].patterns[0].patchDirty).toBe(false);
+    expect(loaded.channels[1].patterns[0].notesDirty).toBe(false);
+  });
+
   it('first run: the project saved before slots becomes slot 1 and is open', async () => {
     const p = createDefaultProject();
     p.bpm = 99;

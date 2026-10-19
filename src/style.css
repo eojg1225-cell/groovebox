@@ -115,12 +115,17 @@ html, body {
 .btn.mute, .btn.solo { height: 30px; font-size: 13px; flex: 1; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
-.btn.pat { height: 40px; font-size: 18px; }
+.btn.pat { height: 40px; flex: 1; font-size: 17px; border-radius: 8px; }
 .btn.pat.playing { border-color: var(--accent); }
 .btn.save { height: 40px; font-size: 12px; line-height: 1; flex: 0.9; }
 .btn.save small { font-size: 9px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
 .btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
-.row.pages { gap: 14px; }
+.row.pages, .row.patterns { gap: 14px; }
+.save-buttons { display: flex; gap: 8px; flex: 3; }
+.save-buttons > * { flex: 1; }
+.pat-buttons { display: flex; gap: 6px; flex: 1.6; align-items: center; }
+.btn.pat.dirty::after { content: '*'; position: absolute; margin: -22px 0 0 26px; font-size: 13px; color: var(--hot); }
+.btn.pat { position: relative; }
 .page-buttons { display: flex; gap: 8px; flex: 3; }
 .page-buttons > * { flex: 1; }
 .btn.page { height: 40px; font-size: 12px; }
@@ -128,7 +133,6 @@ html, body {
 .fx-buttons { display: flex; gap: 6px; flex: 1.6; align-items: center; }
 .fx-label { font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink-dim); }
 .btn.fxsend { height: 34px; flex: 1; font-size: 15px; border-radius: 8px; }
-.btn.fxsend.pattern { border-color: var(--hot); }
 
 /* ---------- Knob section: six track modules, like a hardware front panel ---------- */
 .knob-grid {

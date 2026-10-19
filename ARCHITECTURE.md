@@ -41,8 +41,10 @@ Main -> worklet:
 | `setLfoTrack` | `channel`, `on` | Put a track on / off the LFO |
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-64 steps |
-| `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern; quantised to the channel's loop end unless `immediate` or stopped |
-| `setSound` | `channel`, `id`, `value` | Instrument parameter (real units; the base value) |
+| `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern; quantised to the channel's loop end unless `immediate` or stopped. Its patch glides in from now to the switch (coarse params at the switch); the playing pattern again cancels (glides back) |
+| `setSound` | `channel`, `id`, `value`, `pattern?` | Instrument parameter (real units) in that pattern's patch; heard when the pattern plays |
+| `setPatch` | `channel`, `pattern`, `sound`, `glide` | A pattern's whole patch (copy, RESET); `glide` = glide there by the next bar line |
+| `swapNotes` | `channel`, `pattern`, `length`, `steps` | RESET with notes: the saved notes replace the pattern's at the next bar line |
 | `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred): the engine sums each knob's push per param slot (`liveTargets` / `liveContribution` in the registry: up to ±60 % of the knob range with a gentle log taper, normalised) and adds it to the base or locked value |
 | `setMix` | `channel`, `id` (`volume`/`pan`/`mute`/`send`), `value` | Track mixer: level, pan, mute, send level |
 | `setGlobal` | `id` (`bpm`/`swing`/`master`/`lofi`), `value` | Project-wide settings |

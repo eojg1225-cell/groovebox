@@ -4,15 +4,16 @@
  * so the instrument is always landscape.
  *
  *   [ pixel screen ] [ MODE: record / play / sound design ]
- *                    [ channels 1-6, mutes, patterns, pages ]
+ *                    [ channels 1-8, mutes, pages | FX, save | A-D ]
  *   [ 6 track modules, each: knob / track number / knob     ]
  *   [ function row                                 ] [      ]
  *   [ step LEDs                                    ] [ PLAY ]
  *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
- * Control ids: mode:record|play|design, ch1..6, mute1..6, solo1..8, patA..C, savepatch,
- * saveproject, reset, dpage0..2, fx1..fx3 + fx4 (LFO), play, clear (held: CLEAR + step / channel),
- * copy (held: COPY + channel = same pattern slot there, COPY + FX 1-3 / LFO = pattern A-D),
+ * Control ids: mode:record|play|design, ch1..8, mute1..8, solo1..8, save, saveproject,
+ * reset, patA..D (under the FX buttons), dpage0..2, fx1..fx3 + fx4 (LFO), play, clear
+ * (held: CLEAR + step / channel), copy (held: COPY + channel = same pattern slot there,
+ * COPY + A-D = that pattern of this track),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
  * bottom row; module i holds k(i+1) and k(i+9)); master knobs mtempo, mlofi.
  */
@@ -84,8 +85,8 @@ export class Panel implements ControlSurface {
           <div class="row modes"></div>
           <div class="row channels"></div>
           <div class="row mutes"></div>
-          <div class="row patterns"></div>
           <div class="row pages"><div class="page-buttons"></div><div class="fx-buttons"><span class="fx-label">FX</span></div></div>
+          <div class="row patterns"><div class="save-buttons"></div><div class="pat-buttons"><span class="fx-label">PAT</span></div></div>
         </div>
       </div>
       <div class="knob-grid"></div>
@@ -112,10 +113,10 @@ export class Panel implements ControlSurface {
       pair.appendChild(this.makeButton(`solo${ch}`, 'S', 'btn solo'));
       q('.mutes').appendChild(pair);
     }
-    for (const p of cfg.patterns) q('.patterns').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
-    q('.patterns').appendChild(this.makeButton('savepatch', 'SAVE<small>PATCH</small>', 'btn save'));
-    q('.patterns').appendChild(this.makeButton('saveproject', 'SAVE<small>PROJECT</small>', 'btn save'));
-    q('.patterns').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
+    q('.save-buttons').appendChild(this.makeButton('save', 'SAVE<small>PATTERN</small>', 'btn save'));
+    q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE<small>PROJECT</small>', 'btn save'));
+    q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
+    for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
     for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
 
