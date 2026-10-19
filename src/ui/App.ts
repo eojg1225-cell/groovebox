@@ -71,13 +71,18 @@ interface ProjectMenu {
   cursor: number;
   /** A slot waiting for its second tap (overwrite / delete), -1 = none. */
   confirm: number;
+  /** Where knobs 1-4 sit (0 = the space) - back at 0 whenever the cursor moves. */
+  knobs: number[];
 }
 
-/** Name entry: what knobs 1-4 dial in at the cursor. */
+/**
+ * Name entry: what knobs 1-4 dial in at the cursor. Each starts on a space; the knobs sit
+ * there until turned, so the character at the cursor only changes when one is.
+ */
 const NAME_SETS: readonly [string, string][] = [
-  ['A-Z', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'],
-  ['a-z', 'abcdefghijklmnopqrstuvwxyz'],
-  ['0-9', '0123456789'],
+  ['A-Z', ' ABCDEFGHIJKLMNOPQRSTUVWXYZ'],
+  ['a-z', ' abcdefghijklmnopqrstuvwxyz'],
+  ['0-9', ' 0123456789'],
   ['SYMBOL', " -_.!#&+=()?%:/'*"],
 ];
 
@@ -1651,7 +1656,7 @@ export class App {
     const openId = projectStore.openId();
     const at = slots.findIndex((e) => !!e && e.id === openId);
     const name = (at >= 0 ? slots[at]!.name : 'PROJECT').slice(0, NAME_LENGTH);
-    this.projMenu = { kind, bank: at >= 0 ? Math.floor(at / SLOTS_PER_BANK) : 0, name: [...name], cursor: Math.min(name.length, NAME_LENGTH - 1), confirm: -1 };
+    this.projMenu = { kind, bank: at >= 0 ? Math.floor(at / SLOTS_PER_BANK) : 0, name: [...name], cursor: Math.min(name.length, NAME_LENGTH - 1), confirm: -1, knobs: [0, 0, 0, 0] };
     this.touchedKnob = -1;
   }
 
@@ -1691,6 +1696,7 @@ export class App {
         menu.confirm = -1;
       } else {
         menu.cursor = Math.max(0, Math.min(Math.min(menu.name.length, NAME_LENGTH - 1), menu.cursor + d));
+        menu.knobs.fill(0); // the knobs start from the space again at the new position
       }
       return true;
     }
@@ -1832,9 +1838,10 @@ export class App {
       const spec = choice(`name${k}`, label, [...chars]);
       out[k] = {
         label, spec, channel: this.selected,
-        get: () => Math.max(0, chars.indexOf(menu.name[menu.cursor] ?? '')),
+        get: () => menu.knobs[k],
         set: (v) => {
-          const c = chars[Math.round(v)] ?? chars[0];
+          menu.knobs[k] = Math.round(v);
+          const c = chars[menu.knobs[k]] ?? chars[0];
           while (menu.name.length < menu.cursor) menu.name.push(' ');
           menu.name[menu.cursor] = c;
         },
