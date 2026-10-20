@@ -62,7 +62,7 @@ import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon 
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { loadSavedProject, userPatches } from '../storage/saved';
+import { userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, ProjectView, SongView } from './views';
 
@@ -1016,7 +1016,7 @@ export class App {
       return;
     }
     const openId = projectStore.openId();
-    const saved = (openId ? projectStore.load(openId) : null) ?? loadSavedProject() ?? this.baseline;
+    const saved = (openId ? projectStore.load(openId) : null) ?? this.baseline;
     const glides = new Map<string, Glide>();
     const add = (key: string, spec: ParamSpec, current: number, target: number, set: (v: number) => void) => {
       if (Math.abs(current - target) < 1e-9) return;

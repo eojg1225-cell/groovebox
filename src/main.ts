@@ -9,11 +9,9 @@ import { INK, PixelScreen } from './ui/screen';
 import { drawDesignView, drawLiveView, drawProjectView, drawSongView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
-import { createStartProject } from './engine/defaultProject';
-import { loadSession } from './storage/session';
-import { loadSavedProject } from './storage/saved';
+import { createDefaultProject } from './engine/defaultProject';
+import { clearSession } from './storage/session';
 import { projectStore } from './storage/projects';
-import { mirrorToCloud } from './storage/cloud';
 import { textWidth } from './ui/font';
 
 const TITLE_HOLD_MS = 1400;
@@ -28,15 +26,12 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   void navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
 }
 
-// Working session first (survives reloads), then the open project (where it was left, else
-// as saved), then the project saved before slots, else a fresh one.
+// Every start is a blank slate: the default project, nothing open. Saved projects (and
+// their working copies) stay in their slots for LOAD (FUNC + SAVE PROJECT).
 projectStore.slots(); // first run: the project saved before slots becomes slot 1
-const openId = projectStore.openId();
-const project = loadSession()
-  ?? (openId ? projectStore.loadWork(openId) ?? projectStore.load(openId) : null)
-  ?? loadSavedProject() ?? createStartProject();
-// Keep the cloud copy (claude.ai only) in step with what was loaded.
-mirrorToCloud(project);
+projectStore.setOpen(null);
+clearSession();
+const project = createDefaultProject();
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
   channels: NUM_CHANNELS,
   patterns: PATTERN_NAMES,
