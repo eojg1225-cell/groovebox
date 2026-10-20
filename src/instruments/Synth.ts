@@ -235,7 +235,10 @@ export class Synth implements Instrument {
   private readonly velK: number;
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
-  /** 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three carriers). */
+  /**
+   * 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three
+   * carriers), 2 = 2 STACKS (two modulator -> carrier pairs).
+   */
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35;
   private fmMod = 0; private fmEff = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
@@ -556,6 +559,28 @@ export class Synth implements Instrument {
           v.cf1 = c1;
           o1 = c1 * (1 - 0.4 * c) + this.osc(wrap(v.p6 + pm), d6) * 0.6 * c;
           o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + pm), d5) * c;
+        } else if (this.algo === 2) {
+          // 2 STACKS: two modulator -> carrier pairs. Stack 1 = carrier 1 (SHAPE's wave, its
+          // own CAR FB) under a sine at FM RATIO with self-feedback; stack 2 = a carrier at
+          // RATIO 2 (detuned by DETUNE) under a plain sine at RATIO 3. CARRIERS = stack 2
+          // against stack 1. OSC 1 = stack 1, OSC 2 = the blend.
+          v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
+          const fbIn = (v.fb1 + v.fb2) * 0.5 * this.feedback * MAX_FEEDBACK;
+          const m1 = Math.sin(2 * Math.PI * v.p4 + fbIn);
+          v.fb2 = v.fb1;
+          v.fb1 = m1;
+          const d5 = dt1 * this.ratio2 * det;
+          v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
+          v.p6 += dt1 * this.ratio3; if (v.p6 >= 1) v.p6 -= 1;
+          const m2 = Math.sin(2 * Math.PI * v.p6);
+          const idx = (this.fmIndex * (0.6 + 0.4 * v.fenv)) / (2 * Math.PI);
+          const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
+          const c1 = this.osc(wrap(v.p1 + m1 * idx + cfb), dt1);
+          v.cf2 = v.cf1;
+          v.cf1 = c1;
+          const c = this.carriers;
+          o1 = c1;
+          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + m2 * idx), d5) * c;
         } else {
           o1 = this.osc(v.p1, dt1);
           o2 = this.osc(v.p2, dt2);

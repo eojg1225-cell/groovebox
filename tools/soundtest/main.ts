@@ -12,11 +12,13 @@ import { toNorm, toValue, type ParamSpec } from '../../src/engine/params';
 import { INSTRUMENTS, presetSound } from '../../src/instruments/registry';
 import { CONVERGE, MACROS, macroSound, snapRatio, type Anchor, type Excite } from '../../src/instruments/macros';
 import { createDefaultProject } from '../../src/engine/defaultProject';
-import { PAD_B_ANCHORS, PAD_B_EXCITE } from './padCandidate';
+import { PAD_B_ANCHORS, PAD_B_EXCITE, PAD_C_ANCHORS, PAD_C_EXCITE, gentle } from './padCandidate';
+import { CHORD_NAMES } from '../../src/engine/chords';
 
 type Kind = 'bass' | 'pluck' | 'pad';
-/** PAD A/B: A = today's 3 CARRIER FM pad, B = the BASS engine candidate (padCandidate.ts). */
-type Engine = 'A' | 'B';
+/** PAD A/B/C: A = today's 3 CARRIER FM pad, B = the BASS engine, C = 2 STACKS (padCandidate.ts). */
+type Engine = 'A' | 'B' | 'C';
+const ENGINES: Engine[] = ['A', 'B', 'C'];
 type Mode = 'morph' | 'all' | 'xfade' | 'zones' | 'snap';
 
 export const MODES: { id: Mode; name: string; text: string }[] = [
@@ -97,13 +99,16 @@ function blend(list: readonly Anchor[], excite: readonly Excite[], timbre: numbe
   return out;
 }
 
-/** The PAD for engine A or B at a TIMBRE / INT position. */
+/** The PAD for engine A, B or C at a TIMBRE / INT position (GENTLE INT: lower top end). */
 function padSound(engine: Engine, timbre: number, intensity: number): Record<string, number> {
   const specs = INSTRUMENTS.pad.params;
   const base = presetSound('pad', 0);
+  const ex = (e: readonly Excite[]) => (state.gentle ? gentle(e) : e);
   const sound = engine === 'A'
-    ? { ...base, ...macroSound('pad', timbre, intensity, specs), algo: 1 }
-    : { ...base, ...blend(PAD_B_ANCHORS, PAD_B_EXCITE, timbre, intensity, specs), algo: 0 };
+    ? { ...base, ...blend(MACROS.pad.anchors, ex(MACROS.pad.excite), timbre, intensity, specs), algo: 1 }
+    : engine === 'B'
+      ? { ...base, ...blend(PAD_B_ANCHORS, ex(PAD_B_EXCITE), timbre, intensity, specs), algo: 0 }
+      : { ...base, ...blend(PAD_C_ANCHORS, ex(PAD_C_EXCITE), timbre, intensity, specs), algo: 2 };
   return { ...sound, timbre, intensity };
 }
 
@@ -111,7 +116,7 @@ const ZONE = 0.3; // share of each stretch between two sounds where "Hold, then 
 
 /** The sound(s) for the knobs: one sound and its level, or two for the crossfade. */
 function voices(kind: Kind, mode: Mode, timbre: number, intensity: number): { sound: Record<string, number>; gain: number }[] {
-  if (kind === 'pad') return [{ sound: padSound(state.engine, timbre, intensity), gain: state.engine === 'B' ? Math.pow(10, state.bGain / 20) : 1 }];
+  if (kind === 'pad') return [{ sound: padSound(state.engine, timbre, intensity), gain: Math.pow(10, state.gain[state.engine] / 20) }];
   const specs = INSTRUMENTS[kind].params;
   const base = presetSound(kind, 0);
   const n = MACROS[kind].anchors.length - 1;
@@ -160,7 +165,7 @@ function anchorNames(kind: Kind): string[] {
 }
 const PAD = 5;
 
-/** PAD: one sustained note (A3, no chord) held for a 16-step pattern, then struck again. */
+/** PAD: one sustained MIN7 chord on A3 held for a 16-step pattern, then struck again. */
 const PAD_NOTE = 57;
 const PAD_STEPS = 16;
 
@@ -168,7 +173,7 @@ const PAD_STEPS = 16;
 function padProject(): Project {
   const p = createDefaultProject();
   p.channels.forEach((c, i) => { c.mute = i !== CHANNEL.pad; });
-  p.channels[CHANNEL.pad].chord = 0;
+  p.channels[CHANNEL.pad].chord = CHORD_NAMES.indexOf('MIN7');
   return p;
 }
 
@@ -199,7 +204,7 @@ let node: AudioWorkletNode | null = null;
 let playing = false;
 const send = (to: 'A' | 'B' | 'both', msg: MainToWorklet) => node?.port.postMessage({ to, msg });
 
-const state = { kind: 'pad' as Kind, mode: 'morph' as Mode, timbre: 0.25, intensity: 0.5, solo: true, engine: 'A' as Engine, bGain: 0 };
+const state = { kind: 'pad' as Kind, mode: 'morph' as Mode, timbre: 0.25, intensity: 0.5, solo: true, engine: 'A' as Engine, gain: { A: 0, B: 0, C: 0 } as Record<Engine, number>, gentle: false };
 
 async function ensureAudio(): Promise<void> {
   if (node) return;
@@ -342,21 +347,27 @@ $('modes').addEventListener('change', (e) => {
   state.mode = (e.target as HTMLInputElement).value as Mode;
   applySound();
 });
-/** A / B: which PAD engine plays (instant, the notes keep playing). */
+/** A / B / C: which PAD engine plays (instant, the chord keeps playing). */
 function setEngine(e: Engine): void {
   state.engine = e;
-  for (const x of ['A', 'B'] as const) {
+  for (const x of ENGINES) {
     const b = $(`e-${x}`);
     b.classList.toggle('on', x === e);
     b.setAttribute('aria-pressed', String(x === e));
   }
+  const g = state.gain[e];
+  $<HTMLInputElement>('gain').value = String(g);
+  $('gain-name').textContent = `${e} level`;
+  $('gain-val').textContent = `${g > 0 ? '+' : ''}${g} dB`;
   applySound();
 }
-$('e-A').addEventListener('click', () => setEngine('A'));
-$('e-B').addEventListener('click', () => setEngine('B'));
-$<HTMLInputElement>('bgain').addEventListener('input', (e) => {
-  state.bGain = Number((e.target as HTMLInputElement).value);
-  $('bgain-val').textContent = `${state.bGain > 0 ? '+' : ''}${state.bGain} dB`;
+for (const x of ENGINES) $(`e-${x}`).addEventListener('click', () => setEngine(x));
+$<HTMLInputElement>('gain').addEventListener('input', (e) => {
+  state.gain[state.engine] = Number((e.target as HTMLInputElement).value);
+  setEngine(state.engine);
+});
+$<HTMLInputElement>('gentle').addEventListener('change', (e) => {
+  state.gentle = (e.target as HTMLInputElement).checked;
   applySound();
 });
 for (const k of ['bass', 'pluck', 'pad'] as const) {
@@ -374,7 +385,8 @@ $<HTMLInputElement>('solo').addEventListener('change', (e) => {
 playBtn.addEventListener('click', () => { void togglePlay().catch((err) => { $('err').textContent = `Audio could not start: ${err.message ?? err}`; }); });
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && !(e.target instanceof HTMLInputElement)) { e.preventDefault(); playBtn.click(); }
-  if (state.kind === 'pad' && (e.code === 'KeyA' || e.code === 'KeyB')) setEngine(e.code === 'KeyA' ? 'A' : 'B');
+  const key = e.code.slice(3) as Engine;
+  if (state.kind === 'pad' && e.code.startsWith('Key') && ENGINES.includes(key)) setEngine(key);
 });
 $('bpm').textContent = `${Math.round((stored.project as { bpm: number }).bpm)} BPM`;
 $('bpm-pad').textContent = `${BPM} BPM`;

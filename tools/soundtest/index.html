@@ -10,7 +10,7 @@
 <main class="wrap">
   <header>
     <h1>TIMBRE Sound Test</h1>
-    <p>Your project, with the chosen track's sound driven only by TIMBRE and INT. PAD: one sustained note, struck again every 16 steps (one bar). Press Play, sweep TIMBRE and INT slowly and switch between A and B (keys A / B) to compare the two pad engines at the same position.</p>
+    <p>Your project, with the chosen track's sound driven only by TIMBRE and INT. PAD: a MIN7 chord held for 16 steps (one bar), then struck again. Press Play, sweep TIMBRE and INT slowly and switch between A, B and C (keys A / B / C) to compare the pad engines at the same position. Gentle INT lowers how far INT pushes the modulation.</p>
   </header>
 
   <section class="deck" aria-label="Transport and knobs">
@@ -21,7 +21,7 @@
       <span class="bpm only-pad" id="bar"></span>
     </div>
     <div class="tracks" role="radiogroup" aria-label="Track">
-      <label for="k-pad"><input type="radio" name="kind" id="k-pad" checked> PAD <small>(one held note, 16 steps)</small></label>
+      <label for="k-pad"><input type="radio" name="kind" id="k-pad" checked> PAD <small>(MIN7 chord held, 16 steps)</small></label>
       <label for="k-bass"><input type="radio" name="kind" id="k-bass"> BASS</label>
       <label for="k-pluck"><input type="radio" name="kind" id="k-pluck"> PLUCK <small>(plays the CHORD pattern)</small></label>
       <label for="solo" class="solo not-pad"><input type="checkbox" id="solo" checked> Solo</label>
@@ -30,8 +30,12 @@
       <div class="ab-buttons">
         <button type="button" id="e-A" class="ab-btn" aria-pressed="true"><b>A</b><span>Current pad: 3-carrier FM</span></button>
         <button type="button" id="e-B" class="ab-btn" aria-pressed="false"><b>B</b><span>Bass engine: wave + FM layer + filter</span></button>
+        <button type="button" id="e-C" class="ab-btn" aria-pressed="false"><b>C</b><span>2 stacks: two modulator → carrier pairs</span></button>
       </div>
-      <label class="bgain" for="bgain">B level <input type="range" id="bgain" min="-12" max="12" step="1" value="0"> <output id="bgain-val">0 dB</output></label>
+      <div class="ab-row">
+        <label class="bgain" for="gain"><span id="gain-name">A level</span> <input type="range" id="gain" min="-12" max="12" step="1" value="0"> <output id="gain-val">0 dB</output></label>
+        <label class="gentle" for="gentle"><input type="checkbox" id="gentle"> Gentle INT <small>(lower maximum modulation)</small></label>
+      </div>
     </div>
     <div class="knobs">
       <div class="knob-wrap">
