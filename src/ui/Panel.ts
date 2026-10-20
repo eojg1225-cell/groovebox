@@ -114,7 +114,7 @@ export class Panel implements ControlSurface {
       q('.mutes').appendChild(pair);
     }
     q('.save-buttons').appendChild(this.makeButton('save', 'SAVE<small>PATTERN</small>', 'btn save'));
-    q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE<small>PROJECT</small>', 'btn save'));
+    q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
     for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));

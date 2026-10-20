@@ -1984,6 +1984,8 @@ export class App {
     this.panel.setButtonLit('reset', this.glides.size > 0 || performance.now() < this.resetLitUntil);
     // SAVE: what this mode edits (RECORD the notes, DESIGN the patch, PLAY both).
     this.panel.setButtonText('save', `SAVE<small>${this.mode === 'record' ? 'PATTERN' : this.mode === 'design' ? 'PATCH' : 'PAT+PATCH'}</small>`);
+    // SAVE PROJECT doubles as LOAD (FUNC): the label says which one a tap opens.
+    this.panel.setButtonText('saveproject', this.func ? 'LOAD<small>PROJECT</small>' : 'SAVE/LOAD<small>PROJECT</small>');
     this.panel.setButtonEnabled('clear', this.mode !== 'design');
     this.panel.setButtonLit('copy', this.copyHeld);
     this.panel.setButtonEnabled('copy', this.mode !== 'design');
