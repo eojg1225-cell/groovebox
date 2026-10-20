@@ -11,7 +11,7 @@ import type { Project, SoundKind } from '../../src/engine/project';
 import { toNorm, toValue, type ParamSpec } from '../../src/engine/params';
 import { INSTRUMENTS, presetSound } from '../../src/instruments/registry';
 import { CONVERGE, MACROS, macroSound, snapRatio, type Anchor, type Excite } from '../../src/instruments/macros';
-import { editPattern } from '../../src/engine/project';
+import { createDefaultProject } from '../../src/engine/defaultProject';
 import { PAD_B_ANCHORS, PAD_B_EXCITE } from './padCandidate';
 
 type Kind = 'bass' | 'pluck' | 'pad';
@@ -160,7 +160,20 @@ function anchorNames(kind: Kind): string[] {
 }
 const PAD = 5;
 
+/** PAD: one sustained note (A3, no chord) held for 16 bars, then struck again. */
+const PAD_NOTE = 57;
+const PAD_BARS = 16;
+
+/** PAD: a fresh default project (its FX routing), only the PAD sounding, no notes in it. */
+function padProject(): Project {
+  const p = createDefaultProject();
+  p.channels.forEach((c, i) => { c.mute = i !== CHANNEL.pad; });
+  p.channels[CHANNEL.pad].chord = 0;
+  return p;
+}
+
 function buildProject(kind: Kind, solo: boolean, onlyTest: boolean): Project {
+  if (kind === 'pad') return padProject();
   const p = fromStored(stored.project)!;
   const ch = CHANNEL[kind];
   if (kind === 'pluck') {
@@ -170,8 +183,6 @@ function buildProject(kind: Kind, solo: boolean, onlyTest: boolean): Project {
     pl.patterns[pl.activePattern] = JSON.parse(JSON.stringify(pad.patterns[pad.activePattern]));
     pl.chord = pad.chord;
   }
-  // The PAD plays its pattern A.
-  if (kind === 'pad') editPattern(p.channels[ch], 0);
   p.channels.forEach((c, i) => {
     c.liveOffset = {};
     if (i === ch) { c.mute = false; c.instrument = kind; return; }
@@ -207,7 +218,7 @@ function load(): void {
 function applySound(): void {
   const ch = CHANNEL[state.kind];
   const v = voices(state.kind, state.mode, state.timbre, state.intensity);
-  const volume = state.kind === 'pad' ? project().channels[ch].volume : 0.8;
+  const volume = state.kind === 'pad' ? PAD_VOLUME : 0.8;
   const targets: ('A' | 'B')[] = ['A', 'B'];
   targets.forEach((to, i) => {
     const voice = v[i];
@@ -218,12 +229,40 @@ function applySound(): void {
   readout();
 }
 
+let padTimer: number | undefined;
+let padStart = 0;
+const BPM = 128;
+
+/** The PAD's held note: struck at the start of every 16 bars, with a bar counter. */
+function padNote(on: boolean): void {
+  window.clearInterval(padTimer);
+  send('A', { type: 'release', channel: CHANNEL.pad, note: PAD_NOTE });
+  $('bar').textContent = '';
+  if (!on || !ctx) return;
+  const bar = (4 * 60) / BPM;
+  padStart = ctx.currentTime;
+  let last = -1;
+  const tick = () => {
+    const n = Math.floor((ctx!.currentTime - padStart) / bar);
+    const block = Math.floor(n / PAD_BARS);
+    if (block !== last) {
+      if (last >= 0) send('A', { type: 'release', channel: CHANNEL.pad, note: PAD_NOTE });
+      send('A', { type: 'trigger', channel: CHANNEL.pad, note: PAD_NOTE, velocity: 0.8 });
+      last = block;
+    }
+    $('bar').textContent = `BAR ${(n % PAD_BARS) + 1} / ${PAD_BARS}`;
+  };
+  tick();
+  padTimer = window.setInterval(tick, 50);
+}
+
 async function togglePlay(): Promise<void> {
   await ensureAudio();
   await ctx!.resume();
   playing = !playing;
   if (playing) load();
   send('both', { type: 'transport', playing });
+  if (state.kind === 'pad') padNote(playing);
   playBtn.textContent = playing ? 'Stop' : 'Play';
   playBtn.classList.toggle('on', playing);
 }
@@ -232,11 +271,7 @@ async function togglePlay(): Promise<void> {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const playBtn = $<HTMLButtonElement>('play');
-let stored0: Project | null = null;
-/** The project as stored (for the PAD's own volume). */
-function project(): Project {
-  return (stored0 ??= fromStored(stored.project)!);
-}
+const PAD_VOLUME = createDefaultProject().channels[CHANNEL.pad].volume;
 
 function readout(): void {
   $('timbre-val').textContent = timbreLabel(state.kind, state.mode, state.timbre);
@@ -326,9 +361,10 @@ $<HTMLInputElement>('bgain').addEventListener('input', (e) => {
 });
 for (const k of ['bass', 'pluck', 'pad'] as const) {
   $(`k-${k}`).addEventListener('change', () => {
+    if (playing && state.kind === 'pad') padNote(false);
     state.kind = k;
     marks();
-    if (playing) load(); else readout();
+    if (playing) { load(); if (k === 'pad') padNote(true); } else readout();
   });
 }
 $<HTMLInputElement>('solo').addEventListener('change', (e) => {
@@ -341,6 +377,7 @@ document.addEventListener('keydown', (e) => {
   if (state.kind === 'pad' && (e.code === 'KeyA' || e.code === 'KeyB')) setEngine(e.code === 'KeyA' ? 'A' : 'B');
 });
 $('bpm').textContent = `${Math.round((stored.project as { bpm: number }).bpm)} BPM`;
+$('bpm-pad').textContent = `${BPM} BPM`;
 marks();
 setEngine('A');
 

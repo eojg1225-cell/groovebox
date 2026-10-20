@@ -76,7 +76,8 @@ h2 { font-family: var(--display); font-weight: 600; font-size: 1rem; letter-spac
 /* PAD A/B: two big engine buttons (shown only for the PAD; the TIMBRE rules only for BASS / PLUCK). */
 .ab { display: none; gap: 10px; }
 body.pad .ab { display: grid; }
-body.pad .rules { display: none; }
+body.pad .rules, body.pad .not-pad { display: none; }
+body:not(.pad) .only-pad { display: none; }
 .ab-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .ab-btn {
   display: grid; justify-items: start; gap: 2px; text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;

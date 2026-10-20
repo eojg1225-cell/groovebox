@@ -10,19 +10,21 @@
 <main class="wrap">
   <header>
     <h1>TIMBRE Sound Test</h1>
-    <p>Your project, with the chosen track's sound driven only by TIMBRE and INT. PAD: press Play, sweep TIMBRE slowly and switch between A and B (keys A / B) to compare the two pad engines at the same position.</p>
+    <p>Your project, with the chosen track's sound driven only by TIMBRE and INT. PAD: one sustained note, struck again every 16 bars. Press Play, sweep TIMBRE and INT slowly and switch between A and B (keys A / B) to compare the two pad engines at the same position.</p>
   </header>
 
   <section class="deck" aria-label="Transport and knobs">
     <div class="transport">
       <button id="play" type="button" class="play">Play</button>
-      <span class="bpm" id="bpm"></span>
+      <span class="bpm not-pad" id="bpm"></span>
+      <span class="bpm only-pad" id="bpm-pad"></span>
+      <span class="bpm only-pad" id="bar"></span>
     </div>
     <div class="tracks" role="radiogroup" aria-label="Track">
-      <label for="k-pad"><input type="radio" name="kind" id="k-pad" checked> PAD <small>(pattern A)</small></label>
+      <label for="k-pad"><input type="radio" name="kind" id="k-pad" checked> PAD <small>(one held note, 16 bars)</small></label>
       <label for="k-bass"><input type="radio" name="kind" id="k-bass"> BASS</label>
       <label for="k-pluck"><input type="radio" name="kind" id="k-pluck"> PLUCK <small>(plays the CHORD pattern)</small></label>
-      <label for="solo" class="solo"><input type="checkbox" id="solo" checked> Solo</label>
+      <label for="solo" class="solo not-pad"><input type="checkbox" id="solo" checked> Solo</label>
     </div>
     <div class="ab" aria-label="PAD engine">
       <div class="ab-buttons">
