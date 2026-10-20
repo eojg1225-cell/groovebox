@@ -206,6 +206,8 @@ export class App {
   private readonly octave: number[];
   /** Strip button -> note being held (keyboard), so release ends the right note. */
   private readonly heldNotes = new Map<number, number>();
+  /** BASS / LEAD played live: the note sounding now (slides move it), -1 = none. */
+  private liveNote = -1;
   /** Send shown on the knobs in RECORD/PLAY (1-3), 0 = the tracks' live knobs. */
   private fxView = 0;
   /** CLEAR held, and whether anything was cleared while it was. */
@@ -1322,6 +1324,7 @@ export class App {
       for (const n of this.heldNotes.values()) heldNote = n;
       const legato = heldNote >= 0 && this.isMono(this.channel);
       this.heldNotes.set(button, note);
+      if (this.mode !== 'record' || this.recording) this.liveNote = note;
       if (this.mode === 'record' && this.recording) {
         // Live recording: the worklet writes the note to the nearest step.
         this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent', slide: legato });
@@ -1561,7 +1564,20 @@ export class App {
     const note = this.heldNotes.get(button);
     if (note === undefined) return;
     this.heldNotes.delete(button);
-    this.send({ type: 'release', channel: this.selected, note });
+    const ch = this.selected;
+    const live = this.mode !== 'record' || this.recording;
+    if (live && note === this.liveNote && this.heldNotes.size > 0 && this.isMono(this.channel)) {
+      // BASS / LEAD: letting go of the sounding note while others are held slides back to the
+      // latest one still held (trills); recording, that slide is written as one too.
+      let back = -1;
+      for (const n of this.heldNotes.values()) back = n;
+      this.liveNote = back;
+      if (this.recording) this.send({ type: 'recordNote', channel: ch, note: back, velocity: this.velocity(), accent: this.dynamic === 'accent', slide: true });
+      else this.send({ type: 'trigger', channel: ch, note: back, velocity: this.velocity(), slideFrom: note });
+      return;
+    }
+    if (note === this.liveNote) this.liveNote = -1;
+    this.send({ type: 'release', channel: ch, note });
     if (this.entry?.button === button) {
       const len = this.pattern.length;
       this.cursor[this.selected] = (this.entry.index + this.pattern.steps[this.entry.index].gate) % len;

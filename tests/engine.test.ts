@@ -2950,3 +2950,37 @@ describe('v33: OCTAVE -4 ... +4', () => {
     expect(spec('lead').options![q.channels[6].sounds.lead!.octave]).toBe('+1');
   });
 });
+
+describe('BASS trills: letting go of the slid-to note slides back', () => {
+  it('A held, B slid to, B let go: back to A (still held), A let go: silence', () => {
+    const p = createDefaultProject();
+    p.channels.forEach((c, i) => { c.mute = i !== 4; });
+    const e = new Engine(SR);
+    e.handleMessage({ type: 'loadProject', project: p });
+    const sound: Record<string, number> = { ...presetSound('bass', 0), sustain: 1, glide: 0.01, release: 0.02 };
+    for (const id in sound) e.handleMessage({ type: 'setSound', channel: 4, id, value: sound[id] });
+    const L = new Float32Array(128), R = new Float32Array(128);
+    // Pitch from zero crossings over `secs`.
+    const listen = (secs: number) => {
+      const buf: number[] = [];
+      for (let b = 0; b < (secs * SR) / 128; b++) { e.process(L, R, 128); buf.push(...L); }
+      const tail = buf.slice(buf.length / 2);
+      let z = 0;
+      for (let i = 1; i < tail.length; i++) if (tail[i - 1] < 0 && tail[i] >= 0) z++;
+      return { hz: z / (tail.length / SR), peak: Math.max(...tail.map(Math.abs)) };
+    };
+    const A = 45, B = 52;
+    // What the app sends: A down; B down while A held; B up (A still held); A up.
+    e.handleMessage({ type: 'trigger', channel: 4, note: A, velocity: 0.8 });
+    const a1 = listen(0.3);
+    e.handleMessage({ type: 'trigger', channel: 4, note: B, velocity: 0.8, slideFrom: A });
+    const b = listen(0.3);
+    e.handleMessage({ type: 'trigger', channel: 4, note: A, velocity: 0.8, slideFrom: B });
+    const a2 = listen(0.3);
+    expect(b.hz / a1.hz).toBeCloseTo(Math.pow(2, (B - A) / 12), 1);
+    expect(a2.hz / a1.hz).toBeCloseTo(1, 1);
+    expect(a2.peak).toBeGreaterThan(0.5 * a1.peak); // still sounding, not released
+    e.handleMessage({ type: 'release', channel: 4, note: A });
+    expect(listen(0.5).peak).toBeLessThan(1e-3);
+  });
+});
