@@ -61,6 +61,7 @@ export class Knob {
     body.addEventListener('pointermove', (e) => this.onMove(e));
     body.addEventListener('pointerup', (e) => this.onUp(e));
     body.addEventListener('pointercancel', (e) => this.onUp(e));
+    body.addEventListener('lostpointercapture', (e) => this.onUp(e));
     body.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     this.render();
   }

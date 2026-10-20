@@ -20,6 +20,13 @@ const TITLE_HOLD_MS = 1400;
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('dblclick', (e) => e.preventDefault());
+// Touch: the panel works on pointer events, so the browser's own touch handling is cancelled.
+// That stops a held finger counting as a long-press (Android / Silk vibrate for it), text
+// selection and double-tap zoom, and touches can no longer be taken over by a gesture.
+const noTouchDefault = (e: TouchEvent) => { if (e.cancelable) e.preventDefault(); };
+document.addEventListener('touchstart', noTouchDefault, { passive: false });
+document.addEventListener('touchmove', noTouchDefault, { passive: false });
+document.addEventListener('selectstart', (e) => e.preventDefault());
 
 // Installable / offline (production builds only, so the dev server never caches).
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

@@ -72,6 +72,10 @@ export class Panel implements ControlSurface {
   private readonly stepIds = new Map<HTMLElement, string>();
   /** Pointer id -> the step it is pressing now (it may have slid on from where it went down). */
   private readonly stripPointers = new Map<number, string>();
+  /** Fingers / mouse buttons down on each button (a button is up when the last one lifts). */
+  private readonly buttonPointers = new Map<string, Set<number>>();
+  /** Computer keys held (key code -> control id). */
+  private readonly heldKeys = new Map<string, string>();
 
   constructor(host: HTMLElement, cfg: PanelConfig) {
     const root = document.createElement('div');
@@ -169,6 +173,10 @@ export class Panel implements ControlSurface {
     }
 
     this.installKeyboard();
+    // Nothing stays held when the app loses focus or goes to the background (the lift that
+    // would release it never arrives).
+    window.addEventListener('blur', () => this.releaseAll());
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.releaseAll(); });
     this.fit();
     window.addEventListener('resize', () => this.fit());
     window.addEventListener('orientationchange', () => this.fit());
@@ -271,6 +279,23 @@ export class Panel implements ControlSurface {
     this.emitter.emit({ type: 'button', id, pressed });
   }
 
+  /** Let go of every held step, button and key (focus lost, app in the background). */
+  releaseAll(): void {
+    for (const [pointer, id] of [...this.stripPointers]) {
+      this.stripPointers.delete(pointer);
+      this.press(id, false);
+    }
+    for (const [id, pointers] of this.buttonPointers) {
+      if (pointers.size === 0) continue;
+      pointers.clear();
+      this.press(id, false);
+    }
+    for (const [code, id] of [...this.heldKeys]) {
+      this.heldKeys.delete(code);
+      this.press(id, false);
+    }
+  }
+
   /** Sliding along the strip presses each step in turn (paint strokes); set by the app. */
   setStripSlide(on: boolean): void {
     this.stripSlide = on;
@@ -311,6 +336,8 @@ export class Panel implements ControlSurface {
     };
     b.addEventListener('pointerup', release);
     b.addEventListener('pointercancel', release);
+    // The browser can drop a touch without an up or cancel: let go then too.
+    b.addEventListener('lostpointercapture', release);
     this.buttons.set(id, b);
     return b;
   }
@@ -321,6 +348,7 @@ export class Panel implements ControlSurface {
     b.innerHTML = label;
     b.setAttribute('role', 'button');
     const pointers = new Set<number>();
+    this.buttonPointers.set(id, pointers);
     b.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       if (pointers.size === 0) this.press(id, true);
@@ -333,6 +361,7 @@ export class Panel implements ControlSurface {
     };
     b.addEventListener('pointerup', release);
     b.addEventListener('pointercancel', release);
+    b.addEventListener('lostpointercapture', release);
     this.buttons.set(id, b);
     return b;
   }
@@ -355,7 +384,7 @@ export class Panel implements ControlSurface {
       }
       return null;
     };
-    const held = new Map<string, string>();
+    const held = this.heldKeys;
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const id = toId(e);
