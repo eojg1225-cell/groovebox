@@ -160,9 +160,9 @@ function anchorNames(kind: Kind): string[] {
 }
 const PAD = 5;
 
-/** PAD: one sustained note (A3, no chord) held for 16 bars, then struck again. */
+/** PAD: one sustained note (A3, no chord) held for a 16-step pattern, then struck again. */
 const PAD_NOTE = 57;
-const PAD_BARS = 16;
+const PAD_STEPS = 16;
 
 /** PAD: a fresh default project (its FX routing), only the PAD sounding, no notes in it. */
 function padProject(): Project {
@@ -233,24 +233,24 @@ let padTimer: number | undefined;
 let padStart = 0;
 const BPM = 128;
 
-/** The PAD's held note: struck at the start of every 16 bars, with a bar counter. */
+/** The PAD's held note: struck at the start of every 16 steps, with a step counter. */
 function padNote(on: boolean): void {
   window.clearInterval(padTimer);
   send('A', { type: 'release', channel: CHANNEL.pad, note: PAD_NOTE });
   $('bar').textContent = '';
   if (!on || !ctx) return;
-  const bar = (4 * 60) / BPM;
+  const step = 60 / BPM / 4;
   padStart = ctx.currentTime;
   let last = -1;
   const tick = () => {
-    const n = Math.floor((ctx!.currentTime - padStart) / bar);
-    const block = Math.floor(n / PAD_BARS);
+    const n = Math.floor((ctx!.currentTime - padStart) / step);
+    const block = Math.floor(n / PAD_STEPS);
     if (block !== last) {
       if (last >= 0) send('A', { type: 'release', channel: CHANNEL.pad, note: PAD_NOTE });
       send('A', { type: 'trigger', channel: CHANNEL.pad, note: PAD_NOTE, velocity: 0.8 });
       last = block;
     }
-    $('bar').textContent = `BAR ${(n % PAD_BARS) + 1} / ${PAD_BARS}`;
+    $('bar').textContent = `STEP ${(n % PAD_STEPS) + 1} / ${PAD_STEPS}`;
   };
   tick();
   padTimer = window.setInterval(tick, 50);
