@@ -33,7 +33,7 @@ import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
 import { DJ_DEAD } from './params';
-import type { InstrumentKind } from './project';
+import type { InstrumentKind, PatternSpeed } from './project';
 import { LFO_RATES, LFO_RATES_V17, LFO_RATES_V24, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
@@ -67,11 +67,13 @@ export interface StoredPatch {
 
 export interface StoredPattern {
   len: number;
+  /** v34: half / double time (absent = normal). */
+  sp?: 'half' | 'double';
   steps: StoredStep[];
   /** v31: the pattern's own patch (not written for the active pattern: that is `sounds`). */
   patch?: StoredPatch;
   /** v31: the last SAVEd notes / patch, only while they differ (edited since). */
-  saved?: { len: number; steps: StoredStep[] };
+  saved?: { len: number; sp?: 'half' | 'double'; steps: StoredStep[] };
   savedPatch?: StoredPatch;
 }
 
@@ -96,8 +98,12 @@ function storePatch(p: Patch): StoredPatch {
 
 function storePattern(c: ChannelState, pat: Pattern, p: number): StoredPattern {
   const out: StoredPattern = { len: pat.length, steps: storeSteps(pat.steps) };
+  if (pat.speed === 'half' || pat.speed === 'double') out.sp = pat.speed;
   if (c.instrument !== 'none' && p !== c.activePattern) out.patch = storePatch(patchOf(c, p));
-  if (pat.notesDirty && pat.savedNotes) out.saved = { len: pat.savedNotes.length, steps: storeSteps(pat.savedNotes.steps) };
+  if (pat.notesDirty && pat.savedNotes) {
+    out.saved = { len: pat.savedNotes.length, steps: storeSteps(pat.savedNotes.steps) };
+    if (pat.savedNotes.speed === 'half' || pat.savedNotes.speed === 'double') out.saved.sp = pat.savedNotes.speed;
+  }
   if (pat.patchDirty && pat.savedPatch) out.savedPatch = storePatch(pat.savedPatch);
   return out;
 }
@@ -242,8 +248,9 @@ function liveIdValid(kind: InstrumentKind, id: string): boolean {
 }
 
 /** A stored pattern's length and notes into `pat` (its steps start empty). */
-function readNotes(sp: Obj, pat: { length: number; steps: Step[] }, instrument: InstrumentKind, version: number): void {
+function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, instrument: InstrumentKind, version: number): void {
   pat.length = Math.round(num(sp.len ?? sp.length, pat.length, 1, MAX_STEPS));
+  if (sp.sp === 'half' || sp.sp === 'double') pat.speed = sp.sp;
   for (const s of readSteps(sp)) {
     const step = pat.steps[s.i];
     if (s.rest) {
@@ -483,6 +490,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       const saved = emptyPattern(kind.drum ? 36 : kind.baseNote);
       readNotes(sp.saved, saved, ch.instrument, version);
       pat.savedNotes = { length: saved.length, steps: saved.steps };
+      if (saved.speed) pat.savedNotes.speed = saved.speed;
       pat.notesDirty = true;
     }
     const savedPatch = readPatch(ch.instrument, sp.savedPatch, version);

@@ -2984,3 +2984,77 @@ describe('BASS trills: letting go of the slid-to note slides back', () => {
     expect(listen(0.5).peak).toBeLessThan(1e-3);
   });
 });
+
+describe('v34: half / double time per pattern', () => {
+  const setup = (speed: 'normal' | 'double' | 'half') => {
+    const p = createDefaultProject();
+    p.bpm = 120;
+    p.channels.forEach((c, i) => { c.mute = i !== 0; });
+    const pat = p.channels[0].patterns[0];
+    pat.length = 16;
+    if (speed !== 'normal') pat.speed = speed;
+    for (let i = 0; i < 16; i++) Object.assign(pat.steps[i], { active: true, note: 36 });
+    const e = new Engine(SR);
+    e.handleMessage({ type: 'loadProject', project: p });
+    // Every hit's frame.
+    const hits: number[] = [];
+    let frame = 0;
+    const inst = (e as unknown as { current: { noteOn: (...a: unknown[]) => void }[] }).current[0];
+    const orig = inst.noteOn.bind(inst);
+    inst.noteOn = (...a: unknown[]) => { hits.push(frame); orig(...a); };
+    const L = new Float32Array(128), R = new Float32Array(128);
+    const run = (frames: number) => { for (let k = 0; k < frames / 128; k++) { e.process(L, R, 128); frame += 128; } };
+    return { e, hits, run };
+  };
+  const bar = (SR * 60 * 4) / 120; // one bar at 120 BPM
+
+  it('a bar plays 16 steps, 32 in double time, 8 in half time, evenly spaced', () => {
+    for (const [speed, count] of [['normal', 16], ['double', 32], ['half', 8]] as const) {
+      const { e, hits, run } = setup(speed);
+      e.handleMessage({ type: 'transport', playing: true });
+      run(bar - 128);
+      expect(hits.length, speed).toBe(count);
+      const gap = bar / count;
+      for (let i = 1; i < hits.length; i++) expect(Math.abs(hits[i] - hits[i - 1] - gap), `${speed} ${i}`).toBeLessThanOrEqual(128);
+    }
+  });
+
+  it('switching speed takes effect on the next steps', () => {
+    const { e, hits, run } = setup('normal');
+    e.handleMessage({ type: 'transport', playing: true });
+    run(bar / 2 - 128); // 8 steps
+    e.handleMessage({ type: 'setPatternSpeed', channel: 0, pattern: 0, speed: 'double' });
+    run(bar / 2);
+    expect(hits.length).toBe(8 + 16);
+  });
+
+  it('live recording in half time lands on the track\'s own step', () => {
+    const { e, run } = setup('half');
+    const pat = 0;
+    e.handleMessage({ type: 'setPatternLength', channel: 4, pattern: pat, length: 16 });
+    e.handleMessage({ type: 'setPatternSpeed', channel: 4, pattern: pat, speed: 'half' });
+    const got: number[] = [];
+    e.onRecorded = (m) => { if (m.type === 'recordedNote') got.push(m.index); };
+    e.handleMessage({ type: 'transport', playing: true });
+    // Half time: a track step is two master 16ths. Play at the start of track step 5 (+ the
+    // limiter's look-ahead, so it is heard there).
+    const look = (e as unknown as { latency: number }).latency;
+    run(Math.round(((5 * 2 * bar) / 16 + look) / 128) * 128);
+    e.handleMessage({ type: 'recordNote', channel: 4, note: 45, velocity: 0.8, accent: false });
+    expect(got[0]).toBe(5);
+  });
+});
+
+describe('v34: pattern speed is saved', () => {
+  it('round-trips speed, also in the saved notes', () => {
+    const p = createDefaultProject();
+    const pat = p.channels[4].patterns[1];
+    pat.speed = 'half';
+    pat.savedNotes = { length: 16, steps: pat.steps.map((s) => ({ ...s })), speed: 'double' };
+    pat.notesDirty = true;
+    const q = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
+    expect(q.channels[4].patterns[1].speed).toBe('half');
+    expect(q.channels[4].patterns[1].savedNotes!.speed).toBe('double');
+    expect(q.channels[4].patterns[0].speed).toBeUndefined();
+  });
+});

@@ -2,7 +2,7 @@
  * Message protocol between the main thread (UI) and the audio worklet.
  * Plain data only, so it survives structured cloning and can be documented / ported.
  */
-import type { InstrumentKind, Project, Song, Step } from './project';
+import type { InstrumentKind, PatternSpeed, Project, Song, Step } from './project';
 import type { LfoId } from './lfo';
 
 export type MixParam = 'volume' | 'pan' | 'mute' | 'send' | 'dyn' | 'gate' | 'cut';
@@ -13,6 +13,8 @@ export type MainToWorklet =
   | { type: 'loadProject'; project: Project }
   | { type: 'setStep'; channel: number; pattern: number; index: number; step: Step }
   | { type: 'setPatternLength'; channel: number; pattern: number; length: number }
+  /** Half / double time for one pattern (its steps last 2 / 0.5 of the master 16ths). */
+  | { type: 'setPatternSpeed'; channel: number; pattern: number; speed: PatternSpeed }
   /**
    * Switch pattern; quantised to the end of the channel's loop unless immediate or stopped.
    * Its patch glides in from now until then (coarse settings switch with the pattern); the
@@ -22,7 +24,7 @@ export type MainToWorklet =
   /** Pattern `pattern`'s whole patch; glide = (playing) glide there by the next bar line. */
   | { type: 'setPatch'; channel: number; pattern: number; sound: Record<string, number>; glide: boolean }
   /** RESET with notes: a pattern's (saved) notes replace its steps at the next bar line. */
-  | { type: 'swapNotes'; channel: number; pattern: number; length: number; steps: Step[] }
+  | { type: 'swapNotes'; channel: number; pattern: number; length: number; steps: Step[]; speed?: PatternSpeed }
   /** Change a channel's instrument (clears its parameter locks) and set its full sound. */
   | { type: 'setInstrument'; channel: number; kind: InstrumentKind; sound: Record<string, number> }
   /** Chord mode index (0 = off). */

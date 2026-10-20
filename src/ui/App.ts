@@ -50,7 +50,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
   cloneNotes, clonePatch, editPattern, initPatterns, lockPattern, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
@@ -95,6 +95,8 @@ const NAME_SETS: readonly [string, string][] = [
 
 /** PLAY's pages: SOUND (live knobs) and MIX. */
 const PLAY_PAGES = 2;
+/** After the step count on the screen: double time X2, half time /2. */
+const SPEED_MARK = { normal: '', double: ' X2', half: ' /2' } as const;
 
 /** What a drum-lane paint stroke does to each step it reaches. */
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
@@ -987,6 +989,10 @@ export class App {
       this.dynamic = this.dynamic === d ? 'normal' : d;
     } else if (id === 'len') {
       this.cycleLength();
+    } else if (id === 'steppage' && this.func) {
+      // FUNC + BAR: the selected track's pattern in normal -> double -> half time.
+      this.cycleSpeed();
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
     } else if (id === 'steppage') {
       // BAR: held for ◀ / ▶, a tap (on release) = the next bar.
       this.barHeld = true;
@@ -1119,6 +1125,21 @@ export class App {
     this.stepGlides(now);
   }
 
+  /**
+   * FUNC + BAR: the selected track's pattern steps through normal, double and half time
+   * (its steps last a 16th, a 32nd or an 8th). An unsaved edit of its notes, like LENGTH.
+   */
+  private cycleSpeed(): void {
+    const pat = this.pattern;
+    const next = PATTERN_SPEEDS[(PATTERN_SPEEDS.indexOf(pat.speed ?? 'normal') + 1) % PATTERN_SPEEDS.length];
+    if (next === 'normal') delete pat.speed;
+    else pat.speed = next;
+    pat.notesDirty = true;
+    this.send({ type: 'setPatternSpeed', channel: this.selected, pattern: this.channel.activePattern, speed: next });
+    this.flash(`${this.kindName(this.channel)} PAT ${PATTERN_NAMES[this.channel.activePattern]} ${next.toUpperCase()} TIME`);
+    this.save();
+  }
+
   /** RESET tapped again: every pattern's unsaved notes go back to its saved ones (at the bar line). */
   private resetNotes(): void {
     let n = 0;
@@ -1127,9 +1148,11 @@ export class App {
       const saved = cloneNotes(pat.savedNotes);
       pat.length = saved.length;
       pat.steps = saved.steps;
+      if (saved.speed) pat.speed = saved.speed;
+      else delete pat.speed;
       pat.notesDirty = false;
       n++;
-      this.send({ type: 'swapNotes', channel: ch, pattern: p, length: saved.length, steps: saved.steps });
+      this.send({ type: 'swapNotes', channel: ch, pattern: p, length: saved.length, steps: saved.steps, speed: saved.speed });
     }));
     this.entry = null;
     this.clampCursor();
@@ -1520,6 +1543,9 @@ export class App {
     const plainDrum = to.instrument !== 'none' && stepsOnStrip(to.instrument);
     dst.length = src.length;
     this.send({ type: 'setPatternLength', channel: toCh, pattern: toPat, length: dst.length });
+    if (src.speed && src.speed !== 'normal') dst.speed = src.speed;
+    else delete dst.speed;
+    this.send({ type: 'setPatternSpeed', channel: toCh, pattern: toPat, speed: dst.speed ?? 'normal' });
     src.steps.forEach((s, i) => {
       const step: Step = JSON.parse(JSON.stringify(s));
       if (plainDrum) step.note = emptyStep().note; // a drum's own pitch (as designed)
@@ -2045,7 +2071,8 @@ export class App {
     this.panel.setButtonEnabled('ring', rec || play);
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     // BAR: not where the strip follows the playhead (PLAY, live recording unless placing).
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || (this.mode !== 'play' && !(this.recording && !this.placing) && this.pageCount() > 1));
+    // FUNC + BAR (half / double time) works in every mode but SONG.
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.func || (this.mode !== 'play' && !(this.recording && !this.placing) && this.pageCount() > 1));
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design'));
@@ -2185,7 +2212,9 @@ export class App {
       }
     }
 
-    this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
+    // With FUNC: the pattern's speed (FUNC + BAR changes it).
+    const speed = this.pattern.speed ?? 'normal';
+    this.panel.setButtonText('steppage', this.func ? `TIME<small>${speed === 'normal' ? 'NORMAL' : speed === 'double' ? 'DOUBLE' : 'HALF'}</small>` : `BAR<small>${page + 1}/${this.pageCount()}</small>`);
 
     this.updatePatternButtons(now);
     if (this.touchedKnob >= 0 && now - this.touchedAt > 4000) this.touchedKnob = -1;
@@ -2289,7 +2318,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / FX = PATTERN' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`,
+      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / FX = PATTERN' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',

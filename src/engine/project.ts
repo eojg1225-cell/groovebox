@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 33;
+export const PROJECT_VERSION = 34;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 5;
@@ -97,11 +97,22 @@ export interface Patch {
 export interface SavedNotes {
   length: number;
   steps: Step[];
+  speed?: PatternSpeed;
+}
+
+/** How fast a pattern's steps run: a 16th each (normal), a 32nd (double) or an 8th (half). */
+export type PatternSpeed = 'normal' | 'double' | 'half';
+export const PATTERN_SPEEDS: readonly PatternSpeed[] = ['normal', 'double', 'half'];
+/** One step of a pattern at this speed, in 16th steps of the master clock. */
+export function speedSteps(speed: PatternSpeed | undefined): number {
+  return speed === 'double' ? 0.5 : speed === 'half' ? 2 : 1;
 }
 
 export interface Pattern {
   /** 1..MAX_STEPS; the channel loops at this length (polymeter). */
   length: number;
+  /** Half / double time (absent = normal). */
+  speed?: PatternSpeed;
   /** Always MAX_STEPS entries. */
   steps: Step[];
   /**
@@ -235,7 +246,9 @@ export function clonePatch(p: Patch): Patch {
 }
 
 export function cloneNotes(p: SavedNotes): SavedNotes {
-  return { length: p.length, steps: p.steps.map(copyStep) };
+  const out: SavedNotes = { length: p.length, steps: p.steps.map(copyStep) };
+  if (p.speed && p.speed !== 'normal') out.speed = p.speed;
+  return out;
 }
 
 /** The patch of the pattern being edited: the channel's own sound for its type. */

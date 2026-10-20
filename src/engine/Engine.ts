@@ -20,7 +20,7 @@ import { Limiter } from '../fx/Limiter';
 import { EFFECTS, SEND_BUSES } from '../fx';
 import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
-import { NUM_SENDS } from './project';
+import { NUM_SENDS, speedSteps, type PatternSpeed } from './project';
 
 /** Largest chunk rendered at once; blocks are split at step boundaries anyway. */
 /** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
@@ -98,6 +98,19 @@ export class Engine {
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
   private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
   private readonly patternLength = new Uint8Array(NUM_CHANNELS * NUM_PATTERNS).fill(16);
+  /** Per pattern: one step's length in master 16ths (1; double time 0.5; half time 2). */
+  private readonly patternRate = new Float32Array(NUM_CHANNELS * NUM_PATTERNS).fill(1);
+  /**
+   * Per track, where its current step started (master steps, fractional), how long its
+   * steps are (master steps) and how many it has played (unwrapped): live recording places
+   * notes on the track's own steps.
+   */
+  private readonly chanAt = new Float64Array(NUM_CHANNELS);
+  private readonly chanRate = new Float64Array(NUM_CHANNELS).fill(1);
+  private readonly chanCount = new Float64Array(NUM_CHANNELS).fill(-1);
+  /** Double time: frames until the track's step halfway through the master step (-1 = none). */
+  private readonly subAt = new Float64Array(NUM_CHANNELS).fill(-1);
+  private readonly subLen = new Float64Array(NUM_CHANNELS);
 
   private readonly pendingPattern = new Int8Array(NUM_CHANNELS).fill(-1);
   private readonly position = new Uint8Array(NUM_CHANNELS);
@@ -128,7 +141,7 @@ export class Engine {
   /** The glide waits for a song row to switch the pattern (a waiting switch: pendingPattern). */
   private readonly glideWait = new Uint8Array(NUM_CHANNELS);
   /** RESET (notes too): a pattern's saved notes, swapped in at the next bar line. */
-  private readonly pendingNotes: ({ length: number; steps: Step[] } | null)[] = new Array(NUM_CHANNELS * NUM_PATTERNS).fill(null);
+  private readonly pendingNotes: ({ length: number; steps: Step[]; speed?: PatternSpeed } | null)[] = new Array(NUM_CHANNELS * NUM_PATTERNS).fill(null);
   private notesPending = false;
   /** Whether a lock is currently applied per channel/param slot. */
   private readonly lockApplied = new Uint8Array(NUM_CHANNELS * LOCK_SLOTS);
@@ -297,10 +310,11 @@ export class Engine {
       case 'setPatternLength':
         this.patternLength[msg.channel * NUM_PATTERNS + msg.pattern] = Math.max(1, Math.min(MAX_STEPS, msg.length));
         break;
+      case 'setPatternSpeed': this.patternRate[msg.channel * NUM_PATTERNS + msg.pattern] = speedSteps(msg.speed); break;
       case 'selectPattern': this.selectPattern(msg.channel, msg.pattern, msg.immediate); break;
       case 'setSound': this.setPatchSound(msg.channel, msg.pattern ?? this.editedPattern(msg.channel), msg.id, msg.value); break;
       case 'setPatch': this.setPatch(msg.channel, msg.pattern, msg.sound, msg.glide); break;
-      case 'swapNotes': this.swapNotes(msg.channel, msg.pattern, msg.length, msg.steps); break;
+      case 'swapNotes': this.swapNotes(msg.channel, msg.pattern, msg.length, msg.steps, msg.speed); break;
       case 'setOffset': this.setOffset(msg.channel, msg.id, msg.value); break;
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setListenLatency': this.listenFrames = Math.max(0, msg.ms) * 0.001 * this.sampleRate; break;
@@ -428,6 +442,7 @@ export class Engine {
       this.cuts[ch].settle();
       for (let pat = 0; pat < NUM_PATTERNS; pat++) {
         this.patternLength[ch * NUM_PATTERNS + pat] = c.patterns[pat].length;
+        this.patternRate[ch * NUM_PATTERNS + pat] = speedSteps(c.patterns[pat].speed);
         for (let i = 0; i < MAX_STEPS; i++) this.writeStep(ch, pat, i, c.patterns[pat].steps[i]);
       }
     }
@@ -451,6 +466,8 @@ export class Engine {
     this.skipStep.fill(-1);
     this.rollLeft.fill(0);
     this.runLeft.fill(0);
+    this.subAt.fill(-1);
+    this.chanCount.fill(-1);
     this.applyPendingNotes();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       // A switch waiting for its bar line happens now, and every patch glide lands.
@@ -498,6 +515,17 @@ export class Engine {
           const g = Math.ceil(this.gateAt[ch]);
           if (g < n) n = g;
         }
+        // Double time: the track's second step lands halfway through the master step.
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+          if (this.subAt[ch] < 0) continue;
+          if (this.subAt[ch] <= 0) {
+            this.subAt[ch] = -1;
+            this.stepChannel(ch, this.subLen[ch], this.globalStep - 0.5);
+            continue;
+          }
+          const d = Math.ceil(this.subAt[ch]);
+          if (d < n) n = d;
+        }
         // ROLL repeats also land on their exact sample.
         for (let ch = 0; ch < NUM_CHANNELS; ch++) {
           if (this.rollLeft[ch] === 0) continue;
@@ -516,6 +544,7 @@ export class Engine {
       if (this.playing) {
         this.framesToStep -= n;
         for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.rollLeft[ch] > 0) this.rollAt[ch] -= n;
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.subAt[ch] > 0) this.subAt[ch] = Math.max(0, this.subAt[ch] - n);
         for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.gateAt[ch] > 0) this.gateAt[ch] = Math.max(0, this.gateAt[ch] - n);
       }
     }
@@ -553,66 +582,92 @@ export class Engine {
     if (this.globalStep % 16 === 0 && this.notesPending) this.applyPendingNotes();
     if (this.songOn && this.globalStep % 16 === 0) this.songBarLine();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-      const inst = this.current[ch];
-      if (!inst) continue;
-      // Quantised pattern switch at the channel's loop start.
-      if (this.position[ch] === 0 && this.pendingPattern[ch] >= 0) this.landPattern(ch);
-      const pat = ch * NUM_PATTERNS + this.activePattern[ch];
-      const len = this.patternLength[pat];
-      const idx = this.position[ch] % len;
-      const s = pat * MAX_STEPS + idx;
-      const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0;
-      // SLIDE: the held note was marked to slide, so it glides into this one (no release).
-      const slideFrom = hit && this.sliding[ch] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
-      // Inside a roll run its hits are already scheduled; otherwise a roll ends here.
-      const inRun = this.runLeft[ch] > 0;
-      if (inRun) this.runLeft[ch]--;
-      else this.rollLeft[ch] = 0;
-      if (slideFrom >= 0) {
-        this.gateSteps[ch] = 0;
-        this.ringing[ch] = 0;
-        this.gateAt[ch] = -1;
-      } else if (this.gateAt[ch] >= 0) {
-        // A GATE release due by now (it always lands inside the step it was set in).
-        this.releaseGate(ch);
-      } else if (this.gateSteps[ch] > 0) {
-        if (this.ringing[ch]) {
-          // A RING note ends at the next hit or rest on this track.
-          if (this.stepActive[s] || this.stepRest[s]) this.releaseGate(ch);
-        } else if (--this.gateSteps[ch] === 0) {
-          // A held note ends where its gate says: at the start of a later step, or (GATE
-          // above 1) that far into it.
-          if (this.gateLength[ch] > 1) {
-            this.gateSteps[ch] = 1;
-            this.gateAt[ch] = (this.gateLength[ch] - 1) * stepLen;
-          } else this.releaseGate(ch);
-        } else if (this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen); // its last step
+      if (!this.current[ch]) continue;
+      // Quantised pattern switch at the channel's loop start, when the track steps now (a
+      // half-time track only on even master steps); the new pattern's speed from then on.
+      const due = this.patternRate[ch * NUM_PATTERNS + this.activePattern[ch]] <= 1 || this.globalStep % 2 === 0;
+      if (due && this.position[ch] === 0 && this.pendingPattern[ch] >= 0) this.landPattern(ch);
+      const rate = this.patternRate[ch * NUM_PATTERNS + this.activePattern[ch]];
+      if (rate < 1) {
+        // Double time: a step now and one halfway through.
+        this.stepChannel(ch, stepLen / 2, this.globalStep);
+        this.subLen[ch] = stepLen / 2;
+        this.subAt[ch] = stepLen / 2;
+      } else if (rate > 1) {
+        // Half time: a step on every other master step (on the beat grid), two steps long.
+        if (this.globalStep % 2 === 0) this.stepChannel(ch, stepLen + this.stepFrames(this.globalStep + 1), this.globalStep);
+      } else {
+        this.stepChannel(ch, stepLen, this.globalStep);
       }
-      this.applyLocks(ch, s);
-      if (hit && !inRun) {
-        const ring = this.stepRing[s] === 1 || this.forceRing[ch] === 1;
-        const slideFlag = this.stepSlide[s] === 1 || this.forceSlide[ch] === 1;
-        // On drum tracks the SLIDE flag is ROLL: the hit repeats at ROLL RATE.
-        const drumRoll = this.rollDiv[ch] > 0 && slideFlag;
-        // A SLIDE note is held (like RING) until the next note, which it glides into.
-        const slide = this.rollDiv[ch] === 0 && slideFlag;
-        const vel = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
-        this.noteOn(ch, this.stepNote[s], vel, ring, slideFrom, slide);
-        this.gateGroup[ch] = this.stepNote[s];
-        this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
-        this.ringing[ch] = ring || slide ? 1 : 0;
-        this.gateAt[ch] = -1;
-        if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
-        this.sliding[ch] = slide ? 1 : 0;
-        if (drumRoll) this.startRollRun(ch, pat, idx, len, vel);
-      }
-      this.skipStep[ch] = -1;
-      this.currentStep[ch] = idx;
-      this.position[ch] = (idx + 1) % len;
     }
     this.lastStepFrames = this.stepFrames(this.globalStep);
     this.framesToStep += this.lastStepFrames;
     this.globalStep++;
+  }
+
+  /**
+   * One step of track ch (its own length stepLen frames; at master position `at`): gates,
+   * locks and the step's note. At normal speed once per master step; double time twice;
+   * half time every other.
+   */
+  private stepChannel(ch: number, stepLen: number, at: number): void {
+    const inst = this.current[ch];
+    if (!inst) return;
+    const pat = ch * NUM_PATTERNS + this.activePattern[ch];
+    this.chanRate[ch] = this.patternRate[pat];
+    this.chanAt[ch] = at;
+    this.chanCount[ch]++;
+    const len = this.patternLength[pat];
+    const idx = this.position[ch] % len;
+    const s = pat * MAX_STEPS + idx;
+    const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0;
+    // SLIDE: the held note was marked to slide, so it glides into this one (no release).
+    const slideFrom = hit && this.sliding[ch] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
+    // Inside a roll run its hits are already scheduled; otherwise a roll ends here.
+    const inRun = this.runLeft[ch] > 0;
+    if (inRun) this.runLeft[ch]--;
+    else this.rollLeft[ch] = 0;
+    if (slideFrom >= 0) {
+      this.gateSteps[ch] = 0;
+      this.ringing[ch] = 0;
+      this.gateAt[ch] = -1;
+    } else if (this.gateAt[ch] >= 0) {
+      // A GATE release due by now (it always lands inside the step it was set in).
+      this.releaseGate(ch);
+    } else if (this.gateSteps[ch] > 0) {
+      if (this.ringing[ch]) {
+        // A RING note ends at the next hit or rest on this track.
+        if (this.stepActive[s] || this.stepRest[s]) this.releaseGate(ch);
+      } else if (--this.gateSteps[ch] === 0) {
+        // A held note ends where its gate says: at the start of a later step, or (GATE
+        // above 1) that far into it.
+        if (this.gateLength[ch] > 1) {
+          this.gateSteps[ch] = 1;
+          this.gateAt[ch] = (this.gateLength[ch] - 1) * stepLen;
+        } else this.releaseGate(ch);
+      } else if (this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen); // its last step
+    }
+    this.applyLocks(ch, s);
+    if (hit && !inRun) {
+      const ring = this.stepRing[s] === 1 || this.forceRing[ch] === 1;
+      const slideFlag = this.stepSlide[s] === 1 || this.forceSlide[ch] === 1;
+      // On drum tracks the SLIDE flag is ROLL: the hit repeats at ROLL RATE.
+      const drumRoll = this.rollDiv[ch] > 0 && slideFlag;
+      // A SLIDE note is held (like RING) until the next note, which it glides into.
+      const slide = this.rollDiv[ch] === 0 && slideFlag;
+      const vel = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
+      this.noteOn(ch, this.stepNote[s], vel, ring, slideFrom, slide);
+      this.gateGroup[ch] = this.stepNote[s];
+      this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
+      this.ringing[ch] = ring || slide ? 1 : 0;
+      this.gateAt[ch] = -1;
+      if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
+      this.sliding[ch] = slide ? 1 : 0;
+      if (drumRoll) this.startRollRun(ch, pat, idx, len, vel);
+    }
+    this.skipStep[ch] = -1;
+    this.currentStep[ch] = idx;
+    this.position[ch] = (idx + 1) % len;
   }
 
   /** GATE below 1: the note's last step (just started, stepLen long) is cut short. */
@@ -747,7 +802,8 @@ export class Engine {
     this.runLeft[ch] = steps - 1;
     this.rollLeft[ch] = hits - 1;
     this.rollIndex[ch] = 0;
-    this.rollEvery[ch] = ((60 / this.bpm / 4) * this.sampleRate) / this.rollDiv[ch];
+    // Straight (through swing), at the track's own step length (half / double time).
+    this.rollEvery[ch] = ((60 / this.bpm / 4) * this.sampleRate * this.chanRate[ch]) / this.rollDiv[ch];
     this.rollAt[ch] = this.rollEvery[ch];
     this.rollNote[ch] = this.stepNote[pat * MAX_STEPS + idx];
     this.rollVel[ch] = vel;
@@ -822,7 +878,7 @@ export class Engine {
     if (this.recNote[ch] !== note) return;
     this.recNote[ch] = -1;
     if (!this.playing) return;
-    const endStep = Math.round(this.heardPosition());
+    const endStep = this.chanCount[ch] + Math.round(this.heardStep(ch));
     const pattern = this.recPattern[ch];
     // Up to the whole loop (a note may be held past the end and on from the start).
     const gate = Math.max(1, Math.min(this.patternLength[ch * NUM_PATTERNS + pattern], endStep - this.recStart[ch]));
@@ -939,12 +995,19 @@ export class Engine {
    */
   private nearestStep(ch: number, round = true): { index: number; isNext: boolean; global: number } {
     const cur = this.currentStep[ch];
-    if (cur < 0) return { index: 0, isNext: true, global: this.globalStep };
-    const heard = this.heardPosition();
-    const global = round ? Math.round(heard) : Math.floor(heard);
-    const k = global - (this.globalStep - 1);
+    if (cur < 0) return { index: 0, isNext: true, global: 0 };
+    const heard = this.heardStep(ch);
+    const k = round ? Math.round(heard) : Math.floor(heard);
     const len = this.patternLength[ch * NUM_PATTERNS + this.activePattern[ch]];
-    return { index: (((cur + k) % len) + len) % len, isNext: k >= 1, global };
+    return { index: (((cur + k) % len) + len) % len, isNext: k >= 1, global: this.chanCount[ch] + k };
+  }
+
+  /**
+   * Where the player is in track ch's own steps, from its current step (fractional; 0 = its
+   * start): half / double time count the track's steps, not the master's.
+   */
+  private heardStep(ch: number): number {
+    return (this.heardPosition() - this.chanAt[ch]) / this.chanRate[ch];
   }
 
   private recordNote(ch: number, note: number, velocity: number, accent: boolean, slide = false): void {
@@ -1287,8 +1350,9 @@ export class Engine {
       return;
     }
     this.pendingPattern[ch] = pat;
-    const len = this.patternLength[ch * NUM_PATTERNS + this.activePattern[ch]];
-    this.startGlide(ch, pat, this.framesAhead((len - (this.position[ch] % len)) % len));
+    const cur = ch * NUM_PATTERNS + this.activePattern[ch];
+    const len = this.patternLength[cur];
+    this.startGlide(ch, pat, this.framesAhead(Math.ceil(((len - (this.position[ch] % len)) % len) * this.patternRate[cur])));
   }
 
   /** A switch waiting for the loop end happens. */
@@ -1372,8 +1436,8 @@ export class Engine {
   }
 
   /** RESET with notes: a pattern's saved notes go in at the next bar line (now when stopped). */
-  private swapNotes(ch: number, pat: number, length: number, steps: Step[]): void {
-    this.pendingNotes[ch * NUM_PATTERNS + pat] = { length, steps };
+  private swapNotes(ch: number, pat: number, length: number, steps: Step[], speed?: PatternSpeed): void {
+    this.pendingNotes[ch * NUM_PATTERNS + pat] = { length, steps, speed };
     this.notesPending = true;
     if (!this.playing) this.applyPendingNotes();
   }
@@ -1388,6 +1452,7 @@ export class Engine {
       const ch = Math.floor(k / NUM_PATTERNS);
       const pat = k % NUM_PATTERNS;
       this.patternLength[k] = Math.max(1, Math.min(MAX_STEPS, next.length));
+      this.patternRate[k] = speedSteps(next.speed);
       for (let i = 0; i < MAX_STEPS && i < next.steps.length; i++) this.writeStep(ch, pat, i, next.steps[i]);
     }
   }
