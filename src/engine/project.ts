@@ -67,7 +67,15 @@ export interface Step {
    * recording. Absent = the channel's own value.
    */
   locks?: Record<string, number>;
+  /**
+   * PAD: more notes on this step (up to STEP_NOTES in all). CHORD OFF plays them all; with
+   * a CHORD only the lowest plays (the chord's root).
+   */
+  extra?: number[];
 }
+
+/** Notes a step can hold (PAD: one per voice). */
+export const STEP_NOTES = 6;
 
 /** Hit dynamics. Velocity drives both level and the per-hit tone (low-pass) in the engine. */
 export type Dynamic = 'ghost' | 'normal' | 'accent';
@@ -236,6 +244,7 @@ export function emptyChannel(): ChannelState {
 function copyStep(s: Step): Step {
   const out: Step = { ...s };
   if (s.locks) out.locks = { ...s.locks };
+  if (s.extra) out.extra = [...s.extra];
   return out;
 }
 

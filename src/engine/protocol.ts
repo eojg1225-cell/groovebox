@@ -79,7 +79,7 @@ export type MainToWorklet =
    * Motion record: play the note now and, if playing, write it into the nearest step of
    * the channel's playing pattern. The worklet answers with "recordedNote".
    */
-  | { type: 'recordNote'; channel: number; note: number; velocity: number; accent: boolean; slide?: boolean }
+  | { type: 'recordNote'; channel: number; note: number; velocity: number; accent: boolean; slide?: boolean; chord?: boolean }
   /**
    * Motion record: lock a sound parameter on the step playing now (and hear it now).
    * The worklet answers with "recordedLock".
@@ -119,7 +119,11 @@ export type WorkletToMain =
       gate: number;
       /** Played legato from the previous held note. */
       slide: boolean;
+      /** A new note on the step (it replaces what was there, chord notes too). */
+      start?: boolean;
     }
-  | { type: 'recordedLock'; channel: number; pattern: number; index: number; id: string; value: number };
+  | { type: 'recordedLock'; channel: number; pattern: number; index: number; id: string; value: number }
+  /** PAD: a note played with the one being recorded went onto its step (Step.extra). */
+  | { type: 'recordedChord'; channel: number; pattern: number; index: number; note: number };
 
 export const STATUS_HZ = 30;

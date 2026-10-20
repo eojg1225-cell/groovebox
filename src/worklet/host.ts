@@ -30,7 +30,7 @@ export class AudioHost {
   roundTripMs = NaN;
   onStatus: ((s: StatusMsg) => void) | null = null;
   /** Motion-record results written by the worklet. */
-  onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>) => void) | null = null;
+  onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>) => void) | null = null;
   /** The worklet replaced a failed engine (non-finite output): send it the state again. */
   onEngineReset: (() => void) | null = null;
 
@@ -129,6 +129,7 @@ export class AudioHost {
       }
       case 'recordedNote':
       case 'recordedLock':
+      case 'recordedChord':
         this.onRecorded?.(msg);
         break;
       case 'engineReset': this.onEngineReset?.(); break;

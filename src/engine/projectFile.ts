@@ -8,7 +8,7 @@
  * because the rest of the format changed.
  */
 import {
-  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS,
+  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
   emptyPattern, initPatterns, patchOf,
   type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
 } from './project';
@@ -56,6 +56,8 @@ export interface StoredStep {
   k?: number;
   x?: 1;
   l?: Record<string, number>;
+  /** v34: PAD chord, the step's further notes. */
+  c?: number[];
 }
 
 /** A patch: s = sound values, t = SOUND page trims, p = preset index. */
@@ -86,6 +88,7 @@ function storeSteps(steps: Step[]): StoredStep[] {
     if (s.ring) out.r = 1;
     if (s.slide) out.s = 1;
     if (s.locks && Object.keys(s.locks).length) out.l = { ...s.locks };
+    if (s.extra?.length) out.c = [...s.extra];
     return [out];
   });
 }
@@ -206,6 +209,14 @@ interface ReadStep {
   i: number; note: number; vel: number; gate: number; accent: boolean; ring: boolean; rest: boolean;
   slide: boolean; roll: number;
   locks?: Record<string, number>;
+  extra?: number[];
+}
+
+/** A step's further notes (PAD chords): valid notes, at most STEP_NOTES - 1. */
+function readExtra(x: unknown): number[] | undefined {
+  if (!Array.isArray(x)) return undefined;
+  const notes = x.filter((n): n is number => typeof n === 'number' && n >= 0 && n <= 127).map(Math.round).slice(0, STEP_NOTES - 1);
+  return notes.length ? notes : undefined;
 }
 
 function readSteps(pattern: Obj): ReadStep[] {
@@ -234,6 +245,7 @@ function readSteps(pattern: Obj): ReadStep[] {
       roll: Math.round(num(compact ? s.k : s.roll, 1, 1, 8)),
       rest: false,
       locks: Object.keys(locks).length ? locks : undefined,
+      extra: readExtra(compact ? s.c : s.extra),
     });
   }
   return out;
@@ -267,6 +279,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     step.gate = s.gate;
     step.accent = s.accent;
     if (s.locks) step.locks = s.locks;
+    if (s.extra) step.extra = s.extra;
     if (version < 30 && step.locks?.rolldiv !== undefined) step.locks.rolldiv = rollRateV30(step.locks.rolldiv);
     // v33: OCTAVE gained two octaves each way (a locked one keeps its pitch).
     if (version < 33 && step.locks?.octave !== undefined) step.locks.octave += OCTAVE_SHIFT_V33;

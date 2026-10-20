@@ -2,7 +2,7 @@ import { dynVelocity } from './mixParams';
 import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
-  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, type Song,
+  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, STEP_NOTES, type Song,
   type InstrumentKind, type Project, type Step, patchOf,
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
@@ -44,7 +44,7 @@ export function hitToneCutoff(velocity: number): number {
   return 20000 * Math.pow(2, -(1 - Math.min(1, Math.max(0, velocity))) * 3.2);
 }
 
-export type RecordedMsg = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>;
+export type RecordedMsg = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>;
 
 /**
  * Pure audio engine: sequencer, instruments, mixer, master. No DOM, no Web Audio.
@@ -95,6 +95,9 @@ export class Engine {
   /** Hits per step (ROLL), 1 = a single hit. */
   /** Note length in steps (1 = until the next step starts). */
   private readonly stepGate = new Uint8Array(STEP_SLOTS).fill(1);
+  /** PAD chords: a step's further notes (STEP_NOTES - 1 slots each) and how many. */
+  private readonly stepExtra = new Float32Array(STEP_SLOTS * (STEP_NOTES - 1));
+  private readonly stepExtraN = new Uint8Array(STEP_SLOTS);
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
   private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
   private readonly patternLength = new Uint8Array(NUM_CHANNELS * NUM_PATTERNS).fill(16);
@@ -358,7 +361,10 @@ export class Engine {
         this.forceSlide[msg.channel] = msg.slide ? 1 : 0;
         this.forceVel[msg.channel] = msg.velocity ?? 0;
         break;
-      case 'recordNote': this.recordNote(msg.channel, msg.note, msg.velocity, msg.accent, msg.slide === true); break;
+      case 'recordNote':
+        if (msg.chord && this.recordChordNote(msg.channel, msg.note, msg.velocity)) break;
+        this.recordNote(msg.channel, msg.note, msg.velocity, msg.accent, msg.slide === true);
+        break;
       case 'recordLock': this.recordLock(msg.channel, msg.id, msg.value); break;
       case 'ping': break; // answered by the host
     }
@@ -656,8 +662,20 @@ export class Engine {
       // A SLIDE note is held (like RING) until the next note, which it glides into.
       const slide = this.rollDiv[ch] === 0 && slideFlag;
       const vel = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
-      this.noteOn(ch, this.stepNote[s], vel, ring, slideFrom, slide);
-      this.gateGroup[ch] = this.stepNote[s];
+      // PAD chords: CHORD OFF plays every note of the step; a CHORD plays on the lowest.
+      const extra = this.kind[ch] === 'pad' ? this.stepExtraN[s] : 0;
+      const ex = s * (STEP_NOTES - 1);
+      const all = extra > 0 && this.chord[ch] === 0 && this.arpMode[ch] === 0;
+      let root = this.stepNote[s];
+      if (extra > 0 && !all) for (let k = 0; k < extra; k++) root = Math.min(root, this.stepExtra[ex + k]);
+      this.noteOn(ch, root, vel, ring, slideFrom, slide);
+      if (all) {
+        const v = dynVelocity(vel, this.dynDepth[ch]);
+        for (let k = 0; k < extra; k++) inst.noteOn(this.stepExtra[ex + k], v, root, ring, -1, slide);
+      }
+      // A chord slid from: voices the slide did not carry over end now.
+      if (slideFrom >= 0 && slideFrom !== root) inst.noteOff(slideFrom);
+      this.gateGroup[ch] = root;
       this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
       this.ringing[ch] = ring || slide ? 1 : 0;
       this.gateAt[ch] = -1;
@@ -1039,6 +1057,7 @@ export class Engine {
     this.stepRest[s] = 0;
     this.stepSlide[s] = 0;
     this.stepGate[s] = 1;
+    this.stepExtraN[s] = 0;
     // The note already sounded now; don't play it again when that step comes round.
     if (isNext) this.skipStep[ch] = index;
     // Remember it so the release sets its length.
@@ -1049,7 +1068,30 @@ export class Engine {
     this.recVel[ch] = velocity;
     this.recAccent[ch] = accent ? 1 : 0;
     this.recSlide[ch] = 0;
-    this.onRecorded?.({ type: 'recordedNote', channel: ch, pattern, index, note, velocity, accent, gate: 1, slide: false });
+    this.onRecorded?.({ type: 'recordedNote', channel: ch, pattern, index, note, velocity, accent, gate: 1, slide: false, start: true });
+  }
+
+  /**
+   * PAD: a key played while the note being recorded is held, landing on the same step,
+   * joins it (Step.extra, up to STEP_NOTES). False when it belongs on another step (then it
+   * is recorded as a note of its own).
+   */
+  private recordChordNote(ch: number, note: number, velocity: number): boolean {
+    if (!this.playing || this.recNote[ch] < 0 || this.kind[ch] !== 'pad') return false;
+    const { index } = this.nearestStep(ch);
+    const pattern = this.activePattern[ch];
+    if (index !== this.recIndex[ch] || pattern !== this.recPattern[ch]) return false;
+    const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
+    const n = this.stepExtraN[s];
+    const ex = s * (STEP_NOTES - 1);
+    let present = this.stepNote[s] === note;
+    for (let k = 0; k < n; k++) if (this.stepExtra[ex + k] === note) present = true;
+    this.noteOn(ch, note, velocity);
+    if (present || n >= STEP_NOTES - 1) return true;
+    this.stepExtra[ex + n] = note;
+    this.stepExtraN[s] = n + 1;
+    this.onRecorded?.({ type: 'recordedChord', channel: ch, pattern, index, note });
+    return true;
   }
 
   private recordLock(ch: number, id: string, value: number): void {
@@ -1485,6 +1527,9 @@ export class Engine {
     this.stepRest[s] = step.rest && !step.active ? 1 : 0;
     this.stepSlide[s] = step.slide && step.active ? 1 : 0;
     this.stepGate[s] = Math.max(1, Math.min(MAX_STEPS, Math.round(step.gate || 1)));
+    const extra = step.active && step.extra ? Math.min(step.extra.length, STEP_NOTES - 1) : 0;
+    this.stepExtraN[s] = extra;
+    for (let k = 0; k < extra; k++) this.stepExtra[s * (STEP_NOTES - 1) + k] = step.extra![k];
     const base = s * LOCK_SLOTS;
     this.locks.fill(NaN, base, base + LOCK_SLOTS);
     const inst = this.current[ch];

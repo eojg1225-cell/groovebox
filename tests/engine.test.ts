@@ -3058,3 +3058,74 @@ describe('v34: pattern speed is saved', () => {
     expect(q.channels[4].patterns[0].speed).toBeUndefined();
   });
 });
+
+describe('PAD chords on one step', () => {
+  const setup = (chord: string, notes: number[], slide = false, next?: number) => {
+    const p = createDefaultProject();
+    p.channels.forEach((c, i) => { c.mute = i !== 5; });
+    const pad = p.channels[5];
+    pad.chord = CHORD_LIST.indexOf(chord);
+    const pat = pad.patterns[0];
+    pat.length = 16;
+    Object.assign(pat.steps[0], { active: true, note: notes[0], gate: 2, slide });
+    pat.steps[0].extra = notes.slice(1);
+    if (next !== undefined) Object.assign(pat.steps[2], { active: true, note: next, gate: 2 });
+    const e = new Engine(SR);
+    e.handleMessage({ type: 'loadProject', project: p });
+    const played: number[] = [];
+    const inst = (e as unknown as { current: Synth[] }).current[5];
+    const orig = inst.noteOn.bind(inst);
+    inst.noteOn = (note: number, ...a: unknown[]) => { played.push(note); (orig as (...x: unknown[]) => void)(note, ...a); };
+    const L = new Float32Array(128), R = new Float32Array(128);
+    const run = (frames: number) => { for (let k = 0; k < frames / 128; k++) e.process(L, R, 128); };
+    const held = () => (inst as unknown as { voices: { stage: number[] }[] }).voices.filter((v) => v.stage[0] === 1 || v.stage[0] === 2 || v.stage[0] === 3).length;
+    return { e, played, run, held };
+  };
+
+  it('CHORD OFF: all six notes of the step play', () => {
+    const { e, played, run, held } = setup('OFF', [57, 60, 64, 67, 71, 74]);
+    e.handleMessage({ type: 'transport', playing: true });
+    run(2048);
+    expect(played.sort((a, b) => a - b)).toEqual([57, 60, 64, 67, 71, 74]);
+    expect(held()).toBe(6);
+  });
+
+  it('a CHORD on: only the lowest note plays, as the chord\'s root', () => {
+    const { e, played, run } = setup('MIN7', [64, 57, 67]);
+    e.handleMessage({ type: 'transport', playing: true });
+    run(2048);
+    expect(played.sort((a, b) => a - b)).toEqual([57, 60, 64, 67]); // A min7 on 57
+  });
+
+  it('a chord sliding into one note leaves no voice behind', () => {
+    const { e, run, held } = setup('OFF', [57, 60, 64], true, 62);
+    e.handleMessage({ type: 'transport', playing: true });
+    run(Math.round((60 / 128 / 4) * SR * 2.5)); // into step 2
+    expect(held()).toBe(1);
+  });
+
+  it('live recording: notes played together land on one step', () => {
+    const p = createDefaultProject();
+    const e = new Engine(SR);
+    e.handleMessage({ type: 'loadProject', project: p });
+    const got: string[] = [];
+    e.onRecorded = (m) => { if (m.type !== 'recordedLock') got.push(`${m.type} ${m.index} ${'note' in m ? m.note : ''}`); };
+    e.handleMessage({ type: 'transport', playing: true });
+    const L = new Float32Array(128), R = new Float32Array(128);
+    for (let k = 0; k < 40; k++) e.process(L, R, 128);
+    e.handleMessage({ type: 'recordNote', channel: 5, note: 57, velocity: 0.8, accent: false });
+    e.handleMessage({ type: 'recordNote', channel: 5, note: 61, velocity: 0.8, accent: false, chord: true });
+    e.handleMessage({ type: 'recordNote', channel: 5, note: 64, velocity: 0.8, accent: false, chord: true });
+    const step = got[0].split(' ')[1];
+    expect(got).toEqual([`recordedNote ${step} 57`, `recordedChord ${step} 61`, `recordedChord ${step} 64`]);
+  });
+
+  it('chords are saved; only 6 notes a step', () => {
+    const p = createDefaultProject();
+    const s = p.channels[5].patterns[0].steps[3];
+    Object.assign(s, { active: true, note: 50 });
+    s.extra = [53, 57, 60, 64, 67, 71];
+    const q = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
+    expect(q.channels[5].patterns[0].steps[3].extra).toEqual([53, 57, 60, 64, 67]);
+  });
+});

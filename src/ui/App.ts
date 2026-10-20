@@ -50,7 +50,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES,
   cloneNotes, clonePatch, editPattern, initPatterns, lockPattern, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
@@ -141,7 +141,7 @@ function soundingNote(steps: Step[], length: number, head: number): number {
   const c = coveringNote(steps, length, head);
   return c ? steps[c[0]].note : -1;
 }
-type Recorded = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' }>;
+type Recorded = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>;
 
 export interface AudioInfo {
   state: 'off' | 'starting' | 'on' | 'error';
@@ -231,7 +231,8 @@ export class App {
   /** The transport is playing the song (not the patterns). */
   private songPlaying = false;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
-  private entry: { button: number; index: number } | null = null;
+  /** chord: PAD keys added to the step meanwhile (the cursor moves on when all are up). */
+  private entry: { button: number; index: number; chord?: boolean } | null = null;
   /**
    * A paint stroke on a drum lane (RECORD): the first step pressed decides what every step
    * the finger slides onto gets (a hit with the armed flags, the flags set / cleared, a rest,
@@ -309,7 +310,10 @@ export class App {
   /** Motion-record results from the worklet: mirror them into the project. */
   onRecorded(m: Recorded): void {
     const step = this.project.channels[m.channel].patterns[m.pattern].steps[m.index];
-    if (m.type === 'recordedNote') {
+    if (m.type === 'recordedChord') {
+      step.extra = [...(step.extra ?? []), m.note];
+    } else if (m.type === 'recordedNote') {
+      if (m.start) delete step.extra; // a new note replaces the step, chord notes too
       step.active = true;
       step.note = m.note;
       step.velocity = m.velocity;
@@ -1346,15 +1350,30 @@ export class App {
       let heldNote = -1;
       for (const n of this.heldNotes.values()) heldNote = n;
       const legato = heldNote >= 0 && this.isMono(this.channel);
+      // PAD: keys played together make one step's chord (live recording, step entry).
+      const chord = heldNote >= 0 && this.channel.instrument === 'pad';
       this.heldNotes.set(button, note);
       if (this.mode !== 'record' || this.recording) this.liveNote = note;
       if (this.mode === 'record' && this.recording) {
         // Live recording: the worklet writes the note to the nearest step.
-        this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent', slide: legato });
+        this.send({ type: 'recordNote', channel: ch, note, velocity: vel, accent: this.dynamic === 'accent', slide: legato, chord });
       } else if (this.mode === 'record') {
         // Step entry: write a one-step note at the cursor and hear it. The cursor moves
         // on when the key is released (past any steps tied with ▶ meanwhile).
         // A key pressed while another is still held goes right after the held note.
+        if (chord && this.entry && this.entry.button !== button) {
+          // PAD: the key joins the step being entered (up to STEP_NOTES notes).
+          const step = this.pattern.steps[this.entry.index];
+          const notes = [step.note, ...(step.extra ?? [])];
+          if (!notes.includes(note) && notes.length < STEP_NOTES) {
+            step.extra = [...(step.extra ?? []), note];
+            this.sendStep(this.entry.index, step);
+            this.save();
+          }
+          this.entry.chord = true;
+          this.send({ type: 'trigger', channel: ch, note, velocity: vel });
+          return;
+        }
         let index = this.cursor[ch];
         if (this.entry && this.entry.button !== button) {
           const prev = this.pattern.steps[this.entry.index];
@@ -1367,6 +1386,7 @@ export class App {
         step.ring = this.ring;
         step.rest = false;
         step.slide = this.slideArm; // ROLL on PERC
+        delete step.extra;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
@@ -1520,6 +1540,7 @@ export class App {
     step.slide = false;
     step.gate = 1;
     delete step.locks;
+    delete step.extra;
     this.sendStep(index, step);
     this.clearUsed = true;
     this.save();
@@ -1550,6 +1571,7 @@ export class App {
       const step: Step = JSON.parse(JSON.stringify(s));
       if (plainDrum) step.note = emptyStep().note; // a drum's own pitch (as designed)
       if (from.instrument !== to.instrument) delete step.locks;
+      if (to.instrument !== 'pad') delete step.extra; // chords on the PAD only
       dst.steps[i] = step;
       this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
     });
@@ -1604,7 +1626,8 @@ export class App {
     }
     if (note === this.liveNote) this.liveNote = -1;
     this.send({ type: 'release', channel: ch, note });
-    if (this.entry?.button === button) {
+    // The cursor moves on when the entered key is up (a PAD chord: when all its keys are).
+    if (this.entry && (this.entry.chord ? this.heldNotes.size === 0 : this.entry.button === button)) {
       const len = this.pattern.length;
       this.cursor[this.selected] = (this.entry.index + this.pattern.steps[this.entry.index].gate) % len;
       this.entry = null;
@@ -2170,14 +2193,14 @@ export class App {
     if (this.keyboard) {
       const sounding = soundingNote(pattern.steps, pattern.length, head);
       const cursorStep = pattern.steps[cursor];
-      const cursorNote = pitchedRecord && cursorStep.active ? cursorStep.note : -1;
+      const cursorNotes = pitchedRecord && cursorStep.active ? [cursorStep.note, ...(cursorStep.extra ?? [])] : [];
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
         const note = this.octave[ch] + i;
         this.panel.setButtonText(id, noteName(note));
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding);
-        this.panel.setButtonFlag(id, 'cursor', note === cursorNote);
+        this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
         for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie']) this.panel.setButtonFlag(id, f, false);
       }
     } else {
