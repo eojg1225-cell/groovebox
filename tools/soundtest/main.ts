@@ -10,9 +10,13 @@ import type { MainToWorklet } from '../../src/engine/protocol';
 import type { Project, SoundKind } from '../../src/engine/project';
 import { toNorm, toValue, type ParamSpec } from '../../src/engine/params';
 import { INSTRUMENTS, presetSound } from '../../src/instruments/registry';
-import { CONVERGE, MACROS, macroSound, snapRatio, type Excite } from '../../src/instruments/macros';
+import { CONVERGE, MACROS, macroSound, snapRatio, type Anchor, type Excite } from '../../src/instruments/macros';
+import { editPattern } from '../../src/engine/project';
+import { PAD_B_ANCHORS, PAD_B_EXCITE } from './padCandidate';
 
-type Kind = 'bass' | 'pluck';
+type Kind = 'bass' | 'pluck' | 'pad';
+/** PAD A/B: A = today's 3 CARRIER FM pad, B = the BASS engine candidate (padCandidate.ts). */
+type Engine = 'A' | 'B';
 type Mode = 'morph' | 'all' | 'xfade' | 'zones' | 'snap';
 
 export const MODES: { id: Mode; name: string; text: string }[] = [
@@ -24,7 +28,7 @@ export const MODES: { id: Mode; name: string; text: string }[] = [
 ];
 
 /** The envelope and width each sound had before they became the track's own (git history). */
-const OWN: Record<Kind, Record<string, number>[]> = {
+const OWN: Record<'bass' | 'pluck', Record<string, number>[]> = {
   bass: [
     { decay: 0.7, sustain: 0.8, detune: 0 },
     { decay: 0.5, sustain: 0.45, detune: 0.15 },
@@ -41,20 +45,26 @@ const OWN: Record<Kind, Record<string, number>[]> = {
   ],
 };
 /** INT used to move width as well. */
-const OWN_EXCITE: Record<Kind, Excite[]> = {
+const OWN_EXCITE: Record<'bass' | 'pluck', Excite[]> = {
   bass: [{ id: 'detune', floor: 0.05, high: 1.3 }],
   pluck: [{ id: 'unison', floor: 0, high: 1.1 }, { id: 'detune', floor: 0.05, high: 1.1 }],
 };
 const RATIO_IDS = new Set(['fmratio', 'ratio2', 'ratio3']);
 
 /** macroSound with the sounds' own envelopes and width added (the "Morph everything" rule). */
-function morphAll(kind: Kind, timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
+function morphAll(kind: 'bass' | 'pluck', timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
   const anchors = MACROS[kind].anchors.map((a, i) => {
     const own = { ...OWN[kind][i] };
     own.attack2 ??= own.attack; own.decay2 ??= own.decay; own.sustain2 = own.sustain; own.release2 ??= own.release;
     for (const k of Object.keys(own)) if (own[k] === undefined) delete own[k];
-    return { ...a.values, ...own };
+    return { name: a.name, values: { ...a.values, ...own } };
   });
+  return blend(anchors, [...MACROS[kind].excite, ...OWN_EXCITE[kind]], timbre, intensity, specs);
+}
+
+/** TIMBRE / INT over any list of sounds, by the same rules as macroSound. */
+function blend(list: readonly Anchor[], excite: readonly Excite[], timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
+  const anchors = list.map((a) => a.values);
   const t = Math.min(1, Math.max(0, timbre)) * (anchors.length - 1);
   const i0 = Math.min(anchors.length - 2, Math.floor(t));
   const f = t - i0;
@@ -68,7 +78,7 @@ function morphAll(kind: Kind, timbre: number, intensity: number, specs: readonly
     if (RATIO_IDS.has(id)) out[id] = snapRatio(out[id]);
   }
   const x = Math.min(1, Math.max(0, intensity));
-  for (const e of [...MACROS[kind].excite, ...OWN_EXCITE[kind]]) {
+  for (const e of excite) {
     const spec = specs.find((p) => p.id === e.id);
     if (!spec || out[e.id] === undefined) continue;
     if (x < 0.5) {
@@ -87,10 +97,21 @@ function morphAll(kind: Kind, timbre: number, intensity: number, specs: readonly
   return out;
 }
 
+/** The PAD for engine A or B at a TIMBRE / INT position. */
+function padSound(engine: Engine, timbre: number, intensity: number): Record<string, number> {
+  const specs = INSTRUMENTS.pad.params;
+  const base = presetSound('pad', 0);
+  const sound = engine === 'A'
+    ? { ...base, ...macroSound('pad', timbre, intensity, specs), algo: 1 }
+    : { ...base, ...blend(PAD_B_ANCHORS, PAD_B_EXCITE, timbre, intensity, specs), algo: 0 };
+  return { ...sound, timbre, intensity };
+}
+
 const ZONE = 0.3; // share of each stretch between two sounds where "Hold, then morph" moves
 
 /** The sound(s) for the knobs: one sound and its level, or two for the crossfade. */
 function voices(kind: Kind, mode: Mode, timbre: number, intensity: number): { sound: Record<string, number>; gain: number }[] {
+  if (kind === 'pad') return [{ sound: padSound(state.engine, timbre, intensity), gain: state.engine === 'B' ? Math.pow(10, state.bGain / 20) : 1 }];
   const specs = INSTRUMENTS[kind].params;
   const base = presetSound(kind, 0);
   const n = MACROS[kind].anchors.length - 1;
@@ -118,7 +139,8 @@ function voices(kind: Kind, mode: Mode, timbre: number, intensity: number): { so
 
 /** The sound name(s) TIMBRE sits on, for the readout. */
 function timbreLabel(kind: Kind, mode: Mode, timbre: number): string {
-  const names = MACROS[kind].anchors.map((a) => a.name);
+  const names = anchorNames(kind);
+  if (kind === 'pad') mode = 'morph';
   const n = names.length - 1;
   const u = timbre * n;
   const i = Math.min(n - 1, Math.floor(u));
@@ -130,7 +152,12 @@ function timbreLabel(kind: Kind, mode: Mode, timbre: number): string {
 
 // ------------------------------------------------------------------ project
 
-const CHANNEL: Record<Kind, number> = { bass: 4, pluck: 7 };
+const CHANNEL: Record<Kind, number> = { bass: 4, pluck: 7, pad: 5 };
+
+/** The TIMBRE sounds' names (the PAD's A and B lists share them). */
+function anchorNames(kind: Kind): string[] {
+  return MACROS[kind].anchors.map((a) => a.name);
+}
 const PAD = 5;
 
 function buildProject(kind: Kind, solo: boolean, onlyTest: boolean): Project {
@@ -143,6 +170,8 @@ function buildProject(kind: Kind, solo: boolean, onlyTest: boolean): Project {
     pl.patterns[pl.activePattern] = JSON.parse(JSON.stringify(pad.patterns[pad.activePattern]));
     pl.chord = pad.chord;
   }
+  // The PAD plays its pattern A.
+  if (kind === 'pad') editPattern(p.channels[ch], 0);
   p.channels.forEach((c, i) => {
     c.liveOffset = {};
     if (i === ch) { c.mute = false; c.instrument = kind; return; }
@@ -159,7 +188,7 @@ let node: AudioWorkletNode | null = null;
 let playing = false;
 const send = (to: 'A' | 'B' | 'both', msg: MainToWorklet) => node?.port.postMessage({ to, msg });
 
-const state = { kind: 'bass' as Kind, mode: 'morph' as Mode, timbre: 0.25, intensity: 0.5, solo: true };
+const state = { kind: 'pad' as Kind, mode: 'morph' as Mode, timbre: 0.25, intensity: 0.5, solo: true, engine: 'A' as Engine, bGain: 0 };
 
 async function ensureAudio(): Promise<void> {
   if (node) return;
@@ -178,7 +207,7 @@ function load(): void {
 function applySound(): void {
   const ch = CHANNEL[state.kind];
   const v = voices(state.kind, state.mode, state.timbre, state.intensity);
-  const volume = 0.8;
+  const volume = state.kind === 'pad' ? project().channels[ch].volume : 0.8;
   const targets: ('A' | 'B')[] = ['A', 'B'];
   targets.forEach((to, i) => {
     const voice = v[i];
@@ -203,6 +232,11 @@ async function togglePlay(): Promise<void> {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const playBtn = $<HTMLButtonElement>('play');
+let stored0: Project | null = null;
+/** The project as stored (for the PAD's own volume). */
+function project(): Project {
+  return (stored0 ??= fromStored(stored.project)!);
+}
 
 function readout(): void {
   $('timbre-val').textContent = timbreLabel(state.kind, state.mode, state.timbre);
@@ -252,7 +286,8 @@ knob('int', () => state.intensity, (v) => { state.intensity = v; });
 
 // Snap marks under TIMBRE: where the five sounds sit.
 function marks(): void {
-  const names = MACROS[state.kind].anchors.map((a) => a.name);
+  const names = anchorNames(state.kind);
+  document.body.classList.toggle('pad', state.kind === 'pad');
   $('names').innerHTML = names.map((n, i) => `<button type="button" data-i="${i}">${n}</button>`).join('');
 }
 $('names').addEventListener('click', (e) => {
@@ -272,7 +307,24 @@ $('modes').addEventListener('change', (e) => {
   state.mode = (e.target as HTMLInputElement).value as Mode;
   applySound();
 });
-for (const k of ['bass', 'pluck'] as const) {
+/** A / B: which PAD engine plays (instant, the notes keep playing). */
+function setEngine(e: Engine): void {
+  state.engine = e;
+  for (const x of ['A', 'B'] as const) {
+    const b = $(`e-${x}`);
+    b.classList.toggle('on', x === e);
+    b.setAttribute('aria-pressed', String(x === e));
+  }
+  applySound();
+}
+$('e-A').addEventListener('click', () => setEngine('A'));
+$('e-B').addEventListener('click', () => setEngine('B'));
+$<HTMLInputElement>('bgain').addEventListener('input', (e) => {
+  state.bGain = Number((e.target as HTMLInputElement).value);
+  $('bgain-val').textContent = `${state.bGain > 0 ? '+' : ''}${state.bGain} dB`;
+  applySound();
+});
+for (const k of ['bass', 'pluck', 'pad'] as const) {
   $(`k-${k}`).addEventListener('change', () => {
     state.kind = k;
     marks();
@@ -286,9 +338,10 @@ $<HTMLInputElement>('solo').addEventListener('change', (e) => {
 playBtn.addEventListener('click', () => { void togglePlay().catch((err) => { $('err').textContent = `Audio could not start: ${err.message ?? err}`; }); });
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && !(e.target instanceof HTMLInputElement)) { e.preventDefault(); playBtn.click(); }
+  if (state.kind === 'pad' && (e.code === 'KeyA' || e.code === 'KeyB')) setEngine(e.code === 'KeyA' ? 'A' : 'B');
 });
 $('bpm').textContent = `${Math.round((stored.project as { bpm: number }).bpm)} BPM`;
 marks();
-readout();
+setEngine('A');
 
 export type { SoundKind };

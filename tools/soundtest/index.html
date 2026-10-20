@@ -10,7 +10,7 @@
 <main class="wrap">
   <header>
     <h1>TIMBRE Sound Test</h1>
-    <p>Your current project, with the chosen track's sound driven only by TIMBRE and INT. Pick a rule for how TIMBRE moves between the five sounds, press Play, and turn the knobs.</p>
+    <p>Your project, with the chosen track's sound driven only by TIMBRE and INT. PAD: press Play, sweep TIMBRE slowly and switch between A and B (keys A / B) to compare the two pad engines at the same position.</p>
   </header>
 
   <section class="deck" aria-label="Transport and knobs">
@@ -19,9 +19,17 @@
       <span class="bpm" id="bpm"></span>
     </div>
     <div class="tracks" role="radiogroup" aria-label="Track">
-      <label for="k-bass"><input type="radio" name="kind" id="k-bass" checked> BASS</label>
+      <label for="k-pad"><input type="radio" name="kind" id="k-pad" checked> PAD <small>(pattern A)</small></label>
+      <label for="k-bass"><input type="radio" name="kind" id="k-bass"> BASS</label>
       <label for="k-pluck"><input type="radio" name="kind" id="k-pluck"> PLUCK <small>(plays the CHORD pattern)</small></label>
       <label for="solo" class="solo"><input type="checkbox" id="solo" checked> Solo</label>
+    </div>
+    <div class="ab" aria-label="PAD engine">
+      <div class="ab-buttons">
+        <button type="button" id="e-A" class="ab-btn" aria-pressed="true"><b>A</b><span>Current pad: 3-carrier FM</span></button>
+        <button type="button" id="e-B" class="ab-btn" aria-pressed="false"><b>B</b><span>Bass engine: wave + FM layer + filter</span></button>
+      </div>
+      <label class="bgain" for="bgain">B level <input type="range" id="bgain" min="-12" max="12" step="1" value="0"> <output id="bgain-val">0 dB</output></label>
     </div>
     <div class="knobs">
       <div class="knob-wrap">
@@ -53,7 +61,7 @@
     <p class="err" id="err"></p>
   </section>
 
-  <section>
+  <section class="rules">
     <h2>How TIMBRE moves between sounds</h2>
     <div class="modes" id="modes"></div>
   </section>
