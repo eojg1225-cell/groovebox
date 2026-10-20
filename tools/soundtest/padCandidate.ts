@@ -33,9 +33,12 @@ export const PAD_C_ANCHORS: Anchor[] = [
   { name: 'ETHEREAL', values: { cfeedback: 0, shape: 0.5, fm: 0.6, fmratio: 1, ratio2: 2, ratio3: 4, feedback: 0.2, carriers: 0.7, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 } },
 ];
 
-/** C's INT: today's PAD rules (FM / feedback / carriers biting in the top quarter). */
+/**
+ * C's INT: today's PAD rules (FM / feedback / carriers biting in the top quarter), with FM
+ * topping out at level 92 instead of 99 (index ~7 instead of 13).
+ */
 export const PAD_C_EXCITE: Excite[] = [
-  { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
+  { id: 'fm', floor: 0, knee: 0.6, top: 0.92 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
   { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
   { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
   { id: 'cfeedback', floor: 0, knee: 0.25, top: 1 },
@@ -57,5 +60,17 @@ export function gentle(excite: readonly Excite[]): Excite[] {
     }
     if (g.high !== undefined) g.high = g.id === 'fm' ? 1.12 : highs[g.id] ?? g.high;
     return g;
+  });
+}
+
+/**
+ * C with A's ratios: the same sounds, but each takes today's PAD ratios (FM RATIO = stack 1's
+ * modulator, RATIO 2 = stack 2's carrier, RATIO 3 = stack 2's modulator), so the ratios step
+ * through related ratios as TIMBRE moves (1 -> 4/3 -> 3/2 -> 2 ...), as on A.
+ */
+export function withRatios(list: readonly Anchor[], from: readonly Anchor[]): Anchor[] {
+  return list.map((a) => {
+    const src = from.find((f) => f.name === a.name)!.values;
+    return { name: a.name, values: { ...a.values, fmratio: src.fmratio, ratio2: src.ratio2, ratio3: src.ratio3 } };
   });
 }

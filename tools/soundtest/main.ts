@@ -12,13 +12,17 @@ import { toNorm, toValue, type ParamSpec } from '../../src/engine/params';
 import { INSTRUMENTS, presetSound } from '../../src/instruments/registry';
 import { CONVERGE, MACROS, macroSound, snapRatio, type Anchor, type Excite } from '../../src/instruments/macros';
 import { createDefaultProject } from '../../src/engine/defaultProject';
-import { PAD_B_ANCHORS, PAD_B_EXCITE, PAD_C_ANCHORS, PAD_C_EXCITE, gentle } from './padCandidate';
+import { PAD_B_ANCHORS, PAD_B_EXCITE, PAD_C_ANCHORS, PAD_C_EXCITE, gentle, withRatios } from './padCandidate';
 import { CHORD_NAMES } from '../../src/engine/chords';
 
 type Kind = 'bass' | 'pluck' | 'pad';
-/** PAD A/B/C: A = today's 3 CARRIER FM pad, B = the BASS engine, C = 2 STACKS (padCandidate.ts). */
-type Engine = 'A' | 'B' | 'C';
-const ENGINES: Engine[] = ['A', 'B', 'C'];
+/**
+ * PAD engines (padCandidate.ts): A = today's 3 CARRIER FM pad, B = the BASS engine, C / D =
+ * 2 STACKS, C with A's ratios (stepping as TIMBRE moves), D with one set of matched ratios.
+ */
+type Engine = 'A' | 'B' | 'C' | 'D';
+const ENGINES: Engine[] = ['A', 'B', 'C', 'D'];
+const PAD_C_STEPPED = withRatios(PAD_C_ANCHORS, MACROS.pad.anchors);
 type Mode = 'morph' | 'all' | 'xfade' | 'zones' | 'snap';
 
 export const MODES: { id: Mode; name: string; text: string }[] = [
@@ -99,7 +103,7 @@ function blend(list: readonly Anchor[], excite: readonly Excite[], timbre: numbe
   return out;
 }
 
-/** The PAD for engine A, B or C at a TIMBRE / INT position (GENTLE INT: lower top end). */
+/** The PAD for engine A-D at a TIMBRE / INT position (GENTLE INT: lower top end). */
 function padSound(engine: Engine, timbre: number, intensity: number): Record<string, number> {
   const specs = INSTRUMENTS.pad.params;
   const base = presetSound('pad', 0);
@@ -108,7 +112,7 @@ function padSound(engine: Engine, timbre: number, intensity: number): Record<str
     ? { ...base, ...blend(MACROS.pad.anchors, ex(MACROS.pad.excite), timbre, intensity, specs), algo: 1 }
     : engine === 'B'
       ? { ...base, ...blend(PAD_B_ANCHORS, ex(PAD_B_EXCITE), timbre, intensity, specs), algo: 0 }
-      : { ...base, ...blend(PAD_C_ANCHORS, ex(PAD_C_EXCITE), timbre, intensity, specs), algo: 2 };
+      : { ...base, ...blend(engine === 'C' ? PAD_C_STEPPED : PAD_C_ANCHORS, ex(PAD_C_EXCITE), timbre, intensity, specs), algo: 2 };
   return { ...sound, timbre, intensity };
 }
 
@@ -204,7 +208,7 @@ let node: AudioWorkletNode | null = null;
 let playing = false;
 const send = (to: 'A' | 'B' | 'both', msg: MainToWorklet) => node?.port.postMessage({ to, msg });
 
-const state = { kind: 'pad' as Kind, mode: 'morph' as Mode, timbre: 0.25, intensity: 0.5, solo: true, engine: 'A' as Engine, gain: { A: 0, B: 0, C: 0 } as Record<Engine, number>, gentle: false };
+const state = { kind: 'pad' as Kind, mode: 'morph' as Mode, timbre: 0.25, intensity: 0.5, solo: true, engine: 'A' as Engine, gain: { A: 0, B: 0, C: 0, D: 0 } as Record<Engine, number>, gentle: false };
 
 async function ensureAudio(): Promise<void> {
   if (node) return;
@@ -347,7 +351,7 @@ $('modes').addEventListener('change', (e) => {
   state.mode = (e.target as HTMLInputElement).value as Mode;
   applySound();
 });
-/** A / B / C: which PAD engine plays (instant, the chord keeps playing). */
+/** A-D: which PAD engine plays (instant, the chord keeps playing). */
 function setEngine(e: Engine): void {
   state.engine = e;
   for (const x of ENGINES) {
@@ -391,6 +395,6 @@ document.addEventListener('keydown', (e) => {
 $('bpm').textContent = `${Math.round((stored.project as { bpm: number }).bpm)} BPM`;
 $('bpm-pad').textContent = `${BPM} BPM`;
 marks();
-setEngine('A');
+setEngine('C');
 
 export type { SoundKind };
