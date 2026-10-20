@@ -60,6 +60,9 @@ const MAX_FEEDBACK = 1.6;
  */
 const MAX_CARRIER_FEEDBACK = 1.3;
 
+/** DC blocker corner (2 STACKS), Hz: well below any note. */
+const DC_HZ = 8;
+
 /** Phase into 0..1 (modulated phases can leave it by a few cycles). */
 function wrap(p: number): number {
   return p - Math.floor(p);
@@ -159,7 +162,8 @@ export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, d
 /** PAD's envelope before v27 (a stab), for keeping an untouched one up to date. */
 export const PAD_ENVELOPE_V26 = { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3 };
 export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 });
-export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 1 };
+/** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts). */
+export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
@@ -240,6 +244,8 @@ export class Synth implements Instrument {
    * carriers), 2 = 2 STACKS (two modulator -> carrier pairs).
    */
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35;
+  /** DC blocker state (renderDcBlock) and its pole. */
+  private dcXL = 0; private dcYL = 0; private dcXR = 0; private dcYR = 0; private dcR = 1;
   private fmMod = 0; private fmEff = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
   private polyLimit = MAX_VOICES; private voiceCount = MAX_VOICES;
@@ -271,6 +277,7 @@ export class Synth implements Instrument {
   /** driveRise: the type's DRIVE level compensation curve (driveComp.ts). */
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>, private readonly driveRise?: readonly number[]) {
     this.sr = sampleRate;
+    this.dcR = 1 - (2 * Math.PI * DC_HZ) / sampleRate;
     this.velK = 1 - Math.exp(-1 / (VEL_SMOOTH * sampleRate));
     this.duckAttackInc = 1 / (DUCK_ATTACK * sampleRate);
     if (fixed.onboard) {
@@ -465,6 +472,7 @@ export class Synth implements Instrument {
    */
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     this.renderVoices(outL, outR, start, end);
+    if (this.algo === 2) this.renderDcBlock(outL, outR, start, end);
     this.renderCrush(outL, outR, start, end);
     if (this.duckStage !== 0) this.renderDuck(outL, outR, start, end);
   }
@@ -485,6 +493,23 @@ export class Synth implements Instrument {
       outL[i] *= g;
       outR[i] *= g;
     }
+  }
+
+  /**
+   * DC blocker (one-pole high-pass at DC_HZ) on 2 STACKS (PAD): a 1 : 1 ratio puts a
+   * sideband at 0 Hz, an offset that thumps when notes start and stop.
+   */
+  private renderDcBlock(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
+    const r = this.dcR;
+    let xl = this.dcXL, yl = this.dcYL, xr = this.dcXR, yr = this.dcYR;
+    for (let i = start; i < end; i++) {
+      const l = outL[i], rr = outR[i];
+      yl = l - xl + r * yl; xl = l; outL[i] = yl;
+      yr = rr - xr + r * yr; xr = rr; outR[i] = yr;
+    }
+    // Flush denormals while silent.
+    this.dcXL = xl; this.dcYL = Math.abs(yl) < 1e-15 ? 0 : yl;
+    this.dcXR = xr; this.dcYR = Math.abs(yr) < 1e-15 ? 0 : yr;
   }
 
   private renderCrush(outL: Float32Array, outR: Float32Array, start: number, end: number): void {

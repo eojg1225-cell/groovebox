@@ -24,7 +24,7 @@ import { LFO_RATES, lfoValue } from '../src/engine/lfo';
 
 /** An LFO rate's index by name. */
 const RATE = (name: string) => LFO_RATES.findIndex((r) => r.name === name);
-import { MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound, timbreName } from '../src/instruments/macros';
+import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound, remapPadTimbreV31, timbreName } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { drumPage, soundPage, stepsOnStrip } from '../src/instruments/registry';
@@ -1495,14 +1495,15 @@ describe('ETHEREAL chord', () => {
     return d / e;
   };
 
-  it('odd carriers 1 : 3 : 5 on a 7x modulator: a high shimmer, rendering cleanly', () => {
+  it('a 7x modulator over the body, stack 2 at 3x under 5x: a high shimmer, rendering cleanly', () => {
     const { sound, l } = chord('ETHEREAL');
     expect([sound.fmratio, sound.ratio2, sound.ratio3]).toEqual([7, 3, 5]);
     const st = stats(l);
     expect(st.nan).toBe(false);
     expect(st.peak).toBeGreaterThan(0.05);
     expect(st.peak).toBeLessThan(3);
-    for (const other of ['GLASS', 'WARM', 'STRINGS']) expect(brightness(l), other).toBeGreaterThan(brightness(chord(other).l));
+    // The brightest of the bells (STRINGS is a saw: bright in another way).
+    for (const other of ['WARM', 'TINE', 'GLASS']) expect(brightness(l), other).toBeGreaterThan(brightness(chord(other).l));
   });
 
   it('width is the type\'s own: every sound has the same DETUNE / UNISON', () => {
@@ -1933,20 +1934,21 @@ describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => 
   });
 
   it('older saves derive trims that reproduce their values exactly', () => {
+    // (On the LEAD: the PAD's engine changed in v32, so its old sounds are rebuilt.)
     const p = createDefaultProject();
-    const sound = { ...p.channels[5].sounds.pad!, cutoff: 333, intensity: 0.2 };
-    p.channels[5].sounds.pad = sound;
+    const sound = { ...p.channels[6].sounds.lead!, cutoff: 333, intensity: 0.2 };
+    p.channels[6].sounds.lead = sound;
     const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 16 };
-    delete old.channels[5].trims;
-    const q = fromStored(old)!.channels[5];
-    expect(q.sounds.pad!.cutoff).toBeCloseTo(333);
-    const trims = q.trims.pad!;
-    const hidden = hiddenSound('pad', q.sounds.pad!, INSTRUMENTS.pad.params);
-    for (const id of macroIds('pad', INSTRUMENTS.pad.params)) {
-      const spec = paramSpec('pad', id)!;
-      expect(applyTrim(spec, hidden[id], trims[id]), id).toBeCloseTo(q.sounds.pad![id], 4);
+    delete old.channels[6].trims;
+    const q = fromStored(old)!.channels[6];
+    expect(q.sounds.lead!.cutoff).toBeCloseTo(333);
+    const trims = q.trims.lead!;
+    const hidden = hiddenSound('lead', q.sounds.lead!, INSTRUMENTS.lead.params);
+    for (const id of macroIds('lead', INSTRUMENTS.lead.params)) {
+      const spec = paramSpec('lead', id)!;
+      expect(applyTrim(spec, hidden[id], trims[id]), id).toBeCloseTo(q.sounds.lead![id], 4);
     }
-    expect(deriveTrims('pad', presetSound('pad', 1), INSTRUMENTS.pad.params)).toEqual({});
+    expect(deriveTrims('lead', presetSound('lead', 1), INSTRUMENTS.lead.params)).toEqual({});
   });
 
   it('live macros only push SOUND page parameters', () => {
@@ -2156,7 +2158,7 @@ describe('PAD on the 3 carrier engine', () => {
     for (const id of ['ratio2', 'ratio3', 'feedback', 'carriers']) delete sound[id];
     const q = fromStored(stored)!.channels[5].sounds.pad!;
     expect(q.ratio3).toBe(0.5);
-    expect(q.carriers).toBeCloseTo(0.45);
+    expect(q.carriers).toBeCloseTo(0.25);
   });
 });
 
@@ -2834,5 +2836,78 @@ describe('drum retrigger', () => {
     let ownMax = 0;
     for (let i = 1000; i < at - 1; i++) ownMax = Math.max(ownMax, Math.abs(l[i + 1] - l[i]));
     for (let i = at - 3; i < at + 10; i++) expect(Math.abs(l[i + 1] - l[i]), `sample ${i}`).toBeLessThan(ownMax * 2 + 0.01);
+  });
+});
+
+describe('v32: PAD on 2 STACKS', () => {
+  const names = () => MACROS.pad.anchors.map((a) => a.name);
+  const at = (name: string) => names().indexOf(name) / 4;
+
+  it('soft -> bell-like on the 2 STACKS engine, FM topping out at level 92', () => {
+    expect(PAD_FIXED.algo).toBe(2);
+    expect(names()).toEqual(['WARM', 'STRINGS', 'TINE', 'GLASS', 'ETHEREAL']);
+    for (const t of [0, 0.3, 0.5, 0.8, 1]) expect(macroSound('pad', t, 1, PAD_PARAMS).fm).toBeCloseTo(0.92);
+  });
+
+  it('TIMBRE steps the modulators in whole / half steps, stack 2\'s carrier through intervals', () => {
+    const carrier = new Set<number>();
+    for (let k = 0; k <= 400; k++) {
+      const s = macroSound('pad', k / 400, 0.5, PAD_PARAMS);
+      expect(HALF_STEPS, `FM RATIO at ${k}`).toContain(s.fmratio);
+      expect(HALF_STEPS, `RATIO 3 at ${k}`).toContain(s.ratio3);
+      expect(RATIO_STEPS).toContain(s.ratio2);
+      carrier.add(s.ratio2);
+    }
+    expect(carrier.has(4 / 3)).toBe(true); // a fourth on the way (WARM -> STRINGS)
+  });
+
+  it('renders cleanly with no DC offset (1 : 1 ratios)', () => {
+    for (const p of INSTRUMENTS.pad.presets.slice(0, 5)) {
+      const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+      const sound: Record<string, number> = { ...presetSound('pad', INSTRUMENTS.pad.presets.indexOf(p)), intensity: 0.8 };
+      for (const id in sound) s.setParam(id, sound[id]);
+      for (const n of [57, 60, 64, 67]) s.noteOn(n, 0.8, 57);
+      const l = new Float32Array(SR);
+      s.render(l, new Float32Array(SR), 0, l.length);
+      const st = stats(l);
+      expect(st.nan, p.name).toBe(false);
+      expect(st.peak, p.name).toBeGreaterThan(0.05);
+      const tail = l.subarray(SR / 2);
+      const mean = tail.reduce((a, x) => a + x, 0) / tail.length;
+      expect(Math.abs(mean), p.name).toBeLessThan(0.002);
+    }
+  });
+
+  it('older PAD positions land on the same sound by name', () => {
+    expect(remapPadTimbreV31(0)).toBeCloseTo(at('GLASS'));
+    expect(remapPadTimbreV31(0.25)).toBeCloseTo(at('TINE'));
+    expect(remapPadTimbreV31(0.5)).toBeCloseTo(at('WARM'));
+    expect(remapPadTimbreV31(1)).toBeCloseTo(at('ETHEREAL'));
+    // GLASS -> TINE are still neighbours: a third of the way stays a third of the way.
+    expect(remapPadTimbreV31(1 / 12)).toBeCloseTo(at('GLASS') + (at('TINE') - at('GLASS')) / 3);
+    // TINE -> WARM no longer are: the nearer one.
+    expect(remapPadTimbreV31(0.3)).toBeCloseTo(at('TINE'));
+    expect(remapPadTimbreV31(0.45)).toBeCloseTo(at('WARM'));
+  });
+
+  it('a v31 save keeps its PAD sound by name, the new sound under its SOUND page trims', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 31;
+    const pad = stored.channels[5];
+    pad.sounds.pad.timbre = 0; // GLASS in the old order
+    pad.sounds.pad.fm = 0.99; // an old engine value: rebuilt from the new sound
+    pad.trims.pad = { cutoff: -0.1 };
+    pad.presets.pad = 0; // GLASS
+    pad.patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { timbre: 0.5 } }]; // WARM, locked
+    const q = fromStored(stored)!.channels[5];
+    const s = q.sounds.pad!;
+    expect(s.timbre).toBeCloseTo(at('GLASS'));
+    const hidden = hiddenSound('pad', s, INSTRUMENTS.pad.params);
+    expect(s.fm).toBeCloseTo(hidden.fm);
+    expect(s.cutoff).toBeCloseTo(applyTrim(paramSpec('pad', 'cutoff')!, hidden.cutoff, -0.1));
+    expect(q.trims.pad!.cutoff).toBeCloseTo(-0.1);
+    expect(INSTRUMENTS.pad.presets[q.presets.pad!].name).toBe('GLASS');
+    expect(q.patterns[0].steps[0].locks!.timbre).toBeCloseTo(at('WARM'));
   });
 });

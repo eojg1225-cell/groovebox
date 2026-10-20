@@ -98,3 +98,19 @@ export function padE(cStepped: readonly Anchor[]): Anchor[] {
     by('STRINGS'), by('TINE'), by('GLASS'), by('ETHEREAL'),
   ];
 }
+
+/** A: the PAD before v32 (3 CARRIER engine), kept here for comparison. */
+export const PAD_A_ANCHORS: Anchor[] = [
+  { name: 'GLASS', values: { cfeedback: 0, fattack: 0.0005, shape: 0, fm: 0.72, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.4, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, drive: 1 } },
+  { name: 'TINE', values: { cfeedback: 0, fattack: 0.0005, shape: 0, fm: 0.78, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.2, carriers: 0.3, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, drive: 1.1 } },
+  { name: 'WARM', values: { cfeedback: 0, fattack: 0.0005, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.3, carriers: 0.45, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, drive: 1 } },
+  { name: 'STRINGS', values: { cfeedback: 0, fattack: 0.0005, shape: 2, fm: 0.5, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, drive: 1.2 } },
+  { name: 'ETHEREAL', values: { cfeedback: 0, shape: 0, fm: 0.7, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.25, carriers: 0.6, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 1.2, drive: 1 } },
+];
+
+export const PAD_A_EXCITE: Excite[] = [
+  { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
+  { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
+  { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
+  { id: 'cfeedback', floor: 0, knee: 0.25, top: 1 },
+];

@@ -28,7 +28,7 @@ const MORPHED_V26: Partial<Record<SoundKind, readonly string[]>> = {
   bass: ['decay', 'sustain', 'detune'],
   pluck: ['attack', 'decay', 'sustain', 'release', 'detune', 'unison'],
 };
-import { remapTimbreV18 } from '../instruments/macros';
+import { PAD_ANCHORS_V31, macroIds, remapPadTimbreV31, remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
@@ -261,11 +261,36 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[] }, instrument: 
     step.accent = s.accent;
     if (s.locks) step.locks = s.locks;
     if (version < 30 && step.locks?.rolldiv !== undefined) step.locks.rolldiv = rollRateV30(step.locks.rolldiv);
+    // v32: a locked PAD TIMBRE lands on the same sound in the new order.
+    if (version < 32 && instrument === 'pad' && step.locks?.timbre !== undefined) step.locks.timbre = remapPadTimbreV31(step.locks.timbre);
   }
 }
 
+/**
+ * v32: the PAD became 2 STACKS with new TIMBRE sounds in a new order. A saved PAD keeps its
+ * sound by name (TIMBRE on the same sound, between two that are still neighbours), its
+ * TIMBRE / INTENSITY layer comes from the new sounds and its SOUND page trims stay on top.
+ * In place. `remap` false: TIMBRE is already on today's list (before v19, moved by name).
+ */
+function padV32(sound: Record<string, number>, trims: Record<string, number>, remap = true): void {
+  const specs = INSTRUMENTS.pad.params;
+  if (remap && sound.timbre !== undefined) sound.timbre = remapPadTimbreV31(sound.timbre);
+  const hidden = hiddenSound('pad', sound, specs);
+  for (const id of macroIds('pad', specs)) {
+    const spec = specs.find((p) => p.id === id);
+    if (spec && hidden[id] !== undefined) sound[id] = applyTrim(spec, hidden[id], trims[id]);
+  }
+}
+
+/** v32: a PAD factory preset number on the new order (the same sound; USER patches stay). */
+function padPresetV32(index: number): number {
+  const name = PAD_ANCHORS_V31[index];
+  if (name === undefined) return index;
+  return Math.max(0, INSTRUMENTS.pad.presets.findIndex((p) => p.name === name));
+}
+
 /** A stored patch (v31) for a type: known values, missing ones from TIMBRE / INTENSITY. */
-function readPatch(kind: SoundKind, x: unknown): Patch | undefined {
+function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefined {
   if (!isObj(x) || !isObj(x.s)) return undefined;
   const specs = INSTRUMENTS[kind].params;
   const values = numbers(x.s);
@@ -274,9 +299,10 @@ function readPatch(kind: SoundKind, x: unknown): Patch | undefined {
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   const trims = numbers(x.t);
+  if (kind === 'pad' && version < 32) padV32(sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   const patch: Patch = { sound, trims };
-  if (typeof x.p === 'number') patch.preset = x.p;
+  if (typeof x.p === 'number') patch.preset = kind === 'pad' && version < 32 ? padPresetV32(x.p) : x.p;
   return patch;
 }
 
@@ -331,6 +357,11 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     if (!sound) continue;
     const stored = version >= 23 && isObj(src.trims) ? src.trims[k] : undefined;
     ch.trims[k] = isObj(stored) ? numbers(stored) : deriveTrims(k, sound, INSTRUMENTS[k].params);
+    // v32: the new PAD (before v23 its trims came from the old sounds: dropped).
+    if (k === 'pad' && version < 32) {
+      if (!isObj(stored)) ch.trims.pad = {};
+      padV32(sound, ch.trims.pad!, version >= 19);
+    }
     // v26: BASS / PLUCK sounds bring their own envelope and width again. What was set on
     // the SOUND page (away from the type's default) is kept as a trim on top of them.
     if (version < 26 && MORPHED_V26[k]) {
@@ -365,6 +396,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       const index = src.presets[k] as number;
       // v19: one more factory preset per type, so user patch numbers move up one.
       ch.presets[k] = version < 19 && index >= 4 ? index + 1 : index;
+      if (k === 'pad' && version < 32) ch.presets.pad = padPresetV32(ch.presets.pad!);
     }
   }
   // Before v5 the live knobs followed the preset; from v5 they default to VOLUME/CUTOFF
@@ -439,7 +471,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     readNotes(sp, pat, ch.instrument, version);
     // v31: each pattern's own patch, and what was last SAVEd while it differs.
     if (version < 31 || ch.instrument === 'none') continue;
-    if (p !== ch.activePattern) pat.patch = readPatch(ch.instrument, sp.patch);
+    if (p !== ch.activePattern) pat.patch = readPatch(ch.instrument, sp.patch, version);
     if (isObj(sp.saved)) {
       // Empty steps on the note a fresh pattern of this type has (as the working ones).
       const kind = INSTRUMENTS[ch.instrument];
@@ -448,7 +480,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       pat.savedNotes = { length: saved.length, steps: saved.steps };
       pat.notesDirty = true;
     }
-    const savedPatch = readPatch(ch.instrument, sp.savedPatch);
+    const savedPatch = readPatch(ch.instrument, sp.savedPatch, version);
     if (savedPatch) {
       pat.savedPatch = savedPatch;
       pat.patchDirty = true;

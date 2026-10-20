@@ -132,21 +132,27 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   pad: {
-    // CHORD (kind "pad", geared for stabs): the 3 CARRIER engine, polyphonic, carriers at
-    // related ratios on one feedback modulator (carrier 1 : 2 : 3, modulator). INTENSITY 0 = carrier 1 alone, a plain pad;
-    // the stack and the DX7-style FM come in as it rises, biting in the top quarter.
+    // PAD: 2 STACKS (Synth algo 2), two modulator -> carrier pairs, polyphonic with chords.
+    // Stack 1 = carrier 1 (SHAPE's wave) under a modulator at FM RATIO with FEEDBACK; stack 2
+    // = a carrier at RATIO 2 under a modulator at RATIO 3, mixed in by CARRIERS. Soft ->
+    // bell-like (WARM, STRINGS, TINE, GLASS, ETHEREAL). The ratios switch as TIMBRE moves
+    // (see RATIO_SNAP: the modulators in whole and half steps, stack 2's carrier through
+    // musical intervals), so every stop on the way stays in tune with a chord.
     anchors: [
-      { name: 'GLASS', values: { cfeedback: 0, fattack: 0.0005, shape: 0, fm: 0.72, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.4, cutoff: 7000, reso: 0.1, fenv: 0.3, fdecay: 0.8, drive: 1 } },
+      // Warm: a soft wave with an octave-down modulator on stack 2 (a low growl under it).
+      { name: 'WARM', values: { cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.25, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 } },
+      // Strings: saws, stack 2 a fifth up, the filter opening slowly.
+      { name: 'STRINGS', values: { cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.35, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { cfeedback: 0, fattack: 0.0005, shape: 0, fm: 0.78, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.2, carriers: 0.3, cutoff: 6000, reso: 0.1, fenv: 0.6, fdecay: 0.6, drive: 1.1 } },
-      { name: 'WARM', values: { cfeedback: 0, fattack: 0.0005, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.3, carriers: 0.45, cutoff: 900, reso: 0.15, fenv: 0.1, fdecay: 1, drive: 1 } },
-      { name: 'STRINGS', values: { cfeedback: 0, fattack: 0.0005, shape: 2, fm: 0.5, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, cutoff: 2600, reso: 0.1, fenv: 0.15, fdecay: 1, drive: 1.2 } },
-      // Ethereal: odd carriers 1 : 3 : 5 lit by a 7x modulator - every sideband lands on a
-      // harmonic, so INTENSITY opens a bright, high shimmer above a hollow, clear body.
-      { name: 'ETHEREAL', values: { cfeedback: 0, shape: 0, fm: 0.7, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.25, carriers: 0.6, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 1.2, drive: 1 } },
+      { name: 'TINE', values: { cfeedback: 0, shape: 0, fm: 0.62, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.45, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 } },
+      { name: 'GLASS', values: { cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.6, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 } },
+      // Ethereal: a 7x modulator over the body, stack 2 a twelfth up under a 5x one - every
+      // sideband lands on a harmonic: a bright, high shimmer.
+      { name: 'ETHEREAL', values: { cfeedback: 0, shape: 0.5, fm: 0.6, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.7, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 } },
     ],
     excite: [
-      { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
+      // FM tops out at level 92 (index ~7): a pad never reaches the lead's full bite.
+      { id: 'fm', floor: 0, knee: 0.6, top: 0.92 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
       { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
       // Carrier 1 feeds back into itself above the middle: sines turn saw-like at the top.
@@ -220,9 +226,27 @@ export function remapTimbreV18(kind: SoundKind, timbre: number): number {
   const u = Math.min(1, Math.max(0, timbre)) * (old.length - 1);
   const i = Math.min(old.length - 2, Math.floor(u));
   const f = u - i;
-  const a = pos(old[i]);
-  const b = pos(old[i + 1]);
-  return (a + (b - a) * f) / (anchors.length - 1);
+  return between(pos(old[i]), pos(old[i + 1]), f) / (anchors.length - 1);
+}
+
+/**
+ * Share f of the way from sound a to sound b (indices on today's list). When they are no
+ * longer neighbours, the nearer one: going between them would pass through other sounds.
+ */
+function between(a: number, b: number, f: number): number {
+  return Math.abs(b - a) === 1 ? a + (b - a) * f : f < 0.5 ? a : b;
+}
+
+/** PAD's TIMBRE sounds before v32 (3 CARRIER engine), in their order then. */
+export const PAD_ANCHORS_V31 = ['GLASS', 'TINE', 'WARM', 'STRINGS', 'ETHEREAL'];
+
+/** A PAD TIMBRE position saved before v32 (the old order), on today's list: same sound. */
+export function remapPadTimbreV31(timbre: number): number {
+  const anchors = MACROS.pad.anchors;
+  const pos = (name: string) => anchors.findIndex((a) => a.name === name);
+  const u = Math.min(1, Math.max(0, timbre)) * (PAD_ANCHORS_V31.length - 1);
+  const i = Math.min(PAD_ANCHORS_V31.length - 2, Math.floor(u));
+  return between(pos(PAD_ANCHORS_V31[i]), pos(PAD_ANCHORS_V31[i + 1]), u - i) / (anchors.length - 1);
 }
 
 /** Name of the anchor nearest a TIMBRE position (for the screen). */
@@ -245,13 +269,32 @@ const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release']] as const;
 /** FM ratio parameters: TIMBRE moves them through RATIO_STEPS. */
 const RATIO_IDS = new Set(['fmratio', 'ratio2', 'ratio3']);
 export const RATIO_STEPS = [0.25, 1 / 3, 0.5, 2 / 3, 0.75, 1, 4 / 3, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8];
+/**
+ * Whole and half steps only: a modulator at a third or a quarter of the note puts its
+ * sidebands between the harmonics (out of tune under a chord); halves only add the octave
+ * below.
+ */
+export const HALF_STEPS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8];
+
+function nearest(steps: readonly number[], r: number): number {
+  let best = steps[0];
+  for (const s of steps) if (Math.abs(Math.log(s / r)) < Math.abs(Math.log(best / r))) best = s;
+  return best;
+}
 
 /** The nearest related ratio (on a log scale). */
 export function snapRatio(r: number): number {
-  let best = RATIO_STEPS[0];
-  for (const s of RATIO_STEPS) if (Math.abs(Math.log(s / r)) < Math.abs(Math.log(best / r))) best = s;
-  return best;
+  return nearest(RATIO_STEPS, r);
 }
+
+/**
+ * Per type, the steps a ratio moves through (default RATIO_STEPS). PAD: its modulators (FM
+ * RATIO, RATIO 3) in whole and half steps; stack 2's carrier (RATIO 2) is a note heard, so it
+ * keeps the musical intervals (a fourth, a fifth ...).
+ */
+const RATIO_SNAP: Partial<Record<SoundKind, Record<string, readonly number[]>>> = {
+  pad: { fmratio: HALF_STEPS, ratio3: HALF_STEPS },
+};
 
 /**
  * The parameters TIMBRE / INTENSITY set for a type (the hidden layer under the SOUND page):
@@ -281,7 +324,7 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
     out[id] = toValue(spec, toNorm(spec, va) + (toNorm(spec, vb) - toNorm(spec, va)) * f);
     // FM ratios step through related ratios between sounds instead of smearing through
     // inharmonic ones (1 -> 4/3 -> 3/2 -> 2 ...).
-    if (RATIO_IDS.has(id)) out[id] = snapRatio(out[id]);
+    if (RATIO_IDS.has(id)) out[id] = nearest(RATIO_SNAP[kind]?.[id] ?? RATIO_STEPS, out[id]);
   }
   const x = Math.min(1, Math.max(0, intensity));
   for (const e of excite) {
