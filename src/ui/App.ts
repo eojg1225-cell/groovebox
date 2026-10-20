@@ -627,6 +627,23 @@ export class App {
     }
   }
 
+  /**
+   * DESIGN: OCT - / + step the selected synth's OCTAVE parameter (part of its patch, like
+   * the knob) instead of the keyboard's octave. False when the track has no OCTAVE (drums).
+   */
+  private stepOctave(d: number): boolean {
+    const c = this.channel;
+    if (c.instrument === 'none') return false;
+    const kind = c.instrument;
+    const spec = INSTRUMENTS[kind].params.find((p) => p.id === 'octave');
+    if (!spec?.options) return false;
+    const now = Math.round(c.sounds[kind]?.octave ?? spec.defaultValue);
+    const next = Math.max(0, Math.min(spec.options.length - 1, now + d));
+    if (next !== now) this.setSoundParam(this.selected, kind, 'octave', next);
+    this.flash(`OCTAVE ${spec.options[next]}`);
+    return true;
+  }
+
   private readonly macroIdCache = new Map<SoundKind, Set<string>>();
 
   /** The parameters TIMBRE / INTENSITY set for a type (cached). */
@@ -969,6 +986,8 @@ export class App {
       // BAR: held for ◀ / ▶, a tap (on release) = the next bar.
       this.barHeld = true;
       this.barUsed = false;
+    } else if ((id === 'oct-' || id === 'oct+') && this.mode === 'design' && this.stepOctave(id === 'oct+' ? 1 : -1)) {
+      // DESIGN on a synth: OCT - / + move the sound's OCTAVE (stepOctave).
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
