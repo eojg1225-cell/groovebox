@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - claude/groovebox-m0-deploy-9cvz34
   workflow_dispatch:
 
 permissions:

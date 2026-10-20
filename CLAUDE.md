@@ -18,6 +18,6 @@ Run `npm run build:artifact` and republish `dist-artifact/groovebox.html` (with 
 
 ## Build / deploy
 - `npm install` then `npm run dev` (dev server), `npm test` (Vitest, engine offline in Node), `npm run build` (typecheck incl. DOM-free engine check via `tsconfig.engine.json`, then static build to `dist/`).
-- Deploy: push to `main` (or the M0 branch listed in `.github/workflows/deploy.yml`); the workflow tests, builds and publishes `dist/` to the `gh-pages` branch. Pages source: branch `gh-pages`, folder `/`.
+- Deploy: push to `main`; the workflow tests, builds and publishes `dist/` to the `gh-pages` branch. Pages source: branch `gh-pages`, folder `/`.
 - Live URL: https://eojg1225-cell.github.io/groovebox/
 - Architecture and message protocol: `ARCHITECTURE.md`.
