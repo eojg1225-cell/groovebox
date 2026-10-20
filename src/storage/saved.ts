@@ -17,7 +17,7 @@ export interface UserPatch {
   liveFunc?: [string, string];
   /** SOUND page trims on top of TIMBRE / INTENSITY (absent before v17: derived on load). */
   trims?: Record<string, number>;
-  /** Format: 19 = five TIMBRE sounds per type (absent: four; TIMBRE is remapped on load). */
+  /** Format: 19 = five TIMBRE sounds per type (absent: four; TIMBRE is remapped on load); 33 = OCTAVE -4 ... +4. */
   v?: number;
 }
 
@@ -54,7 +54,7 @@ export function savePatch(kind: SoundKind, values: Record<string, number>, live:
   let n = 1;
   while (used.has(`USER ${n}`)) n++;
   const name = `USER ${n}`;
-  list.push({ name, values: { ...values }, live: [...live], liveFunc: [...liveFunc], trims: { ...trims }, v: 19 });
+  list.push({ name, values: { ...values }, live: [...live], liveFunc: [...liveFunc], trims: { ...trims }, v: 33 });
   store[kind] = list;
   return write(PATCHES_KEY, store) ? name : null;
 }

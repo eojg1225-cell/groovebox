@@ -63,6 +63,7 @@ import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { userPatches } from '../storage/saved';
+import { OCTAVE_SHIFT_V33 } from '../instruments/Synth';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, ProjectView, SongView } from './views';
 
@@ -404,6 +405,8 @@ export class App {
       // Patches saved with four TIMBRE sounds: move TIMBRE, re-derive the trims.
       const old = (patch.v ?? 0) < 19;
       if (old && values.timbre !== undefined) values.timbre = remapTimbreV18(kind, values.timbre);
+      // Every USER patch predates v33's wider OCTAVE: the same octave, two indices up.
+      if ((patch.v ?? 0) < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
       c.sounds[kind] = { ...defaults, ...values };
       c.trims[kind] = patch.trims && !old ? { ...patch.trims } : deriveTrims(kind, c.sounds[kind]!, INSTRUMENTS[kind].params);
       pruneTrims(c.sounds[kind]!, c.trims[kind]!, hiddenSound(kind, c.sounds[kind]!, INSTRUMENTS[kind].params), pageParams(kind));

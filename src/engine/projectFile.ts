@@ -13,7 +13,7 @@ import {
   type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
 } from './project';
 import { applyPreset, defaultSend, liveDefaults, createDefaultProject } from './defaultProject';
-import { PAD_DEFAULT_ENVELOPE, PAD_ENVELOPE_V26 } from '../instruments/Synth';
+import { OCTAVE_SHIFT_V33, PAD_DEFAULT_ENVELOPE, PAD_ENVELOPE_V26 } from '../instruments/Synth';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, SYNTH_TRIM, isDrum, mirrorOsc2, pageParams, presetSound } from '../instruments/registry';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
@@ -261,6 +261,8 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[] }, instrument: 
     step.accent = s.accent;
     if (s.locks) step.locks = s.locks;
     if (version < 30 && step.locks?.rolldiv !== undefined) step.locks.rolldiv = rollRateV30(step.locks.rolldiv);
+    // v33: OCTAVE gained two octaves each way (a locked one keeps its pitch).
+    if (version < 33 && step.locks?.octave !== undefined) step.locks.octave += OCTAVE_SHIFT_V33;
     // v32: a locked PAD TIMBRE lands on the same sound in the new order.
     if (version < 32 && instrument === 'pad' && step.locks?.timbre !== undefined) step.locks.timbre = remapPadTimbreV31(step.locks.timbre);
   }
@@ -294,6 +296,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   if (!isObj(x) || !isObj(x.s)) return undefined;
   const specs = INSTRUMENTS[kind].params;
   const values = numbers(x.s);
+  if (version < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
   const sound: Record<string, number> = { ...presetSound(kind, 0) };
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
   const hidden = hiddenSound(kind, sound, specs);
@@ -328,6 +331,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       // Before v14 the synths' OSC 2 shared OSC 1's SUSTAIN / RELEASE.
       mirrorOsc2(values);
       if (version < 30 && values.rolldiv !== undefined) values.rolldiv = rollRateV30(values.rolldiv);
+      // v33: OCTAVE gained two octaves each way; the same octave sits two indices up.
+      if (version < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
       // v19: a fifth TIMBRE sound per type; older positions move so each sound stays itself.
       if (version < 19 && values.timbre !== undefined) values.timbre = remapTimbreV18(k, values.timbre);
       // v23: PERC's metal is tuned as an interval above the tone instead of in Hz.

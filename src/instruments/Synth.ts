@@ -32,7 +32,12 @@ export const ARP_RATES = [
   { name: '1/4', steps: 4 }, { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 },
   { name: '1/16', steps: 1 }, { name: '1/16T', steps: 2 / 3 }, { name: '1/32', steps: 0.5 },
 ] as const;
-const OCTAVES = ['-2', '-1', '0', '+1', '+2'] as const;
+/** OCTAVE (v33: -4 ... +4; before, -2 ... +2 at indices 0-4, see OCTAVE_SHIFT_V33). */
+const OCTAVES = ['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4'] as const;
+/** Index of OCTAVE 0 (OCTAVE's value is the index into OCTAVES). */
+const OCTAVE_ZERO = 4;
+/** v33 added two octaves each way: an older OCTAVE index moves up this much. */
+export const OCTAVE_SHIFT_V33 = 2;
 const MAX_VOICES = 6;
 /** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
@@ -95,7 +100,7 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   choice('arp', 'ARP', ARP_MODES),
   choice('arprate', 'ARP RATE', ARP_RATES.map((r) => r.name), 3),
   choice('arpoct', 'ARP OCT', ['1 OCT', '2 OCT', '3 OCT']),
-  choice('octave', 'OCTAVE', OCTAVES, 2),
+  choice('octave', 'OCTAVE', OCTAVES, OCTAVE_ZERO),
   choice('voice', 'VOICES', VOICE_MODES),
   // SLIDE (id "glide" for old projects): how long a SLIDE note takes to glide into the next;
   // fully left = an instant jump. Only slides glide; other notes start on pitch.
@@ -168,7 +173,7 @@ export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2 };
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: 3, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
+export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
 /** LEAD: 3 voices, so a note's release rings under the next one (and live chords work). */
 export const LEAD_FIXED = { voice: 0, voices: 3, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
@@ -385,7 +390,7 @@ export class Synth implements Instrument {
       case 'detune': this.detune = value; break;
       case 'sub': this.sub = value; break;
       case 'unison': this.unison = value; break;
-      case 'octave': this.octave = Math.round(value) - 2; break;
+      case 'octave': this.octave = Math.round(value) - OCTAVE_ZERO; break;
       case 'voice':
         this.mono = Math.round(value) === 1;
         this.updateVoiceCount();

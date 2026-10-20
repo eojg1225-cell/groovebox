@@ -2911,3 +2911,42 @@ describe('v32: PAD on 2 STACKS', () => {
     expect(q.patterns[0].steps[0].locks!.timbre).toBeCloseTo(at('WARM'));
   });
 });
+
+describe('v33: OCTAVE -4 ... +4', () => {
+  const spec = (k: 'bass' | 'pad' | 'lead' | 'pluck') => INSTRUMENTS[k].params.find((p) => p.id === 'octave')!;
+
+  it('nine octaves, 0 in the middle; LEAD starts one up', () => {
+    for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) expect(spec(k).options).toEqual(['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4']);
+    expect(spec('bass').options![spec('bass').defaultValue]).toBe('0');
+    expect(spec('lead').options![spec('lead').defaultValue]).toBe('+1');
+  });
+
+  it('OCTAVE +4 plays four octaves above 0', () => {
+    const pitch = (oct: number, note = 33) => {
+      const s = new Synth(SR, LEAD_PARAMS, LEAD_FIXED);
+      const sound: Record<string, number> = { ...presetSound('lead', 0), octave: oct, fm: 0, carriers: 0, shape: 0, cutoff: 20000, fenv: 0 };
+      for (const id in sound) s.setParam(id, sound[id]);
+      s.noteOn(note, 1, note, false);
+      const l = new Float32Array(SR / 4);
+      s.render(l, new Float32Array(l.length), 0, l.length);
+      let z = 0;
+      for (let i = SR / 8; i < l.length; i++) if (l[i - 1] < 0 && l[i] >= 0) z++;
+      return z / (l.length / SR - 0.125);
+    };
+    expect(pitch(8) / pitch(4)).toBeCloseTo(16, 0);
+    expect(pitch(4, 93) / pitch(0, 93)).toBeCloseTo(16, 0);
+  });
+
+  it('older saves keep their octave (sounds, pattern patches and locks)', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 32;
+    stored.channels[4].sounds.bass.octave = 1; // -1 then
+    stored.channels[6].sounds.lead.octave = 3; // +1 then (LEAD's default)
+    stored.channels[6].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { octave: 4 } }]; // +2 then
+    const q = fromStored(stored)!;
+    expect(spec('bass').options![q.channels[4].sounds.bass!.octave]).toBe('-1');
+    expect(spec('lead').options![q.channels[6].patterns[0].steps[0].locks!.octave]).toBe('+2');
+    expect(spec('lead').options![q.channels[6].sounds.lead!.octave]).toBe('+1');
+  });
+});
