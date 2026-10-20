@@ -87,15 +87,15 @@ export function funcPage(top: readonly (string | null)[], bottom: readonly (stri
 const _ = null;
 /*
  * FUNC layers. Synths: element columns SUSTAIN / RELEASE (each oscillator its own), column
- * 8 under the performance pair (OCTAVE / SUB or DETUNE or UNISON; PLUCK ARP / ARP RATE,
- * column 7 OCTAVE / ARP OCT); CHORD column 1 FEEDBACK, column 4 CARRIERS; PLUCK column 4
- * UNISON. SHAPE is TIMBRE's. Drums: no FUNC layer yet.
+ * 8 under the performance pair (DETUNE or UNISON; PLUCK ARP / ARP RATE, column 7 ARP OCT);
+ * CHORD column 1 FEEDBACK, column 4 CARRIERS; PLUCK column 4 UNISON. SHAPE is TIMBRE's.
+ * OCTAVE has no knob: OCT - / + in DESIGN (App.stepOctave). Drums: no FUNC layer yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
-/** BASS FUNC: OCTAVE / DETUNE under column 8. */
-const BASS_FUNC = funcPage([_, _, _, _, _, _, _, 'octave'], [_, _, _, _, _, _, _, 'detune']);
-/** PLUCK FUNC: DECAY / RELEASE, DLY MIX / VERB, UNISON, OCTAVE / ARP OCT, ARP / ARP RATE. */
-const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', 'unison', _, _, 'octave', 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
+/** BASS FUNC: DETUNE under column 8. */
+const BASS_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, 'detune']);
+/** PLUCK FUNC: DECAY / RELEASE, DLY MIX / VERB, UNISON, ARP OCT, ARP / ARP RATE. */
+const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', 'unison', _, _, _, 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
 /**
  * PAD / LEAD FUNC layer: each oscillator's DECAY / SUSTAIN on the element columns (their
  * ATTACK / RELEASE are on the page), the rest as given (columns 1, 4, 7, 8).
@@ -306,12 +306,12 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   pad: {
     name: 'PAD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
     layout: soundPage(HELD_ELEMENTS, ['track:chord', 'detune']),
-    funcLayout: trackFunc(decSus([_, 'carriers', _, 'octave'], ['feedback', _, _, 'unison'])),
+    funcLayout: trackFunc(decSus([_, 'carriers', _, _], ['feedback', _, _, 'unison'])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: LEAD_GAIN, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
     layout: soundPage(HELD_ELEMENTS, ['glide', 'detune']),
-    funcLayout: trackFunc(decSus([_, _, _, 'octave'], [_, _, _, _])),
+    funcLayout: trackFunc(decSus([_, _, _, _], [_, _, _, _])),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'macro:sustain'], liveFunc: ['macro:space', 'macro:bite'], params: PLUCK_PARAMS,
