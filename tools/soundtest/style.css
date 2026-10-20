@@ -78,7 +78,7 @@ h2 { font-family: var(--display); font-weight: 600; font-size: 1rem; letter-spac
 body.pad .ab { display: grid; }
 body.pad .rules, body.pad .not-pad { display: none; }
 body:not(.pad) .only-pad { display: none; }
-.ab-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.ab-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .ab-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; }
 .ab-row .bgain { flex: 1 1 260px; }
 .gentle { display: inline-flex; align-items: center; gap: 6px; font-family: var(--display); letter-spacing: 0.05em; cursor: pointer; }

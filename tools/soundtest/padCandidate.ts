@@ -74,3 +74,27 @@ export function withRatios(list: readonly Anchor[], from: readonly Anchor[]): An
     return { name: a.name, values: { ...a.values, fmratio: src.fmratio, ratio2: src.ratio2, ratio3: src.ratio3 } };
   });
 }
+
+/**
+ * PAD candidate E: C reworked. Soft -> bell-like (WARM, STRINGS, TINE, GLASS, ETHEREAL), so
+ * turning TIMBRE right moves from the plain pads to the bells; WARM gets plain 1:1:1
+ * ratios (A's 0.5 was a sub carrier there, a buzzing modulator here); the others keep A's.
+ * Its ratios step through whole and half steps only (E_RATIO_STEPS): no thirds or quarters,
+ * so every stop on the way is harmonic or an octave down, never out of tune with a chord.
+ */
+export const E_RATIO_STEPS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8];
+
+export function snapHalves(r: number): number {
+  let best = E_RATIO_STEPS[0];
+  for (const s of E_RATIO_STEPS) if (Math.abs(Math.log(s / r)) < Math.abs(Math.log(best / r))) best = s;
+  return best;
+}
+
+export function padE(cStepped: readonly Anchor[]): Anchor[] {
+  const by = (n: string) => cStepped.find((a) => a.name === n)!;
+  const warm = by('WARM');
+  return [
+    { name: 'WARM', values: { ...warm.values, fmratio: 1, ratio2: 1, ratio3: 1 } },
+    by('STRINGS'), by('TINE'), by('GLASS'), by('ETHEREAL'),
+  ];
+}

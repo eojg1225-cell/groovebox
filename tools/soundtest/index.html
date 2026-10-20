@@ -10,7 +10,7 @@
 <main class="wrap">
   <header>
     <h1>TIMBRE Sound Test</h1>
-    <p>Your project, with the chosen track's sound driven only by TIMBRE and INT. PAD: a MIN7 chord held for 16 steps (one bar), then struck again. Press Play, sweep TIMBRE and INT slowly and switch engines (keys A-D) to compare them at the same position. C and D are the two-stack pad; on both, INT tops out at FM level 92. Gentle INT lowers how far INT pushes the modulation on every engine.</p>
+    <p>Your project, with the chosen track's sound driven only by TIMBRE and INT. PAD: a MIN7 chord held for 16 steps (one bar), then struck again. Press Play, sweep TIMBRE and INT slowly and switch engines (keys A-E) to compare them at the same position. C, D and E are the two-stack pad (E: C reordered from soft to bell-like with only whole and half ratio steps; its sound names follow that order); on all three, INT tops out at FM level 92. Gentle INT lowers how far INT pushes the modulation on every engine.</p>
   </header>
 
   <section class="deck" aria-label="Transport and knobs">
@@ -32,6 +32,7 @@
         <button type="button" id="e-B" class="ab-btn" aria-pressed="false"><b>B</b><span>Bass engine: wave + FM layer + filter</span></button>
         <button type="button" id="e-C" class="ab-btn" aria-pressed="true"><b>C</b><span>2 stacks, A’s ratios: they step as TIMBRE moves</span></button>
         <button type="button" id="e-D" class="ab-btn" aria-pressed="false"><b>D</b><span>2 stacks, matched ratios: smooth sweep</span></button>
+        <button type="button" id="e-E" class="ab-btn" aria-pressed="false"><b>E</b><span>C reworked: soft → bell-like, whole/half ratio steps</span></button>
       </div>
       <div class="ab-row">
         <label class="bgain" for="gain"><span id="gain-name">A level</span> <input type="range" id="gain" min="-12" max="12" step="1" value="0"> <output id="gain-val">0 dB</output></label>
