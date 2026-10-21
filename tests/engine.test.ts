@@ -2606,6 +2606,23 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(bright(3, 0.08)).toBeCloseTo(bright(0.5, 0.08), 2);
   });
 
+  it('root-locked FM (carrier 3, modulator 2) keeps 2 : 3 on the note: nothing below it', () => {
+    const mag = (l: Float32Array, f: number) => {
+      let re = 0, im = 0;
+      const a = Math.floor(SR * 0.1), b = Math.floor(SR * 0.5);
+      for (let i = a; i < b; i++) { re += l[i] * Math.cos((2 * Math.PI * f * i) / SR); im += l[i] * Math.sin((2 * Math.PI * f * i) / SR); }
+      return Math.hypot(re, im) / (b - a);
+    };
+    const base = { shape: 0, fm: 1, fenv: 1, fdecay: 2, sustain: 1, decay: 2, cutoff: 12000, reso: 0, sub: 0, drive: 1, detune: 0, unison: 0 };
+    const f = midiToHz(45) * Math.pow(2, (presetSound('bass', 0).octave ?? 4) - 4);
+    const plain = play(synth('bass', { ...base, fmratio: 2 / 3 }), 0.6, 0.6);
+    const locked = play(synth('bass', { ...base, fmratio: 2, cratio: 3 }), 0.6, 0.6);
+    // Plain 2 : 3 has a root an octave and a fifth down; root-locked has nothing below the note.
+    expect(mag(plain, f / 3)).toBeGreaterThan(mag(plain, f) * 0.2);
+    expect(mag(locked, f / 3)).toBeLessThan(mag(locked, f) * 0.02);
+    expect(mag(locked, f)).toBeGreaterThan(0.01);
+  });
+
   it('v38 load: a saved BASS keeps its filter envelope (FLT ATK = ATTACK, FLT DEC = DECAY x its ratio)', () => {
     const p = createDefaultProject();
     const stored = JSON.parse(JSON.stringify(toStored(p)));

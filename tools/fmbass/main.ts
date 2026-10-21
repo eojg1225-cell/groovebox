@@ -1,6 +1,7 @@
 /**
  * FM bass ratio test (not part of GrooveAccess): a dance bass line on the real engine with the
- * BASS FM modulator at 3 : 2 or 2 : 3 (same settings otherwise), and today's FM CLANG.
+ * BASS FM modulator at 3 : 2 or 2 : 3 (same settings otherwise), 2 : 3 root-locked (carrier 3,
+ * modulator 2: the same partials, the lowest on the note), and today's FM CLANG.
  */
 import workletUrl from './worklet.ts?worker&url';
 import { createDefaultProject } from '../../src/engine/defaultProject';
@@ -14,8 +15,9 @@ const OCTAVE_ZERO = 4;
 const spec = (id: string) => INSTRUMENTS.bass.params.find((p) => p.id === id) as ParamSpec;
 const FM_CLANG = INSTRUMENTS.bass.presets.findIndex((p) => p.name === 'FM CLANG');
 
-type Cand = 'a' | 'b' | 'c';
-const RATIO: Record<Exclude<Cand, 'c'>, number> = { a: 1.5, b: 2 / 3 };
+type Cand = 'a' | 'b' | 'c' | 'd';
+/** Modulator and carrier ratios (D: 2 : 3 root-locked, its lowest partial on the note). */
+const RATIO: Record<Exclude<Cand, 'c'>, { m: number; c: number }> = { a: { m: 1.5, c: 1 }, b: { m: 2 / 3, c: 1 }, d: { m: 2, c: 3 } };
 
 /** The shared FM bass both ratios play (a woody DX-style bass; FM level and envelope set below). */
 const BASE: Record<string, number> = {
@@ -46,9 +48,9 @@ function project() {
 /** The bass sound for the chosen candidate. */
 function sound(): Record<string, number> {
   const s = presetSound('bass', FM_CLANG);
-  if (state.cand === 'c') return { ...s, octave: OCTAVE_ZERO };
+  if (state.cand === 'c') return { ...s, cratio: 1, octave: OCTAVE_ZERO };
   return {
-    ...s, ...BASE, fmratio: RATIO[state.cand], fm: state.fm, fenv: state.fenv, cutoff: state.cutoff,
+    ...s, ...BASE, fmratio: RATIO[state.cand].m, cratio: RATIO[state.cand].c, fm: state.fm, fenv: state.fenv, cutoff: state.cutoff,
     decay: state.decay, octave: OCTAVE_ZERO + state.octave,
   };
 }
@@ -101,7 +103,7 @@ async function togglePlay(): Promise<void> {
 
 function choose(c: Cand): void {
   state.cand = c;
-  for (const x of ['a', 'b', 'c'] as const) $(`c-${x}`).setAttribute('aria-checked', String(x === c));
+  for (const x of ['a', 'b', 'c', 'd'] as const) $(`c-${x}`).setAttribute('aria-checked', String(x === c));
   $('controls').classList.toggle('off', c === 'c');
   applySound();
 }
@@ -130,7 +132,7 @@ function octave(o: number): void {
 document.querySelectorAll<HTMLButtonElement>('.seg button').forEach((b) => b.addEventListener('click', () => octave(Number(b.dataset.oct))));
 octave(0);
 
-for (const c of ['a', 'b', 'c'] as const) $(`c-${c}`).addEventListener('click', () => choose(c));
+for (const c of ['a', 'b', 'c', 'd'] as const) $(`c-${c}`).addEventListener('click', () => choose(c));
 $<HTMLInputElement>('drums').addEventListener('change', (e) => { state.drums = (e.target as HTMLInputElement).checked; drums(); });
 playBtn.addEventListener('click', () => { void togglePlay().catch((err) => { $('err').textContent = `Audio could not start: ${err?.message ?? err}`; }); });
 document.addEventListener('keydown', (e) => {
@@ -138,6 +140,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); playBtn.click(); }
   if (e.code === 'Digit1') choose('a');
   if (e.code === 'Digit2') choose('b');
-  if (e.code === 'Digit3') choose('c');
+  if (e.code === 'Digit3') choose('d');
+  if (e.code === 'Digit4') choose('c');
 });
 choose('a');

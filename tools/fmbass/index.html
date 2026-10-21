@@ -11,7 +11,7 @@
   <header>
     <p class="eyebrow">GrooveAccess · BASS · sound test</p>
     <h1>FM Bass Ratios</h1>
-    <p class="lede">The same dance bass line on the real engine, with the FM modulator at two ratios. A and B share every setting below, so only the ratio changes. C is today's FM CLANG for reference. Keys 1-3 switch, Space plays.</p>
+    <p class="lede">The same dance bass line on the real engine, with the FM modulator at two ratios. 1, 2 and 3 share every setting below, so only the ratio changes. 4 is today's FM CLANG for reference. Keys 1-4 switch, Space plays.</p>
   </header>
 
   <section class="deck" aria-label="Sound test">
@@ -30,8 +30,12 @@
         <span class="key">2</span><b>2 : 3</b><span class="ratio">modulator × 0.67</span>
         <span class="note">Partials on every third of the note: darker and growlier, a low shadow an octave and a fifth down.</span>
       </button>
+      <button type="button" class="cand new" id="c-d" role="radio" aria-checked="false">
+        <span class="key">3</span><b>2 : 3 LOCKED</b><span class="ratio">carrier × 3 · modulator × 2</span>
+        <span class="note">The same partials as 2 : 3, moved up so the lowest sits on your note: the pitch stays put at every FM LEVEL.</span>
+      </button>
       <button type="button" class="cand ref" id="c-c" role="radio" aria-checked="false">
-        <span class="key">3</span><b>FM CLANG</b><span class="ratio">modulator × 3.5 · now</span>
+        <span class="key">4</span><b>FM CLANG</b><span class="ratio">modulator × 3.5 · now</span>
         <span class="note">Today's fifth BASS sound, as designed. The controls do not apply to it.</span>
       </button>
     </div>
@@ -56,7 +60,7 @@
 
   <section class="how">
     <h2>What to listen for</h2>
-    <p>FM LEVEL sets how much of the FM pair you hear against the plain sine, and how hard it modulates. FLT ENV makes each note open bright and settle, which is where the "dancey" bite comes from. Try A and B at the same FM LEVEL, then raise OCTAVE on whichever sits too low. Tell Claude the ratio, and any settings you liked, and they become the new FM bass.</p>
+    <p>FM LEVEL sets how much of the FM pair you hear against the plain sine, and how hard it modulates. FLT ENV makes each note open bright and settle, which is where the "dancey" bite comes from. Sweep FM LEVEL from 0 up on 2 and then on 3: on 2 the note drops as the FM takes over, on 3 it should stay where it is. Raise OCTAVE on whichever sits too low. Tell Claude the ratio, and any settings you liked, and they become the new FM bass.</p>
   </section>
 </main>
 <script type="module" src="./main.ts"></script>

@@ -241,6 +241,12 @@ export class Synth implements Instrument {
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
   /**
+   * FM pair carrier ratio (BASS FM, algo 0; 1 = on the note). Above 1 with FM RATIO below it
+   * (carrier 3, modulator 2) the pair's lowest sideband lands on the note: a "root-locked"
+   * 2 : 3 that keeps its pitch at every FM LEVEL. Not a knob yet (sound test only).
+   */
+  private cRatio = 1;
+  /**
    * 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three
    * carriers), 2 = 2 STACKS (two modulator -> carrier pairs).
    */
@@ -376,6 +382,7 @@ export class Synth implements Instrument {
       case 'shape': this.shape = Math.min(3, Math.max(0, value)); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
+      case 'cratio': this.cRatio = value > 0 ? value : 1; break;
       case 'fm': this.fm = value; this.updateFm(); break;
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
@@ -605,7 +612,12 @@ export class Synth implements Instrument {
           v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
           const fm = this.fmEff;
           const index = fm * (0.5 + 4.5 * v.fenv);
-          const fmOut = Math.sin(2 * Math.PI * v.p1 + index * Math.sin(2 * Math.PI * v.p4));
+          let carrier = v.p1;
+          if (this.cRatio !== 1) {
+            v.p5 += dt1 * this.cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);
+            carrier = v.p5;
+          }
+          const fmOut = Math.sin(2 * Math.PI * carrier + index * Math.sin(2 * Math.PI * v.p4));
           o1 = o1 * (1 - fm) + fmOut * fm;
           o2 = o2 * (1 - fm) + fmOut * fm;
         }
