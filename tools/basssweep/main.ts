@@ -1,8 +1,9 @@
 /**
  * Bass TIMBRE sweep test (not part of GrooveAccess): the BASS track's TIMBRE / INTENSITY on the
- * real engine. NOW = the app (SINE SUB, SOLID, ACID, GROWL, FM 2:3; FM ratio 1 : 2 until the
- * carrier switches into FM 2:3). PROPOSED = GROWL and SOLID swapped (SINE SUB, GROWL, ACID,
- * SOLID, FM 2:3), the FM ratio stepping 1 : 2 -> 2 : 3 -> 3 : 2 in three even stretches of the knob.
+ * real engine. 1 and 2 = the proposed BASS: GROWL and SOLID swapped (SINE SUB, GROWL, ACID,
+ * SOLID, FM 2:3), the FM ratio stepping 1 : 2 -> 2 : 3 -> 3 : 2 in three even stretches of the
+ * knob, FM LVL no longer moved by INTENSITY; 1 keeps the first four sounds FM-free, 2 gives them
+ * a little FM. 3 = the app now, for reference.
  */
 import workletUrl from './worklet.ts?worker&url';
 import { createDefaultProject } from '../../src/engine/defaultProject';
@@ -13,7 +14,7 @@ import { MACROS, macroSound, type Anchor } from '../../src/instruments/macros';
 
 const BASS = 4;
 const SPECS = INSTRUMENTS.bass.params;
-type Rule = 'now' | 'step';
+type Rule = 'one' | 'two' | 'now';
 const NOW_ANCHORS = MACROS.bass.anchors;
 const byName = (n: string) => NOW_ANCHORS.find((a) => a.name === n) as Anchor;
 /** PROPOSED: today's order with GROWL and SOLID swapped. */
@@ -28,21 +29,28 @@ const PROPOSED_ANCHORS: Anchor[] = PROPOSED_ORDER.map((n, i) => {
   const [c, m] = ladderAt(i / (PROPOSED_ORDER.length - 1));
   return { name: n, values: { ...byName(n).values, cratio: c, fmratio: m } };
 });
-const anchorsFor = (r: Rule) => (r === 'now' ? NOW_ANCHORS : PROPOSED_ANCHORS);
+/** Option 2: a little FM on the first four sounds, so their step of the ladder is heard. */
+const LITTLE_FM: Record<string, number> = { 'SINE SUB': 0.12, GROWL: 0.15, ACID: 0.15, SOLID: 0.15 };
+const TWO_ANCHORS: Anchor[] = PROPOSED_ANCHORS.map((a) => ({ name: a.name, values: { ...a.values, fm: LITTLE_FM[a.name] ?? a.values.fm } }));
+/** INTENSITY without FM LVL (1 and 2): it still shapes the filter, its envelope, drive, reso, width. */
+const NOW_EXCITE = MACROS.bass.excite;
+const EXCITE_NO_FM = NOW_EXCITE.filter((e) => e.id !== 'fm');
+const anchorsFor = (r: Rule) => (r === 'now' ? NOW_ANCHORS : r === 'one' ? PROPOSED_ANCHORS : TWO_ANCHORS);
 const namesFor = (r: Rule) => anchorsFor(r).map((a) => a.name);
 
-const state = { rule: 'now' as Rule, timbre: 0.75, intensity: 0.5, drums: true };
+const state = { rule: 'one' as Rule, timbre: 0, intensity: 0, drums: true };
 
 /** The bass sound at the current TIMBRE / INT under the chosen rule. */
 function sound(): Record<string, number> {
-  const bass = MACROS.bass as { anchors: readonly Anchor[] };
+  const bass = MACROS.bass as { anchors: readonly Anchor[]; excite: typeof NOW_EXCITE };
   let macro: Record<string, number>;
   if (state.rule === 'now') macro = macroSound('bass', state.timbre, state.intensity, SPECS);
   else {
-    // The same TIMBRE / INT rules over the proposed order; the ratio pair (carrier and
-    // modulator together) follows the ladder, so it never leaves the note.
-    bass.anchors = PROPOSED_ANCHORS;
-    try { macro = macroSound('bass', state.timbre, state.intensity, SPECS); } finally { bass.anchors = NOW_ANCHORS; }
+    // The same TIMBRE / INT rules over the proposed sounds, INT leaving FM LVL alone; the ratio
+    // pair (carrier and modulator together) follows the ladder, so it never leaves the note.
+    bass.anchors = anchorsFor(state.rule);
+    bass.excite = EXCITE_NO_FM;
+    try { macro = macroSound('bass', state.timbre, state.intensity, SPECS); } finally { bass.anchors = NOW_ANCHORS; bass.excite = NOW_EXCITE; }
     const [c, m] = ladderAt(state.timbre);
     macro.cratio = c;
     macro.fmratio = m;
@@ -142,8 +150,7 @@ async function togglePlay(): Promise<void> {
 
 function rule(r: Rule): void {
   state.rule = r;
-  $('r-now').setAttribute('aria-checked', String(r === 'now'));
-  $('r-step').setAttribute('aria-checked', String(r === 'step'));
+  for (const x of ['one', 'two', 'now'] as const) $(`r-${x}`).setAttribute('aria-checked', String(r === x));
   marks();
   applySound();
 }
@@ -187,18 +194,18 @@ $('names').addEventListener('click', (e) => {
 });
 timbreIn.addEventListener('input', () => { stopAuto(); setTimbre(Number(timbreIn.value)); });
 intIn.addEventListener('input', () => { state.intensity = Number(intIn.value); applySound(); });
-$('r-now').addEventListener('click', () => rule('now'));
-$('r-step').addEventListener('click', () => rule('step'));
+for (const x of ['one', 'two', 'now'] as const) $(`r-${x}`).addEventListener('click', () => rule(x));
 $('auto').addEventListener('click', () => { void toggleAuto().catch((err) => { $('err').textContent = `Audio could not start: ${err?.message ?? err}`; }); });
 $<HTMLInputElement>('drums').addEventListener('change', (e) => { state.drums = (e.target as HTMLInputElement).checked; drums(); });
 playBtn.addEventListener('click', () => { void togglePlay().catch((err) => { $('err').textContent = `Audio could not start: ${err?.message ?? err}`; }); });
 document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement && e.code !== 'Space') return;
   if (e.code === 'Space') { e.preventDefault(); playBtn.click(); }
-  if (e.code === 'Digit1') rule('now');
-  if (e.code === 'Digit2') rule('step');
+  if (e.code === 'Digit1') rule('one');
+  if (e.code === 'Digit2') rule('two');
+  if (e.code === 'Digit3') rule('now');
   if (e.code === 'KeyS') $('auto').click();
 });
 timbreIn.value = String(state.timbre);
 intIn.value = String(state.intensity);
-rule('now');
+rule('one');
