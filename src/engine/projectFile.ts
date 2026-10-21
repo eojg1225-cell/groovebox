@@ -330,6 +330,30 @@ function padV32(sound: Record<string, number>, trims: Record<string, number>, re
 }
 
 /**
+ * v27 - v37: the BASS filter followed the amp envelope (FLT ATK = ATTACK, FLT DEC = DECAY x
+ * 'fratio'). v38 gives it its own envelope again, set to what it was, so it sounds the same.
+ * Raw stored values, in place.
+ */
+export function bassFilterV38(values: Record<string, number>): void {
+  if (values.decay !== undefined) values.fdecay = Math.min(10, Math.max(0.002, values.decay * (values.fratio ?? 0.5)));
+  if (values.attack !== undefined) values.fattack = Math.min(10, Math.max(0.0005, values.attack));
+  delete values.fratio;
+}
+
+/** v38: the BASS filter envelope as trims on top of today's TIMBRE sounds (they set it now). */
+function bassFilterTrimsV38(sound: Record<string, number>, trims: Record<string, number>): void {
+  const specs = INSTRUMENTS.bass.params;
+  const hidden = hiddenSound('bass', sound, specs);
+  for (const id of ['fattack', 'fdecay']) {
+    const spec = specs.find((p) => p.id === id);
+    if (!spec || hidden[id] === undefined || sound[id] === undefined) continue;
+    const t = trimFor(spec, sound[id], hidden[id]);
+    if (t) trims[id] = t;
+    else delete trims[id];
+  }
+}
+
+/**
  * A sound's TIMBRE / INTENSITY layer rebuilt from today's designed sounds, its SOUND page
  * trims kept on top (a designed sound changed: saved tracks take the new one). In place.
  */
@@ -355,6 +379,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   const specs = INSTRUMENTS[kind].params;
   const values = numbers(x.s);
   if (version < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
+  if (kind === 'bass' && version >= 27 && version < 38) bassFilterV38(values);
   const sound: Record<string, number> = { ...presetSound(kind, 0) };
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
   const hidden = hiddenSound(kind, sound, specs);
@@ -363,6 +388,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   if (kind === 'pad' && version < 32) padV32(sound, trims);
   // v37: the new RIDE (HAT's first sound).
   if (kind === 'hat' && version < 37) rebuildMacros('hat', sound, trims);
+  if (kind === 'bass' && version >= 27 && version < 38) bassFilterTrimsV38(sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   const patch: Patch = { sound, trims };
   if (typeof x.p === 'number') patch.preset = kind === 'pad' && version < 32 ? padPresetV32(x.p) : x.p;
@@ -393,6 +419,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       if (version < 30 && values.rolldiv !== undefined) values.rolldiv = rollRateV30(values.rolldiv);
       // v33: OCTAVE gained two octaves each way; the same octave sits two indices up.
       if (version < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
+      // v38: the BASS filter envelope is its own again (it followed the amp from v27).
+      if (k === 'bass' && version >= 27 && version < 38) bassFilterV38(values);
       // v19: a fifth TIMBRE sound per type; older positions move so each sound stays itself.
       if (version < 19 && values.timbre !== undefined) values.timbre = remapTimbreV18(k, values.timbre);
       // v23: PERC's metal is tuned as an interval above the tone instead of in Hz.
@@ -441,6 +469,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
         sound[id] = applyTrim(spec, hidden[id], t);
       }
     }
+    if (k === 'bass' && version >= 27 && version < 38) bassFilterTrimsV38(sound, ch.trims.bass!);
     // v37: the new RIDE (HAT's first sound): saved hats take it, their trims kept.
     if (k === 'hat' && version < 37) rebuildMacros('hat', sound, ch.trims.hat!);
     // Knobs that left the page (v24 review, or any later change): back to TIMBRE / INT.

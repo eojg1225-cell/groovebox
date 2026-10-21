@@ -19,7 +19,7 @@ const RATIO: Record<Exclude<Cand, 'c'>, number> = { a: 1.5, b: 2 / 3 };
 
 /** The shared FM bass both ratios play (a woody DX-style bass; FM level and envelope set below). */
 const BASE: Record<string, number> = {
-  shape: 0, sub: 0.15, reso: 0.1, fratio: 0.35, drive: 1.4, glide: 0.03,
+  shape: 0, sub: 0.15, reso: 0.1, fattack: 0.0005, fdecay: 0.16, drive: 1.4, glide: 0.03,
   attack: 0.002, sustain: 0.4, release: 0.06, detune: 0, unison: 0,
 };
 const state = { cand: 'a' as Cand, fm: 0.6, fenv: 0.5, cutoff: 2600, decay: 0.45, octave: 0, drums: true };

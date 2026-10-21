@@ -55,6 +55,7 @@ import {
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
+import { bassFilterV38 } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, stepsOnStrip } from '../instruments/registry';
 import { saveSession } from '../storage/session';
@@ -424,6 +425,8 @@ export class App {
       // Patches saved with four TIMBRE sounds: move TIMBRE, re-derive the trims.
       const old = (patch.v ?? 0) < 19;
       if (old && values.timbre !== undefined) values.timbre = remapTimbreV18(kind, values.timbre);
+      // A BASS patch from v27 - v37: its filter envelope followed the amp (now its own).
+      if (kind === 'bass' && values.fratio !== undefined) bassFilterV38(values);
       // Every USER patch predates v33's wider OCTAVE: the same octave, two indices up.
       if ((patch.v ?? 0) < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
       c.sounds[kind] = { ...defaults, ...values };

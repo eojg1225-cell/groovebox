@@ -125,9 +125,6 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   // One envelope for both oscillators (BASS, PLUCK): OSC 2's DECAY is OSC 1's x this (set
   // by TIMBRE: each pluck's shorter OSC 2 tail is part of its character).
   { id: 'dratio', name: 'OSC2 DEC x', min: 0.25, max: 2, defaultValue: 1, unit: '', curve: 'linear', decimals: 2 },
-  // BASS envelope filter: the amp envelope opens the filter, decaying this much faster
-  // (filter decay = DECAY x this; set by TIMBRE, so ACID still snaps).
-  { id: 'fratio', name: 'FLT/AMP', min: 0.1, max: 2, defaultValue: 0.5, unit: '', curve: 'linear', decimals: 2 },
   // SIDECHAIN (BASS): each KICK hit ducks the sound by DUCK, recovering over DUCK REL.
   { id: 'duck', name: 'DUCK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'duckrel', name: 'DUCK REL', min: 0.02, max: 1, defaultValue: 0.2, unit: 'S', curve: 'exp', decimals: 3 },
@@ -159,9 +156,8 @@ const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'uni
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
-const without = (ids: string[], drop: string[]) => ids.filter((id) => !drop.includes(id));
-export const BASS_PARAMS = synthParams([...without(MORPHED, ['fattack', 'fdecay']), 'fratio', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
-export const BASS_FIXED = { voice: 1, envlink: 1, fltlink: 1 };
+export const BASS_PARAMS = synthParams([...MORPHED, 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
+export const BASS_FIXED = { voice: 1, envlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 /** PAD's envelope before v27 (a stab), for keeping an untouched one up to date. */
@@ -270,9 +266,9 @@ export class Synth implements Instrument {
   private readonly releaseMul = new Float64Array(2);
   private ageCounter = 0;
   private pitchMod = 1;
-  /** envlink: OSC 2 follows OSC 1's envelope (DECAY x dratio). fltlink: the filter envelope follows it too. */
-  private envLink = false; private fltLink = false;
-  private attack1 = 0.003; private decay1 = 0.4; private dRatio = 1; private fRatio = 0.5;
+  /** envlink: OSC 2 follows OSC 1's envelope (DECAY x dratio). */
+  private envLink = false;
+  private decay1 = 0.4; private dRatio = 1;
   /** SIDECHAIN: 0 idle, 1 pulling down, 2 recovering; progress and shape (0..1) of the duck. */
   private duckDepth = 0; private duckRelInc = 0; private duckStage = 0; private duckX = 0; private duckFrom = 0; private duckShape = 0;
   private readonly duckAttackInc: number;
@@ -402,18 +398,16 @@ export class Synth implements Instrument {
       case 'cutoff': this.cutoff = value; break;
       case 'reso': this.reso = value; break;
       case 'fenv': this.fenvAmt = value; break;
-      case 'fdecay': if (!this.fltLink) this.fdecayMul = decayMul(value, sr); break;
-      case 'fattack': if (!this.fltLink) this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
+      case 'fdecay': this.fdecayMul = decayMul(value, sr); break;
+      case 'fattack': this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
       case 'drive': this.drive = value; this.driveComp = driveCompGain(this.driveRise, value); break;
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
       case 'attack':
-        this.attack1 = value;
         this.attackInc[0] = 1 / (value * sr);
         if (this.envLink) this.attackInc[1] = this.attackInc[0];
-        this.updateFilterLink();
         break;
-      case 'decay': this.decay1 = value; this.setDecay(0, value); if (this.envLink) this.setDecay(1, value * this.dRatio); this.updateFilterLink(); break;
+      case 'decay': this.decay1 = value; this.setDecay(0, value); if (this.envLink) this.setDecay(1, value * this.dRatio); break;
       case 'sustain': this.sustain[0] = value; if (this.envLink) this.sustain[1] = value; break;
       case 'release': this.releaseMul[0] = decayMul(value, sr); if (this.envLink) this.releaseMul[1] = this.releaseMul[0]; break;
       // OSC 2's own envelope (PAD, LEAD); linked sounds ignore it.
@@ -422,7 +416,6 @@ export class Synth implements Instrument {
       case 'sustain2': if (!this.envLink) this.sustain[1] = value; break;
       case 'release2': if (!this.envLink) this.releaseMul[1] = decayMul(value, sr); break;
       case 'dratio': this.dRatio = value; if (this.envLink) this.setDecay(1, this.decay1 * value); break;
-      case 'fratio': this.fRatio = value; this.updateFilterLink(); break;
       case 'envlink':
         this.envLink = value > 0;
         if (this.envLink) {
@@ -432,7 +425,6 @@ export class Synth implements Instrument {
           this.setDecay(1, this.decay1 * this.dRatio);
         }
         break;
-      case 'fltlink': this.fltLink = value > 0; this.updateFilterLink(); break;
       case 'duck': this.duckDepth = value; break;
       case 'duckrel': this.duckRelInc = 1 / (value * sr); break;
       case 'dtime': this.delay?.setParam('dly_time', value); break;
@@ -444,13 +436,6 @@ export class Synth implements Instrument {
 
   private setDecay(k: number, seconds: number): void {
     this.decayMul[k] = decayMul(seconds, this.sr);
-  }
-
-  /** Envelope filter (fltlink): the filter opens with the amp's ATTACK and decays with its DECAY x fratio. */
-  private updateFilterLink(): void {
-    if (!this.fltLink) return;
-    this.fattackInc = this.attack1 <= 0.0006 ? 0 : 1 / (this.attack1 * this.sr);
-    this.fdecayMul = decayMul(Math.max(0.002, this.decay1 * this.fRatio), this.sr);
   }
 
   setTempo(bpm: number): void {

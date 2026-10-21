@@ -163,10 +163,11 @@ describe('instruments', () => {
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
     expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
-    // BASS / PLUCK: one envelope for both oscillators; BASS's filter follows it (no FLT ATK / DEC).
+    // BASS / PLUCK: one envelope for both oscillators; BASS has its own FLT ATK / DEC (v38),
+    // SIDECHAIN DUCK / DUCK REL on FUNC column 7.
     expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'sustain']);
-    expect(INSTRUMENTS.bass.layout).not.toContain('fdecay');
-    expect([INSTRUMENTS.bass.layout[4], INSTRUMENTS.bass.layout[12]]).toEqual(['duck', 'duckrel']);
+    expect([INSTRUMENTS.bass.layout[4], INSTRUMENTS.bass.layout[12]]).toEqual(['fattack', 'fdecay']);
+    expect([INSTRUMENTS.bass.funcLayout[6], INSTRUMENTS.bass.funcLayout[14]]).toEqual(['duck', 'duckrel']);
     expect([INSTRUMENTS.pluck.layout[2], INSTRUMENTS.pluck.layout[10]]).toEqual(['dtime', 'dfdbk']);
     expect(INSTRUMENTS.pluck.funcLayout.slice(2, 3).concat(INSTRUMENTS.pluck.funcLayout.slice(10, 11))).toEqual(['dmix', 'verb']);
     expect([INSTRUMENTS.bass.layout[7], INSTRUMENTS.bass.layout[15]]).toEqual(['glide', 'sub']);
@@ -2593,14 +2594,32 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(rms(ducked, 24000 + 18000, 24000 + 20000)).toBeGreaterThan(rms(dry, 24000 + 18000, 24000 + 20000) * 0.8);
   });
 
-  it('the BASS filter follows its DECAY (envelope filter)', () => {
-    const bright = (decay: number) => {
-      const l = play(synth('bass', { shape: 2, sustain: 1, cutoff: 200, reso: 0.2, fenv: 2, decay }), 0.6, 0.6);
+  it('the BASS filter has its own envelope: FLT DEC sets it, the amp DECAY does not (v38)', () => {
+    const bright = (decay: number, fdecay: number) => {
+      const l = play(synth('bass', { shape: 2, sustain: 1, cutoff: 200, reso: 0.2, fenv: 2, decay, fdecay }), 0.6, 0.6);
       let d = 0, e = 0;
       for (let i = SR * 0.1; i < SR * 0.25; i++) { d += (l[i] - l[i - 1]) ** 2; e += l[i] ** 2; }
       return d / e;
     };
-    expect(bright(3)).toBeGreaterThan(bright(0.5) * 2);
+    // Acid: notes held (SUSTAIN 1) while the filter snaps shut.
+    expect(bright(1, 1.5)).toBeGreaterThan(bright(1, 0.08) * 2);
+    expect(bright(3, 0.08)).toBeCloseTo(bright(0.5, 0.08), 2);
+  });
+
+  it('v38 load: a saved BASS keeps its filter envelope (FLT ATK = ATTACK, FLT DEC = DECAY x its ratio)', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 37;
+    const bass = stored.channels[4].sounds.bass;
+    Object.assign(bass, { attack: 0.004, decay: 0.8, fratio: 0.25 });
+    delete bass.fattack;
+    delete bass.fdecay;
+    const q = fromStored(stored)!.channels[4];
+    expect(q.sounds.bass!.fdecay).toBeCloseTo(0.2);
+    expect(q.sounds.bass!.fattack).toBeCloseTo(0.004);
+    expect(q.sounds.bass!.fratio).toBeUndefined();
+    // Kept as trims, so TIMBRE / INT moves keep it.
+    expect(q.trims.bass!.fdecay).toBeDefined();
   });
 
   it('PLUCK echoes through its onboard delay; SPACE fully left dries it up', () => {
