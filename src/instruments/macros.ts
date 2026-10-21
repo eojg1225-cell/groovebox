@@ -81,7 +81,9 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // Every hit starts as its HEAD (a hat; at the far left a ride bell) and morphs into the
     // tail, so short hits stay hats and the tail (and RING) decides the cymbal.
     anchors: [
-      { name: 'RIDE', values: { m_level: 0.55, m_pitch: 1150, m_spread: 0.35, m_noise: 0.25, m_tone: 3000, m_mode: 2, m_fm: 0.45, h_time: 0.06, h_pitch: 1500, h_tone: 6000, h_noise: 0.02, h_mode: 2, h_spread: 0.25, c_level: 0.35, c_tone: 6000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.2, crush: 0 } },
+      // Ride (v37): a ring-modulated bell head (a clang of inharmonic partials, its body let
+      // through) into a ring-mod wash with some hiss, a stick ping on top - bell, not a tone.
+      { name: 'RIDE', values: { m_level: 0.55, m_pitch: 640, m_spread: 0.45, m_noise: 0.2, m_tone: 2400, m_mode: 1, m_fm: 0.45, h_time: 0.09, h_pitch: 900, h_tone: 1800, h_noise: 0.03, h_mode: 1, h_spread: 0.45, c_level: 0.35, c_tone: 6500, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.2, crush: 0 } },
       { name: 'HAT', values: { m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0 } },
       // Splash: a small, bright cymbal - higher and hissier than the crash.
       { name: 'SPLASH', values: { m_level: 0.7, m_pitch: 620, m_spread: 1, m_noise: 0.55, m_tone: 7000, m_mode: 0.3, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.25, c_tone: 7000, c_reso: 0.3, c_len: 0.003, c_noise: 0.7, drive: 1.2, crush: 0 } },

@@ -329,6 +329,19 @@ function padV32(sound: Record<string, number>, trims: Record<string, number>, re
   }
 }
 
+/**
+ * A sound's TIMBRE / INTENSITY layer rebuilt from today's designed sounds, its SOUND page
+ * trims kept on top (a designed sound changed: saved tracks take the new one). In place.
+ */
+function rebuildMacros(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  const specs = INSTRUMENTS[kind].params;
+  const hidden = hiddenSound(kind, sound, specs);
+  for (const id of macroIds(kind, specs)) {
+    const spec = specs.find((p) => p.id === id);
+    if (spec && hidden[id] !== undefined) sound[id] = applyTrim(spec, hidden[id], trims[id]);
+  }
+}
+
 /** v32: a PAD factory preset number on the new order (the same sound; USER patches stay). */
 function padPresetV32(index: number): number {
   const name = PAD_ANCHORS_V31[index];
@@ -348,6 +361,8 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   const trims = numbers(x.t);
   if (kind === 'pad' && version < 32) padV32(sound, trims);
+  // v37: the new RIDE (HAT's first sound).
+  if (kind === 'hat' && version < 37) rebuildMacros('hat', sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   const patch: Patch = { sound, trims };
   if (typeof x.p === 'number') patch.preset = kind === 'pad' && version < 32 ? padPresetV32(x.p) : x.p;
@@ -426,6 +441,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
         sound[id] = applyTrim(spec, hidden[id], t);
       }
     }
+    // v37: the new RIDE (HAT's first sound): saved hats take it, their trims kept.
+    if (k === 'hat' && version < 37) rebuildMacros('hat', sound, ch.trims.hat!);
     // Knobs that left the page (v24 review, or any later change): back to TIMBRE / INT.
     pruneTrims(sound, ch.trims[k]!, hiddenSound(k, sound, INSTRUMENTS[k].params), pageParams(k));
   }

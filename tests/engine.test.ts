@@ -3229,3 +3229,22 @@ describe('v36: time signature, STEPS, triplet time', () => {
     expect(stepPlays(0, 'triplet', 18, true)).toBe(false);
   });
 });
+
+describe('v37: the new RIDE', () => {
+  it('a saved hat on RIDE takes the new bell ride, its SOUND page trims kept', () => {
+    const p = createDefaultProject();
+    const hat = p.channels[2];
+    applyPreset(hat, 'hat', 0);
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 36;
+    // As saved by v36: the old tonal ride (FM metal at 1150 Hz), with a CUTOFF-like trim.
+    Object.assign(stored.channels[2].sounds.hat, { m_mode: 2, m_pitch: 1150, h_mode: 2, h_pitch: 1500 });
+    stored.channels[2].trims = { hat: { m_tone: 0.05 } };
+    const q = fromStored(stored)!.channels[2];
+    expect(q.sounds.hat!.m_mode).toBeCloseTo(1);
+    expect(q.sounds.hat!.m_pitch).toBeCloseTo(640, 0);
+    expect(q.sounds.hat!.h_mode).toBeCloseTo(1);
+    expect(q.trims.hat!.m_tone).toBeCloseTo(0.05);
+    expect(q.sounds.hat!.m_tone).toBeGreaterThan(2400);
+  });
+});
