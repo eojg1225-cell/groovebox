@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bass TIMBRE Sweep</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <p class="eyebrow">GrooveAccess · BASS · sound test</p>
+    <h1>Bass TIMBRE Sweep</h1>
+    <p class="lede">The BASS track's TIMBRE across its five sounds, on the real engine. Between GROWL and FM 2:3 the FM ratios change; compare the app now (the carrier jumps halfway) with a stepped version that passes through 2 : 3 on the way. Keys 1-2 switch the rule, S starts the auto sweep, Space plays.</p>
+  </header>
+
+  <section class="deck" aria-label="Sound test">
+    <div class="row top">
+      <button id="play" type="button" class="play" aria-pressed="false">Play</button>
+      <span class="readout">126 BPM · A minor</span>
+      <label class="check" for="drums"><input type="checkbox" id="drums" checked> Kick + hat</label>
+    </div>
+
+    <div class="cands two" role="radiogroup" aria-label="Ratio rule">
+      <button type="button" class="cand ref" id="r-now" role="radio" aria-checked="true">
+        <span class="key">1</span><b>NOW</b><span class="ratio">1 : 2 → 3 : 2 at the halfway point</span>
+        <span class="note">The app as it is: the carrier ratio switches once, halfway between GROWL and FM 2:3.</span>
+      </button>
+      <button type="button" class="cand" id="r-step" role="radio" aria-checked="false">
+        <span class="key">2</span><b>STEPPED</b><span class="ratio">1 : 2 → 2 : 3 → 3 : 2</span>
+        <span class="note">Three even stretches, carrier : modulator. Every step keeps its lowest partial on your note.</span>
+      </button>
+    </div>
+
+    <div class="sweep">
+      <label class="ctl wide" for="timbre"><span>TIMBRE</span><input type="range" id="timbre" min="0" max="1" step="0.0025"><output id="timbre-v"></output></label>
+      <div class="names" id="names" aria-hidden="true"></div>
+      <div class="sweep-row">
+        <button type="button" id="auto" class="small" aria-pressed="false">Auto sweep GROWL ↔ FM 2:3</button>
+        <span class="readout" id="ratio"></span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label class="ctl" for="int"><span>INTENSITY</span><input type="range" id="int" min="0" max="1" step="0.01"><output id="int-v"></output></label>
+    </div>
+    <p class="err" id="err" role="alert"></p>
+  </section>
+
+  <section class="how">
+    <h2>What to listen for</h2>
+    <p>Run the auto sweep (8 bars each way) on NOW, then on STEPPED. On NOW the tone changes once, in the middle. On STEPPED it should change in two smaller moves. Below GROWL nothing differs: the other sounds all share the same ratios. Tell Claude which rule to keep.</p>
+  </section>
+</main>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>
