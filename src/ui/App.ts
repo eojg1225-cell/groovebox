@@ -59,6 +59,7 @@ import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, stepsOnStrip } from '../instruments/registry';
 import { saveSession } from '../storage/session';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
+import { syncSlots } from '../storage/slotSync';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, remapTimbreV18, timbreName } from '../instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
@@ -1890,6 +1891,7 @@ export class App {
       this.flash(kind === 'save' ? 'STOP TO SAVE' : 'STOP TO LOAD');
       return;
     }
+    void syncSlots(); // the slots as saved on other devices too (claude.ai)
     this.funcLatched = false;
     const slots = projectStore.slots();
     const openId = projectStore.openId();

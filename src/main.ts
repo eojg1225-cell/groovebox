@@ -12,6 +12,7 @@ import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
 import { clearSession } from './storage/session';
 import { projectStore } from './storage/projects';
+import { startSlotSync } from './storage/slotSync';
 import { textWidth } from './ui/font';
 
 const TITLE_HOLD_MS = 1400;
@@ -48,6 +49,8 @@ const screen = new PixelScreen(panel.screenCanvas);
 let host: AudioHost | null = null;
 const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
+// On claude.ai the 64 project slots are kept in the artifact's db too: the same on every device.
+startSlotSync(() => app.notify('PROJECTS SYNCED'));
 // The knob-centre calibration was withdrawn: drop what it stored.
 try { localStorage.removeItem('groovebox.knobCentres'); localStorage.removeItem('groovebox.calibrateOpen'); } catch { /* ignore */ }
 

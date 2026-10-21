@@ -35,6 +35,13 @@ export interface ProjectStore {
   setOpen(id: string | null): void;
 }
 
+/** Told after a save or delete changed a slot (oldId: the project that was there). */
+type SlotListener = (slot: number, oldId: string | null) => void;
+let slotListener: SlotListener | null = null;
+export function onSlotChange(fn: SlotListener | null): void {
+  slotListener = fn;
+}
+
 const INDEX = 'groovebox.projects';
 const OPEN = 'groovebox.open';
 const LEGACY = 'groovebox.project';
@@ -153,11 +160,47 @@ class LocalProjectStore implements ProjectStore {
     }
     const entry = { id, name, savedAt: Date.now() };
     // The same project kept in one slot only.
-    for (let i = 0; i < slots.length; i++) if (slots[i]?.id === id) slots[i] = null;
+    const moved: number[] = [];
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i]?.id === id && i !== slot) moved.push(i);
+      if (slots[i]?.id === id) slots[i] = null;
+    }
     slots[slot] = entry;
     if (!put(INDEX, JSON.stringify(slots))) return null;
     this.saveWork(id, project);
+    for (const i of moved) slotListener?.(i, id);
+    slotListener?.(slot, old?.id ?? null);
     return entry;
+  }
+
+  /** The saved project as stored (JSON text), for the cloud copy. */
+  raw(id: string): string | null {
+    return get(data(id));
+  }
+
+  /**
+   * Put a project (stored JSON text) into a slot as it is, savedAt kept: a copy from the
+   * cloud. Whatever was in the slot goes; the project's own working copy goes too (it is
+   * older than this version) unless it is the project open now.
+   */
+  place(slot: number, entry: SlotEntry, raw: string): boolean {
+    const slots = this.slots();
+    const old = slots[slot];
+    if (!put(data(entry.id), raw)) return false;
+    if (old && old.id !== entry.id) {
+      drop(data(old.id));
+      drop(work(old.id));
+      if (this.openId() === old.id) this.setOpen(null);
+    }
+    for (let i = 0; i < slots.length; i++) if (slots[i]?.id === entry.id) slots[i] = null;
+    slots[slot] = { id: entry.id, name: entry.name, savedAt: entry.savedAt };
+    if (this.openId() !== entry.id) drop(work(entry.id));
+    return put(INDEX, JSON.stringify(slots));
+  }
+
+  /** Empty a slot without telling the listener (deleted on another device). */
+  clear(slot: number): void {
+    this.removeSlot(slot);
   }
 
   load(id: string): Project | null {
@@ -179,14 +222,20 @@ class LocalProjectStore implements ProjectStore {
   }
 
   remove(slot: number): void {
+    const old = this.removeSlot(slot);
+    if (old) slotListener?.(slot, old);
+  }
+
+  private removeSlot(slot: number): string | null {
     const slots = this.slots();
     const old = slots[slot];
-    if (!old) return;
+    if (!old) return null;
     drop(data(old.id));
     drop(work(old.id));
     slots[slot] = null;
     put(INDEX, JSON.stringify(slots));
     if (this.openId() === old.id) this.setOpen(null);
+    return old.id;
   }
 
   openId(): string | null {
@@ -199,7 +248,8 @@ class LocalProjectStore implements ProjectStore {
   }
 }
 
-export const projectStore: ProjectStore = new LocalProjectStore();
+export const localProjects = new LocalProjectStore();
+export const projectStore: ProjectStore = localProjects;
 
 let workTimer: ReturnType<typeof setTimeout> | undefined;
 /** Debounced: the open project's working copy follows every edit. */
