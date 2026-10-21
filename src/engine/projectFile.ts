@@ -540,7 +540,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.lfoOn = src.lfoOn === true;
   ch.volume = num(src.volume, ch.volume, 0, 1);
   // v20: CHORD / LEAD / PLUCK got a -14 dB output trim; scale the volume up to match.
-  const trim = ch.instrument === 'none' || INSTRUMENTS[ch.instrument].gain === undefined ? 1 : SYNTH_TRIM;
+  const trim = ch.instrument === 'pad' || ch.instrument === 'lead' || ch.instrument === 'pluck' ? SYNTH_TRIM : 1;
   if (version < 20 && trim < 1) ch.volume = Math.min(1, ch.volume / trim);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.dynamics = num(src.dynamics, 100, 0, 200);

@@ -115,9 +115,9 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
-  // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): evens out the BASS sounds' levels
-  // without changing how hard they drive.
-  { id: 'ogain', name: 'OUT GAIN', min: 0.1, max: 4, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
+  // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): every sound equally loud by
+  // default, without changing how hard it drives.
+  { id: 'ogain', name: 'OUT GAIN', min: 0.05, max: 16, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'attack', name: 'OSC1 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'decay', name: 'OSC1 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
   { id: 'attack2', name: 'OSC2 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
@@ -167,18 +167,18 @@ export const BASS_FIXED = { voice: 1, envlink: 1 };
 export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 /** PAD's envelope before v27 (a stab), for keeping an untouched one up to date. */
 export const PAD_ENVELOPE_V26 = { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 });
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts). */
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
+export const LEAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
 /** LEAD: 3 voices, so a note's release rings under the next one (and live chords work). */
 export const LEAD_FIXED = { voice: 0, voices: 3, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS, envlink: 1, onboard: 1 };
 
 /** SIDECHAIN: how fast a KICK hit pulls the level down (no click). */
@@ -251,7 +251,7 @@ export class Synth implements Instrument {
    * 2 : 3 that keeps its pitch at every FM LEVEL (BASS FM 2:3; TIMBRE's, no knob).
    */
   private cRatio = 1;
-  /** Output gain after DRIVE / CRUSH (BASS: evens out its sounds). */
+  /** Output gain after DRIVE / CRUSH (evens the sounds out). */
   private oGain = 1;
   /**
    * 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three

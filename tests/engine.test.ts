@@ -2123,11 +2123,7 @@ describe('PAD on the 3 carrier engine', () => {
 });
 
 describe('CHORD / LEAD / PLUCK level, CHORD stabs, FLT DEC curve', () => {
-  it('the sustained synths sit -14 dB; older saves scale VOLUME up so the mix is unchanged', () => {
-    expect(INSTRUMENTS.pluck.gain).toBeCloseTo(0.22); // PLUCK +10 %
-    expect(INSTRUMENTS.pad.gain).toBeCloseTo(0.22); // CHORD +10 %
-    expect(INSTRUMENTS.lead.gain).toBeCloseTo(0.176); // LEAD -20 %, then +10 %
-    expect(INSTRUMENTS.bass.gain ?? 1).toBe(1);
+  it('saves from before the v20 synth trim scale VOLUME up (PAD / LEAD / PLUCK only)', () => {
     const p = createDefaultProject();
     expect(p.channels[5].volume).toBe(0.5);
     p.channels[6].volume = 0.1; // LEAD at 10 % before the trim
@@ -2650,8 +2646,8 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(remapTimbreV18('bass', 1)).toBe(1);
   });
 
-  it('the five BASS sounds are about equally loud (K-weighted, OUT GAIN after DRIVE)', () => {
-    // BS.1770 K-weighting: +4 dB shelf near 1.5 kHz, then the RLB high-pass near 38 Hz (48 kHz).
+  it('every TIMBRE sound on every track is equally loud at its default VOLUME', () => {
+    // BS.1770 K-weighting (48 kHz), then the loudest 400 ms (momentary loudness).
     const biquad = (c: number[], x: Float32Array) => {
       const y = new Float32Array(x.length);
       let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
@@ -2661,24 +2657,33 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
       }
       return y;
     };
-    const loudness = (i: number) => {
-      const s = INSTRUMENTS.bass.create(SR);
-      const v = presetSound('bass', i);
-      for (const k in v) s.setParam(k, v[k]);
-      const n = SR * 2;
-      const l = new Float32Array(n), r = new Float32Array(n);
-      let t = 0;
-      for (const note of [33, 33, 45, 36, 31, 33, 40, 33]) {
-        s.noteOn(note, 0.8, note, false);
-        for (let k = 0; k < SR / 8; k += 128) s.render(l, r, t + k, t + k + 128);
-        s.noteOff(-1);
-        for (let k = SR / 8; k < SR / 4; k += 128) s.render(l, r, t + k, t + k + 128);
-        t += SR / 4;
+    const k = (x: Float32Array) => biquad([1, -2, 1, -1.99004745483398, 0.99007225036621], biquad([1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585], x));
+    /** One default hit (synths: a half-second note) on track ch with sound i. */
+    const loudness = (ch: number, kind: SoundKind, i: number) => {
+      const p = createDefaultProject();
+      p.bpm = 120;
+      p.master = 0.2; // under the limiter
+      p.channels.forEach((c, n) => { c.patterns = c.patterns.map(() => emptyPattern(c.patterns[0].steps[0].note)); c.mute = n !== ch; });
+      applyPreset(p.channels[ch], kind, i);
+      const pat = p.channels[ch].patterns[0];
+      pat.length = 64;
+      Object.assign(pat.steps[0], { active: true, gate: INSTRUMENTS[kind].drum ? 1 : 4 });
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const { l, r } = render(e, 1.5);
+      const wl = k(l), wr = k(r), win = SR * 0.4;
+      let sum = 0, best = 0;
+      for (let n = 0; n < l.length; n++) {
+        sum += wl[n] ** 2 + wr[n] ** 2;
+        if (n >= win) sum -= wl[n - win] ** 2 + wr[n - win] ** 2;
+        best = Math.max(best, sum);
       }
-      const w = biquad([1, -2, 1, -1.99004745483398, 0.99007225036621], biquad([1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585], l));
-      return 10 * Math.log10(w.reduce((a, x) => a + x * x, 0) / n);
+      return 10 * Math.log10(best / win);
     };
-    const levels = INSTRUMENTS.bass.presets.map((_, i) => loudness(i));
+    const levels = createDefaultProject().channels.flatMap((c, ch) => {
+      const kind = c.instrument as SoundKind;
+      return INSTRUMENTS[kind].presets.slice(0, 5).map((_, i) => loudness(ch, kind, i));
+    });
     expect(Math.max(...levels) - Math.min(...levels)).toBeLessThan(1);
   });
 

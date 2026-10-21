@@ -241,12 +241,8 @@ export function liveContribution(t: LiveTarget, offset: number): number {
   return offset < 0 ? -shaped : shaped;
 }
 
-/** CHORD / LEAD / PLUCK output trim (-14 dB). */
+/** CHORD / LEAD / PLUCK output trim before v20 (-14 dB; older saves' volumes are scaled by it). */
 export const SYNTH_TRIM = 0.2;
-/** Per type balance on top of it (so their defaults sit together). */
-const CHORD_GAIN = SYNTH_TRIM * 1.1;
-const LEAD_GAIN = SYNTH_TRIM * 0.88;
-const PLUCK_GAIN = SYNTH_TRIM * 1.1;
 
 export interface InstrumentEntry {
   name: string;
@@ -263,8 +259,9 @@ export interface InstrumentEntry {
   live: readonly [string, string];
   liveFunc: readonly [string, string];
   /**
-   * Output trim of the type (applied with the track volume): the sustained synths (CHORD,
-   * LEAD, PLUCK) sit -14 dB so they don't swamp the drums; full VOLUME = the old 20 %.
+   * Output trim of the type (applied with the track volume): with each sound's OUT GAIN
+   * ('ogain', set by TIMBRE), every sound plays equally loud at the track's default VOLUME
+   * (one hit / a half-second note, max momentary K-weighted loudness).
    */
   gain?: number;
   presets: readonly Preset[];
@@ -279,42 +276,42 @@ export interface InstrumentEntry {
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
-    name: 'KICK', live: ['macro:attack', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
+    name: 'KICK', gain: 0.565, live: ['macro:attack', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['t_sweep', 't_stime'], ['c_reso', 'c_noise']),
     funcLayout: trackFunc(NO_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
-    name: 'SNARE', live: ['macro:snap', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,
+    name: 'SNARE', gain: 0.797, live: ['macro:snap', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['t_sweep', 't_stime'], ['m_tone', 'm_noise']),
     funcLayout: trackFunc(NO_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
-    name: 'HAT', live: ['macro:bright', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
+    name: 'HAT', gain: 4.359, live: ['macro:bright', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'c_noise'], ['m_tone', 'm_noise']),
     funcLayout: trackFunc(NO_FUNC),
     presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
   perc: {
-    name: 'PERC', live: ['macro:knock', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
+    name: 'PERC', gain: 0.778, live: ['macro:knock', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
     layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['c_tone', 'c_noise']),
     funcLayout: trackFunc(NO_FUNC),
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
-    name: 'BASS', live: ['cutoff', 'macro:env'], liveFunc: ['mix:volume', 'macro:grit'], params: BASS_PARAMS,
+    name: 'BASS', gain: 0.383, live: ['cutoff', 'macro:env'], liveFunc: ['mix:volume', 'macro:grit'], params: BASS_PARAMS,
     layout: BASS_PAGE,
     funcLayout: trackFunc(BASS_FUNC),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
-    name: 'PAD', gain: CHORD_GAIN, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
+    name: 'PAD', gain: 0.273, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
     layout: soundPage(HELD_ELEMENTS, ['track:chord', 'detune']),
     funcLayout: trackFunc(decSus([_, 'carriers', _, _], ['feedback', _, _, 'unison'])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
-    name: 'LEAD', gain: LEAD_GAIN, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
+    name: 'LEAD', gain: 0.633, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
     layout: soundPage(HELD_ELEMENTS, ['glide', 'detune']),
     funcLayout: trackFunc(decSus([_, _, _, _], [_, _, _, _])),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
-    name: 'PLUCK', gain: PLUCK_GAIN, live: ['cutoff', 'track:notes'], liveFunc: ['macro:sustain', 'macro:space'], params: PLUCK_PARAMS,
+    name: 'PLUCK', gain: 1.366, live: ['cutoff', 'track:notes'], liveFunc: ['macro:sustain', 'macro:space'], params: PLUCK_PARAMS,
     layout: PLUCK_PAGE,
     funcLayout: trackFunc(PLUCK_FUNC),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },

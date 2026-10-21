@@ -85,6 +85,8 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'balance', name: 'BALANCE', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'drive', name: 'DRIVE', min: 1, max: 200, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): every sound equally loud by default.
+  { id: 'ogain', name: 'OUT GAIN', min: 0.05, max: 16, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   // ROLL DIV: how fast a ROLL step repeats (read by the engine; the voice ignores it).
   choice('rolldiv', 'ROLL RATE', ROLL_DIVS.map((r) => r.name), DEFAULT_ROLL_RATE),
   midFreq(1000),
@@ -96,7 +98,7 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /** Controls every drum has (after its layer parameters). */
-const WHOLE = ['balance', 'drive', 'crush', 'rolldiv', 'midfreq'];
+const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq'];
 
 /*
  * Each drum type: its parameters (set by TIMBRE / INTENSITY and presets, except the tail
@@ -245,6 +247,8 @@ export class Drum implements Instrument {
 
   /** The last sample out, and the retrigger fade: the value fading out and samples left. */
   private lastOut = 0;
+  /** Output gain after DRIVE / CRUSH (evens the sounds out). */
+  private oGain = 1;
   private fadeFrom = 0;
   private fadeLeft = 0;
   private fadeLen = 1;
@@ -341,6 +345,7 @@ export class Drum implements Instrument {
       }
       case 'drive': this.drive = v; this.driveComp = driveCompGain(this.voice.driveRise, v); break;
       case 'crush': this.crush = v; break;
+      case 'ogain': this.oGain = v; break;
     }
   }
 
@@ -523,8 +528,8 @@ export class Drum implements Instrument {
         this.fadeLeft--;
       }
       this.lastOut = out;
-      outL[i] += out;
-      outR[i] += out;
+      outL[i] += out * this.oGain;
+      outR[i] += out * this.oGain;
     }
   }
 }
