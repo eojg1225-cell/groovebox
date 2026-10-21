@@ -147,7 +147,6 @@ export interface StoredProject {
   sendWet: number[][];
   sendInt: number[][];
   sendComp?: Record<string, number>[];
-  lofi: number;
   channels: StoredChannel[];
 }
 
@@ -164,7 +163,6 @@ export function toStored(p: Project): StoredProject {
     sendWet: p.sendWet.map((row) => [...row]),
     sendInt: p.sendInt.map((row) => [...row]),
     sendComp: p.sendComp.map((row) => ({ ...row })),
-    lofi: p.lofi,
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
       sounds: JSON.parse(JSON.stringify(c.sounds)) as Record<string, Record<string, number>>,
@@ -192,6 +190,12 @@ export function toStored(p: Project): StoredProject {
 }
 
 // ---------------------------------------------------------------- forgiving reader
+
+/** BASS / PLUCK default live knobs before v35 (LIVE 1-4). */
+const LIVE_V34 = {
+  bass: 'macro:env,macro:grit,mix:volume,cutoff',
+  pluck: 'track:notes,macro:sustain,macro:space,macro:bite',
+};
 
 type Obj = Record<string, unknown>;
 const isObj = (x: unknown): x is Obj => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -486,6 +490,15 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   }
   // v28: PLUCK's live SUSTAIN (NOTES / SUSTAIN; SPACE / BITE with FUNC).
   if (version < 28 && ch.instrument === 'pluck') liveDefaults(ch);
+  // v35: CUTOFF is every synth's first live knob; BASS / PLUCK still on the old defaults move on.
+  if (version < 35 && (ch.instrument === 'bass' || ch.instrument === 'pluck')) {
+    const old = LIVE_V34[ch.instrument];
+    if ([...ch.live, ...ch.liveFunc].join() === old) {
+      const offsets = ch.liveOffset;
+      liveDefaults(ch);
+      ch.liveOffset = offsets;
+    }
+  }
   ch.activePattern = Math.round(num(src.activePattern, 0, 0, NUM_PATTERNS - 1));
 
   if (!Array.isArray(src.patterns)) return;
@@ -562,7 +575,6 @@ export function fromStored(data: unknown): Project | null {
   p.bpm = num(data.bpm, p.bpm, BPM_MIN, BPM_MAX);
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
-  p.lofi = num(data.lofi, p.lofi, 0, 1);
   const version = num(data.version, 0);
   // v5 had one AMOUNT per effect: it becomes WET, with INTENSITY at the default.
   // Before v7 rows 0-1 (dub delay, reverb) are today's FX 2 and FX 3; the dirt send is gone.

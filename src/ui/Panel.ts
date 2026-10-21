@@ -15,7 +15,7 @@
  * (held: CLEAR + step / channel), copy (held: COPY + channel = same pattern slot there,
  * COPY + A-D = that pattern of this track),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
- * bottom row; module i holds k(i+1) and k(i+9)); master knobs mtempo, mlofi.
+ * bottom row; module i holds k(i+1) and k(i+9)); master knobs mtempo, mmaster.
  */
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
@@ -32,7 +32,7 @@ export const DESIGN_PAGE_BUTTONS = 3;
 export const FX_SEND_BUTTONS = 4;
 export const MASTER_KNOBS = [
   { id: 'mtempo', label: 'TEMPO' },
-  { id: 'mlofi', label: 'LO-FI' },
+  { id: 'mmaster', label: 'MASTER' },
 ] as const;
 
 export const MODES = [
@@ -205,7 +205,7 @@ export class Panel implements ControlSurface {
     }
   }
 
-  /** Master knob (TEMPO / LO-FI): current value and default, normalised. */
+  /** Master knob (TEMPO / MASTER): current value and default, normalised. */
   configureMaster(id: string, value: number, defaultValue: number): void {
     const k = this.masterKnobs.get(id);
     if (!k) return;

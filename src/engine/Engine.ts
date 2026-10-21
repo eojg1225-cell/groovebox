@@ -15,7 +15,6 @@ import { Noise, Svf } from '../instruments/dsp';
 import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { SendBus } from '../fx/SendBus';
 import { DrumBus } from '../fx/DrumBus';
-import { Tape } from '../fx/Tape';
 import { Limiter } from '../fx/Limiter';
 import { EFFECTS, SEND_BUSES } from '../fx';
 import { TrackCut } from '../fx/TrackCut';
@@ -244,7 +243,6 @@ export class Engine {
   private readonly forceVel = new Float32Array(NUM_CHANNELS);
   private readonly busL: Float32Array[] = [];
   private readonly busR: Float32Array[] = [];
-  private readonly tape: Tape;
 
   // The LFO, shared by the tracks on it; phase-locked to the song (lfoClock counts 16th steps).
   private lfoClock = 0;
@@ -279,7 +277,6 @@ export class Engine {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
     this.limiter = new Limiter(sampleRate);
-    this.tape = new Tape(sampleRate);
     this.drumBus = new DrumBus(sampleRate);
     for (let k = 0; k < NUM_SENDS; k++) {
       this.sends.push(k === 0 ? null : new SendBus(sampleRate, k));
@@ -325,7 +322,6 @@ export class Engine {
         if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); this.instrumentTempo(); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
         else if (msg.id === 'master') this.master.setTarget(msg.value);
-        else if (msg.id === 'lofi') this.tape.setAmount(msg.value);
         break;
       case 'setRouting': this.route[msg.channel] = this.busIndex(msg.send); break;
       case 'setDrumBus': this.inDrumBus[msg.channel] = msg.on ? 1 : 0; break;
@@ -414,7 +410,6 @@ export class Engine {
       for (const id in p.sendComp[k] ?? {}) bus.comp.setParam(id, p.sendComp[k][id]);
       bus.settle();
     }
-    this.tape.setImmediate(p.lofi);
     this.setSong(p.song ?? { rows: [] });
     for (const id in p.lfo) this.setLfo(id as LfoId, p.lfo[id as LfoId]);
     this.swing = (p.swing - 50) / 50;
@@ -1272,7 +1267,6 @@ export class Engine {
 
 
   private finishBlock(outL: Float32Array, outR: Float32Array, frames: number): void {
-    this.tape.process(outL, outR, frames);
     // MASTER (the pan law gives -3 dB at centre; compensated), then the look-ahead limiter.
     for (let i = 0; i < frames; i++) {
       const g = this.master.next() * Math.SQRT2;

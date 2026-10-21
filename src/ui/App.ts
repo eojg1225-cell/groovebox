@@ -171,7 +171,9 @@ interface Glide {
 }
 
 const MIX_PREFIX = 'mix:';
-type GlobalId = 'bpm' | 'swing' | 'master' | 'lofi';
+type GlobalId = 'bpm' | 'swing' | 'master';
+/** The master knobs beside PLAY. */
+const MASTER_GLOBAL: Readonly<Record<string, GlobalId>> = { mtempo: 'bpm', mmaster: 'master' };
 
 export class App {
   selected = 0;
@@ -670,7 +672,7 @@ export class App {
   /**
    * DESIGN pages: SOUND (the selected track's sound; FUNC: also its PRESET, LIVE knobs and
    * MID FREQ), MIX (every track's VOLUME / PAN; FUNC SEND LVL / MID CUT), PROJECT (TEMPO,
-   * SWING, MASTER, LO-FI; every track's ACC/GHOST, FUNC TRIM). MIX and PROJECT are global.
+   * SWING, MASTER; every track's ACC/GHOST, FUNC TRIM). MIX and PROJECT are global.
    */
   private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
     const ch = this.selected;
@@ -756,7 +758,7 @@ export class App {
   }
 
   /**
-   * DESIGN > PROJECT (global): TEMPO, SWING, MASTER, LO-FI on top; every track's ACC/GHOST
+   * DESIGN > PROJECT (global): TEMPO, SWING, MASTER on top; every track's ACC/GHOST
    * below. With FUNC: every synth track's TRIM below (drums play out their own decay).
    */
   private projectTargets(): (KnobTarget | null)[] {
@@ -1100,7 +1102,7 @@ export class App {
         fromTarget(t, (control === 'wet' ? saved.sendWet : saved.sendInt)[k]?.[Number(e)] ?? t.get());
       }
     }
-    for (const gid of ['swing', 'lofi'] as const) {
+    for (const gid of ['swing'] as const) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       add(`global:${gid}`, spec, this.project[gid], saved[gid], (v) => this.setGlobal(gid, v));
     }
@@ -1730,9 +1732,9 @@ export class App {
     if (this.viewPage[this.selected] >= this.pageCount()) this.viewPage[this.selected] = 0;
   }
 
-  /** TEMPO and LO-FI master knobs. */
+  /** TEMPO and MASTER master knobs. */
   private onMasterKnob(id: string, norm: number): void {
-    const gid: GlobalId = id === 'mtempo' ? 'bpm' : 'lofi';
+    const gid = MASTER_GLOBAL[id];
     const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
     let value = toValue(spec, norm);
     if (spec.decimals !== undefined) value = Math.round(value * 10 ** spec.decimals) / 10 ** spec.decimals;
@@ -1747,8 +1749,8 @@ export class App {
    * one 0-127 step, one option for discrete choices, 0.1 BPM for TEMPO.
    */
   private onEncoder(id: string, delta: number): void {
-    if (id === 'mtempo' || id === 'mlofi') {
-      const gid: GlobalId = id === 'mtempo' ? 'bpm' : 'lofi';
+    const gid = MASTER_GLOBAL[id];
+    if (gid) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       const step = gid === 'bpm' ? 0.1 : 1 / 127;
       const value = Math.min(spec.max, Math.max(spec.min, Math.round((this.project[gid] + delta * step) * 1000) / 1000));
@@ -2050,7 +2052,7 @@ export class App {
       this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
       this.panel.setBadge(ch, this.mode === 'design' || sendView ? 'dim' : ch === this.selected ? 'lit' : '');
     }
-    for (const [id, gid] of [['mtempo', 'bpm'], ['mlofi', 'lofi']] as const) {
+    for (const [id, gid] of Object.entries(MASTER_GLOBAL)) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, spec.defaultValue));
     }

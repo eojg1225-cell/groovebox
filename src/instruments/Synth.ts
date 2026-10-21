@@ -131,12 +131,12 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   // SIDECHAIN (BASS): each KICK hit ducks the sound by DUCK, recovering over DUCK REL.
   { id: 'duck', name: 'DUCK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'duckrel', name: 'DUCK REL', min: 0.02, max: 1, defaultValue: 0.2, unit: 'S', curve: 'exp', decimals: 3 },
-  // Onboard FX (PLUCK): a tempo-synced delay, then a short room.
+  // Onboard FX (PLUCK): a tempo-synced delay, then a short room (both dry until turned up).
   midFreq(1000),
   choice('dtime', 'DLY TIME', DELAY_DIVISIONS.map((d) => d.name), 2),
   { id: 'dfdbk', name: 'DLY FDBK', min: 0, max: 0.95, defaultValue: 0.35, unit: '', curve: 'linear' },
-  { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
-  { id: 'verb', name: 'VERB', min: 0, max: 1, defaultValue: 0.25, unit: '', curve: 'linear' },
+  { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'verb', name: 'VERB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
 ];
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));

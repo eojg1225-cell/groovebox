@@ -6,7 +6,7 @@ import type { InstrumentKind, PatternSpeed, Project, Song, Step } from './projec
 import type { LfoId } from './lfo';
 
 export type MixParam = 'volume' | 'pan' | 'mute' | 'send' | 'dyn' | 'gate' | 'cut';
-export type GlobalParam = 'bpm' | 'swing' | 'master' | 'lofi';
+export type GlobalParam = 'bpm' | 'swing' | 'master';
 
 export type MainToWorklet =
   /** Replace the whole engine state (startup, session restore). */

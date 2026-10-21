@@ -39,12 +39,11 @@ export function dynVelocity(velocity: number, depth: number): number {
 export const BPM_MIN = 40;
 export const BPM_MAX = 300;
 
-/** Project-wide parameters (GLOBAL page; TEMPO and LO-FI also have master knobs). */
+/** Project-wide parameters (PROJECT page; TEMPO and MASTER also have master knobs). */
 export const GLOBAL_PARAMS: readonly ParamSpec[] = [
   { id: 'bpm', name: 'TEMPO', min: BPM_MIN, max: BPM_MAX, defaultValue: 128, unit: '', curve: 'linear', decimals: 1 },
   { id: 'swing', name: 'SWING', min: 50, max: 75, defaultValue: 50, unit: '%', curve: 'linear', decimals: 0 },
   { id: 'master', name: 'MASTER', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
-  { id: 'lofi', name: 'LO-FI', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
 ];
 
 /** The two controls of each effect inside a send. */

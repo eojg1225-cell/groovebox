@@ -257,8 +257,8 @@ export interface InstrumentEntry {
   /** The SOUND page's FUNC layer (16 slots, see funcPage). */
   funcLayout: readonly (string | null)[];
   /**
-   * Default live knobs in RECORD / PLAY: two sound controls, and with FUNC held VOLUME +
-   * one more (param ids or "mix:volume|pan|send").
+   * Default live knobs in RECORD / PLAY: two sound controls (synths: CUTOFF first), and with
+   * FUNC held two more (param ids or "mix:volume|pan|send").
    */
   live: readonly [string, string];
   liveFunc: readonly [string, string];
@@ -299,7 +299,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: trackFunc(NO_FUNC),
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
-    name: 'BASS', live: ['macro:env', 'macro:grit'], liveFunc: ['mix:volume', 'cutoff'], params: BASS_PARAMS,
+    name: 'BASS', live: ['cutoff', 'macro:env'], liveFunc: ['mix:volume', 'macro:grit'], params: BASS_PARAMS,
     layout: BASS_PAGE,
     funcLayout: trackFunc(BASS_FUNC),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
@@ -314,7 +314,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: trackFunc(decSus([_, _, _, _], [_, _, _, _])),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
-    name: 'PLUCK', gain: PLUCK_GAIN, live: ['track:notes', 'macro:sustain'], liveFunc: ['macro:space', 'macro:bite'], params: PLUCK_PARAMS,
+    name: 'PLUCK', gain: PLUCK_GAIN, live: ['cutoff', 'track:notes'], liveFunc: ['macro:sustain', 'macro:space'], params: PLUCK_PARAMS,
     layout: PLUCK_PAGE,
     funcLayout: trackFunc(PLUCK_FUNC),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },

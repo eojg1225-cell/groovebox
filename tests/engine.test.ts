@@ -9,7 +9,7 @@ import { DYNAMIC_VELOCITY, NUM_PATTERNS, editPattern, emptyPattern, initPatterns
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
+import { INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
 import { Drum, ROLL_DIVS, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { midiToHz } from '../src/instruments/dsp';
@@ -18,7 +18,6 @@ import { Distortion } from '../src/fx/Distortion';
 
 import { Chorus } from '../src/fx/Chorus';
 import { Reverb } from '../src/fx/Reverb';
-import { Tape } from '../src/fx/Tape';
 import { CEILING, Limiter } from '../src/fx/Limiter';
 import { LFO_RATES, lfoValue } from '../src/engine/lfo';
 
@@ -648,49 +647,6 @@ describe('send effects', () => {
     };
     expect(bright(300)).toBeLessThan(bright(20000) * 0.25);
   });
-
-  describe('LO-FI', () => {
-    /** RMS gain (dB) of a sine at freq / amp through LO-FI at `amount`. */
-    const gainDb = (amount: number, freq: number, amp = 0.1) => {
-      const t = new Tape(SR);
-      t.setImmediate(amount);
-      const n = SR / 2;
-      const input = Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * freq * i) / SR) * amp);
-      const l = input.slice();
-      t.process(l, l.slice(), n);
-      const rms = (b: Float32Array) => Math.sqrt(b.subarray(n / 2).reduce((s, v) => s + v * v, 0) / (n / 2));
-      return 20 * Math.log10(rms(l) / rms(input));
-    };
-
-    it('is bypassed at 0', () => {
-      expect(Math.abs(gainDb(0, 900))).toBeLessThan(0.01);
-    });
-
-    it('half way: a gentle mid dip, lows and highs and quiet levels left alone', () => {
-      expect(gainDb(0.5, 900)).toBeLessThan(-2);
-      expect(gainDb(0.5, 900)).toBeGreaterThan(-4.5);
-      expect(Math.abs(gainDb(0.5, 60))).toBeLessThan(1);
-      expect(Math.abs(gainDb(0.5, 10000))).toBeLessThan(1.5);
-    });
-
-    it('saturation only rounds off peaks, gently in the main range', () => {
-      const squash = (amount: number) => gainDb(amount, 60, 0.9) - gainDb(amount, 60, 0.05);
-      expect(squash(0.3)).toBeGreaterThan(-1); // barely touches loud material
-      expect(squash(0.6)).toBeLessThan(-0.3);
-      expect(squash(0.6)).toBeGreaterThan(-3);
-    });
-
-    it('full: a noticeable degradation, still bounded', () => {
-      expect(gainDb(1, 1040) - gainDb(1, 60)).toBeLessThan(-6); // the dip's centre at full, against the lows
-      expect(gainDb(1, 12000) - gainDb(1, 60)).toBeLessThan(-3); // highs softened
-      const t = new Tape(SR);
-      t.setImmediate(1);
-      const l = Float32Array.from({ length: 4800 }, (_, i) => Math.sin(i * 0.05) * 3);
-      t.process(l, l.slice(), l.length);
-      expect(stats(l).nan).toBe(false);
-      expect(stats(l).peak).toBeLessThan(2);
-    });
-  });
 });
 
 describe('note lengths', () => {
@@ -993,7 +949,6 @@ describe('project', () => {
     Object.assign(s, { active: true, note: 41, gate: 3, velocity: 0.45, locks: { cutoff: 900 } });
     p.channels[5].fxSend = 3;
     p.channels[5].sendLevel = 0.7;
-    p.lofi = 0.4;
     p.sendWet[2][3] = 0.9;
     p.sendComp[1].cmp_ratio = 4;
     p.sendComp[2].cmp_thresh = -30;
@@ -1113,9 +1068,11 @@ describe('project', () => {
     const p = createStartProject();
     expect(p.channels[4].patterns[0].length).toBe(64);
     expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
-    expect(p.channels[4].live).toEqual(['macro:env', 'macro:grit']);
-    // PLUCK: SPACE / BITE with FUNC (its VOLUME is on the MIX page).
-    expect(p.channels.every((c) => c.liveFunc[0] === (c.instrument === 'pluck' ? 'macro:space' : 'mix:volume'))).toBe(true);
+    expect(p.channels[4].live).toEqual(['cutoff', 'macro:env']);
+    // PLUCK: SUSTAIN / SPACE with FUNC (its VOLUME is on the MIX page).
+    expect(p.channels.every((c) => c.liveFunc[0] === (c.instrument === 'pluck' ? 'macro:sustain' : 'mix:volume'))).toBe(true);
+    // Every synth's first live knob is its CUTOFF.
+    expect(p.channels.filter((c) => !isDrum(c.instrument)).every((c) => c.live[0] === 'cutoff')).toBe(true);
   });
 
   it('keeps the notes even from an older, different format', () => {
@@ -1611,9 +1568,10 @@ describe('PERC track', () => {
   it('a new project has 8 tracks: track 4 PERC, track 8 PLUCK', () => {
     const p = createDefaultProject();
     expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']);
-    expect(p.channels[3].fx1).toBe(true);
-    // BASS and PLUCK carry their own effects; LEAD -> FX 2, PAD -> FX 3.
-    expect(p.channels.slice(4).map((c) => c.fxSend)).toEqual([0, 3, 2, 0]);
+    // Nothing routed: no FX 1-3, no LFO, PLUCK's delay / room dry.
+    expect(p.channels.every((c) => !c.fx1 && c.fxSend === 0 && !c.lfoOn)).toBe(true);
+    expect(p.channels[7].sounds.pluck!.dmix).toBe(0);
+    expect(p.channels[7].sounds.pluck!.verb).toBe(0);
   });
 });
 
@@ -2548,8 +2506,23 @@ describe('v24 knob review', () => {
     expect(back.trims.bass!.shape).toBeUndefined();
     expect(back.trims.bass!.cutoff).toBeCloseTo(-0.1);
     expect(back.sounds.bass!.shape).toBeCloseTo(hiddenSound('bass', back.sounds.bass!, INSTRUMENTS.bass.params).shape);
-    expect(back.live).toEqual(['macro:env', 'macro:grit']);
-    expect(back.liveFunc).toEqual(['mix:volume', 'cutoff']);
+    expect(back.live).toEqual([...INSTRUMENTS.bass.live]);
+    expect(back.liveFunc).toEqual([...INSTRUMENTS.bass.liveFunc]);
+  });
+
+  it('v35 load: BASS / PLUCK on the old default live knobs take CUTOFF first; chosen ones stay', () => {
+    const p = createDefaultProject();
+    p.channels[4].live = ['macro:env', 'macro:grit'];
+    p.channels[4].liveFunc = ['mix:volume', 'cutoff'];
+    p.channels[4].liveOffset = { 'macro:env': 0.3 };
+    p.channels[7].live = ['track:notes', 'reso'];
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 34;
+    const q = fromStored(stored)!;
+    expect(q.channels[4].live).toEqual(['cutoff', 'macro:env']);
+    expect(q.channels[4].liveFunc).toEqual(['mix:volume', 'macro:grit']);
+    expect(q.channels[4].liveOffset['macro:env']).toBeCloseTo(0.3);
+    expect(q.channels[7].live).toEqual(['track:notes', 'reso']);
   });
 });
 
@@ -2644,7 +2617,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
   it('PLUCK SUSTAIN (live) rings each note on without touching RELEASE; SUSTAIN on the page holds', () => {
     const m = LIVE_MACROS.pluck.find((x) => x.id === 'macro:sustain')!;
     expect(m.targets.map((t) => t.id)).toEqual(['attack', 'decay', 'sustain', 'fdecay']);
-    expect(INSTRUMENTS.pluck.live).toEqual(['track:notes', 'macro:sustain']);
+    expect(INSTRUMENTS.pluck.live).toEqual(['cutoff', 'track:notes']);
     expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
     const held = play(synth('pluck', { sustain: 0.6, dmix: 0, verb: 0 }), 0.8, 0.8);
     const plucked = play(synth('pluck', { sustain: 0, dmix: 0, verb: 0 }), 0.8, 0.8);
@@ -2663,8 +2636,8 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     const q = fromStored(stored)!;
     expect(q.channels.slice(4).map((c) => c.fxSend)).toEqual([0, 3, 2, 0]);
     expect(q.channels[5].sounds.pad!.sustain).toBeGreaterThan(0.5);
-    expect(q.channels[7].live).toEqual(['track:notes', 'macro:sustain']);
-    expect(q.channels[7].liveFunc).toEqual(['macro:space', 'macro:bite']);
+    expect(q.channels[7].live).toEqual([...INSTRUMENTS.pluck.live]);
+    expect(q.channels[7].liveFunc).toEqual([...INSTRUMENTS.pluck.liveFunc]);
   });
 });
 

@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 34;
+export const PROJECT_VERSION = 35;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 5;
@@ -202,8 +202,6 @@ export interface Project {
   lfo: LfoState;
   /** Song mode: rows of patterns, played in order (then from the top again). */
   song: Song;
-  /** Master LO-FI (tape saturation + EQ), 0..1. */
-  lofi: number;
   channels: ChannelState[];
 }
 
