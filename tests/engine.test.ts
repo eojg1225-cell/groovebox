@@ -2070,7 +2070,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
   it('every type has five sounds, the new one where it blends', () => {
     const names = (k: SoundKind) => MACROS[k].anchors.map((a) => a.name);
     expect(names('hat')).toEqual(['RIDE', 'HAT', 'SPLASH', 'CRASH', 'CHINA']);
-    expect(names('bass')).toEqual(['SINE SUB', 'SOLID', 'ACID', 'GROWL', 'FM 2:3']);
+    expect(names('bass')).toEqual(['SINE SUB', 'GROWL', 'ACID', 'SOLID', 'FM 2:3']);
     expect(names('snare')[1]).toBe('PICCOLO');
     expect(names('lead')[1]).toBe('ORGAN');
     for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
@@ -2623,31 +2623,48 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(mag(locked, f)).toBeGreaterThan(0.01);
   });
 
-  it('FM 2:3 (v39): root-locked, and the carrier switches halfway from GROWL instead of blending', () => {
+  it('BASS (v40): FM ratio ladder 1:2 -> 2:3 -> 3:2 over the knob, INT leaves FM LVL alone', () => {
     const specs = INSTRUMENTS.bass.params;
-    const last = INSTRUMENTS.bass.presets.length - 1;
-    const fm = presetSound('bass', last);
-    expect(INSTRUMENTS.bass.presets[last].name).toBe('FM 2:3');
-    expect([fm.cratio, fm.fmratio]).toEqual([3, 2]);
-    const at = (t: number) => macroSound('bass', t, 0.5, specs).cratio;
-    expect(at(0.75 + 0.1)).toBe(1); // nearer GROWL
-    expect(at(1 - 0.1)).toBe(3); // nearer FM 2:3
-    expect(at(0.25)).toBe(1);
+    const pair = (t: number) => { const m = macroSound('bass', t, 0.5, specs); return [m.cratio, m.fmratio]; };
+    expect(pair(0)).toEqual([1, 2]);
+    expect(pair(0.3)).toEqual([1, 2]);
+    expect(pair(0.34)).toEqual([2, 3]);
+    expect(pair(0.66)).toEqual([2, 3]);
+    expect(pair(0.67)).toEqual([3, 2]);
+    expect(pair(1)).toEqual([3, 2]);
+    // Every pair keeps its lowest partial on the note (carrier = +-1 mod modulator, never 0 Hz).
+    for (const t of [0, 0.5, 1]) {
+      const [c, m] = pair(t);
+      expect(Math.min(c % m, m - (c % m))).toBe(1);
+    }
+    // INTENSITY no longer moves FM LVL; the designed sounds each carry a little FM.
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(macroSound('bass', t, 0, specs).fm).toBeCloseTo(macroSound('bass', t, 1, specs).fm);
+    }
+    expect(INSTRUMENTS.bass.presets.map((p) => presetSound('bass', INSTRUMENTS.bass.presets.indexOf(p)).fm)).toEqual([0.12, 0.15, 0.15, 0.15, 0.6]);
+    // FM LVL itself still goes from none to full.
+    const fm = specs.find((x) => x.id === 'fm')!;
+    expect([fm.min, fm.max]).toEqual([0, 1]);
     // A v18 save on FM CLANG lands on FM 2:3.
     expect(remapTimbreV18('bass', 1)).toBe(1);
   });
 
-  it('v39 load: a saved bass on FM CLANG becomes FM 2:3, its SOUND page trims kept', () => {
+  it('v40 load: a v39 bass keeps its sound (TIMBRE follows it to its new place, preset too)', () => {
     const p = createDefaultProject();
-    applyPreset(p.channels[4], 'bass', INSTRUMENTS.bass.presets.length - 1);
     const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 38;
-    Object.assign(stored.channels[4].sounds.bass, { fm: 1, fmratio: 3.5, cratio: undefined });
-    stored.channels[4].trims = { bass: { cutoff: 0.05 } };
+    stored.version = 39;
+    // v39 order: SINE SUB, SOLID, ACID, GROWL, FM 2:3 - GROWL was at 0.75 (preset 3).
+    const bass = stored.channels[4];
+    Object.assign(bass.sounds.bass, { timbre: 0.75, fm: 0, cutoff: 900, intensity: 0.5 });
+    bass.presets = { bass: 3 };
+    bass.trims = { bass: {} };
+    bass.patterns[0].steps = [{ i: 0, n: 33, v: 0.8, l: { timbre: 0.25 } }];
     const q = fromStored(stored)!.channels[4];
-    expect(q.sounds.bass!.cratio).toBe(3);
-    expect(q.sounds.bass!.fmratio).toBe(2);
-    expect(q.trims.bass!.cutoff).toBeCloseTo(0.05);
+    expect(q.sounds.bass!.timbre).toBeCloseTo(0.25); // GROWL's new place
+    expect(INSTRUMENTS.bass.presets[q.presets.bass!].name).toBe('GROWL');
+    expect(q.sounds.bass!.fm).toBe(0);
+    expect(q.sounds.bass!.cutoff).toBeCloseTo(900);
+    expect(q.patterns[0].steps[0].locks!.timbre).toBeCloseTo(0.75); // SOLID was at 0.25
   });
 
   it('v38 load: a saved BASS keeps its filter envelope (FLT ATK = ATTACK, FLT DEC = DECAY x its ratio)', () => {

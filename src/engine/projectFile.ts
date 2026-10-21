@@ -28,7 +28,7 @@ const MORPHED_V26: Partial<Record<SoundKind, readonly string[]>> = {
   bass: ['decay', 'sustain', 'detune'],
   pluck: ['attack', 'decay', 'sustain', 'release', 'detune', 'unison'],
 };
-import { PAD_ANCHORS_V31, macroIds, remapPadTimbreV31, remapTimbreV18 } from '../instruments/macros';
+import { BASS_ANCHORS_V39, PAD_ANCHORS_V31, macroIds, remapBassTimbreV39, remapPadTimbreV31, remapTimbreV18 } from '../instruments/macros';
 import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
@@ -310,6 +310,8 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     if (version < 33 && step.locks?.octave !== undefined) step.locks.octave += OCTAVE_SHIFT_V33;
     // v32: a locked PAD TIMBRE lands on the same sound in the new order.
     if (version < 32 && instrument === 'pad' && step.locks?.timbre !== undefined) step.locks.timbre = remapPadTimbreV31(step.locks.timbre);
+    // v40: BASS's sounds in a new order (GROWL and SOLID swapped): a locked TIMBRE keeps its sound.
+    if (version >= 19 && version < 40 && instrument === 'bass' && step.locks?.timbre !== undefined) step.locks.timbre = remapBassTimbreV39(step.locks.timbre);
   }
 }
 
@@ -366,6 +368,13 @@ function rebuildMacros(kind: SoundKind, sound: Record<string, number>, trims: Re
   }
 }
 
+/** v40: a BASS factory preset number on the new order (the same sound; USER patches stay). */
+function bassPresetV40(index: number): number {
+  const name = BASS_ANCHORS_V39[index];
+  if (name === undefined) return index;
+  return Math.max(0, INSTRUMENTS.bass.presets.findIndex((p) => p.name === name));
+}
+
 /** v32: a PAD factory preset number on the new order (the same sound; USER patches stay). */
 function padPresetV32(index: number): number {
   const name = PAD_ANCHORS_V31[index];
@@ -380,6 +389,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   const values = numbers(x.s);
   if (version < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
   if (kind === 'bass' && version >= 27 && version < 38) bassFilterV38(values);
+  if (kind === 'bass' && version < 40 && values.timbre !== undefined) values.timbre = remapBassTimbreV39(values.timbre);
   const sound: Record<string, number> = { ...presetSound(kind, 0) };
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
   const hidden = hiddenSound(kind, sound, specs);
@@ -390,9 +400,13 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   if (kind === 'hat' && version < 37) rebuildMacros('hat', sound, trims);
   if (kind === 'bass' && version >= 27 && version < 38) bassFilterTrimsV38(sound, trims);
   if (kind === 'bass' && version < 39) rebuildMacros('bass', sound, trims);
-  pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
-  const patch: Patch = { sound, trims };
-  if (typeof x.p === 'number') patch.preset = kind === 'pad' && version < 32 ? padPresetV32(x.p) : x.p;
+  // v40: new BASS order / ladder / FM out of INT: a v39 patch keeps its values (trims re-derived).
+  const kept = kind === 'bass' && version >= 39 && version < 40 ? deriveTrims('bass', sound, specs) : trims;
+  pruneTrims(sound, kept, hiddenSound(kind, sound, specs), pageParams(kind));
+  const patch: Patch = { sound, trims: kept };
+  if (typeof x.p === 'number') {
+    patch.preset = kind === 'pad' && version < 32 ? padPresetV32(x.p) : kind === 'bass' && version < 40 ? bassPresetV40(x.p) : x.p;
+  }
   return patch;
 }
 
@@ -424,6 +438,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       if (k === 'bass' && version >= 27 && version < 38) bassFilterV38(values);
       // v19: a fifth TIMBRE sound per type; older positions move so each sound stays itself.
       if (version < 19 && values.timbre !== undefined) values.timbre = remapTimbreV18(k, values.timbre);
+      // v40: BASS's sounds in a new order (GROWL and SOLID swapped): TIMBRE moves with its sound.
+      if (k === 'bass' && version >= 19 && version < 40 && values.timbre !== undefined) values.timbre = remapBassTimbreV39(values.timbre);
       // v23: PERC's metal is tuned as an interval above the tone instead of in Hz.
       if (k === 'perc' && values.m_interval === undefined && values.m_pitch > 0 && values.t_pitch > 0) {
         values.m_interval = Math.max(-12, Math.min(36, Math.round(12 * Math.log2(values.m_pitch / values.t_pitch))));
@@ -473,6 +489,9 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     if (k === 'bass' && version >= 27 && version < 38) bassFilterTrimsV38(sound, ch.trims.bass!);
     // v39: FM 2:3 replaces FM CLANG (BASS's fifth sound): saved basses take it, trims kept.
     if (k === 'bass' && version < 39) rebuildMacros('bass', sound, ch.trims.bass!);
+    // v40: new BASS order, ratio ladder, FM LVL out of INTENSITY: a v39 bass keeps every value,
+    // its trims re-derived against the new sounds (FM ratio, which has no knob, follows the ladder).
+    else if (k === 'bass' && version < 40) ch.trims.bass = deriveTrims('bass', sound, INSTRUMENTS.bass.params);
     // v37: the new RIDE (HAT's first sound): saved hats take it, their trims kept.
     if (k === 'hat' && version < 37) rebuildMacros('hat', sound, ch.trims.hat!);
     // Knobs that left the page (v24 review, or any later change): back to TIMBRE / INT.
@@ -496,6 +515,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       // v19: one more factory preset per type, so user patch numbers move up one.
       ch.presets[k] = version < 19 && index >= 4 ? index + 1 : index;
       if (k === 'pad' && version < 32) ch.presets.pad = padPresetV32(ch.presets.pad!);
+      if (k === 'bass' && version >= 19 && version < 40) ch.presets.bass = bassPresetV40(ch.presets.bass!);
     }
   }
   // Before v5 the live knobs followed the preset; from v5 they default to VOLUME/CUTOFF
