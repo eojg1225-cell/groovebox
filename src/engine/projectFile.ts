@@ -389,6 +389,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   // v37: the new RIDE (HAT's first sound).
   if (kind === 'hat' && version < 37) rebuildMacros('hat', sound, trims);
   if (kind === 'bass' && version >= 27 && version < 38) bassFilterTrimsV38(sound, trims);
+  if (kind === 'bass' && version < 39) rebuildMacros('bass', sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   const patch: Patch = { sound, trims };
   if (typeof x.p === 'number') patch.preset = kind === 'pad' && version < 32 ? padPresetV32(x.p) : x.p;
@@ -470,6 +471,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       }
     }
     if (k === 'bass' && version >= 27 && version < 38) bassFilterTrimsV38(sound, ch.trims.bass!);
+    // v39: FM 2:3 replaces FM CLANG (BASS's fifth sound): saved basses take it, trims kept.
+    if (k === 'bass' && version < 39) rebuildMacros('bass', sound, ch.trims.bass!);
     // v37: the new RIDE (HAT's first sound): saved hats take it, their trims kept.
     if (k === 'hat' && version < 37) rebuildMacros('hat', sound, ch.trims.hat!);
     // Knobs that left the page (v24 review, or any later change): back to TIMBRE / INT.

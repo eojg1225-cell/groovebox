@@ -23,7 +23,7 @@ import { LFO_RATES, lfoValue } from '../src/engine/lfo';
 
 /** An LFO rate's index by name. */
 const RATE = (name: string) => LFO_RATES.findIndex((r) => r.name === name);
-import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound, remapPadTimbreV31, timbreName } from '../src/instruments/macros';
+import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound, remapPadTimbreV31, remapTimbreV18, timbreName } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { drumPage, soundPage, stepsOnStrip } from '../src/instruments/registry';
@@ -2070,7 +2070,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
   it('every type has five sounds, the new one where it blends', () => {
     const names = (k: SoundKind) => MACROS[k].anchors.map((a) => a.name);
     expect(names('hat')).toEqual(['RIDE', 'HAT', 'SPLASH', 'CRASH', 'CHINA']);
-    expect(names('bass')).toEqual(['SINE SUB', 'SOLID', 'ACID', 'GROWL', 'FM CLANG']);
+    expect(names('bass')).toEqual(['SINE SUB', 'SOLID', 'ACID', 'GROWL', 'FM 2:3']);
     expect(names('snare')[1]).toBe('PICCOLO');
     expect(names('lead')[1]).toBe('ORGAN');
     for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
@@ -2621,6 +2621,33 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(mag(plain, f / 3)).toBeGreaterThan(mag(plain, f) * 0.2);
     expect(mag(locked, f / 3)).toBeLessThan(mag(locked, f) * 0.02);
     expect(mag(locked, f)).toBeGreaterThan(0.01);
+  });
+
+  it('FM 2:3 (v39): root-locked, and the carrier switches halfway from GROWL instead of blending', () => {
+    const specs = INSTRUMENTS.bass.params;
+    const last = INSTRUMENTS.bass.presets.length - 1;
+    const fm = presetSound('bass', last);
+    expect(INSTRUMENTS.bass.presets[last].name).toBe('FM 2:3');
+    expect([fm.cratio, fm.fmratio]).toEqual([3, 2]);
+    const at = (t: number) => macroSound('bass', t, 0.5, specs).cratio;
+    expect(at(0.75 + 0.1)).toBe(1); // nearer GROWL
+    expect(at(1 - 0.1)).toBe(3); // nearer FM 2:3
+    expect(at(0.25)).toBe(1);
+    // A v18 save on FM CLANG lands on FM 2:3.
+    expect(remapTimbreV18('bass', 1)).toBe(1);
+  });
+
+  it('v39 load: a saved bass on FM CLANG becomes FM 2:3, its SOUND page trims kept', () => {
+    const p = createDefaultProject();
+    applyPreset(p.channels[4], 'bass', INSTRUMENTS.bass.presets.length - 1);
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 38;
+    Object.assign(stored.channels[4].sounds.bass, { fm: 1, fmratio: 3.5, cratio: undefined });
+    stored.channels[4].trims = { bass: { cutoff: 0.05 } };
+    const q = fromStored(stored)!.channels[4];
+    expect(q.sounds.bass!.cratio).toBe(3);
+    expect(q.sounds.bass!.fmratio).toBe(2);
+    expect(q.trims.bass!.cutoff).toBeCloseTo(0.05);
   });
 
   it('v38 load: a saved BASS keeps its filter envelope (FLT ATK = ATTACK, FLT DEC = DECAY x its ratio)', () => {

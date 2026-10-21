@@ -120,12 +120,14 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
   bass: {
     anchors: [
-      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 } },
-      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
+      { name: 'SINE SUB', values: { shape: 0, fm: 0, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 } },
+      { name: 'SOLID', values: { shape: 2.3, fm: 0, fmratio: 2, cratio: 1, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
       // 303: square through a resonant filter with a short, snappy envelope (accents and slides).
-      { name: 'ACID', values: { shape: 3, fm: 0, fmratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fattack: 0.0005, fdecay: 0.18, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 } },
-      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
-      { name: 'FM CLANG', values: { shape: 0, fm: 1, fmratio: 3.5, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fattack: 0.0005, fdecay: 0.18, drive: 2.2, glide: 0.02, decay: 0.5, sustain: 0.25, detune: 0 } },
+      { name: 'ACID', values: { shape: 3, fm: 0, fmratio: 2, cratio: 1, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fattack: 0.0005, fdecay: 0.18, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 } },
+      { name: 'GROWL', values: { shape: 2, fm: 0.05, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+      // FM 2 : 3 (v39, was FM CLANG): carrier 3 x, modulator 2 x the note - the 2 : 3 partials
+      // with the lowest on the note, so the pitch holds at every FM LEVEL / INTENSITY.
+      { name: 'FM 2:3', values: { shape: 0, fm: 0.6, fmratio: 2, cratio: 3, sub: 0.15, cutoff: 2600, reso: 0.1, fenv: 0.5, fattack: 0.0005, fdecay: 0.16, drive: 1.4, glide: 0.03, decay: 0.45, sustain: 0.4, detune: 0 } },
     ],
     excite: [
       { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
@@ -204,6 +206,9 @@ export const MACROS: Record<SoundKind, MacroDef> = {
 // PAD and LEAD keep the type's own envelope and width, like the drums' tails.
 
 /** Each type's four sounds before v19 (a fifth was added; older TIMBRE positions move). */
+/** Sounds replaced in their slot (old name -> today's). */
+const RENAMED: Readonly<Record<string, string>> = { 'FM CLANG': 'FM 2:3' };
+
 const ANCHORS_V18: Record<SoundKind, readonly string[]> = {
   kick: ['VINTAGE', 'PUNCH', 'TECHNO', 'PSY DOOF'],
   snare: ['RIMSHOT', 'TIGHT', 'BREAK', 'INDUSTRIAL'],
@@ -224,7 +229,7 @@ const ANCHORS_V18: Record<SoundKind, readonly string[]> = {
 export function remapTimbreV18(kind: SoundKind, timbre: number): number {
   const old = ANCHORS_V18[kind];
   const anchors = MACROS[kind].anchors;
-  const pos = (name: string) => anchors.findIndex((a) => a.name === name);
+  const pos = (name: string) => anchors.findIndex((a) => a.name === (RENAMED[name] ?? name));
   const u = Math.min(1, Math.max(0, timbre)) * (old.length - 1);
   const i = Math.min(old.length - 2, Math.floor(u));
   const f = u - i;
@@ -270,6 +275,11 @@ const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release']] as const;
 
 /** FM ratio parameters: TIMBRE moves them through RATIO_STEPS. */
 const RATIO_IDS = new Set(['fmratio', 'ratio2', 'ratio3']);
+/**
+ * Switched, not blended, halfway between two sounds: the FM carrier ratio (a carrier between
+ * 1 and 3 would put the pair's root below the note).
+ */
+const SWITCHED_IDS = new Set(['cratio']);
 export const RATIO_STEPS = [0.25, 1 / 3, 0.5, 2 / 3, 0.75, 1, 4 / 3, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8];
 /**
  * Whole and half steps only: a modulator at a third or a quarter of the note puts its
@@ -327,6 +337,7 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
     // FM ratios step through related ratios between sounds instead of smearing through
     // inharmonic ones (1 -> 4/3 -> 3/2 -> 2 ...).
     if (RATIO_IDS.has(id)) out[id] = nearest(RATIO_SNAP[kind]?.[id] ?? RATIO_STEPS, out[id]);
+    if (SWITCHED_IDS.has(id)) out[id] = f < 0.5 ? va : vb;
   }
   const x = Math.min(1, Math.max(0, intensity));
   for (const e of excite) {

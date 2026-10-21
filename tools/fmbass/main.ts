@@ -13,7 +13,9 @@ import { INSTRUMENTS, presetSound } from '../../src/instruments/registry';
 const BASS = 4;
 const OCTAVE_ZERO = 4;
 const spec = (id: string) => INSTRUMENTS.bass.params.find((p) => p.id === id) as ParamSpec;
-const FM_CLANG = INSTRUMENTS.bass.presets.findIndex((p) => p.name === 'FM CLANG');
+/** FM CLANG as it was (the app's fifth BASS sound until v39, now FM 2:3). */
+const FM_CLANG = { shape: 0, fm: 1, fmratio: 3.5, cratio: 1, sub: 0.2, cutoff: 4000, reso: 0.2, fenv: 0.35, fattack: 0.0005, fdecay: 0.18, drive: 2.2, glide: 0.02, decay: 0.5, sustain: 0.25, detune: 0 };
+const LAST = INSTRUMENTS.bass.presets.length - 1;
 
 type Cand = 'a' | 'b' | 'c' | 'd';
 /** Modulator and carrier ratios (D: 2 : 3 root-locked, its lowest partial on the note). */
@@ -47,8 +49,8 @@ function project() {
 
 /** The bass sound for the chosen candidate. */
 function sound(): Record<string, number> {
-  const s = presetSound('bass', FM_CLANG);
-  if (state.cand === 'c') return { ...s, cratio: 1, octave: OCTAVE_ZERO };
+  const s = presetSound('bass', LAST);
+  if (state.cand === 'c') return { ...s, ...FM_CLANG, octave: OCTAVE_ZERO };
   return {
     ...s, ...BASE, fmratio: RATIO[state.cand].m, cratio: RATIO[state.cand].c, fm: state.fm, fenv: state.fenv, cutoff: state.cutoff,
     decay: state.decay, octave: OCTAVE_ZERO + state.octave,
