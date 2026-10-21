@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 35;
+export const PROJECT_VERSION = 36;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
 export const NUM_SENDS = 3;
 export const NUM_EFFECTS = 5;
@@ -68,6 +68,12 @@ export interface Step {
    */
   locks?: Record<string, number>;
   /**
+   * STEPS: this step is switched the other way from what the time signature (and triplet
+   * time) gives it: on where they leave it dark, off where they play it. Skipped steps take
+   * no time, so a track with steps switched off loops shorter and drifts against the bar.
+   */
+  flip?: boolean;
+  /**
    * PAD: more notes on this step (up to STEP_NOTES in all). CHORD OFF plays them all; with
    * a CHORD only the lowest plays (the chord's root).
    */
@@ -108,12 +114,52 @@ export interface SavedNotes {
   speed?: PatternSpeed;
 }
 
-/** How fast a pattern's steps run: a 16th each (normal), a 32nd (double) or an 8th (half). */
-export type PatternSpeed = 'normal' | 'double' | 'half';
-export const PATTERN_SPEEDS: readonly PatternSpeed[] = ['normal', 'double', 'half'];
+/**
+ * How fast a pattern's steps run: a 16th each (normal), a 32nd (double), an 8th (half) or
+ * an 8th-note triplet (triplet: the 4th step of each group of four is dark, the other three
+ * stretched to fill the beat).
+ */
+export type PatternSpeed = 'normal' | 'double' | 'half' | 'triplet';
+export const PATTERN_SPEEDS: readonly PatternSpeed[] = ['normal', 'double', 'half', 'triplet'];
 /** One step of a pattern at this speed, in 16th steps of the master clock. */
 export function speedSteps(speed: PatternSpeed | undefined): number {
-  return speed === 'double' ? 0.5 : speed === 'half' ? 2 : 1;
+  return speed === 'double' ? 0.5 : speed === 'half' ? 2 : speed === 'triplet' ? 4 / 3 : 1;
+}
+
+/**
+ * Time signatures. Each bar is one 16-step block of the strip, in four groups of four; a
+ * meter plays the first `groups[q]` steps of group q and leaves the rest dark (they take no
+ * time). The bar is as long as the steps it plays (16ths).
+ */
+export const METERS = [
+  { name: '4/4', groups: [4, 4, 4, 4] },
+  { name: '3/4', groups: [4, 4, 4, 0] },
+  { name: '2/4', groups: [4, 4, 0, 0] },
+  { name: '5/8', groups: [4, 2, 4, 0] },
+  { name: '7/8', groups: [4, 3, 4, 3] },
+  { name: '11/16', groups: [3, 3, 3, 2] },
+  { name: '13/16', groups: [4, 3, 3, 3] },
+  { name: '15/16', groups: [4, 4, 4, 3] },
+] as const;
+
+/** A meter's bar in 16th steps. */
+export function meterLength(meter: number): number {
+  return (METERS[meter] ?? METERS[0]).groups.reduce((a: number, b: number) => a + b, 0);
+}
+
+/** Whether the meter plays step `index` (any bar of the pattern). */
+export function meterPlays(meter: number, index: number): boolean {
+  const cell = index % 16;
+  return cell % 4 < (METERS[meter] ?? METERS[0]).groups[cell >> 2];
+}
+
+/**
+ * Whether step `index` of a pattern plays: the time signature's steps, minus the 4th of
+ * each group in triplet time, switched the other way where the step is flipped (STEPS).
+ */
+export function stepPlays(meter: number, speed: PatternSpeed | undefined, index: number, flip: boolean | undefined): boolean {
+  const on = meterPlays(meter, index) && !(speed === 'triplet' && index % 4 === 3);
+  return flip ? !on : on;
 }
 
 export interface Pattern {
@@ -202,6 +248,8 @@ export interface Project {
   lfo: LfoState;
   /** Song mode: rows of patterns, played in order (then from the top again). */
   song: Song;
+  /** Time signature: index into METERS (0 = 4/4). */
+  meter: number;
   channels: ChannelState[];
 }
 

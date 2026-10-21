@@ -1,4 +1,5 @@
-import type { ParamSpec } from './params';
+import { choice, type ParamSpec } from './params';
+import { METERS } from './project';
 
 export const GATE_MIN = 0.125;
 export const GATE_MAX = 2;
@@ -44,6 +45,7 @@ export const GLOBAL_PARAMS: readonly ParamSpec[] = [
   { id: 'bpm', name: 'TEMPO', min: BPM_MIN, max: BPM_MAX, defaultValue: 128, unit: '', curve: 'linear', decimals: 1 },
   { id: 'swing', name: 'SWING', min: 50, max: 75, defaultValue: 50, unit: '%', curve: 'linear', decimals: 0 },
   { id: 'master', name: 'MASTER', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
+  choice('meter', 'TIME SIG', METERS.map((m) => m.name)),
 ];
 
 /** The two controls of each effect inside a send. */

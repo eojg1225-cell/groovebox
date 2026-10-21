@@ -6,14 +6,15 @@ import type { InstrumentKind, PatternSpeed, Project, Song, Step } from './projec
 import type { LfoId } from './lfo';
 
 export type MixParam = 'volume' | 'pan' | 'mute' | 'send' | 'dyn' | 'gate' | 'cut';
-export type GlobalParam = 'bpm' | 'swing' | 'master';
+/** meter: the time signature (index into METERS); playing, it changes at the next bar line. */
+export type GlobalParam = 'bpm' | 'swing' | 'master' | 'meter';
 
 export type MainToWorklet =
   /** Replace the whole engine state (startup, session restore). */
   | { type: 'loadProject'; project: Project }
   | { type: 'setStep'; channel: number; pattern: number; index: number; step: Step }
   | { type: 'setPatternLength'; channel: number; pattern: number; length: number }
-  /** Half / double time for one pattern (its steps last 2 / 0.5 of the master 16ths). */
+  /** Half / double / triplet time for one pattern (its steps last 2 / 0.5 / 4/3 master 16ths). */
   | { type: 'setPatternSpeed'; channel: number; pattern: number; speed: PatternSpeed }
   /**
    * Switch pattern; quantised to the end of the channel's loop unless immediate or stopped.
@@ -104,8 +105,10 @@ export type WorkletToMain =
       playing: boolean;
       steps: number[];
       patterns: number[];
-      /** Position in the bar (16 steps), 0..1 (0 when stopped). */
+      /** Position in the bar (of the time signature), 0..1 (0 when stopped). */
       barPhase: number;
+      /** The bar playing, in 16th steps (the time signature). */
+      barSteps: number;
       /** Song playback: the row playing and the bar within it (-1 / 0 when not in song mode). */
       songRow: number;
       songBar: number;

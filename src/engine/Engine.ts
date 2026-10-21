@@ -19,7 +19,7 @@ import { Limiter } from '../fx/Limiter';
 import { EFFECTS, SEND_BUSES } from '../fx';
 import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
-import { NUM_SENDS, speedSteps, type PatternSpeed } from './project';
+import { METERS, NUM_SENDS, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
 
 /** Largest chunk rendered at once; blocks are split at step boundaries anyway. */
 /** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
@@ -52,7 +52,9 @@ export type RecordedMsg = Extract<WorkletToMain, { type: 'recordedNote' | 'recor
  * Allocation-free in process(); step data lives in preallocated typed arrays.
  * Timing: a global 16th-note clock (with swing) drives every channel; each channel
  * keeps its own position and loops at its own length (polymeter). Steps fire at the
- * exact sample inside a block.
+ * exact sample inside a block. The time signature sets the bar (bar lines: pattern
+ * switches, song rows, RESET); steps that do not play (time signature, triplet time,
+ * STEPS) take no time.
  */
 export class Engine {
   readonly sampleRate: number;
@@ -99,6 +101,10 @@ export class Engine {
   private readonly stepExtraN = new Uint8Array(STEP_SLOTS);
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
   private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
+  /** STEPS: the step is switched the other way from the time signature. */
+  private readonly stepFlip = new Uint8Array(STEP_SLOTS);
+  /** Whether each step plays (time signature, triplet time, STEPS); others are skipped. */
+  private readonly stepOn = new Uint8Array(STEP_SLOTS).fill(1);
   private readonly patternLength = new Uint8Array(NUM_CHANNELS * NUM_PATTERNS).fill(16);
   /** Per pattern: one step's length in master 16ths (1; double time 0.5; half time 2). */
   private readonly patternRate = new Float32Array(NUM_CHANNELS * NUM_PATTERNS).fill(1);
@@ -110,9 +116,25 @@ export class Engine {
   private readonly chanAt = new Float64Array(NUM_CHANNELS);
   private readonly chanRate = new Float64Array(NUM_CHANNELS).fill(1);
   private readonly chanCount = new Float64Array(NUM_CHANNELS).fill(-1);
-  /** Double time: frames until the track's step halfway through the master step (-1 = none). */
+  /**
+   * Steps between master steps (double time: one halfway; triplet: two more in the beat):
+   * frames until the next (-1 = none), their length, how many are left, and the master
+   * position of the next and the distance between them (master steps).
+   */
   private readonly subAt = new Float64Array(NUM_CHANNELS).fill(-1);
   private readonly subLen = new Float64Array(NUM_CHANNELS);
+  private readonly subLeft = new Uint8Array(NUM_CHANNELS);
+  private readonly subPos = new Float64Array(NUM_CHANNELS);
+  private readonly subStep = new Float64Array(NUM_CHANNELS);
+  /** The track's next step starts its loop. */
+  private readonly loopStart = new Uint8Array(NUM_CHANNELS).fill(1);
+  /** The track's last loop started off a bar line (drifting): a pattern switch lands on the next bar line. */
+  private readonly offGrid = new Uint8Array(NUM_CHANNELS);
+  /** Time signature (index into METERS), its bar in 16ths, the master step its bars count from, and a change waiting for the bar line. */
+  private meter = 0;
+  private barLen = 16;
+  private barOrigin = 0;
+  private pendingMeter = -1;
 
   private readonly pendingPattern = new Int8Array(NUM_CHANNELS).fill(-1);
   private readonly position = new Uint8Array(NUM_CHANNELS);
@@ -247,6 +269,7 @@ export class Engine {
   // The LFO, shared by the tracks on it; phase-locked to the song (lfoClock counts 16th steps).
   private lfoClock = 0;
   private lfoSteps = 4;
+  private lfoRate = 0;
   private lfoShape = 0;
   private lfoMorph = 0;
   private lfoFm = 0;
@@ -310,7 +333,12 @@ export class Engine {
       case 'setPatternLength':
         this.patternLength[msg.channel * NUM_PATTERNS + msg.pattern] = Math.max(1, Math.min(MAX_STEPS, msg.length));
         break;
-      case 'setPatternSpeed': this.patternRate[msg.channel * NUM_PATTERNS + msg.pattern] = speedSteps(msg.speed); break;
+      case 'setPatternSpeed': {
+        const k = msg.channel * NUM_PATTERNS + msg.pattern;
+        this.patternRate[k] = speedSteps(msg.speed);
+        this.refreshOn(k);
+        break;
+      }
       case 'selectPattern': this.selectPattern(msg.channel, msg.pattern, msg.immediate); break;
       case 'setSound': this.setPatchSound(msg.channel, msg.pattern ?? this.editedPattern(msg.channel), msg.id, msg.value); break;
       case 'setPatch': this.setPatch(msg.channel, msg.pattern, msg.sound, msg.glide); break;
@@ -322,6 +350,7 @@ export class Engine {
         if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); this.instrumentTempo(); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
         else if (msg.id === 'master') this.master.setTarget(msg.value);
+        else if (msg.id === 'meter') this.setMeter(msg.value);
         break;
       case 'setRouting': this.route[msg.channel] = this.busIndex(msg.send); break;
       case 'setDrumBus': this.inDrumBus[msg.channel] = msg.on ? 1 : 0; break;
@@ -345,7 +374,7 @@ export class Engine {
       case 'songJump':
         if (!this.songOn) break;
         this.songJumpTo = Math.max(0, Math.min(this.songLength - 1, msg.row));
-        this.glideToRow(this.songJumpTo, this.framesAhead((16 - (this.globalStep % 16)) % 16));
+        this.glideToRow(this.songJumpTo, this.framesAhead((this.barLen - this.barPos(this.globalStep)) % this.barLen));
         break;
       case 'trigger': this.noteOn(msg.channel, msg.note, msg.velocity, false, msg.slideFrom ?? -1); break;
       case 'release': this.release(msg.channel, msg.note); break;
@@ -411,6 +440,8 @@ export class Engine {
       bus.settle();
     }
     this.setSong(p.song ?? { rows: [] });
+    this.pendingMeter = -1;
+    this.applyMeter(Math.max(0, Math.min(METERS.length - 1, Math.round(p.meter ?? 0))));
     for (const id in p.lfo) this.setLfo(id as LfoId, p.lfo[id as LfoId]);
     this.swing = (p.swing - 50) / 50;
     this.master.setImmediate(p.master);
@@ -445,6 +476,7 @@ export class Engine {
         this.patternLength[ch * NUM_PATTERNS + pat] = c.patterns[pat].length;
         this.patternRate[ch * NUM_PATTERNS + pat] = speedSteps(c.patterns[pat].speed);
         for (let i = 0; i < MAX_STEPS; i++) this.writeStep(ch, pat, i, c.patterns[pat].steps[i]);
+        this.refreshOn(ch * NUM_PATTERNS + pat);
       }
     }
   }
@@ -459,6 +491,8 @@ export class Engine {
       this.songOff.fill(0);
     }
     this.globalStep = 0;
+    if (this.pendingMeter >= 0) this.applyMeter(this.pendingMeter);
+    this.barOrigin = 0;
     this.framesToStep = 0; // first step fires at the next sample
     this.lfoClock = 0; // LFOs restart with the song
     this.lfoTrig.fill(0);
@@ -468,6 +502,9 @@ export class Engine {
     this.rollLeft.fill(0);
     this.runLeft.fill(0);
     this.subAt.fill(-1);
+    this.subLeft.fill(0);
+    this.loopStart.fill(1);
+    this.offGrid.fill(0);
     this.chanCount.fill(-1);
     this.applyPendingNotes();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -516,13 +553,17 @@ export class Engine {
           const g = Math.ceil(this.gateAt[ch]);
           if (g < n) n = g;
         }
-        // Double time: the track's second step lands halfway through the master step.
+        // Steps between master steps (double time, triplets) land on their exact sample.
         for (let ch = 0; ch < NUM_CHANNELS; ch++) {
           if (this.subAt[ch] < 0) continue;
           if (this.subAt[ch] <= 0) {
-            this.subAt[ch] = -1;
-            this.stepChannel(ch, this.subLen[ch], this.globalStep - 0.5);
-            continue;
+            const at = this.subPos[ch];
+            if (--this.subLeft[ch] > 0) {
+              this.subAt[ch] = this.subLen[ch];
+              this.subPos[ch] += this.subStep[ch];
+            } else this.subAt[ch] = -1;
+            this.stepChannel(ch, this.subLen[ch], at);
+            if (this.subAt[ch] < 0) continue;
           }
           const d = Math.ceil(this.subAt[ch]);
           if (d < n) n = d;
@@ -552,12 +593,17 @@ export class Engine {
     this.finishBlock(outL, outR, frames);
   }
 
-  /** Position in the current bar (16 steps), 0..1; 0 when stopped. */
+  /** Position in the current bar (of the time signature), 0..1; 0 when stopped. */
   get barPhase(): number {
     if (!this.playing || this.globalStep === 0) return 0;
     const inStep = Math.min(1, Math.max(0, (this.lastStepFrames - this.framesToStep) / this.lastStepFrames));
-    const pos = (this.globalStep - 1 + inStep) / 16;
+    const pos = (this.globalStep - 1 + inStep - this.barOrigin) / this.barLen;
     return pos - Math.floor(pos);
+  }
+
+  /** The bar's length in 16th steps (the time signature playing now). */
+  get barSteps(): number {
+    return this.barLen;
   }
 
   resetPeaks(): void {
@@ -570,35 +616,121 @@ export class Engine {
     return send >= 2 && send <= NUM_SENDS ? send - 1 : -1;
   }
 
-  /** Length in frames of the 16th step that starts at global step k (with swing). */
+  /** Length in frames of the 16th step that starts at global step k (with swing, in pairs from the bar line). */
   stepFrames(k: number): number {
     const base = (60 / this.bpm / 4) * this.sampleRate;
-    return k % 2 === 0 ? base * (1 + this.swing) : base * (1 - this.swing);
+    return this.barPos(k) % 2 === 0 ? base * (1 + this.swing) : base * (1 - this.swing);
+  }
+
+  /** Master step k's place in its bar (0 = a bar line). */
+  private barPos(k: number): number {
+    const p = (k - this.barOrigin) % this.barLen;
+    return p < 0 ? p + this.barLen : p;
+  }
+
+  /** TIME SIG: stopped at once, playing at the next bar line. */
+  private setMeter(value: number): void {
+    const m = Math.max(0, Math.min(METERS.length - 1, Math.round(value)));
+    if (this.playing) this.pendingMeter = m === this.meter ? -1 : m;
+    else this.applyMeter(m);
+  }
+
+  /** A time signature takes over: bars count from here, every pattern's playing steps follow it. */
+  private applyMeter(m: number): void {
+    this.pendingMeter = -1;
+    this.meter = m;
+    this.barLen = meterLength(m);
+    this.barOrigin = this.globalStep;
+    for (let k = 0; k < NUM_CHANNELS * NUM_PATTERNS; k++) this.refreshOn(k);
+    this.lfoSteps = this.lfoRateSteps();
+    this.lfoCycle.fill(-1);
+  }
+
+  /** Which steps of pattern slot k (ch * NUM_PATTERNS + pattern) play. */
+  private refreshOn(k: number): void {
+    const triplet = this.patternRate[k] > 1 && this.patternRate[k] < 2;
+    const base = k * MAX_STEPS;
+    for (let i = 0; i < MAX_STEPS; i++) {
+      const on = meterPlays(this.meter, i) && !(triplet && i % 4 === 3) ? 1 : 0;
+      this.stepOn[base + i] = on ^ this.stepFlip[base + i];
+    }
+  }
+
+  /** The first playing step at or after `from` (below len) of the pattern at `base`; -1 = none. */
+  private nextOn(base: number, from: number, len: number): number {
+    for (let i = from; i < len; i++) if (this.stepOn[base + i]) return i;
+    return -1;
+  }
+
+  /** Playing steps from `from` up to len. */
+  private onCount(base: number, from: number, len: number): number {
+    let n = 0;
+    for (let i = from; i < len; i++) n += this.stepOn[base + i];
+    return n;
+  }
+
+  /** The playing step k playing steps away from `from` (either way, round the loop). */
+  private walkOn(base: number, from: number, k: number, len: number): number {
+    const dir = k < 0 ? -1 : 1;
+    let i = from;
+    for (let n = Math.abs(k); n > 0; n--) {
+      let j = i;
+      for (let t = 0; t < len; t++) {
+        j = (j + dir + len) % len;
+        if (this.stepOn[base + j]) break;
+      }
+      i = j;
+    }
+    return i;
   }
 
   // ------------------------------------------------------------------ sequencing
 
   private fireStep(): void {
-    const stepLen = this.stepFrames(this.globalStep);
-    if (this.globalStep % 16 === 0 && this.notesPending) this.applyPendingNotes();
-    if (this.songOn && this.globalStep % 16 === 0) this.songBarLine();
+    const g = this.globalStep;
+    const atBar = this.barPos(g) === 0;
+    if (atBar && this.pendingMeter >= 0) this.applyMeter(this.pendingMeter);
+    const pos = this.barPos(g);
+    const stepLen = this.stepFrames(g);
+    if (atBar && this.notesPending) this.applyPendingNotes();
+    if (this.songOn && atBar) this.songBarLine();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       if (!this.current[ch]) continue;
-      // Quantised pattern switch at the channel's loop start, when the track steps now (a
-      // half-time track only on even master steps); the new pattern's speed from then on.
-      const due = this.patternRate[ch * NUM_PATTERNS + this.activePattern[ch]] <= 1 || this.globalStep % 2 === 0;
-      if (due && this.position[ch] === 0 && this.pendingPattern[ch] >= 0) this.landPattern(ch);
+      // Quantised pattern switch on a bar line: where the track starts its loop, or (its
+      // last loop started off the bar: drifting) at the next one, from its first step.
+      if (atBar && this.pendingPattern[ch] >= 0 && (this.loopStart[ch] || this.offGrid[ch])) {
+        if (!this.loopStart[ch]) {
+          this.position[ch] = 0;
+          this.loopStart[ch] = 1;
+          this.runLeft[ch] = 0;
+          this.rollLeft[ch] = 0;
+        }
+        this.landPattern(ch);
+      }
       const rate = this.patternRate[ch * NUM_PATTERNS + this.activePattern[ch]];
       if (rate < 1) {
         // Double time: a step now and one halfway through.
-        this.stepChannel(ch, stepLen / 2, this.globalStep);
+        this.stepChannel(ch, stepLen / 2, g);
         this.subLen[ch] = stepLen / 2;
         this.subAt[ch] = stepLen / 2;
-      } else if (rate > 1) {
+        this.subLeft[ch] = 1;
+        this.subPos[ch] = g + 0.5;
+      } else if (rate >= 2) {
         // Half time: a step on every other master step (on the beat grid), two steps long.
-        if (this.globalStep % 2 === 0) this.stepChannel(ch, stepLen + this.stepFrames(this.globalStep + 1), this.globalStep);
+        if (pos % 2 === 0) this.stepChannel(ch, stepLen + this.stepFrames(g + 1), g);
+      } else if (rate > 1) {
+        // Triplets: three steps in each beat (swing evens out over the beat).
+        if (pos % 4 === 0) {
+          const third = (stepLen + this.stepFrames(g + 1) + this.stepFrames(g + 2) + this.stepFrames(g + 3)) / 3;
+          this.stepChannel(ch, third, g);
+          this.subLen[ch] = third;
+          this.subAt[ch] = third;
+          this.subLeft[ch] = 2;
+          this.subPos[ch] = g + 4 / 3;
+          this.subStep[ch] = 4 / 3;
+        }
       } else {
-        this.stepChannel(ch, stepLen, this.globalStep);
+        this.stepChannel(ch, stepLen, g);
       }
     }
     this.lastStepFrames = this.stepFrames(this.globalStep);
@@ -618,9 +750,23 @@ export class Engine {
     this.chanRate[ch] = this.patternRate[pat];
     this.chanAt[ch] = at;
     this.chanCount[ch]++;
+    // Where this loop started: on a bar line, or off it (the track drifts).
+    if (this.loopStart[ch]) this.offGrid[ch] = at === Math.floor(at) && this.barPos(at) === 0 ? 0 : 1;
     const len = this.patternLength[pat];
-    const idx = this.position[ch] % len;
-    const s = pat * MAX_STEPS + idx;
+    const base = pat * MAX_STEPS;
+    // The next step that plays (skipped ones take no time); none at all: the track rests.
+    let idx = this.nextOn(base, this.position[ch] % len, len);
+    if (idx < 0) idx = this.nextOn(base, 0, len);
+    if (idx < 0) {
+      if (this.gateSteps[ch] > 0) this.releaseGate(ch);
+      this.rollLeft[ch] = 0;
+      this.runLeft[ch] = 0;
+      this.currentStep[ch] = -1;
+      this.position[ch] = 0;
+      this.loopStart[ch] = 1;
+      return;
+    }
+    const s = base + idx;
     const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0;
     // SLIDE: the held note was marked to slide, so it glides into this one (no release).
     const slideFrom = hit && this.sliding[ch] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
@@ -680,7 +826,9 @@ export class Engine {
     }
     this.skipStep[ch] = -1;
     this.currentStep[ch] = idx;
-    this.position[ch] = (idx + 1) % len;
+    const next = this.nextOn(base, idx + 1, len);
+    this.loopStart[ch] = next < 0 ? 1 : 0;
+    this.position[ch] = next < 0 ? 0 : next;
   }
 
   /** GATE below 1: the note's last step (just started, stepLen long) is cut short. */
@@ -703,7 +851,7 @@ export class Engine {
     }
     // The row's last bar: each track's sound glides over it to the next row's patch.
     if (this.songBar === this.songBars[this.songRow] - 1 && this.songJumpTo < 0) {
-      this.glideToRow((this.songRow + 1) % this.songLength, this.framesAhead(16));
+      this.glideToRow((this.songRow + 1) % this.songLength, this.framesAhead(this.barLen));
     }
   }
 
@@ -733,6 +881,7 @@ export class Engine {
       this.pendingPattern[ch] = -1;
       this.glideWait[ch] = 0;
       this.position[ch] = 0;
+      this.loopStart[ch] = 1;
       this.runLeft[ch] = 0;
       this.rollLeft[ch] = 0;
       if (p < 0) {
@@ -798,8 +947,9 @@ export class Engine {
     const forced = this.forceSlide[ch] === 1;
     let steps = 1;
     let last = vel;
-    for (let i = idx + 1; i < len; i++) {
-      const s = pat * MAX_STEPS + i;
+    const base = pat * MAX_STEPS;
+    for (let i = this.nextOn(base, idx + 1, len); i >= 0; i = this.nextOn(base, i + 1, len)) {
+      const s = base + i;
       if (this.stepActive[s] !== 1 || (!forced && this.stepSlide[s] !== 1)) break;
       steps++;
       last = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
@@ -1011,8 +1161,9 @@ export class Engine {
     if (cur < 0) return { index: 0, isNext: true, global: 0 };
     const heard = this.heardStep(ch);
     const k = round ? Math.round(heard) : Math.floor(heard);
-    const len = this.patternLength[ch * NUM_PATTERNS + this.activePattern[ch]];
-    return { index: (((cur + k) % len) + len) % len, isNext: k >= 1, global: this.chanCount[ch] + k };
+    const pat = ch * NUM_PATTERNS + this.activePattern[ch];
+    const index = this.walkOn(pat * MAX_STEPS, cur, k, this.patternLength[pat]);
+    return { index, isNext: k >= 1, global: this.chanCount[ch] + k };
   }
 
   /**
@@ -1246,9 +1397,20 @@ export class Engine {
     this.lfoY[ch] = y;
   }
 
+  /** The LFO cycle in 16ths: whole-bar rates last the time signature's bars. */
+  private lfoRateSteps(): number {
+    const r = LFO_RATES[this.lfoRate];
+    if (!r) return 4;
+    return r.name.endsWith('BAR') ? (r.steps * this.barLen) / 16 : r.steps;
+  }
+
   private setLfo(id: LfoId, value: number): void {
     switch (id) {
-      case 'rate': this.lfoSteps = LFO_RATES[Math.round(value)]?.steps ?? 4; this.lfoCycle.fill(-1); break;
+      case 'rate':
+        this.lfoRate = Math.round(value);
+        this.lfoSteps = this.lfoRateSteps();
+        this.lfoCycle.fill(-1);
+        break;
       case 'shape': this.lfoShape = Math.round(value); break;
       case 'morph': this.lfoMorph = value; break;
       case 'fm': this.lfoFm = value; break;
@@ -1313,9 +1475,9 @@ export class Engine {
 
   /** Frames until the next bar line (a bar line under a step away: the one after). */
   private framesToBar(): number {
-    const steps = (16 - (this.globalStep % 16)) % 16;
+    const steps = (this.barLen - this.barPos(this.globalStep)) % this.barLen;
     const f = this.framesAhead(steps);
-    return f < this.stepFrames(this.globalStep) ? this.framesAhead(steps + 16) : f;
+    return f < this.stepFrames(this.globalStep) ? this.framesAhead(steps + this.barLen) : f;
   }
 
   /** Write a whole patch for a pattern (values by param id; missing = the default). */
@@ -1386,9 +1548,13 @@ export class Engine {
       return;
     }
     this.pendingPattern[ch] = pat;
+    // Glide until it lands: the loop's end, on (or, drifting, rounded up to) a bar line.
     const cur = ch * NUM_PATTERNS + this.activePattern[ch];
-    const len = this.patternLength[cur];
-    this.startGlide(ch, pat, this.framesAhead(Math.ceil(((len - (this.position[ch] % len)) % len) * this.patternRate[cur])));
+    const left = this.loopStart[ch] ? 0 : this.onCount(cur * MAX_STEPS, this.position[ch], this.patternLength[cur]);
+    let ahead = Math.ceil(left * this.patternRate[cur] - 1e-6);
+    const p = this.barPos(this.globalStep + ahead);
+    if (p !== 0) ahead += this.barLen - p;
+    this.startGlide(ch, pat, this.framesAhead(ahead));
   }
 
   /** A switch waiting for the loop end happens. */
@@ -1490,6 +1656,7 @@ export class Engine {
       this.patternLength[k] = Math.max(1, Math.min(MAX_STEPS, next.length));
       this.patternRate[k] = speedSteps(next.speed);
       for (let i = 0; i < MAX_STEPS && i < next.steps.length; i++) this.writeStep(ch, pat, i, next.steps[i]);
+      this.refreshOn(k);
     }
   }
 
@@ -1521,6 +1688,10 @@ export class Engine {
     this.stepRest[s] = step.rest && !step.active ? 1 : 0;
     this.stepSlide[s] = step.slide && step.active ? 1 : 0;
     this.stepGate[s] = Math.max(1, Math.min(MAX_STEPS, Math.round(step.gate || 1)));
+    this.stepFlip[s] = step.flip ? 1 : 0;
+    const rate = this.patternRate[ch * NUM_PATTERNS + pattern];
+    const on = meterPlays(this.meter, index) && !(rate > 1 && rate < 2 && index % 4 === 3) ? 1 : 0;
+    this.stepOn[s] = on ^ this.stepFlip[s];
     const extra = step.active && step.extra ? Math.min(step.extra.length, STEP_NOTES - 1) : 0;
     this.stepExtraN[s] = extra;
     for (let k = 0; k < extra; k++) this.stepExtra[s * (STEP_NOTES - 1) + k] = step.extra![k];

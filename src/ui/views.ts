@@ -9,6 +9,8 @@ import { textWidth } from './font';
 export interface LaneCell {
   /** none = beyond the pattern length. */
   state: 'none' | 'off' | 'ghost' | 'normal' | 'accent';
+  /** The step does not play (time signature, triplet time, STEPS): a dot, its note hidden. */
+  skip?: boolean;
   /** Note letter for the selected pitched lane, '' otherwise. */
   note: string;
   /** Step has motion-recorded parameter locks. */
@@ -139,6 +141,10 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
     lane.cells.forEach((cell, i) => {
       const x = GRID_X + i * (CELL + CELL_GAP) + Math.floor(i / 4) * GROUP_GAP;
       if (cell.state === 'none') return;
+      if (cell.skip) {
+        s.rect(x + (CELL >> 1), y + (LANE_H >> 1), 1, 1, INK.dim);
+        return;
+      }
       const head = lane.playhead === i;
       if (cell.rest) {
         // Rest marker: a small square at the bottom.

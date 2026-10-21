@@ -54,7 +54,7 @@ export function createDefaultProject(): Project {
   for (const kind of ['pad', 'lead', 'pluck'] as const) of(kind).volume = 0.5;
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
-    fx1: defaultDrumBus(), lfo: defaultLfo(), song: { rows: [] }, sendWet: defaultSendWet(), sendInt: defaultSendInt(), sendComp: defaultSendComp(), channels,
+    fx1: defaultDrumBus(), lfo: defaultLfo(), song: { rows: [] }, meter: 0, sendWet: defaultSendWet(), sendInt: defaultSendInt(), sendComp: defaultSendComp(), channels,
   };
 }
 

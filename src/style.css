@@ -239,6 +239,9 @@ html, body {
 .step.head { box-shadow: inset 0 0 0 3px var(--hot); }
 .step.lit.head { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
 .step.off { opacity: 0.15; }
+/* A step that does not play (time signature, triplet time, STEPS): dark, dashed. */
+.step.skip { opacity: 0.3; border-style: dashed; }
+.step.skip.lit { opacity: 0.45; }
 /* A step a note is tied over: only the middle third lit, a line through the strip. */
 .step.lit.tie { --band: var(--accent); background: linear-gradient(to bottom, var(--key) 33%, var(--band) 33%, var(--band) 67%, var(--key) 67%); border-color: var(--key-edge); color: var(--ink-dim); }
 .step.lit.tie.ghost { --band: #22625a; }

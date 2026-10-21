@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { Engine, LOCK_SLOTS, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
 import { djCutoff, formatValue, toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
-import { DYNAMIC_VELOCITY, NUM_PATTERNS, editPattern, emptyPattern, initPatterns, lockProject, patchOf, type Project, type SoundKind } from '../src/engine/project';
+import { DYNAMIC_VELOCITY, METERS, NUM_PATTERNS, stepPlays, editPattern, emptyPattern, initPatterns, lockProject, patchOf, type Project, type SoundKind } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
@@ -3100,5 +3100,132 @@ describe('PAD chords on one step', () => {
     s.extra = [53, 57, 60, 64, 67, 71];
     const q = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
     expect(q.channels[5].patterns[0].steps[3].extra).toEqual([53, 57, 60, 64, 67]);
+  });
+});
+
+describe('v36: time signature, STEPS, triplet time', () => {
+  const bar = (SR * 60 * 4) / 120; // one 4/4 bar at 120 BPM
+  const sixteenth = bar / 16;
+  /** Track 1 alone, every step of pattern A on (note 36 + index), pattern B notes 80 + index. */
+  const setup = (opts: { meter?: number; speed?: 'triplet'; flips?: number[] } = {}) => {
+    const p = createDefaultProject();
+    p.bpm = 120;
+    p.meter = opts.meter ?? 0;
+    p.channels.forEach((c, i) => { c.mute = i !== 0; });
+    const pat = p.channels[0].patterns[0];
+    if (opts.speed) pat.speed = opts.speed;
+    for (let i = 0; i < 16; i++) Object.assign(pat.steps[i], { active: true, note: 36 + i });
+    for (const i of opts.flips ?? []) pat.steps[i].flip = true;
+    for (let i = 0; i < 16; i++) Object.assign(p.channels[0].patterns[1].steps[i], { active: true, note: 80 + i });
+    const e = new Engine(SR);
+    e.handleMessage({ type: 'loadProject', project: p });
+    const hits: { frame: number; note: number }[] = [];
+    let frame = 0;
+    const inst = (e as unknown as { current: { noteOn: (...a: unknown[]) => void }[] }).current[0];
+    const orig = inst.noteOn.bind(inst);
+    inst.noteOn = (...a: unknown[]) => { hits.push({ frame, note: a[0] as number }); orig(...a); };
+    const L = new Float32Array(128), R = new Float32Array(128);
+    const run = (frames: number) => { for (let k = 0; k < Math.round(frames / 128); k++) { e.process(L, R, 128); frame += 128; } };
+    return { e, hits, run };
+  };
+  const meter = (name: string) => METERS.findIndex((m) => m.name === name);
+
+  it('3/4: a bar is 12 steps; the last group of the strip is dark and takes no time', () => {
+    const { e, hits, run } = setup({ meter: meter('3/4') });
+    e.handleMessage({ type: 'transport', playing: true });
+    run(24 * sixteenth - 64);
+    expect(hits.map((h) => h.note - 36)).toEqual([...Array(12).keys(), ...Array(12).keys()]);
+    hits.forEach((h, i) => expect(Math.abs(h.frame - i * sixteenth)).toBeLessThanOrEqual(128));
+    expect(e.barSteps).toBe(12);
+  });
+
+  it('7/8: groups of 4 + 3 + 4 + 3 (steps 8 and 16 of the strip dark)', () => {
+    const { e, hits, run } = setup({ meter: meter('7/8') });
+    e.handleMessage({ type: 'transport', playing: true });
+    run(14 * sixteenth - 64);
+    expect(hits.map((h) => h.note - 36)).toEqual([0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]);
+  });
+
+  it('triplet time: the 4th step of each group dark, three steps to each beat', () => {
+    const { e, hits, run } = setup({ speed: 'triplet' });
+    e.handleMessage({ type: 'transport', playing: true });
+    run(bar - 64);
+    expect(hits.map((h) => h.note - 36)).toEqual([0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]);
+    hits.forEach((h, i) => expect(Math.abs(h.frame - (i * bar) / 12)).toBeLessThanOrEqual(128));
+  });
+
+  it('STEPS: a step switched off takes no time, so the track drifts; switched on in 3/4 it plays', () => {
+    const { e, hits, run } = setup({ flips: [15] });
+    e.handleMessage({ type: 'transport', playing: true });
+    run(2 * bar - 64);
+    expect(hits.length).toBe(32);
+    expect(hits[15].note).toBe(36); // the second loop starts a step early
+    const t = setup({ meter: meter('3/4'), flips: [13] });
+    t.e.handleMessage({ type: 'transport', playing: true });
+    t.run(13 * sixteenth - 64);
+    expect(t.hits.map((h) => h.note - 36)).toEqual([...Array(12).keys(), 13]);
+  });
+
+  it('a drifting track switches pattern on the next bar line, from its first step', () => {
+    const { e, hits, run } = setup({ flips: [15] });
+    e.handleMessage({ type: 'transport', playing: true });
+    run(bar + 4 * sixteenth); // its loop started off the bar line (step 16 of the bar)
+    e.handleMessage({ type: 'selectPattern', channel: 0, pattern: 1, immediate: false });
+    run(bar);
+    const first = hits.find((h) => h.note >= 80)!;
+    expect(Math.abs(first.frame - 2 * bar)).toBeLessThanOrEqual(128);
+    expect(first.note).toBe(80);
+  });
+
+  it('a track in step with the bar switches at its loop end (a bar line)', () => {
+    const { e, hits, run } = setup();
+    e.handleMessage({ type: 'transport', playing: true });
+    run(4 * sixteenth);
+    e.handleMessage({ type: 'selectPattern', channel: 0, pattern: 1, immediate: false });
+    run(bar);
+    const first = hits.find((h) => h.note >= 80)!;
+    expect(Math.abs(first.frame - bar)).toBeLessThanOrEqual(128);
+  });
+
+  it('TIME SIG while playing changes at the next bar line', () => {
+    const { e, hits, run } = setup();
+    e.handleMessage({ type: 'transport', playing: true });
+    run(4 * sixteenth);
+    e.handleMessage({ type: 'setGlobal', id: 'meter', value: meter('3/4') });
+    expect(e.barSteps).toBe(16);
+    run(bar + 8 * sixteenth - 512);
+    expect(e.barSteps).toBe(12);
+    expect(hits.map((h) => h.note - 36)).toEqual([...Array(16).keys(), ...Array(12).keys()]);
+  });
+
+  it('live recording lands on a playing step (dark ones skipped)', () => {
+    const { e, run } = setup({ meter: meter('7/8') });
+    const got: number[] = [];
+    e.onRecorded = (m) => { if (m.type === 'recordedNote') got.push(m.index); };
+    e.handleMessage({ type: 'transport', playing: true });
+    const look = (e as unknown as { latency: number }).latency;
+    run(Math.round((7 * sixteenth + look) / 128) * 128); // the 8th played step = strip step 9
+    e.handleMessage({ type: 'recordNote', channel: 0, note: 40, velocity: 0.8, accent: false });
+    expect(got[0]).toBe(8);
+  });
+
+  it('saves the time signature, STEPS and triplet time', () => {
+    const p = createDefaultProject();
+    p.meter = meter('7/8');
+    const pat = p.channels[4].patterns[2];
+    pat.speed = 'triplet';
+    pat.steps[5].flip = true;
+    const q = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
+    expect(q.meter).toBe(p.meter);
+    expect(q.channels[4].patterns[2].speed).toBe('triplet');
+    expect(q.channels[4].patterns[2].steps.map((s, i) => (s.flip ? i : -1)).filter((i) => i >= 0)).toEqual([5]);
+    expect(fromStored({ ...toStored(createDefaultProject()), meter: undefined })!.meter).toBe(0);
+  });
+
+  it('stepPlays: meter, triplet and flip together', () => {
+    expect(stepPlays(meter('3/4'), undefined, 12, false)).toBe(false);
+    expect(stepPlays(meter('3/4'), undefined, 12, true)).toBe(true);
+    expect(stepPlays(0, 'triplet', 19, false)).toBe(false);
+    expect(stepPlays(0, 'triplet', 18, true)).toBe(false);
   });
 });

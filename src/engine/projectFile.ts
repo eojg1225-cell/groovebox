@@ -33,7 +33,7 @@ import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, CHORD_NAMES_V5, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
 import { DJ_DEAD } from './params';
-import type { InstrumentKind, PatternSpeed } from './project';
+import { METERS, type InstrumentKind, type PatternSpeed } from './project';
 import { LFO_RATES, LFO_RATES_V17, LFO_RATES_V24, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 export const FILE_FORMAT = 'groovebox-project';
@@ -69,14 +69,25 @@ export interface StoredPatch {
 
 export interface StoredPattern {
   len: number;
-  /** v34: half / double time (absent = normal). */
-  sp?: 'half' | 'double';
+  /** v34: half / double time, v36 triplet (absent = normal). */
+  sp?: StoredSpeed;
   steps: StoredStep[];
+  /** v36: STEPS, the steps switched the other way from the time signature. */
+  f?: number[];
   /** v31: the pattern's own patch (not written for the active pattern: that is `sounds`). */
   patch?: StoredPatch;
   /** v31: the last SAVEd notes / patch, only while they differ (edited since). */
-  saved?: { len: number; sp?: 'half' | 'double'; steps: StoredStep[] };
+  saved?: { len: number; sp?: StoredSpeed; steps: StoredStep[]; f?: number[] };
   savedPatch?: StoredPatch;
+}
+
+type StoredSpeed = Exclude<PatternSpeed, 'normal'>;
+const STORED_SPEEDS: readonly unknown[] = ['half', 'double', 'triplet'];
+
+/** The flipped steps' indices (STEPS), or undefined when none. */
+function storeFlips(steps: Step[]): number[] | undefined {
+  const f = steps.flatMap((s, i) => (s.flip ? [i] : []));
+  return f.length ? f : undefined;
 }
 
 function storeSteps(steps: Step[]): StoredStep[] {
@@ -101,11 +112,15 @@ function storePatch(p: Patch): StoredPatch {
 
 function storePattern(c: ChannelState, pat: Pattern, p: number): StoredPattern {
   const out: StoredPattern = { len: pat.length, steps: storeSteps(pat.steps) };
-  if (pat.speed === 'half' || pat.speed === 'double') out.sp = pat.speed;
+  if (pat.speed && pat.speed !== 'normal') out.sp = pat.speed;
+  const f = storeFlips(pat.steps);
+  if (f) out.f = f;
   if (c.instrument !== 'none' && p !== c.activePattern) out.patch = storePatch(patchOf(c, p));
   if (pat.notesDirty && pat.savedNotes) {
     out.saved = { len: pat.savedNotes.length, steps: storeSteps(pat.savedNotes.steps) };
-    if (pat.savedNotes.speed === 'half' || pat.savedNotes.speed === 'double') out.saved.sp = pat.savedNotes.speed;
+    if (pat.savedNotes.speed && pat.savedNotes.speed !== 'normal') out.saved.sp = pat.savedNotes.speed;
+    const sf = storeFlips(pat.savedNotes.steps);
+    if (sf) out.saved.f = sf;
   }
   if (pat.patchDirty && pat.savedPatch) out.savedPatch = storePatch(pat.savedPatch);
   return out;
@@ -147,6 +162,8 @@ export interface StoredProject {
   sendWet: number[][];
   sendInt: number[][];
   sendComp?: Record<string, number>[];
+  /** v36: time signature (index into METERS; absent = 4/4). */
+  meter?: number;
   channels: StoredChannel[];
 }
 
@@ -157,6 +174,7 @@ export function toStored(p: Project): StoredProject {
     bpm: p.bpm,
     swing: p.swing,
     master: p.master,
+    meter: p.meter,
     fx1: { ...p.fx1 },
     lfo: { ...p.lfo },
     song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })) },
@@ -266,7 +284,10 @@ function liveIdValid(kind: InstrumentKind, id: string): boolean {
 /** A stored pattern's length and notes into `pat` (its steps start empty). */
 function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, instrument: InstrumentKind, version: number): void {
   pat.length = Math.round(num(sp.len ?? sp.length, pat.length, 1, MAX_STEPS));
-  if (sp.sp === 'half' || sp.sp === 'double') pat.speed = sp.sp;
+  if (STORED_SPEEDS.includes(sp.sp)) pat.speed = sp.sp as StoredSpeed;
+  if (Array.isArray(sp.f)) {
+    for (const i of sp.f) if (typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < MAX_STEPS) pat.steps[i].flip = true;
+  }
   for (const s of readSteps(sp)) {
     const step = pat.steps[s.i];
     if (s.rest) {
@@ -575,6 +596,7 @@ export function fromStored(data: unknown): Project | null {
   p.bpm = num(data.bpm, p.bpm, BPM_MIN, BPM_MAX);
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
+  p.meter = Math.round(num(data.meter, 0, 0, METERS.length - 1));
   const version = num(data.version, 0);
   // v5 had one AMOUNT per effect: it becomes WET, with INTENSITY at the default.
   // Before v7 rows 0-1 (dub delay, reverb) are today's FX 2 and FX 3; the dirt send is gone.

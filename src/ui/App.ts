@@ -50,7 +50,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockPattern, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
@@ -96,7 +96,7 @@ const NAME_SETS: readonly [string, string][] = [
 /** PLAY's pages: SOUND (live knobs) and MIX. */
 const PLAY_PAGES = 2;
 /** After the step count on the screen: double time X2, half time /2. */
-const SPEED_MARK = { normal: '', double: ' X2', half: ' /2' } as const;
+const SPEED_MARK = { normal: '', double: ' X2', half: ' /2', triplet: ' T' } as const;
 
 /** What a drum-lane paint stroke does to each step it reaches. */
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
@@ -247,6 +247,11 @@ export class App {
   /** BAR held: ◀ / ▶ move the strip's bar; released unused = next bar. */
   private barHeld = false;
   private barUsed = false;
+  /** STEPS held (+ ◀ / ▶ = pattern length; a tap on release = STEPS mode on / off). */
+  private lenHeld = false;
+  private lenUsed = false;
+  /** STEPS mode (RECORD / PLAY): the strip shows which steps play; a tap switches one on / off. */
+  private stepsMode = false;
   /** Note sounding from a ◀ / ▶ step preview, released after the step's length. */
   private preview: { channel: number; note: number; timer: ReturnType<typeof setTimeout> } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
@@ -347,6 +352,7 @@ export class App {
    */
   private get keyboard(): boolean {
     if (this.clearHeld && this.mode !== 'design') return false;
+    if (this.stepsMode) return false;
     if (this.placing && this.mode === 'record') return false;
     return !stepsOnStrip(this.channel.instrument) || this.mode !== 'record';
   }
@@ -453,10 +459,10 @@ export class App {
     const head = this.status?.steps[ch] ?? -1;
     // Other lanes, PLAY mode and live recording follow the playhead's 16-step block.
     // (Placing a flag while recording keeps the bar chosen with FUNC + ◀ / ▶ instead.)
-    const following = ch !== this.selected || this.mode === 'play' || (this.recording && !this.placing);
+    const following = ch !== this.selected || ((this.mode === 'play' || (this.recording && !this.placing)) && !this.stepsMode);
     let page: number;
     if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
-    else if (!stepsOnStrip(c.instrument) && this.mode === 'record') {
+    else if (!stepsOnStrip(c.instrument) && this.mode === 'record' && !this.stepsMode) {
       // Step entry: the cursor's block, or while a note is being tied, the block its end is in
       // (a tie runs on past the bar line into the next block, and round past the loop end).
       const at = this.entry ? (this.entry.index + c.patterns[c.activePattern].steps[this.entry.index].gate - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
@@ -855,6 +861,15 @@ export class App {
         if (!this.barUsed) this.changeBar(1);
         this.refreshPanel();
       }
+      if (id === 'len' && this.lenHeld) {
+        // STEPS tapped (no ◀ / ▶ meanwhile): STEPS mode on / off.
+        this.lenHeld = false;
+        if (!this.lenUsed) {
+          this.stepsMode = !this.stepsMode;
+          this.flash(this.stepsMode ? 'STEPS: TAP A STEP ON / OFF' : 'STEPS OFF');
+        }
+        this.refreshPanel();
+      }
       if (id === 'copy') {
         this.copyHeld = false;
         if (!this.copyUsed) this.flash('HOLD COPY + TRACK / A-D');
@@ -920,6 +935,7 @@ export class App {
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
       this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
+      if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
       // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY.
       if (this.mode !== 'record') { this.ring = false; this.slideArm = false; this.dynamic = 'normal'; }
       if (this.mode !== 'play') {
@@ -1000,7 +1016,9 @@ export class App {
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
       this.dynamic = this.dynamic === d ? 'normal' : d;
     } else if (id === 'len') {
-      this.cycleLength();
+      // STEPS: held for ◀ / ▶ (length), a tap (on release) = STEPS mode.
+      this.lenHeld = true;
+      this.lenUsed = false;
     } else if (id === 'steppage' && this.func) {
       // FUNC + BAR: the selected track's pattern in normal -> double -> half time.
       this.cycleSpeed();
@@ -1014,6 +1032,10 @@ export class App {
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
+    } else if ((id === 'cur-' || id === 'cur+') && this.lenHeld) {
+      // STEPS + ◀ / ▶: the pattern one bar shorter / longer.
+      this.changeLength(id === 'cur+' ? 1 : -1);
+      this.lenUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
       // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip.
       this.changeBar(id === 'cur+' ? 1 : -1);
@@ -1125,10 +1147,12 @@ export class App {
     this.glideStart = now;
     if (this.playing && this.status?.playing) {
       // Land on the next bar line (if it is under a step away, the one after).
-      const bar = (60000 / this.project.bpm) * 4;
+      // The time signature's bar, whatever each track's STEPS: every track lands together.
+      const steps = this.status.barSteps ?? 16;
+      const bar = (60000 / this.project.bpm / 4) * steps;
       const phase = this.status.barPhase + (now - this.statusAt) / bar;
       let left = (1 - (phase - Math.floor(phase))) * bar;
-      if (left < bar / 16) left += bar;
+      if (left < bar / steps) left += bar;
       this.glideEnd = now + left;
       this.flash(`RESET AT NEXT BAR${kept}`);
     } else {
@@ -1344,6 +1368,18 @@ export class App {
     if (this.clearHeld && this.mode !== 'design') {
       const index = this.visiblePage(ch) * 16 + button;
       if (index < this.pattern.length) this.clearStep(index);
+      return;
+    }
+    if (this.stepsMode) {
+      // STEPS: switch the step on / off (its note stays, unheard while it is off).
+      const index = this.visiblePage(ch) * 16 + button;
+      if (index >= this.pattern.length) return;
+      const step = this.pattern.steps[index];
+      if (step.flip) delete step.flip;
+      else step.flip = true;
+      this.sendStep(index, step);
+      this.flash(`STEP ${index + 1} ${this.plays(index) ? 'ON' : 'OFF'}`);
+      this.save();
       return;
     }
     // Keyboard track placing RING / SLIDE / ACCENT / GHOST: a tap puts the flag on / off
@@ -1642,6 +1678,7 @@ export class App {
     if (this.entry && (this.entry.chord ? this.heldNotes.size === 0 : this.entry.button === button)) {
       const len = this.pattern.length;
       this.cursor[this.selected] = (this.entry.index + this.pattern.steps[this.entry.index].gate) % len;
+      if (!this.plays(this.cursor[this.selected])) this.moveCursor(1); // past dark steps
       this.entry = null;
       this.refreshPanel();
     }
@@ -1670,10 +1707,16 @@ export class App {
     this.save();
   }
 
-  private cycleLength(): void {
+  /** STEPS + ◀ / ▶: the pattern's length one bar (16 steps) down / up. */
+  private changeLength(delta: number): void {
     const len = this.pattern.length;
-    const next = STEP_LENGTHS.find((l) => l > len) ?? STEP_LENGTHS[0];
+    const next = delta > 0 ? STEP_LENGTHS.find((l) => l > len) : [...STEP_LENGTHS].reverse().find((l) => l < len);
+    if (next === undefined) {
+      this.flash(`${len} STEPS`);
+      return;
+    }
     this.pattern.length = Math.min(next, MAX_STEPS);
+    this.flash(`${this.pattern.length} STEPS`);
     this.pattern.notesDirty = true;
     this.send({
       type: 'setPatternLength', channel: this.selected, pattern: this.channel.activePattern, length: this.pattern.length,
@@ -1720,7 +1763,7 @@ export class App {
       this.flash('ONE BAR PATTERN');
       return;
     }
-    if (this.mode === 'play' || (this.recording && !this.placing)) {
+    if ((this.mode === 'play' || (this.recording && !this.placing)) && !this.stepsMode) {
       this.flash('THE STRIP FOLLOWS THE PLAYHEAD');
       return;
     }
@@ -1732,9 +1775,22 @@ export class App {
     this.flash(`BAR ${page + 1}/${pages}`);
   }
 
+  /** Step entry: the cursor moves to the next / previous step that plays (dark ones skipped). */
   private moveCursor(delta: number): void {
     const len = this.pattern.length;
-    this.cursor[this.selected] = (this.cursor[this.selected] + delta + len) % len;
+    let at = this.cursor[this.selected];
+    for (let t = 0; t < len; t++) {
+      at = (at + delta + len) % len;
+      if (this.plays(at)) break;
+    }
+    this.cursor[this.selected] = at;
+  }
+
+  /** Whether step `index` of the selected track's pattern plays (time signature, triplets, STEPS). */
+  private plays(index: number, ch = this.selected): boolean {
+    const c = this.project.channels[ch];
+    const pat = c.patterns[c.activePattern];
+    return stepPlays(this.project.meter, pat.speed, index, pat.steps[index]?.flip);
   }
 
   private clampCursor(): void {
@@ -2105,13 +2161,15 @@ export class App {
     this.panel.setButtonLit('dyn:ghost', dyn === 'ghost');
     this.panel.setButtonEnabled('ring', rec || play);
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
+    if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
+    this.panel.setButtonLit('len', this.stepsMode);
     // BAR: not where the strip follows the playhead (PLAY, live recording unless placing).
     // FUNC + BAR (half / double time) works in every mode but SONG.
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.func || (this.mode !== 'play' && !(this.recording && !this.placing) && this.pageCount() > 1));
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.func || ((this.stepsMode || (this.mode !== 'play' && !(this.recording && !this.placing))) && this.pageCount() > 1));
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
-    this.panel.setStripSlide((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design'));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || !!this.projMenu);
+    this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design')));
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || !!this.projMenu);
     this.panel.setButtonEnabled('rest', rec);
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
@@ -2213,7 +2271,7 @@ export class App {
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding);
         this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
-        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
       }
     } else {
       // RING or SLIDE / ROLL armed (or painting): every hit is dim (like a ghost note) and
@@ -2227,16 +2285,20 @@ export class App {
         const index = page * 16 + i;
         const off = index >= pattern.length;
         const own = pattern.steps[index];
+        // Dark: a step that does not play (time signature, triplet time, STEPS).
+        const dark = !off && !this.plays(index);
+        this.panel.setButtonFlag(id, 'skip', dark);
         const cover = pitched && !off && !own.active ? coveringNote(pattern.steps, pattern.length, index) : null;
         const tie = !!cover && cover[1] > 0;
         const step = tie ? pattern.steps[cover![0]] : own;
         this.panel.setButtonFlag(id, 'tie', tie);
-        const d = step.active && !off ? stepDynamic(step) : null;
+        const d = step.active && !off && !dark && !this.stepsMode ? stepDynamic(step) : null;
         const flagged = d !== null && (view === 'ring' ? !!step.ring : view === 'slide' ? !!step.slide : true);
         const roll = d !== null && step.slide && isDrum(c.instrument) ? this.rollHits(c) : 0;
         this.panel.setButtonText(id, roll ? `${index + 1}<small>×${roll}</small>` : String(index + 1));
         this.panel.setButtonFlag(id, 'off', off);
-        this.panel.setButtonFlag(id, 'lit', d !== null);
+        // STEPS mode: lit = the step plays.
+        this.panel.setButtonFlag(id, 'lit', this.stepsMode ? !off && !dark : d !== null);
         this.panel.setButtonFlag(id, 'accent', !view && d === 'accent');
         this.panel.setButtonFlag(id, 'ghost', view ? d !== null && !flagged : d === 'ghost');
         this.panel.setButtonFlag(id, 'head', head === index);
@@ -2249,7 +2311,7 @@ export class App {
 
     // With FUNC: the pattern's speed (FUNC + BAR changes it).
     const speed = this.pattern.speed ?? 'normal';
-    this.panel.setButtonText('steppage', this.func ? `TIME<small>${speed === 'normal' ? 'NORMAL' : speed === 'double' ? 'DOUBLE' : 'HALF'}</small>` : `BAR<small>${page + 1}/${this.pageCount()}</small>`);
+    this.panel.setButtonText('steppage', this.func ? `TIME<small>${speed.toUpperCase()}</small>` : `BAR<small>${page + 1}/${this.pageCount()}</small>`);
 
     this.updatePatternButtons(now);
     if (this.touchedKnob >= 0 && now - this.touchedAt > 4000) this.touchedKnob = -1;
@@ -2328,8 +2390,10 @@ export class App {
       for (let k = 0; k < 16; k++) {
         const idx = page * 16 + k;
         const step = pat.steps[idx];
+        const skip = idx < pat.length && !stepPlays(this.project.meter, pat.speed, idx, step.flip);
         cells.push({
           state: idx >= pat.length ? 'none' : step.active ? stepDynamic(step) : 'off',
+          skip,
           tie: !!tied?.[idx],
           note: pitched && i === ch && step.active ? NOTE_NAMES[step.note % 12] : '',
           locked: !!step.locks && Object.keys(step.locks).length > 0,
@@ -2353,7 +2417,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / FX = PATTERN' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
+      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / FX = PATTERN' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
