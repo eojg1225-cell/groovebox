@@ -97,7 +97,7 @@ type ClaudeRuntime = { use(name: string): Promise<unknown> };
 let db: Db | null = null;
 let syncing: Promise<void> | null = null;
 let writes: Promise<void> = Promise.resolve();
-/** Called when a sync changed the local slots (to redraw). */
+/** Called when a sync copied anything (either way). */
 let changed: (() => void) | null = null;
 
 function readBase(): (string | null)[] {
@@ -196,7 +196,8 @@ async function runSync(): Promise<void> {
       }
     }
   }
-  if (any) changed?.();
+  // Something was copied either way: say so (uploads included).
+  if (any || actions.length > 0) changed?.();
 }
 
 /** Merge the local slots with the cloud's (no-op outside claude.ai; one at a time). */
