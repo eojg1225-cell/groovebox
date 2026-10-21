@@ -1,8 +1,8 @@
 /**
  * Bass TIMBRE sweep test (not part of GrooveAccess): the BASS track's TIMBRE / INTENSITY on the
  * real engine. NOW = the app (SINE SUB, SOLID, ACID, GROWL, FM 2:3; FM ratio 1 : 2 until the
- * carrier switches into FM 2:3). PROPOSED = GROWL and SOLID swapped, each sound on its own
- * root-locked carrier : modulator ratio, stepping halfway between neighbours across the knob.
+ * carrier switches into FM 2:3). PROPOSED = GROWL and SOLID swapped (SINE SUB, GROWL, ACID,
+ * SOLID, FM 2:3), the FM ratio stepping 1 : 2 -> 2 : 3 -> 3 : 2 in three even stretches of the knob.
  */
 import workletUrl from './worklet.ts?worker&url';
 import { createDefaultProject } from '../../src/engine/defaultProject';
@@ -16,13 +16,18 @@ const SPECS = INSTRUMENTS.bass.params;
 type Rule = 'now' | 'step';
 const NOW_ANCHORS = MACROS.bass.anchors;
 const byName = (n: string) => NOW_ANCHORS.find((a) => a.name === n) as Anchor;
+/** PROPOSED: today's order with GROWL and SOLID swapped. */
+const PROPOSED_ORDER = ['SINE SUB', 'GROWL', 'ACID', 'SOLID', 'FM 2:3'];
 /**
- * PROPOSED: GROWL and SOLID swapped; each sound's own carrier : modulator, every pair with its
- * lowest partial on the note (and none at 0 Hz): 1:2 odd harmonics, 1:3 and 2:3 all but every
- * third, 3:4 and 3:2 odd harmonics again, brighter as the carrier rises.
+ * The FM ratio (carrier : modulator) steps across the whole knob in three even stretches, each
+ * with its lowest partial on the note.
  */
-const PROPOSED: [string, number, number][] = [['SINE SUB', 1, 2], ['GROWL', 1, 3], ['SOLID', 2, 3], ['ACID', 3, 4], ['FM 2:3', 3, 2]];
-const PROPOSED_ANCHORS: Anchor[] = PROPOSED.map(([n, c, m]) => ({ name: n, values: { ...byName(n).values, cratio: c, fmratio: m } }));
+const LADDER: [number, number][] = [[1, 2], [2, 3], [3, 2]];
+const ladderAt = (t: number) => LADDER[Math.min(LADDER.length - 1, Math.floor(t * LADDER.length))];
+const PROPOSED_ANCHORS: Anchor[] = PROPOSED_ORDER.map((n, i) => {
+  const [c, m] = ladderAt(i / (PROPOSED_ORDER.length - 1));
+  return { name: n, values: { ...byName(n).values, cratio: c, fmratio: m } };
+});
 const anchorsFor = (r: Rule) => (r === 'now' ? NOW_ANCHORS : PROPOSED_ANCHORS);
 const namesFor = (r: Rule) => anchorsFor(r).map((a) => a.name);
 
@@ -34,12 +39,11 @@ function sound(): Record<string, number> {
   let macro: Record<string, number>;
   if (state.rule === 'now') macro = macroSound('bass', state.timbre, state.intensity, SPECS);
   else {
-    // The same TIMBRE / INT rules over the proposed sounds; the ratio pair switches (carrier
-    // and modulator together) halfway between neighbours, so it never leaves the note.
+    // The same TIMBRE / INT rules over the proposed order; the ratio pair (carrier and
+    // modulator together) follows the ladder, so it never leaves the note.
     bass.anchors = PROPOSED_ANCHORS;
     try { macro = macroSound('bass', state.timbre, state.intensity, SPECS); } finally { bass.anchors = NOW_ANCHORS; }
-    const t = state.timbre * (PROPOSED.length - 1);
-    const [, c, m] = PROPOSED[Math.min(PROPOSED.length - 1, Math.round(t))];
+    const [c, m] = ladderAt(state.timbre);
     macro.cratio = c;
     macro.fmratio = m;
   }
@@ -174,7 +178,7 @@ async function toggleAuto(): Promise<void> {
 
 /** The sound names under TIMBRE (in the chosen rule's order) with their ratio. */
 function marks(): void {
-  const list = state.rule === 'now' ? NOW_ANCHORS.map((a): [string, number, number] => [a.name, a.values.cratio ?? 1, a.values.fmratio ?? 2]) : PROPOSED;
+  const list = anchorsFor(state.rule).map((a): [string, number, number] => [a.name, a.values.cratio ?? 1, a.values.fmratio ?? 2]);
   $('names').innerHTML = list.map(([n, c, m], i) => `<button type="button" tabindex="-1" data-i="${i}" style="left:${(i / (list.length - 1)) * 100}%">${n}<small>${c}:${m}</small></button>`).join('');
 }
 $('names').addEventListener('click', (e) => {
