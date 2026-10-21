@@ -222,6 +222,8 @@ export class App {
   private copyUsed = false;
   /** Channel button held down (+ A-D = its pattern; selected on release if A-D was not used). */
   private heldTrack = -1;
+  /** Every channel button down now (held + RESET = those tracks keep their state). */
+  private readonly heldChannels = new Set<number>();
   /** SOLO per track (not saved): any on mutes every track that is not. */
   private readonly soloed: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private heldUsed = false;
@@ -806,6 +808,10 @@ export class App {
     if (e.type !== 'button') return;
     const id = e.id;
     let m: RegExpExecArray | null;
+    if ((m = /^ch(\d)$/.exec(id))) {
+      if (e.pressed) this.heldChannels.add(Number(m[1]) - 1);
+      else this.heldChannels.delete(Number(m[1]) - 1);
+    }
     if (id === 'func') return this.onFunc(e.pressed);
     if (this.projMenu && this.onProjectMenu(id, e.pressed)) {
       this.refreshPanel();
@@ -1046,9 +1052,13 @@ export class App {
    */
   private startReset(): void {
     const now = performance.now();
+    // Tracks held down sit it out (and their buttons no longer select on release).
+    const keep = new Set(this.heldChannels);
+    if (keep.size > 0) this.heldUsed = true;
+    const kept = keep.size > 0 ? ` (KEPT ${[...keep].sort().map((ch) => ch + 1).join(' ')})` : '';
     if (now < this.resetAgainUntil) {
       this.resetAgainUntil = 0;
-      this.resetNotes();
+      this.resetNotes(keep, kept);
       return;
     }
     const openId = projectStore.openId();
@@ -1063,7 +1073,7 @@ export class App {
     };
     this.project.channels.forEach((c, ch) => {
       const s = saved.channels[ch];
-      if (!s) return;
+      if (!s || keep.has(ch)) return;
       for (const spec of MIX_PARAMS) {
         fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[MIX_FIELD[spec.id as MixId]] ?? spec.defaultValue);
       }
@@ -1077,7 +1087,7 @@ export class App {
     // Patches: each edited one back to its saved version (the engine glides the one playing).
     let patches = 0;
     this.project.channels.forEach((c, ch) => {
-      if (c.instrument === 'none') return;
+      if (c.instrument === 'none' || keep.has(ch)) return;
       for (let p = 0; p < NUM_PATTERNS; p++) {
         const pat = c.patterns[p];
         if (!pat.patchDirty || !pat.savedPatch) continue;
@@ -1087,7 +1097,7 @@ export class App {
         this.send({ type: 'setPatch', channel: ch, pattern: p, sound: { ...patchOf(c, p).sound }, glide: true });
       }
     });
-    const notesToo = this.project.channels.some((c) => c.patterns.some((pat) => pat.notesDirty));
+    const notesToo = this.project.channels.some((c, ch) => !keep.has(ch) && c.patterns.some((pat) => pat.notesDirty));
     for (const id of Object.keys(LFO_PARAMS) as LfoId[]) fromTarget(this.paramTarget(this.selected, `lfo:${id}`), saved.lfo[id]);
     for (const t of this.sendTargets(0)) if (t?.key) fromTarget(t, saved.fx1[t.key.slice(4)] ?? t.spec.defaultValue);
     for (const k of [1, 2]) {
@@ -1120,10 +1130,10 @@ export class App {
       let left = (1 - (phase - Math.floor(phase))) * bar;
       if (left < bar / 16) left += bar;
       this.glideEnd = now + left;
-      this.flash('RESET AT NEXT BAR');
+      this.flash(`RESET AT NEXT BAR${kept}`);
     } else {
       this.glideEnd = now;
-      this.flash('RESET');
+      this.flash(`RESET${kept}`);
     }
     if (notesToo) this.flash('TAP AGAIN: NOTES TOO');
     this.resetLitUntil = this.glideEnd;
@@ -1147,10 +1157,10 @@ export class App {
   }
 
   /** RESET tapped again: every pattern's unsaved notes go back to its saved ones (at the bar line). */
-  private resetNotes(): void {
+  private resetNotes(keep: ReadonlySet<number>, kept: string): void {
     let n = 0;
     this.project.channels.forEach((c, ch) => c.patterns.forEach((pat, p) => {
-      if (!pat.notesDirty || !pat.savedNotes) return;
+      if (!pat.notesDirty || !pat.savedNotes || keep.has(ch)) return;
       const saved = cloneNotes(pat.savedNotes);
       pat.length = saved.length;
       pat.steps = saved.steps;
@@ -1163,7 +1173,7 @@ export class App {
     this.entry = null;
     this.clampCursor();
     this.save();
-    this.flash(n === 0 ? 'NOTES ALREADY SAVED' : this.playing ? 'NOTES RESET AT NEXT BAR' : 'NOTES RESET');
+    this.flash(n === 0 ? 'NOTES ALREADY SAVED' : (this.playing ? 'NOTES RESET AT NEXT BAR' : 'NOTES RESET') + kept);
   }
 
   /** Move the RESET glides on (called every frame). */
