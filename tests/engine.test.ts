@@ -163,11 +163,12 @@ describe('instruments', () => {
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
     expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
-    // BASS / PLUCK: one envelope for both oscillators; BASS has its own FLT ATK / DEC (v38),
-    // SIDECHAIN DUCK / DUCK REL on FUNC column 7.
-    expect(INSTRUMENTS.bass.layout.slice(1, 3)).toEqual(['attack', 'sustain']);
-    expect([INSTRUMENTS.bass.layout[4], INSTRUMENTS.bass.layout[12]]).toEqual(['fattack', 'fdecay']);
-    expect([INSTRUMENTS.bass.funcLayout[6], INSTRUMENTS.bass.funcLayout[14]]).toEqual(['duck', 'duckrel']);
+    // BASS / PLUCK: one envelope for both oscillators; BASS has its own FLT ATK / DEC (v38) on
+    // column 3, SUSTAIN / RELEASE under ATTACK / DECAY with FUNC, SIDECHAIN on column 5.
+    expect([INSTRUMENTS.bass.layout[1], INSTRUMENTS.bass.layout[9]]).toEqual(['attack', 'decay']);
+    expect([INSTRUMENTS.bass.layout[2], INSTRUMENTS.bass.layout[10]]).toEqual(['fattack', 'fdecay']);
+    expect([INSTRUMENTS.bass.funcLayout[1], INSTRUMENTS.bass.funcLayout[9]]).toEqual(['sustain', 'release']);
+    expect([INSTRUMENTS.bass.layout[4], INSTRUMENTS.bass.layout[12]]).toEqual(['duck', 'duckrel']);
     expect([INSTRUMENTS.pluck.layout[2], INSTRUMENTS.pluck.layout[10]]).toEqual(['dtime', 'dfdbk']);
     expect(INSTRUMENTS.pluck.funcLayout.slice(2, 3).concat(INSTRUMENTS.pluck.funcLayout.slice(10, 11))).toEqual(['dmix', 'verb']);
     expect([INSTRUMENTS.bass.layout[7], INSTRUMENTS.bass.layout[15]]).toEqual(['glide', 'sub']);
@@ -2647,6 +2648,38 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect([fm.min, fm.max]).toEqual([0, 1]);
     // A v18 save on FM CLANG lands on FM 2:3.
     expect(remapTimbreV18('bass', 1)).toBe(1);
+  });
+
+  it('the five BASS sounds are about equally loud (K-weighted, OUT GAIN after DRIVE)', () => {
+    // BS.1770 K-weighting: +4 dB shelf near 1.5 kHz, then the RLB high-pass near 38 Hz (48 kHz).
+    const biquad = (c: number[], x: Float32Array) => {
+      const y = new Float32Array(x.length);
+      let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+      for (let i = 0; i < x.length; i++) {
+        const v = c[0] * x[i] + c[1] * x1 + c[2] * x2 - c[3] * y1 - c[4] * y2;
+        x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v;
+      }
+      return y;
+    };
+    const loudness = (i: number) => {
+      const s = INSTRUMENTS.bass.create(SR);
+      const v = presetSound('bass', i);
+      for (const k in v) s.setParam(k, v[k]);
+      const n = SR * 2;
+      const l = new Float32Array(n), r = new Float32Array(n);
+      let t = 0;
+      for (const note of [33, 33, 45, 36, 31, 33, 40, 33]) {
+        s.noteOn(note, 0.8, note, false);
+        for (let k = 0; k < SR / 8; k += 128) s.render(l, r, t + k, t + k + 128);
+        s.noteOff(-1);
+        for (let k = SR / 8; k < SR / 4; k += 128) s.render(l, r, t + k, t + k + 128);
+        t += SR / 4;
+      }
+      const w = biquad([1, -2, 1, -1.99004745483398, 0.99007225036621], biquad([1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585], l));
+      return 10 * Math.log10(w.reduce((a, x) => a + x * x, 0) / n);
+    };
+    const levels = INSTRUMENTS.bass.presets.map((_, i) => loudness(i));
+    expect(Math.max(...levels) - Math.min(...levels)).toBeLessThan(1);
   });
 
   it('v40 load: a v39 bass keeps its sound (TIMBRE follows it to its new place, preset too)', () => {

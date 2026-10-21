@@ -115,6 +115,9 @@ export const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
+  // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): evens out the BASS sounds' levels
+  // without changing how hard they drive.
+  { id: 'ogain', name: 'OUT GAIN', min: 0.1, max: 4, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'attack', name: 'OSC1 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'decay', name: 'OSC1 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
   { id: 'attack2', name: 'OSC2 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
@@ -158,7 +161,7 @@ const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'uni
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
-export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
+export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
 export const BASS_FIXED = { voice: 1, envlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
@@ -248,6 +251,8 @@ export class Synth implements Instrument {
    * 2 : 3 that keeps its pitch at every FM LEVEL (BASS FM 2:3; TIMBRE's, no knob).
    */
   private cRatio = 1;
+  /** Output gain after DRIVE / CRUSH (BASS: evens out its sounds). */
+  private oGain = 1;
   /**
    * 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three
    * carriers), 2 = 2 STACKS (two modulator -> carrier pairs).
@@ -412,6 +417,7 @@ export class Synth implements Instrument {
       case 'drive': this.drive = value; this.driveComp = driveCompGain(this.driveRise, value); break;
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
+      case 'ogain': this.oGain = value; break;
       case 'attack':
         this.attackInc[0] = 1 / (value * sr);
         if (this.envLink) this.attackInc[1] = this.attackInc[0];
@@ -473,6 +479,9 @@ export class Synth implements Instrument {
     this.renderVoices(outL, outR, start, end);
     if (this.algo === 2) this.renderDcBlock(outL, outR, start, end);
     this.renderCrush(outL, outR, start, end);
+    if (this.oGain !== 1) {
+      for (let i = start; i < end; i++) { outL[i] *= this.oGain; outR[i] *= this.oGain; }
+    }
     if (this.duckStage !== 0) this.renderDuck(outL, outR, start, end);
   }
 

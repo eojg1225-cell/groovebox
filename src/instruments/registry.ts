@@ -52,12 +52,12 @@ export function drumPage(elements: readonly string[], pitch: readonly [string, s
 
 /**
  * BASS (one amp envelope, its own filter envelope, sidechain): 1 TIMBRE / INT, 2 ATTACK /
- * DECAY, 3 SUSTAIN / RELEASE, 4 CUTOFF / RESO, 5 FLT ATK / FLT DEC, 6 FLT ENV / FM LVL,
- * 7 DRIVE / CRUSH, 8 SLIDE / SUB (DUCK / DUCK REL on FUNC column 7).
+ * DECAY (FUNC SUSTAIN / RELEASE), 3 FLT ATK / FLT DEC, 4 CUTOFF / RESO, 5 DUCK / DUCK REL,
+ * 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 SLIDE / SUB.
  */
 const BASS_PAGE = [
-  'timbre', 'attack', 'sustain', 'cutoff', 'fattack', 'fenv', 'drive', 'glide',
-  'intensity', 'decay', 'release', 'reso', 'fdecay', 'fm', 'crush', 'sub',
+  'timbre', 'attack', 'fattack', 'cutoff', 'duck', 'fenv', 'drive', 'glide',
+  'intensity', 'decay', 'fdecay', 'reso', 'duckrel', 'fm', 'crush', 'sub',
 ];
 /**
  * PLUCK (one envelope, onboard delay + room): 1 TIMBRE / INT, 2 ATTACK / SUSTAIN (a pluck
@@ -92,8 +92,8 @@ const _ = null;
  * OCTAVE has no knob: OCT - / + in DESIGN (App.stepOctave). Drums: no FUNC layer yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
-/** BASS FUNC: SIDECHAIN DUCK / DUCK REL on column 7, DETUNE under column 8. */
-const BASS_FUNC = funcPage([_, _, _, _, _, _, 'duck', _], [_, _, _, _, _, _, 'duckrel', 'detune']);
+/** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY (column 2), DETUNE under column 8. */
+const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, _, _], [_, 'release', _, _, _, _, _, 'detune']);
 /** PLUCK FUNC: DECAY / RELEASE, DLY MIX / VERB, UNISON, ARP OCT, ARP / ARP RATE. */
 const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', 'unison', _, _, _, 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
 /**

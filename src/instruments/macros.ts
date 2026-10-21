@@ -121,16 +121,17 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   bass: {
     // v40: SINE SUB, GROWL, ACID, SOLID, FM 2:3, each with a little FM on its step of the ratio
     // ladder (RATIO_LADDER: 1 : 2, 2 : 3, 3 : 2); INTENSITY leaves FM LVL alone (the FM LVL knob
-    // goes from none to full on every sound).
+    // goes from none to full on every sound). OUT GAIN per sound (after DRIVE): all five equally
+    // loud at INTENSITY 50 % (K-weighted, about -16.5 dB on a 16th-note line; see tests).
     anchors: [
-      { name: 'SINE SUB', values: { shape: 0, fm: 0.12, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 } },
-      { name: 'GROWL', values: { shape: 2, fm: 0.15, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+      { name: 'SINE SUB', values: { shape: 0, ogain: 0.724, fm: 0.12, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 } },
+      { name: 'GROWL', values: { shape: 2, ogain: 1.012, fm: 0.15, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
       // 303: square through a resonant filter with a short, snappy envelope (accents and slides).
-      { name: 'ACID', values: { shape: 3, fm: 0.15, fmratio: 3, cratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fattack: 0.0005, fdecay: 0.18, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 } },
-      { name: 'SOLID', values: { shape: 2.3, fm: 0.15, fmratio: 2, cratio: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
+      { name: 'ACID', values: { shape: 3, ogain: 0.589, fm: 0.15, fmratio: 3, cratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fattack: 0.0005, fdecay: 0.18, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 } },
+      { name: 'SOLID', values: { shape: 2.3, ogain: 2.042, fm: 0.15, fmratio: 2, cratio: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
       // FM 2 : 3 (v39, was FM CLANG): carrier 3 x, modulator 2 x the note - the 2 : 3 partials
       // with the lowest on the note, so the pitch holds at every FM LEVEL / INTENSITY.
-      { name: 'FM 2:3', values: { shape: 0, fm: 0.6, fmratio: 2, cratio: 3, sub: 0.15, cutoff: 2600, reso: 0.1, fenv: 0.5, fattack: 0.0005, fdecay: 0.16, drive: 1.4, glide: 0.03, decay: 0.45, sustain: 0.4, detune: 0 } },
+      { name: 'FM 2:3', values: { shape: 0, ogain: 1.109, fm: 0.6, fmratio: 2, cratio: 3, sub: 0.15, cutoff: 2600, reso: 0.1, fenv: 0.5, fattack: 0.0005, fdecay: 0.16, drive: 1.4, glide: 0.03, decay: 0.45, sustain: 0.4, detune: 0 } },
     ],
     excite: [
       { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
