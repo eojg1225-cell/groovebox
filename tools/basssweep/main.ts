@@ -1,38 +1,55 @@
 /**
  * Bass TIMBRE sweep test (not part of GrooveAccess): the BASS track's TIMBRE / INTENSITY on the
- * real engine, comparing how the FM ratios move between GROWL and FM 2:3 - the app now (the
- * carrier switches halfway) against stepping through 2 : 3 (every step root-locked).
+ * real engine. NOW = the app (SINE SUB, SOLID, ACID, GROWL, FM 2:3; FM ratio 1 : 2 until the
+ * carrier switches into FM 2:3). PROPOSED = GROWL and SOLID swapped, each sound on its own
+ * root-locked carrier : modulator ratio, stepping halfway between neighbours across the knob.
  */
 import workletUrl from './worklet.ts?worker&url';
 import { createDefaultProject } from '../../src/engine/defaultProject';
 import { emptyPattern } from '../../src/engine/project';
 import type { MainToWorklet } from '../../src/engine/protocol';
 import { INSTRUMENTS, presetSound } from '../../src/instruments/registry';
-import { macroSound, timbreName } from '../../src/instruments/macros';
+import { MACROS, macroSound, type Anchor } from '../../src/instruments/macros';
 
 const BASS = 4;
 const SPECS = INSTRUMENTS.bass.params;
-const NAMES = INSTRUMENTS.bass.presets.map((p) => p.name);
-/** TIMBRE where GROWL and FM 2:3 sit (the last two sounds). */
-const FROM = (NAMES.length - 2) / (NAMES.length - 1);
-const TO = 1;
-
 type Rule = 'now' | 'step';
-/** STEPPED: carrier : modulator through the GROWL -> FM 2:3 stretch (lowest partial on the note each time). */
-const STEPS: [number, number][] = [[1, 2], [2, 3], [3, 2]];
+const NOW_ANCHORS = MACROS.bass.anchors;
+const byName = (n: string) => NOW_ANCHORS.find((a) => a.name === n) as Anchor;
+/**
+ * PROPOSED: GROWL and SOLID swapped; each sound's own carrier : modulator, every pair with its
+ * lowest partial on the note (and none at 0 Hz): 1:2 odd harmonics, 1:3 and 2:3 all but every
+ * third, 3:4 and 3:2 odd harmonics again, brighter as the carrier rises.
+ */
+const PROPOSED: [string, number, number][] = [['SINE SUB', 1, 2], ['GROWL', 1, 3], ['SOLID', 2, 3], ['ACID', 3, 4], ['FM 2:3', 3, 2]];
+const PROPOSED_ANCHORS: Anchor[] = PROPOSED.map(([n, c, m]) => ({ name: n, values: { ...byName(n).values, cratio: c, fmratio: m } }));
+const anchorsFor = (r: Rule) => (r === 'now' ? NOW_ANCHORS : PROPOSED_ANCHORS);
+const namesFor = (r: Rule) => anchorsFor(r).map((a) => a.name);
 
-const state = { rule: 'now' as Rule, timbre: FROM, intensity: 0.5, drums: true };
+const state = { rule: 'now' as Rule, timbre: 0.75, intensity: 0.5, drums: true };
 
 /** The bass sound at the current TIMBRE / INT under the chosen rule. */
 function sound(): Record<string, number> {
-  const s: Record<string, number> = { ...presetSound('bass', 0), ...macroSound('bass', state.timbre, state.intensity, SPECS), timbre: state.timbre, intensity: state.intensity };
-  if (state.rule === 'step' && state.timbre > FROM) {
-    const f = (state.timbre - FROM) / (TO - FROM);
-    const [c, m] = STEPS[Math.min(STEPS.length - 1, Math.floor(f * STEPS.length))];
-    s.cratio = c;
-    s.fmratio = m;
+  const bass = MACROS.bass as { anchors: readonly Anchor[] };
+  let macro: Record<string, number>;
+  if (state.rule === 'now') macro = macroSound('bass', state.timbre, state.intensity, SPECS);
+  else {
+    // The same TIMBRE / INT rules over the proposed sounds; the ratio pair switches (carrier
+    // and modulator together) halfway between neighbours, so it never leaves the note.
+    bass.anchors = PROPOSED_ANCHORS;
+    try { macro = macroSound('bass', state.timbre, state.intensity, SPECS); } finally { bass.anchors = NOW_ANCHORS; }
+    const t = state.timbre * (PROPOSED.length - 1);
+    const [, c, m] = PROPOSED[Math.min(PROPOSED.length - 1, Math.round(t))];
+    macro.cratio = c;
+    macro.fmratio = m;
   }
-  return s;
+  return { ...presetSound('bass', 0), ...macro, timbre: state.timbre, intensity: state.intensity };
+}
+
+/** The sound nearest a TIMBRE position under a rule. */
+function nameAt(r: Rule, t: number): string {
+  const n = namesFor(r);
+  return n[Math.round(t * (n.length - 1))];
 }
 
 const LINE: [number, number][] = [[2, 33], [3, 33], [6, 33], [7, 45], [10, 33], [11, 36], [13, 31], [14, 33]];
@@ -100,7 +117,7 @@ const intIn = $<HTMLInputElement>('int');
 
 function readout(): void {
   const s = sound();
-  $('timbre-v').textContent = timbreName('bass', state.timbre);
+  $('timbre-v').textContent = nameAt(state.rule, state.timbre);
   $('int-v').textContent = `${Math.round(state.intensity * 100)}%`;
   const r = (x: number) => (Math.abs(x - Math.round(x)) < 1e-6 ? String(Math.round(x)) : x.toFixed(2));
   $('ratio').textContent = `carrier : modulator  ${r(s.cratio ?? 1)} : ${r(s.fmratio)}   ·   FM LVL ${s.fm.toFixed(2)}`;
@@ -123,6 +140,7 @@ function rule(r: Rule): void {
   state.rule = r;
   $('r-now').setAttribute('aria-checked', String(r === 'now'));
   $('r-step').setAttribute('aria-checked', String(r === 'step'));
+  marks();
   applySound();
 }
 
@@ -132,7 +150,7 @@ function setTimbre(t: number): void {
   applySound();
 }
 
-// Auto sweep: GROWL -> FM 2:3 over 8 bars, then back.
+// Auto sweep: the whole knob over 16 bars, then back.
 const BAR_MS = (60000 / 126) * 4;
 let autoFrame = 0;
 let autoStart = 0;
@@ -142,8 +160,8 @@ function stopAuto(): void {
   $('auto').setAttribute('aria-pressed', 'false');
 }
 function tick(now: number): void {
-  const x = ((now - autoStart) / (8 * BAR_MS)) % 2;
-  setTimbre(FROM + (TO - FROM) * (x < 1 ? x : 2 - x));
+  const x = ((now - autoStart) / (16 * BAR_MS)) % 2;
+  setTimbre(x < 1 ? x : 2 - x);
   autoFrame = requestAnimationFrame(tick);
 }
 async function toggleAuto(): Promise<void> {
@@ -154,10 +172,14 @@ async function toggleAuto(): Promise<void> {
   autoFrame = requestAnimationFrame(tick);
 }
 
-$('names').innerHTML = NAMES.map((n, i) => `<button type="button" tabindex="-1" data-i="${i}" style="left:${(i / (NAMES.length - 1)) * 100}%">${n}</button>`).join('');
+/** The sound names under TIMBRE (in the chosen rule's order) with their ratio. */
+function marks(): void {
+  const list = state.rule === 'now' ? NOW_ANCHORS.map((a): [string, number, number] => [a.name, a.values.cratio ?? 1, a.values.fmratio ?? 2]) : PROPOSED;
+  $('names').innerHTML = list.map(([n, c, m], i) => `<button type="button" tabindex="-1" data-i="${i}" style="left:${(i / (list.length - 1)) * 100}%">${n}<small>${c}:${m}</small></button>`).join('');
+}
 $('names').addEventListener('click', (e) => {
   const b = (e.target as HTMLElement).closest('button');
-  if (b) { stopAuto(); setTimbre(Number(b.dataset.i) / (NAMES.length - 1)); }
+  if (b) { stopAuto(); setTimbre(Number(b.dataset.i) / (namesFor(state.rule).length - 1)); }
 });
 timbreIn.addEventListener('input', () => { stopAuto(); setTimbre(Number(timbreIn.value)); });
 intIn.addEventListener('input', () => { state.intensity = Number(intIn.value); applySound(); });

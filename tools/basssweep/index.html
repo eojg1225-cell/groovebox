@@ -11,7 +11,7 @@
   <header>
     <p class="eyebrow">GrooveAccess · BASS · sound test</p>
     <h1>Bass TIMBRE Sweep</h1>
-    <p class="lede">The BASS track's TIMBRE across its five sounds, on the real engine. Between GROWL and FM 2:3 the FM ratios change; compare the app now (the carrier jumps halfway) with a stepped version that passes through 2 : 3 on the way. Keys 1-2 switch the rule, S starts the auto sweep, Space plays.</p>
+    <p class="lede">The BASS track's TIMBRE across its five sounds, on the real engine: the app now against the proposed order with every sound on its own FM ratio. Keys 1-2 switch, S starts the auto sweep, Space plays.</p>
   </header>
 
   <section class="deck" aria-label="Sound test">
@@ -23,12 +23,12 @@
 
     <div class="cands two" role="radiogroup" aria-label="Ratio rule">
       <button type="button" class="cand ref" id="r-now" role="radio" aria-checked="true">
-        <span class="key">1</span><b>NOW</b><span class="ratio">1 : 2 → 3 : 2 at the halfway point</span>
-        <span class="note">The app as it is: the carrier ratio switches once, halfway between GROWL and FM 2:3.</span>
+        <span class="key">1</span><b>NOW</b><span class="ratio">SINE SUB · SOLID · ACID · GROWL · FM 2:3</span>
+        <span class="note">The app as it is: the first four sounds share FM ratio 1 : 2; it switches to 3 : 2 halfway into FM 2:3.</span>
       </button>
       <button type="button" class="cand" id="r-step" role="radio" aria-checked="false">
-        <span class="key">2</span><b>STEPPED</b><span class="ratio">1 : 2 → 2 : 3 → 3 : 2</span>
-        <span class="note">Three even stretches, carrier : modulator. Every step keeps its lowest partial on your note.</span>
+        <span class="key">2</span><b>PROPOSED</b><span class="ratio">SINE SUB · GROWL · SOLID · ACID · FM 2:3</span>
+        <span class="note">GROWL and SOLID swapped. Carrier : modulator steps 1:2 → 1:3 → 2:3 → 3:4 → 3:2, switching halfway between neighbours; every pair keeps its lowest partial on your note.</span>
       </button>
     </div>
 
@@ -36,7 +36,7 @@
       <label class="ctl wide" for="timbre"><span>TIMBRE</span><input type="range" id="timbre" min="0" max="1" step="0.0025"><output id="timbre-v"></output></label>
       <div class="names" id="names" aria-hidden="true"></div>
       <div class="sweep-row">
-        <button type="button" id="auto" class="small" aria-pressed="false">Auto sweep GROWL ↔ FM 2:3</button>
+        <button type="button" id="auto" class="small" aria-pressed="false">Auto sweep (whole knob)</button>
         <span class="readout" id="ratio"></span>
       </div>
     </div>
@@ -49,7 +49,7 @@
 
   <section class="how">
     <h2>What to listen for</h2>
-    <p>Run the auto sweep (8 bars each way) on NOW, then on STEPPED. On NOW the tone changes once, in the middle. On STEPPED it should change in two smaller moves. Below GROWL nothing differs: the other sounds all share the same ratios. Tell Claude which rule to keep.</p>
+    <p>Run the auto sweep (16 bars each way) on NOW, then on PROPOSED. The FM ratio is only heard where there is FM: at INTENSITY 50 % mostly towards FM 2:3. Turn INTENSITY up (it raises FM on every sound) to hear each sound's ratio across the whole knob. Tell Claude which to keep.</p>
   </section>
 </main>
 <script type="module" src="./main.ts"></script>
