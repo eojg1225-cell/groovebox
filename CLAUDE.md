@@ -107,6 +107,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** per-send delay time editing.
 ### Tests and tools
 - `tests/engine.test.ts` (engine offline in Node), `tests/projects.test.ts` (slots, sync). The UI (`App.ts`) has no tests yet.
 - `tools/soundtest`, `tools/fmbass`, `tools/basssweep`: standalone sound-comparison pages (each has a README); not part of the app.
+- **Next time the user asks for a sound test:** first propose replacing these one-off pages with one permanent sound lab (any track type, TIMBRE / INT knobs + auto-sweep, plays the project from `projects/current` or a built-in groove, A = the app now, B / C ... = candidates from one small file, one fixed Artifact URL), then delete the one-offs. The user asked to keep `tools/soundtest` as it is until then, and needs sound tests often.
 
 ## After every build
 Run `npm run build:artifact` and republish `dist-artifact/groovebox.html` (with `files: {"groovebox-worklet.js": "dist-artifact/groovebox-worklet.js"}`) to the user's Artifact https://claude.ai/artifact/1gX3NeJdaGnWsLa3szA6q1, then end the reply with a **▶ Launch** link to it.
