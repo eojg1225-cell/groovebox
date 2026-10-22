@@ -235,7 +235,7 @@ export function anchorPosition(kind: SoundKind, i: number): number {
  * The parameters a TIMBRE / INTENSITY position produces for a track type.
  * `specs` = that type's parameter list (for ranges and curves).
  */
-const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release']] as const;
+const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release'], ['fm2', 'fm']] as const;
 
 /** FM ratio parameters: TIMBRE moves them through RATIO_STEPS. */
 const RATIO_IDS = new Set(['fmratio', 'ratio2', 'ratio3']);
@@ -284,7 +284,7 @@ const RATIO_SNAP: Partial<Record<SoundKind, Record<string, readonly number[]>>> 
 
 /**
  * The parameters TIMBRE / INTENSITY set for a type (the hidden layer under the SOUND page):
- * every anchor's values plus OSC 2's mirrored SUSTAIN / RELEASE.
+ * every anchor's values plus the mirrored OSC 2 SUSTAIN / RELEASE and FM LVL2.
  */
 export function macroIds(kind: SoundKind, specs: readonly ParamSpec[]): Set<string> {
   const ids = new Set<string>();
@@ -335,7 +335,7 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
       out[e.id] = Math.min(spec.max, Math.max(spec.min, out[e.id] * Math.pow(e.high, 2 * x - 1)));
     }
   }
-  // OSC 2's SUSTAIN / RELEASE follow OSC 1's unless the sounds set their own.
+  // OSC 2's SUSTAIN / RELEASE and FM LVL2 follow OSC 1's / FM LVL unless the sounds set their own.
   for (const [id, from] of MIRRORED) {
     if (out[from] !== undefined && a[id] === undefined && b[id] === undefined && specs.some((p) => p.id === id)) out[id] = out[from];
   }

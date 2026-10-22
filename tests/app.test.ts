@@ -59,9 +59,15 @@ describe('PAD step entry: every note with its own tie', () => {
     release(`step${k}`);
   };
   const notesAt = (app: App, i: number) => stepNotes(padSteps(app)[i]);
+  /** The App with the PAD's CHORD OFF (a CHORD plays one root at a time, legato = slides). */
+  const padApp = () => {
+    const r = makeApp();
+    r.app.project.channels[5].chord = 0;
+    return r;
+  };
 
   it('A tied 1-8, C tied 9-16, then G 1-16: all three stay, each with its own length', () => {
-    const { app, press, release, tap } = makeApp();
+    const { app, press, release, tap } = padApp();
     tap('mode:record');
     tap('ch6');
     enter(press, release, tap, 1, 8); // A (45) on step 1, 8 steps
@@ -74,7 +80,7 @@ describe('PAD step entry: every note with its own tie', () => {
   });
 
   it('the same key again on a step takes its note out; the last one out empties the step', () => {
-    const { app, tap } = makeApp();
+    const { app, tap } = padApp();
     tap('mode:record');
     tap('ch6');
     tap('step1'); // A
@@ -89,7 +95,7 @@ describe('PAD step entry: every note with its own tie', () => {
   });
 
   it('six notes at most where a note starts: the earliest-started one goes', () => {
-    const { app, press, release, tap } = makeApp();
+    const { app, press, release, tap } = padApp();
     tap('mode:record');
     tap('ch6');
     // Six notes started on steps 1-6, each tied to step 16.
@@ -102,7 +108,7 @@ describe('PAD step entry: every note with its own tie', () => {
   });
 
   it('six started together, a seventh: the one nearest in pitch goes', () => {
-    const { app, press, release, tap } = makeApp();
+    const { app, press, release, tap } = padApp();
     tap('mode:record');
     tap('ch6');
     for (const k of [1, 3, 5, 8, 10, 12]) { press(`step${k}`); } // six keys together on step 1
@@ -114,7 +120,7 @@ describe('PAD step entry: every note with its own tie', () => {
   });
 
   it('strip: the ring only on the note being entered, the other notes sounding at the step lit (dim)', () => {
-    const { app, press, release, tap, flags } = makeApp();
+    const { app, press, release, tap, flags } = padApp();
     const keys = (f: string) => { app.updateFrame(0); return [...flags].filter(([id, v]) => id.startsWith('step') && v.has(f)).map(([id]) => id).sort(); };
     tap('mode:record');
     tap('ch6');
@@ -134,7 +140,7 @@ describe('PAD step entry: every note with its own tie', () => {
   });
 
   it('step lights: only the steps of the note being entered, not of the notes already there', () => {
-    const { app, press, release, tap, leds } = makeApp();
+    const { app, press, release, tap, leds } = padApp();
     const lit = () => { app.updateFrame(0); return leds.flatMap((st, i) => (st === 'cursor' ? [i] : [])); };
     tap('mode:record');
     tap('ch6');
@@ -149,7 +155,7 @@ describe('PAD step entry: every note with its own tie', () => {
   });
 
   it('live-recorded chord notes keep their own lengths', () => {
-    const { app } = makeApp();
+    const { app } = padApp();
     const rec = (m: object) => app.onRecorded({ channel: 5, pattern: 0, index: 0, ...m } as Parameters<App['onRecorded']>[0]);
     rec({ type: 'recordedNote', note: 57, velocity: 0.8, accent: false, gate: 1, slide: false, start: true });
     rec({ type: 'recordedChord', note: 61, gate: 1 });
@@ -202,5 +208,32 @@ describe('SAVE PROJECT', () => {
     expect(projectStore.slots().slice(0, 2).map((e) => e?.name)).toEqual(['THIRD', 'SECOND']);
     saveAs('RENAMED', 1); // its own slot: saved over, under the new name
     expect(projectStore.slots()[0]?.name).toBe('RENAMED');
+  });
+});
+
+describe('PAD / PLUCK with a CHORD: one root at a time, legato slides', () => {
+  it('PLAY: a key pressed while another is held slides the chord (CHORD OFF: plays both)', () => {
+    for (const chord of [6, 0]) {
+      const { app, sent, press, release } = makeApp();
+      app.project.channels[5].chord = chord;
+      press('mode:play');
+      release('mode:play');
+      press('ch6');
+      release('ch6');
+      press('step1');
+      press('step5');
+      const t = sent.filter((m) => m.type === 'trigger').slice(-1)[0] as { slideFrom?: number };
+      expect(t.slideFrom, `chord ${chord}`).toBe(chord ? 45 : -1);
+    }
+  });
+
+  it('step entry with a CHORD: a key while another is held goes on the next step', () => {
+    const { app, press, tap } = makeApp();
+    tap('mode:record');
+    tap('ch6');
+    press('step1');
+    press('step5');
+    const steps = app.project.channels[5].patterns[app.project.channels[5].activePattern].steps;
+    expect([steps[0].note, steps[0].extra, steps[1].note]).toEqual([45, undefined, 49]);
   });
 });

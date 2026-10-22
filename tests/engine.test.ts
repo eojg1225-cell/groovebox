@@ -3153,3 +3153,66 @@ describe('v41: the FM envelope', () => {
     expect(back.buses).toEqual(createDefaultProject().buses);
   });
 });
+
+describe('PAD / PLUCK chord slides, FM LVL2', () => {
+  it('a CHORD slides voice by voice (root to root, 3rd to 3rd ...) at the SLIDE time', () => {
+    for (const ch of [5, 7]) {
+      const p = createDefaultProject();
+      const c = p.channels[ch];
+      c.chord = CHORD_LIST.indexOf('MIN7');
+      const kind = c.instrument as SoundKind;
+      c.sounds[kind] = { ...c.sounds[kind]!, glide: 0.2 };
+      const steps = c.patterns[0].steps;
+      for (const s of steps) s.active = false;
+      Object.assign(steps[0], { active: true, note: 57, gate: 1, slide: true });
+      Object.assign(steps[1], { active: true, note: 62, gate: 2 });
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const voices = () => (e as unknown as { current: { voices: { stage: Uint8Array; note: number; freq: number; targetFreq: number; age: number }[] }[] }).current[ch].voices
+        .filter((v) => v.stage[0] !== 0).sort((a, b) => a.age - b.age);
+      render(e, 0.05);
+      expect(voices().map((v) => v.note), `ch${ch}`).toEqual([57, 60, 64, 67]);
+      render(e, (60 / 128 / 4) * 1.05 - 0.05); // just into step 2
+      const after = voices();
+      expect(after.map((v) => v.note), `ch${ch}`).toEqual([62, 65, 69, 72]); // the same voices, each a 4th up
+      for (const v of after) expect(v.freq, `ch${ch}`).toBeLessThan(v.targetFreq * 0.99); // still gliding (SLIDE 0.2 s)
+    }
+  });
+
+  it('PAD / PLUCK have a SLIDE knob on FUNC; PAD / LEAD FM LVL2 under FM LVL, set along with it', () => {
+    for (const k of ['pad', 'pluck'] as const) expect(INSTRUMENTS[k].funcLayout).toContain('glide');
+    for (const k of ['pad', 'lead'] as const) {
+      const fmAt = INSTRUMENTS[k].layout.indexOf('fm');
+      expect(INSTRUMENTS[k].funcLayout[fmAt]).toBe('fm2');
+      expect(linkedParams(k, 'fm')).toEqual(['fm2']);
+      expect(liveTargets(k, 'fm').map((t) => t.id)).toEqual(['fm', 'fm2']);
+      for (let t = 0; t <= 1; t += 0.25) expect(macroSound(k, t, 0.5, INSTRUMENTS[k].params).fm2).toBe(macroSound(k, t, 0.5, INSTRUMENTS[k].params).fm);
+    }
+  });
+
+  it('FM LVL2 sets the second stack\'s modulation on its own', () => {
+    for (const [kind, params, fixed] of [['pad', PAD_PARAMS, PAD_FIXED], ['lead', LEAD_PARAMS, LEAD_FIXED]] as const) {
+      const out = (set: Record<string, number>) => {
+        const s = new Synth(SR, params, fixed);
+        const sound: Record<string, number> = { ...macroSound(kind, 0.5, 0.5, params), carriers: 1, fm: 0.8, fmdecay: 10, ...set };
+        for (const id in sound) s.setParam(id, sound[id]);
+        s.noteOn(57, 1, 57, false);
+        const l = new Float32Array(SR / 4);
+        s.render(l, new Float32Array(l.length), 0, l.length);
+        return l;
+      };
+      const diff = (a: Float32Array, b: Float32Array) => a.reduce((d, x, i) => d + (x - b[i]) ** 2, 0) / a.reduce((d, x) => d + x * x, 0);
+      expect(diff(out({ fm2: 0 }), out({ fm2: 0.8 })), kind).toBeGreaterThan(0.05); // stack 2 clean vs modulated
+    }
+  });
+
+  it('an older save without FM LVL2 takes its FM LVL (and its FM LVL trim)', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    const pad = stored.channels[5].sounds.pad;
+    pad.fm = 0.33;
+    delete pad.fm2;
+    const q = fromStored(stored)!.channels[5].sounds.pad!;
+    expect(q.fm2).toBe(0.33);
+  });
+});

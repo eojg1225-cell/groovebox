@@ -1391,12 +1391,12 @@ export class App {
       this.stopPreview(); // a played key never gets cut off by a preview's release
       const note = this.octave[ch] + button;
       const vel = this.velocity();
-      // Bass / lead played legato (a key still held) slide into the new note.
+      // Played legato (a key still held), BASS / LEAD and chord-mode PAD / PLUCK slide into the new note.
       let heldNote = -1;
       for (const n of this.heldNotes.values()) heldNote = n;
       const legato = heldNote >= 0 && this.isMono(this.channel);
-      // PAD / PLUCK: keys played together make one step's chord (live recording, step entry).
-      const chord = heldNote >= 0 && playsChords(this.channel.instrument);
+      // PAD / PLUCK, CHORD OFF: keys played together make one step's chord (live recording, step entry).
+      const chord = heldNote >= 0 && this.stepChords(this.channel);
       this.heldNotes.set(button, note);
       if (this.mode !== 'record' || this.recording) this.liveNote = note;
       if (this.mode === 'record' && this.recording) {
@@ -1422,7 +1422,7 @@ export class App {
           this.send({ type: 'trigger', channel: ch, note, velocity: vel });
           return;
         }
-        if (!this.entry && playsChords(this.channel.instrument) && this.pattern.steps[this.cursor[ch]].active) {
+        if (!this.entry && this.stepChords(this.channel) && this.pattern.steps[this.cursor[ch]].active) {
           this.addChordNote(this.cursor[ch], note, button, vel);
           return;
         }
@@ -1431,7 +1431,7 @@ export class App {
           index = (this.entry.index + this.entryLength()) % this.pattern.length; // wraps past the end
         }
         // PAD / PLUCK: notes tied over from earlier steps stay (six sound at most).
-        if (playsChords(this.channel.instrument)) this.makeRoom(index, note);
+        if (this.stepChords(this.channel)) this.makeRoom(index, note);
         const step = this.pattern.steps[index];
         step.active = true;
         step.note = note;
@@ -1575,8 +1575,17 @@ export class App {
     return isDrum(this.channel.instrument) ? 'ROLL' : 'SLIDE';
   }
 
+  /**
+   * One chord root at a time, played legato into slides: BASS, LEAD, and PAD / PLUCK with a
+   * CHORD on (each key plays the chord on it, so held keys slide chord to chord).
+   */
   private isMono(c: ChannelState): boolean {
-    return c.instrument === 'bass' || c.instrument === 'lead';
+    return c.instrument === 'bass' || c.instrument === 'lead' || (playsChords(c.instrument) && c.chord !== 0);
+  }
+
+  /** PAD / PLUCK with CHORD OFF: keys held together go on one step, each note its own length. */
+  private stepChords(c: ChannelState): boolean {
+    return playsChords(c.instrument) && c.chord === 0;
   }
 
   /** CLEAR + step: empty it; a note tied over it now ends just before it. */
@@ -1735,7 +1744,7 @@ export class App {
   /** How long the note being entered is (PAD / PLUCK: its own length), in steps. */
   private entryLength(): number {
     const step = this.pattern.steps[this.entry!.index];
-    if (!playsChords(this.channel.instrument)) return step.gate;
+    if (!this.stepChords(this.channel)) return step.gate;
     const notes = stepNotes(step).filter((n) => this.entry!.notes?.includes(n.note));
     return notes.length ? Math.max(...notes.map((n) => n.gate)) : step.gate;
   }
@@ -1749,7 +1758,7 @@ export class App {
     const { index } = this.entry;
     const len = this.pattern.length;
     const step = this.pattern.steps[index];
-    if (playsChords(this.channel.instrument)) {
+    if (this.stepChords(this.channel)) {
       const notes = stepNotes(step);
       let changed = false;
       for (const n of notes) {

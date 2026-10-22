@@ -90,6 +90,9 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   INTENSITY,
   { id: 'shape', name: 'SHAPE', min: 0, max: 3, defaultValue: 2, unit: '', curve: 'linear' },
   { id: 'fm', name: 'FM LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // PAD / LEAD: the second stack's modulation level (PAD stack 2, LEAD carriers 2 / 3). FM LVL
+  // sets it along with its own (registry.linkedParams); this knob sets it apart afterwards.
+  { id: 'fm2', name: 'FM LVL2', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'fmratio', name: 'FM RATIO', min: 0.25, max: 16, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
   // BASS FM pair carrier (x the note; set by TIMBRE, no knob): FM 2:3 runs it at 3 under a 2.
   { id: 'cratio', name: 'CAR RATIO', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
@@ -176,21 +179,21 @@ export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'o
 export const BASS_FIXED = { voice: 1, envlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
+export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
-export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2 };
+export const PAD_FIXED = { voice: 0, sub: 0, algo: 2 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 }, SHARED_NAMES);
+export const LEAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 }, SHARED_NAMES);
 /** LEAD: 3 voices, so a note's release rings under the next one (and live chords work). */
 export const LEAD_FIXED = { voice: 0, voices: 3, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
 // The ARP's controls are off the PLUCK for now (the engine still plays 'arp' / 'arprate' /
 // 'arpoct' if a type lists them again).
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
-export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS, envlink: 1, onboard: 1 };
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
+export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1 };
 
 /** SIDECHAIN: how fast a KICK hit pulls the level down (no click). */
 const DUCK_ATTACK = 0.003;
@@ -271,7 +274,7 @@ export class Synth implements Instrument {
    * 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three
    * carriers), 2 = 2 STACKS (two modulator -> carrier pairs).
    */
-  private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private carriers = 0.35;
+  private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private fm2 = 0; private fm2Index = 0; private carriers = 0.35;
   /** DC blocker state (renderDcBlock) and its pole. */
   private dcXL = 0; private dcYL = 0; private dcXR = 0; private dcYR = 0; private dcR = 1;
   private fmMod = 0; private fmEff = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
@@ -391,6 +394,8 @@ export class Synth implements Instrument {
     const f = this.fm + this.fmMod;
     this.fmEff = f < 0 ? 0 : f > 1 ? 1 : f;
     this.fmIndex = dx7Index(this.fmEff);
+    const f2 = this.fm2 + this.fmMod;
+    this.fm2Index = dx7Index(f2 < 0 ? 0 : f2 > 1 ? 1 : f2);
   }
 
   noteOff(group: number): void {
@@ -408,6 +413,7 @@ export class Synth implements Instrument {
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
       case 'fm': this.fm = value; this.updateFm(); break;
+      case 'fm2': this.fm2 = value; this.updateFm(); break;
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
       case 'feedback': this.feedback = value; break;
@@ -597,7 +603,10 @@ export class Synth implements Instrument {
           const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
           v.fb2 = v.fb1;
           v.fb1 = m;
-          const pm = (m * this.fmIndex * fmEnvGain(v.fmenv)) / (2 * Math.PI);
+          const env = fmEnvGain(v.fmenv) / (2 * Math.PI);
+          const pm = m * this.fmIndex * env;
+          // Carriers 2 / 3 at FM LVL2.
+          const pm2 = m * this.fm2Index * env;
           const d5 = dt1 * this.ratio2 * det;
           const d6 = dt1 * this.ratio3;
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
@@ -608,8 +617,8 @@ export class Synth implements Instrument {
           const c1 = this.osc(wrap(v.p1 + pm + cfb), dt1);
           v.cf2 = v.cf1;
           v.cf1 = c1;
-          o1 = c1 * (1 - 0.4 * c) + this.osc(wrap(v.p6 + pm), d6) * 0.6 * c;
-          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + pm), d5) * c;
+          o1 = c1 * (1 - 0.4 * c) + this.osc(wrap(v.p6 + pm2), d6) * 0.6 * c;
+          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + pm2), d5) * c;
         } else if (this.algo === 2) {
           // 2 STACKS: two modulator -> carrier pairs. Stack 1 = carrier 1 (SHAPE's wave, its
           // own CAR FB) under a sine at FM RATIO with self-feedback; stack 2 = a carrier at
@@ -624,14 +633,16 @@ export class Synth implements Instrument {
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
           v.p6 += dt1 * this.ratio3; if (v.p6 >= 1) v.p6 -= 1;
           const m2 = Math.sin(2 * Math.PI * v.p6);
-          const idx = (this.fmIndex * fmEnvGain(v.fmenv)) / (2 * Math.PI);
+          const env = fmEnvGain(v.fmenv) / (2 * Math.PI);
+          const idx = this.fmIndex * env;
+          const idx2 = this.fm2Index * env; // stack 2 at FM LVL2
           const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
           const c1 = this.osc(wrap(v.p1 + m1 * idx + cfb), dt1);
           v.cf2 = v.cf1;
           v.cf1 = c1;
           const c = this.carriers;
           o1 = c1;
-          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + m2 * idx), d5) * c;
+          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + m2 * idx2), d5) * c;
         } else {
           o1 = this.osc(v.p1, dt1);
           o2 = this.osc(v.p2, dt2);

@@ -13,7 +13,7 @@ import {
   type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, pageParams, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
 import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
@@ -281,6 +281,11 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
+  // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
+  // the knob's value, as the knob would have set it.
+  for (const spec of specs) {
+    for (const id of linkedParams(kind, spec.id)) if (typeof values[id] !== 'number' && typeof values[spec.id] === 'number') sound[id] = sound[spec.id];
+  }
   return sound;
 }
 
@@ -289,6 +294,8 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   const specs = INSTRUMENTS[kind].params;
   const trims = isObj(x) ? numbers(x) : deriveTrims(kind, sound, specs);
   if (version < 41 && isObj(x)) fmEnvV41(trims);
+  // Trims stored without a linked parameter's (FM LVL2, added later): the knob's own.
+  for (const id of Object.keys(trims)) for (const t of linkedParams(kind, id)) if (isObj(x) && typeof x[t] !== 'number') trims[t] = trims[id];
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }

@@ -67,8 +67,8 @@ const _ = null;
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
 const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, 'duck', _], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
-/** PLUCK FUNC: DECAY / RELEASE, UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
-const PLUCK_FUNC = funcPage([_, 'decay', _, 'unison', _, _, 'track:chord', 'dmix'], [_, 'release', _, _, _, _, 'detune', 'verb']);
+/** PLUCK FUNC: DECAY / RELEASE, SLIDE (3), UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
+const PLUCK_FUNC = funcPage([_, 'decay', 'glide', 'unison', _, _, 'track:chord', 'dmix'], [_, 'release', _, _, _, _, 'detune', 'verb']);
 
 /**
  * PAD / LEAD FUNC layer: DECAY / SUSTAIN (both oscillators) under module 2, OSC 2's own
@@ -83,10 +83,11 @@ function heldFunc(top: readonly (string | null)[], bottom: readonly (string | nu
 
 /**
  * PAD / LEAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;
- * OSC 2's own ATTACK / RELEASE (FUNC module 3) set it apart afterwards.
+ * OSC 2's own ATTACK / RELEASE (FUNC module 3) set it apart afterwards. FM LVL likewise sets
+ * the second stack's FM LVL2 (FUNC module 4).
  */
 const BOTH_OSCS: Readonly<Record<string, readonly string[]>> = {
-  attack: ['attack2'], decay: ['decay2'], sustain: ['sustain2'], release: ['release2'],
+  attack: ['attack2'], decay: ['decay2'], sustain: ['sustain2'], release: ['release2'], fm: ['fm2'],
 };
 const LINKED: Partial<Record<SoundKind, Readonly<Record<string, readonly string[]>>>> = { pad: BOTH_OSCS, lead: BOTH_OSCS };
 
@@ -189,7 +190,7 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('WIDTH', [['detune', 1], ['unison', 1]]),
   ],
   lead: [
-    macro('GRIT', [['drive', 1], ['fm', 1], ['crush', 1, true]]),
+    macro('GRIT', [['drive', 1], ['fm', 1], ['fm2', 1], ['crush', 1, true]]),
     macro('LENGTH', LENGTH_SYNTH),
   ],
   pluck: [
@@ -214,7 +215,8 @@ export function liveTargets(kind: InstrumentKind, id: string): readonly LiveTarg
   if (kind === 'none' || ABSOLUTE_LIVE.has(id) || id.includes(':') && !id.startsWith('macro:')) return [];
   if (id.startsWith('macro:')) return LIVE_MACROS[kind].find((m) => m.id === id)?.targets ?? [];
   const spec = INSTRUMENTS[kind].params.find((p) => p.id === id);
-  return spec && !spec.coarse ? [{ id, amount: 1 }] : [];
+  // A knob that sets others along with it (PAD / LEAD ATTACK, FM LVL ...) pushes them too.
+  return spec && !spec.coarse ? [id, ...linkedParams(kind, id)].map((t) => ({ id: t, amount: 1 })) : [];
 }
 
 /** How far a relative live knob at `offset` (-1..1) pushes one target (normalised units). */
@@ -283,12 +285,12 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   pad: {
     name: 'PAD', gain: 0.273, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
     layout: synthPage(['attack', 'release'], ['track:chord', 'detune']).map((id) => (id === 'crush' ? null : id)), // no CRUSH on the PAD
-    funcLayout: trackFunc(heldFunc([_, _, _, _], ['feedback', _, _, 'unison'])),
+    funcLayout: trackFunc(heldFunc([_, 'fm2', _, 'glide'], ['feedback', _, _, 'unison'])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.633, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
     layout: synthPage(['attack', 'release'], ['glide', 'detune']),
-    funcLayout: trackFunc(heldFunc([_, _, _, _], [_, _, _, _])),
+    funcLayout: trackFunc(heldFunc([_, 'fm2', _, _], [_, _, _, _])),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: 1.366, live: ['cutoff', 'track:notes'], liveFunc: ['macro:sustain', 'macro:space'], params: PLUCK_PARAMS,
