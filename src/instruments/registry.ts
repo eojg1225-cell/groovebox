@@ -22,16 +22,17 @@ const ROW = PAGE_SLOTS / 2;
 
 /**
  * The SOUND page, the same frame on every track: the sound first, then DRIVE / CRUSH, then
- * the performance pair.
- * PAD / LEAD: 1 TIMBRE / INT, 2 OSC 1 ATTACK / RELEASE, 3 OSC 2 ATTACK / RELEASE, 4 CUTOFF /
- * RESO, 5 FILTER ATTACK / DECAY, 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 `perform` (LEAD
- * SLIDE / DETUNE, PAD CHORD / DETUNE). BASS and PLUCK have their own pages (below).
+ * the performance pair. Synth filters sit together in three modules: FLT ATK / FLT DEC,
+ * RESO / FM LVL, FLT ENV / CUTOFF.
+ * PAD / LEAD: 1 TIMBRE / INT, 2 OSC 1 ATTACK / RELEASE, 3 OSC 2 ATTACK / RELEASE, 4 FLT ATK /
+ * FLT DEC, 5 RESO / FM LVL, 6 FLT ENV / CUTOFF, 7 DRIVE / CRUSH, 8 `perform` (LEAD SLIDE /
+ * DETUNE, PAD CHORD / DETUNE). BASS and PLUCK have their own pages (below).
  */
 export function soundPage(elements: readonly string[], perform: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;
   return [
-    'timbre', a1, a2, 'cutoff', 'fattack', 'fenv', 'drive', perform[0],
-    'intensity', d1, d2, 'reso', 'fdecay', 'fm', 'crush', perform[1],
+    'timbre', a1, a2, 'fattack', 'reso', 'fenv', 'drive', perform[0],
+    'intensity', d1, d2, 'fdecay', 'fm', 'cutoff', 'crush', perform[1],
   ];
 }
 
@@ -52,21 +53,22 @@ export function drumPage(elements: readonly string[], pitch: readonly [string, s
 
 /**
  * BASS (one amp envelope, its own filter envelope, sidechain): 1 TIMBRE / INT, 2 ATTACK /
- * DECAY (FUNC SUSTAIN / RELEASE), 3 FLT ATK / FLT DEC, 4 CUTOFF / RESO, 5 DUCK / DUCK REL,
- * 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 SLIDE / SUB.
+ * DECAY (FUNC SUSTAIN / RELEASE), 3 FLT ATK / FLT DEC, 4 RESO / FM LVL, 5 FLT ENV / CUTOFF,
+ * 6 DUCK / DUCK REL, 7 DRIVE / CRUSH, 8 SLIDE / SUB.
  */
 const BASS_PAGE = [
-  'timbre', 'attack', 'fattack', 'cutoff', 'duck', 'fenv', 'drive', 'glide',
-  'intensity', 'decay', 'fdecay', 'reso', 'duckrel', 'fm', 'crush', 'sub',
+  'timbre', 'attack', 'fattack', 'reso', 'fenv', 'duck', 'drive', 'glide',
+  'intensity', 'decay', 'fdecay', 'fm', 'cutoff', 'duckrel', 'crush', 'sub',
 ];
 /**
  * PLUCK (one envelope, onboard delay + room): 1 TIMBRE / INT, 2 ATTACK / SUSTAIN (a pluck
- * that rings on, up to a held pad), 3 DLY TIME / DLY FDBK, 4 CUTOFF / RESO, 5 FLT ATK / DEC,
- * 6 FLT ENV / FM LVL, 7 DRIVE / CRUSH, 8 CHORD / DETUNE.
+ * that rings on, up to a held pad), 3 DLY TIME / DLY FDBK (FUNC DLY MIX / VERB; the filter
+ * starts at 4 as on PAD, since FUNC module 6 is LIVE 3 / 4 on every track), 4 FLT ATK / FLT
+ * DEC, 5 RESO / FM LVL, 6 FLT ENV / CUTOFF, 7 DRIVE / CRUSH, 8 CHORD / DETUNE.
  */
 const PLUCK_PAGE = [
-  'timbre', 'attack', 'dtime', 'cutoff', 'fattack', 'fenv', 'drive', 'track:chord',
-  'intensity', 'sustain', 'dfdbk', 'reso', 'fdecay', 'fm', 'crush', 'detune',
+  'timbre', 'attack', 'dtime', 'fattack', 'reso', 'fenv', 'drive', 'track:chord',
+  'intensity', 'sustain', 'dfdbk', 'fdecay', 'fm', 'cutoff', 'crush', 'detune',
 ];
 
 /**

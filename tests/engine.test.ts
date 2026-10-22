@@ -151,8 +151,8 @@ describe('instruments', () => {
 
   it('sound page frame: the sound, then DRIVE / CRUSH (7), then the performance pair (8)', () => {
     expect(soundPage(['a1', 'd1', 'a2', 'd2'], ['p1', 'p2'])).toEqual([
-      'timbre', 'a1', 'a2', 'cutoff', 'fattack', 'fenv', 'drive', 'p1',
-      'intensity', 'd1', 'd2', 'reso', 'fdecay', 'fm', 'crush', 'p2',
+      'timbre', 'a1', 'a2', 'fattack', 'reso', 'fenv', 'drive', 'p1',
+      'intensity', 'd1', 'd2', 'fdecay', 'fm', 'cutoff', 'crush', 'p2',
     ]);
     expect(drumPage(['a1', 'd1', 'a2', 'd2'], ['p1', 'p2'], ['f1', 'f2'], ['s1', 's2'])).toEqual([
       'timbre', 'a1', 'a2', 'p1', 'f1', 's1', 'drive', 'rolldiv',
@@ -168,7 +168,13 @@ describe('instruments', () => {
     expect([INSTRUMENTS.bass.layout[1], INSTRUMENTS.bass.layout[9]]).toEqual(['attack', 'decay']);
     expect([INSTRUMENTS.bass.layout[2], INSTRUMENTS.bass.layout[10]]).toEqual(['fattack', 'fdecay']);
     expect([INSTRUMENTS.bass.funcLayout[1], INSTRUMENTS.bass.funcLayout[9]]).toEqual(['sustain', 'release']);
-    expect([INSTRUMENTS.bass.layout[4], INSTRUMENTS.bass.layout[12]]).toEqual(['duck', 'duckrel']);
+    expect([INSTRUMENTS.bass.layout[5], INSTRUMENTS.bass.layout[13]]).toEqual(['duck', 'duckrel']);
+    // Every synth's filter in three neighbouring modules: FLT ATK / DEC, RESO / FM LVL, FLT ENV / CUTOFF
+    // (BASS from module 3; PAD, LEAD and PLUCK from 4).
+    for (const [k, at] of [['bass', 2], ['pad', 3], ['lead', 3], ['pluck', 3]] as const) {
+      const l = INSTRUMENTS[k].layout;
+      expect([l[at], l[at + 8], l[at + 1], l[at + 9], l[at + 2], l[at + 10]], k).toEqual(['fattack', 'fdecay', 'reso', 'fm', 'fenv', 'cutoff']);
+    }
     expect([INSTRUMENTS.pluck.layout[2], INSTRUMENTS.pluck.layout[10]]).toEqual(['dtime', 'dfdbk']);
     expect(INSTRUMENTS.pluck.funcLayout.slice(2, 3).concat(INSTRUMENTS.pluck.funcLayout.slice(10, 11))).toEqual(['dmix', 'verb']);
     expect([INSTRUMENTS.bass.layout[7], INSTRUMENTS.bass.layout[15]]).toEqual(['glide', 'sub']);
