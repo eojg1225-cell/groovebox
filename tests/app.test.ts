@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../src/ui/App';
 import { createDefaultProject } from '../src/engine/defaultProject';
 import { stepNotes } from '../src/engine/project';
+import { projectStore } from '../src/storage/projects';
 import type { ControlEvent } from '../src/controls/ControlSurface';
 import type { Panel } from '../src/ui/Panel';
 import type { MainToWorklet } from '../src/engine/protocol';
@@ -184,5 +185,22 @@ describe('PAD step entry: every note with its own tie', () => {
     const c = app.project.channels[4];
     const s = c.patterns[c.activePattern].steps[0];
     expect([s.note, s.extra]).toEqual([37, undefined]);
+  });
+});
+
+describe('SAVE PROJECT', () => {
+  it('saving into a filled slot (tap it twice) gives it the name typed now', () => {
+    const { app, tap } = makeApp();
+    const saveAs = (name: string, slot: number, taps = 1) => {
+      tap('saveproject');
+      (app as unknown as { projMenu: { name: string[] } }).projMenu.name = [...name];
+      for (let i = 0; i < taps; i++) tap(`step${slot}`);
+    };
+    saveAs('FIRST', 1);
+    saveAs('SECOND', 2);
+    saveAs('THIRD', 1, 2); // another project's slot: tap twice to overwrite
+    expect(projectStore.slots().slice(0, 2).map((e) => e?.name)).toEqual(['THIRD', 'SECOND']);
+    saveAs('RENAMED', 1); // its own slot: saved over, under the new name
+    expect(projectStore.slots()[0]?.name).toBe('RENAMED');
   });
 });
