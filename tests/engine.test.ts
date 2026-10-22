@@ -1535,9 +1535,6 @@ describe('song mode', () => {
   });
 });
 
-describe('v10 track order', () => {
-});
-
 describe('drum RING follows the decay knobs', () => {
   it('a longer metal DECAY gives a longer ring tail', () => {
     const tail = (mDecay: number) => {
@@ -2138,9 +2135,6 @@ describe('FX 1 FILTER (one knob: low-pass <- off -> high-pass)', () => {
   });
 });
 
-describe('v23: drum filter gone, PERC interval, FX 1 FILTER', () => {
-});
-
 describe('ACC/GHOST depth (per track)', () => {
   it('scales how far accents and ghosts sit from a normal hit, both ways at once', () => {
     expect(dynVelocity(0.8, 0)).toBe(0.8);
@@ -2307,9 +2301,6 @@ describe('v24 knob review', () => {
     expect(bell(1.2)).toBeGreaterThan(bell(0.3) * 5);
   });
 
-});
-
-describe('LFO rates v25', () => {
 });
 
 describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', () => {
@@ -2604,9 +2595,6 @@ describe('LEAD voices', () => {
     expect(diff(lead([57, 60, 64, 67]), lead([57, 60, 64, 67], 3, 0))).toBeLessThan(1e-6);
     expect(diff(lead([57, 60, 64]), lead([57, 60, 64], 3, 0))).toBeGreaterThan(0.01);
   });
-});
-
-describe('v30: ROLL RATE and roll runs', () => {
 });
 
 describe('drum retrigger', () => {
@@ -3003,7 +2991,4 @@ describe('v36: time signature, STEPS, triplet time', () => {
     expect(stepPlays(0, 'triplet', 19, false)).toBe(false);
     expect(stepPlays(0, 'triplet', 18, true)).toBe(false);
   });
-});
-
-describe('v37: the new RIDE', () => {
 });
