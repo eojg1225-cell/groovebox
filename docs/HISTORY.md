@@ -30,3 +30,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - PAD (2026-10-22): live-recorded chord notes each get their own length from their own release (before, they shared the first note's); step-entry strip: the yellow ring only on the note(s) being entered, the other notes sounding at the step lit dim teal.
 - PAD strip (2026-10-22): in step entry the step LEDs show only the entered note's steps (before, a step's first note's length, so a tied note lit them all); while playing, every PAD note sounding lights dim teal (before, only the first).
 - PLUCK chords (2026-10-22): PLUCK works like PAD: chords of up to 6 notes per step, each note with its own length, entry / recording / strip the same (`registry.playsChords`).
+- PAD (2026-10-22): CARRIERS fixed at 0.85 (off FUNC, out of the TIMBRE sounds and INTENSITY), CRUSH removed; older saves' PAD CARRIERS / CRUSH are ignored; the five PAD sounds re-levelled (OUT GAIN).

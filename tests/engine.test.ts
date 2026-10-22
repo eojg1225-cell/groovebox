@@ -149,7 +149,7 @@ describe('instruments', () => {
   it('each type has a 16-knob SOUND page of its own params; coarse params are discrete; presets use real params', () => {
     for (const entry of Object.values(INSTRUMENTS)) {
       expect(entry.layout).toHaveLength(16);
-      for (const id of entry.layout) expect(id !== null && (id.includes(':') || entry.params.some((p) => p.id === id)), String(id)).toBe(true);
+      for (const id of entry.layout) expect(id === null || id.includes(':') || entry.params.some((p) => p.id === id), String(id)).toBe(true); // null = an empty knob
       for (const p of entry.params) if (p.options) expect(p.coarse).toBe(true);
       for (const preset of entry.presets) {
         for (const id in preset.values) expect(entry.params.some((p) => p.id === id)).toBe(true);
@@ -1830,7 +1830,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
 });
 
 describe('PAD on the 3 carrier engine', () => {
-  it('plays chords cleanly on every sound; INTENSITY 0 is carrier 1 alone', () => {
+  it('plays chords cleanly on every sound; CARRIERS fixed, INTENSITY 0 takes the FM out', () => {
     for (let i = 0; i < 5; i++) {
       const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
       const sound = presetSound('pad', i);
@@ -1842,19 +1842,25 @@ describe('PAD on the 3 carrier engine', () => {
       expect(st.nan, `pad ${i}`).toBe(false);
       expect(st.peak, `pad ${i}`).toBeGreaterThan(0.02);
     }
-    expect(macroSound('pad', 0.5, 0, PAD_PARAMS).carriers).toBeLessThan(0.01);
+    // CARRIERS is fixed (no knob, not in the macros); INTENSITY 0 takes the FM out.
+    expect(PAD_FIXED.carriers).toBe(0.85);
+    expect(macroSound('pad', 0.5, 0, PAD_PARAMS).carriers).toBeUndefined();
+    expect(macroSound('pad', 0.5, 0, PAD_PARAMS).fm).toBeLessThan(0.02); // 2 % of the sound's own (CONVERGE)
   });
 
-  it('older saves take the new carrier ratios of their own TIMBRE position', () => {
+  it('older saves take the new carrier ratios of their own TIMBRE position, without CARRIERS / CRUSH', () => {
     const p = createDefaultProject();
     const warm = MACROS.pad.anchors.findIndex((a) => a.name === 'WARM') / 4;
     const stored = JSON.parse(JSON.stringify(toStored(p)));
     const sound = stored.channels[5].sounds.pad;
     sound.timbre = warm;
-    for (const id of ['ratio2', 'ratio3', 'feedback', 'carriers']) delete sound[id];
+    sound.carriers = 0.25; // CARRIERS / CRUSH from older saves are dropped (fixed now)
+    sound.crush = 0.5;
+    for (const id of ['ratio2', 'ratio3', 'feedback']) delete sound[id];
     const q = fromStored(stored)!.channels[5].sounds.pad!;
     expect(q.ratio3).toBe(0.5);
-    expect(q.carriers).toBeCloseTo(0.25);
+    expect(q.carriers).toBeUndefined();
+    expect(q.crush).toBeUndefined();
   });
 });
 

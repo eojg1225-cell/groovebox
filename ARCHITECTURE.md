@@ -180,7 +180,7 @@ switch (never glide, never on a relative live knob).
   PLUCK), DRIVE / CRUSH / OUT GAIN. `algo` 0 (BASS, PLUCK): an FM pair (BASS: root-locked ratio
   ladder via `cratio` / `fmratio`). `algo` 1 (LEAD): a sine modulator with DX7-style feedback
   phase-modulating three carriers (1 / RATIO 2 / RATIO 3; `dx7Index` level curve). `algo` 2 (PAD): two
-  stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3), DC blocker at 8 Hz.
+  stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3, mixed in at the fixed CARRIERS 0.85; no CRUSH), DC blocker at 8 Hz.
   PLUCK runs an onboard delay + room (`Instrument.post`); BASS ducks from KICK hits
   (`Instrument.duck`). The engine's ARP (`arp` / `arprate` / `arpoct`) is still there, but no type
   lists those params now.

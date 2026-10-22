@@ -282,8 +282,8 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: 0.273, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    layout: synthPage(['attack', 'release'], ['track:chord', 'detune']),
-    funcLayout: trackFunc(heldFunc([_, 'carriers', _, _], ['feedback', _, _, 'unison'])),
+    layout: synthPage(['attack', 'release'], ['track:chord', 'detune']).map((id) => (id === 'crush' ? null : id)), // no CRUSH on the PAD
+    funcLayout: trackFunc(heldFunc([_, _, _, _], ['feedback', _, _, 'unison'])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.633, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
