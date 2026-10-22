@@ -164,7 +164,7 @@ export function stepPlays(meter: number, speed: PatternSpeed | undefined, index:
 export interface Pattern {
   /** 1..MAX_STEPS; the channel loops at this length (polymeter). */
   length: number;
-  /** Half / double time (absent = normal). */
+  /** Double / half / triplet time (absent = normal). */
   speed?: PatternSpeed;
   /** Always MAX_STEPS entries. */
   steps: Step[];
@@ -215,7 +215,7 @@ export interface ChannelState {
   sendLevel: number;
   /** ACC/GHOST: how far accents and ghosts sit from normal hits, % (100 = as designed). */
   dynamics: number;
-  /** GATE: how long each sequenced note's last step is held, in steps (1/8 .. 2; 1 = as entered). */
+  /** TRIM (mix id 'gate'): how long each sequenced note's last step is held, in steps (1/8 .. 2; 1 = as entered). */
   gateLength: number;
   /** MID CUT: the track's own cut after DRIVE, 0..1 (centre = the sound's MID FREQ). */
   midCut: number;

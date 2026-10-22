@@ -13,7 +13,7 @@ export interface LaneCell {
   skip?: boolean;
   /** Note letter for the selected pitched lane, '' otherwise. */
   note: string;
-  /** Step has motion-recorded parameter locks. */
+  /** Step has parameter locks (live-recorded). */
   locked: boolean;
   /** Empty step covered by an earlier note's length (tie). */
   tie: boolean;

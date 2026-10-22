@@ -335,10 +335,6 @@ export function paramSpec(kind: InstrumentKind, id: string): ParamSpec | undefin
 }
 
 /**
- * Full sound for a preset: defaults, then (when the preset names a TIMBRE position) the
- * sound TIMBRE / INTENSITY produce there, then the preset's own values.
- */
-/**
  * Sounds saved before each synth oscillator had its own SUSTAIN / RELEASE: OSC 2 takes
  * OSC 1's (as it did then). In place.
  */
@@ -347,6 +343,10 @@ export function mirrorOsc2(values: Record<string, number>): void {
   if (values.release !== undefined && values.release2 === undefined) values.release2 = values.release;
 }
 
+/**
+ * Full sound for a preset: defaults, then (when the preset names a TIMBRE position) the
+ * sound TIMBRE / INTENSITY produce there, then the preset's own values.
+ */
 export function presetSound(kind: SoundKind, index: number): Record<string, number> {
   const sound: Record<string, number> = {};
   const params = INSTRUMENTS[kind].params;

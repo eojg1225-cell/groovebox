@@ -27,13 +27,10 @@ export function liveDefaults(c: ChannelState): void {
   c.liveOffset = {};
 }
 
-/**
- * A fresh project: six tracks with sounds ready (kick, snare, hat, bass, pad, lead),
- * every pattern empty.
- */
 /** Where each track starts along its TIMBRE. */
 const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'ODD 2:3', 'GLASS PLUCK'];
 
+/** A fresh project: eight tracks with sounds ready, every pattern empty, nothing routed. */
 export function createDefaultProject(): Project {
   // 4 = toms / percussion (pitched from the sequencer), 8 = a sync pluck with an arp.
   const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck'];

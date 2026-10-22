@@ -1,20 +1,19 @@
 /**
  * App controller: owns the project (source of truth on the UI side), turns ControlSurface
- * events into project edits + engine messages, persists the session and builds the
- * screen view-models.
+ * events into project edits + engine messages, saves the working copy and builds the
+ * screen view-models. CLAUDE.md (Current state) describes every control in full.
  *
  * Modes (selected at the top of the panel):
- *  RECORD  building patterns. Patterns switch at once. Drums: strip toggles steps (with
- *          the armed accent/ghost), VIEW pages long patterns. Pitched: step-entry keyboard
- *          (note at the cursor, then advance; ◀ ▶ REST).
+ *  RECORD  building patterns. Stopped = step entry, playing = live recording. Drums: the
+ *          strip toggles / paints steps. Pitched: step-entry keyboard (note at the cursor,
+ *          then advance; ◀ ▶, REST).
  *  PLAY    performing. Nothing is recorded: the strip is a keyboard for every track
  *          (drums play chromatically), patterns switch at loop end, the view follows
- *          the playhead.
- *  DESIGN  sound design for the selected track: its core parameters (SOUND), TRACK
- *          (type, preset, mix, sends, live-knob assignment, chord), FX and GLOBAL.
+ *          the playhead. Pages SOUND (live knobs) / MIX.
+ *  DESIGN  pages SOUND (the selected track's sound), MIX and PROJECT (global).
  *          The strip is an audition keyboard.
- * In RECORD and PLAY the 16 knobs are the live knobs: one module per track, two each,
- * assigned on the TRACK page. Only non-coarse parameters can be assigned.
+ * In RECORD and PLAY the 16 knobs are the live knobs: one module per track, two each
+ * (+ two with FUNC), assigned on the SOUND page's FUNC layer.
  * FX 1-3 and LFO (RECORD / PLAY): the knobs and the screen switch to that bus's controls
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
@@ -40,8 +39,8 @@
  * crescendo). Drum lanes paint: slide along the strip (or press the next step while one is
  * held) and every step joins the stroke, which adds or erases as decided by the first step.
  * BAR (hold) + ◀ / ▶: the previous / next bar of a long pattern on the strip; a tap = next.
- * MOTION REC (RECORD mode, while playing): live-knob moves on instrument parameters
- * become per-step locks on that track, and keyboard notes are written to the nearest step.
+ * Live recording (RECORD while playing): live-knob moves on instrument parameters become
+ * per-step locks on that track, and keyboard notes are written to the nearest step.
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
@@ -102,7 +101,6 @@ const SPEED_MARK = { normal: '', double: ' X2', half: ' /2', triplet: ' T' } as 
 
 /** What a drum-lane paint stroke does to each step it reaches. */
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
-/** Hold ACCENT / GHOST / RING this long (keyboard tracks, RECORD) to paint them onto steps. */
 /** A relative live knob: -100..+100 % around the sound as set (centre). */
 const OFFSET_SPEC: ParamSpec = { id: 'offset', name: 'OFFSET', min: -100, max: 100, defaultValue: 0, unit: '%', curve: 'linear', decimals: 0 };
 /** FUNC released sooner than this, with no knob turned = a tap (latches FUNC on / off). */
@@ -752,12 +750,6 @@ export class App {
     return [...pad(control('wet')), c('cmp_thresh'), c('cmp_attack'), ...pad(control('int')), c('cmp_ratio'), c('cmp_release')];
   }
 
-  /**
-   * TRACK page. Row 1: type, preset, volume, pan, LIVE 1 and LIVE 2 (which parameters
-   * the track's two live knobs control; with FUNC held LIVE 3 / 4, what they control with
-   * FUNC held). Row 2: send level, chord (pitched).
-   * The send itself is chosen with FX 1/2/3.
-   */
   /** One knob per track (knob = track number); `only` leaves the others blank. */
   private trackRow(id: string, name: string, only: (c: ChannelState) => boolean = () => true): (KnobTarget | null)[] {
     return this.project.channels.map((c, ch) => (only(c) ? this.paramTarget(ch, id, `${name} ${ch + 1}`, ch === this.selected) : null));
@@ -790,7 +782,7 @@ export class App {
   /** The 16 knob targets for the current mode. */
   private computeTargets(): (KnobTarget | null)[] {
     if (this.projMenu) return this.nameTargets();
-    // FUNC layers exist for the SOUND / TRACK pages and the live knobs; elsewhere FUNC
+    // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.mode === 'song') return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
     if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1);
@@ -2425,7 +2417,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / FX = PATTERN' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
+      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / A-D' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',

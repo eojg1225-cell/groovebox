@@ -1,6 +1,6 @@
 /**
  * TIMBRE and INTENSITY: two macro knobs per track type that give the groovebox its own
- * sounds. TIMBRE travels through four designed sounds ("anchors"), blending every
+ * sounds. TIMBRE travels through five designed sounds ("anchors"), blending every
  * parameter between neighbours (on the parameter's own curve, so frequencies and times
  * move musically): the coarse choice of sound. INTENSITY then sets the amount of
  * modulation / atmosphere around a neutral middle (0.5 = as designed): down, FM, filter

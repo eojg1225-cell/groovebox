@@ -21,7 +21,6 @@ import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
 import { METERS, NUM_SENDS, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
 
-/** Largest chunk rendered at once; blocks are split at step boundaries anyway. */
 /** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
 const CHUNK = 64;
 /** Max sound parameters per instrument that can be locked per step. */

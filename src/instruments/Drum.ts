@@ -33,10 +33,6 @@ import { DRIVE_RISE, driveCompGain } from './driveComp';
 const T_WAVES = ['SINE', 'TRI', 'SAW', 'SQR'];
 const ATTACK = { min: 0.0005, max: 2, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 } as const;
 
-/**
- * ROLL DIV: hits per step of a ROLL step (the SLIDE button is ROLL on drum tracks), named
- * as note values at 16th-note steps.
- */
 /** ROLL RATE: hits per step (1:n) of a ROLL run (ids 'rolldiv'; before v30 the list began at 1:2). */
 export const ROLL_DIVS = [
   { name: '1:1', hits: 1 }, { name: '1:2', hits: 2 }, { name: '1:3', hits: 3 }, { name: '1:4', hits: 4 }, { name: '1:6', hits: 6 }, { name: '1:8', hits: 8 },
