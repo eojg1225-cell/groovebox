@@ -1830,7 +1830,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
 });
 
 describe('PAD on the 3 carrier engine', () => {
-  it('plays chords cleanly on every sound; CARRIERS fixed, INTENSITY 0 takes the FM out', () => {
+  it('plays chords cleanly on every sound; INTENSITY sets CARRIERS (0 = carrier 1 alone), not FM LVL', () => {
     for (let i = 0; i < 5; i++) {
       const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
       const sound = presetSound('pad', i);
@@ -1842,24 +1842,24 @@ describe('PAD on the 3 carrier engine', () => {
       expect(st.nan, `pad ${i}`).toBe(false);
       expect(st.peak, `pad ${i}`).toBeGreaterThan(0.02);
     }
-    // CARRIERS is fixed (no knob, not in the macros); INTENSITY 0 takes the FM out.
-    expect(PAD_FIXED.carriers).toBe(0.85);
-    expect(macroSound('pad', 0.5, 0, PAD_PARAMS).carriers).toBeUndefined();
-    expect(macroSound('pad', 0.5, 0, PAD_PARAMS).fm).toBeLessThan(0.02); // 2 % of the sound's own (CONVERGE)
+    // CARRIERS: 0.85 on every sound (no knob); INTENSITY 0 fades stack 2 out; INTENSITY
+    // leaves FM LVL as the sound sets it.
+    for (let t = 0; t <= 1; t += 0.25) expect(macroSound('pad', t, 0.5, PAD_PARAMS).carriers).toBeCloseTo(0.85);
+    expect(macroSound('pad', 0.5, 0, PAD_PARAMS).carriers).toBeLessThan(0.02); // 2 % of the sound's own (CONVERGE)
+    for (const x of [0, 1]) expect(macroSound('pad', 0.5, x, PAD_PARAMS).fm).toBe(macroSound('pad', 0.5, 0.5, PAD_PARAMS).fm);
   });
 
-  it('older saves take the new carrier ratios of their own TIMBRE position, without CARRIERS / CRUSH', () => {
+  it('older saves take the new carrier ratios of their own TIMBRE position, without CRUSH', () => {
     const p = createDefaultProject();
     const warm = MACROS.pad.anchors.findIndex((a) => a.name === 'WARM') / 4;
     const stored = JSON.parse(JSON.stringify(toStored(p)));
     const sound = stored.channels[5].sounds.pad;
     sound.timbre = warm;
-    sound.carriers = 0.25; // CARRIERS / CRUSH from older saves are dropped (fixed now)
-    sound.crush = 0.5;
-    for (const id of ['ratio2', 'ratio3', 'feedback']) delete sound[id];
+    sound.crush = 0.5; // CRUSH from older saves is dropped (the PAD has none)
+    for (const id of ['ratio2', 'ratio3', 'feedback', 'carriers']) delete sound[id];
     const q = fromStored(stored)!.channels[5].sounds.pad!;
     expect(q.ratio3).toBe(0.5);
-    expect(q.carriers).toBeUndefined();
+    expect(q.carriers).toBeCloseTo(0.85);
     expect(q.crush).toBeUndefined();
   });
 });
@@ -2425,10 +2425,10 @@ describe('drum retrigger', () => {
 describe('v32: PAD on 2 STACKS', () => {
   const names = () => MACROS.pad.anchors.map((a) => a.name);
 
-  it('soft -> bell-like on the 2 STACKS engine, FM topping out at level 92', () => {
+  it('soft -> bell-like on the 2 STACKS engine, INTENSITY at the top = both stacks in full', () => {
     expect(PAD_FIXED.algo).toBe(2);
     expect(names()).toEqual(['WARM', 'STRINGS', 'TINE', 'GLASS', 'ETHEREAL']);
-    for (const t of [0, 0.3, 0.5, 0.8, 1]) expect(macroSound('pad', t, 1, PAD_PARAMS).fm).toBeCloseTo(0.92);
+    for (const t of [0, 0.3, 0.5, 0.8, 1]) expect(macroSound('pad', t, 1, PAD_PARAMS).carriers).toBeCloseTo(1);
   });
 
   it('TIMBRE steps the modulators in whole / half steps, stack 2\'s carrier through intervals', () => {

@@ -140,25 +140,28 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   pad: {
     // PAD: 2 STACKS (Synth algo 2), two modulator -> carrier pairs, polyphonic with chords.
     // Stack 1 = carrier 1 (SHAPE's wave) under a modulator at FM RATIO with FEEDBACK; stack 2
-    // = a carrier at RATIO 2 under a modulator at RATIO 3, mixed in at a fixed CARRIERS (PAD_FIXED). Soft ->
+    // = a carrier at RATIO 2 under a modulator at RATIO 3, mixed in by CARRIERS
+    // (0.85 on every sound, no knob). Soft ->
     // bell-like (WARM, STRINGS, TINE, GLASS, ETHEREAL). The ratios switch as TIMBRE moves
     // (see RATIO_SNAP: the modulators in whole and half steps, stack 2's carrier through
     // musical intervals), so every stop on the way stays in tune with a chord.
     anchors: [
       // Warm: a soft wave with an octave-down modulator on stack 2 (a low growl under it).
-      { name: 'WARM', values: { ogain: 1.315, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 } },
+      { name: 'WARM', values: { ogain: 1.315, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 } },
       // Strings: saws, stack 2 a fifth up, the filter opening slowly.
-      { name: 'STRINGS', values: { ogain: 1.017, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 } },
+      { name: 'STRINGS', values: { ogain: 1.017, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { ogain: 0.745, cfeedback: 0, shape: 0, fm: 0.62, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 } },
-      { name: 'GLASS', values: { ogain: 0.962, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 } },
+      { name: 'TINE', values: { ogain: 0.745, cfeedback: 0, shape: 0, fm: 0.62, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 } },
+      { name: 'GLASS', values: { ogain: 0.962, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 } },
       // Ethereal: a 7x modulator over the body, stack 2 a twelfth up under a 5x one - every
       // sideband lands on a harmonic: a bright, high shimmer.
-      { name: 'ETHEREAL', values: { ogain: 1.551, cfeedback: 0, shape: 0.5, fm: 0.6, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 } },
+      { name: 'ETHEREAL', values: { ogain: 1.551, cfeedback: 0, shape: 0.5, fm: 0.6, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 } },
     ],
     excite: [
-      // FM tops out at level 92 (index ~7): a pad never reaches the lead's full bite.
-      { id: 'fm', floor: 0, knee: 0.6, top: 0.92 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 },
+      // INTENSITY = how much of the carriers: stack 2 fades out below the middle (INT 0 =
+      // carrier 1 alone, clean) and comes up to full in the top quarter. It leaves the
+      // modulation alone: FM LVL and FEEDBACK set it.
+      { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
       { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
       // Carrier 1 feeds back into itself above the middle: sines turn saw-like at the top.

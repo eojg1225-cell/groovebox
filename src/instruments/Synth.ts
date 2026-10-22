@@ -167,9 +167,9 @@ export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'o
 export const BASS_FIXED = { voice: 1, envlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
-/** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); stack 2 mixed in at a fixed CARRIERS, no CRUSH. */
-export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2, carriers: 0.85 };
+export const PAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
+/** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
+export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
