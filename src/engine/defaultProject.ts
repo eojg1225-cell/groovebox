@@ -1,4 +1,4 @@
-import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type InstrumentKind, type Project, type SoundKind } from './project';
+import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
 import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
 import { defaultDrumBus, defaultSendComp, defaultSendInt, defaultSendWet } from '../fx';
@@ -12,11 +12,6 @@ export function applyPreset(c: ChannelState, kind: SoundKind, index: number): vo
   c.sounds[kind] = presetSound(kind, index);
   c.trims[kind] = {};
   c.presets[kind] = index;
-}
-
-/** The FX 2 / 3 send a type was given before v27 loads (0 = none): LEAD -> FX 2, PAD -> FX 3. */
-export function defaultSend(kind: InstrumentKind): number {
-  return kind === 'pad' ? 3 : kind === 'lead' ? 2 : 0;
 }
 
 /** A track's type's default live knobs (LIVE 1 / 2, and 3 / 4 with FUNC). */

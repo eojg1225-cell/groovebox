@@ -203,73 +203,9 @@ export const MACROS: Record<SoundKind, MacroDef> = {
 };
 
 // BASS and PLUCK sounds each bring their whole character: amp envelope (one for both
-// oscillators; PLUCK's OSC 2 decays by its own ratio), BASS's filter-to-amp speed and the
-// width (DETUNE, UNISON) morph with TIMBRE, and SOUND page changes are trims on top (v26).
+// oscillators; PLUCK's OSC 2 decays by its own ratio) and width (DETUNE, UNISON) morph
+// with TIMBRE, and SOUND page changes are trims on top.
 // PAD and LEAD keep the type's own envelope and width, like the drums' tails.
-
-/** Each type's four sounds before v19 (a fifth was added; older TIMBRE positions move). */
-/** Sounds replaced in their slot (old name -> today's). */
-const RENAMED: Readonly<Record<string, string>> = { 'FM CLANG': 'FM 2:3' };
-
-const ANCHORS_V18: Record<SoundKind, readonly string[]> = {
-  kick: ['VINTAGE', 'PUNCH', 'TECHNO', 'PSY DOOF'],
-  snare: ['RIMSHOT', 'TIGHT', 'BREAK', 'INDUSTRIAL'],
-  hat: ['RIDE', 'HAT', 'CRASH', 'CHINA'],
-  perc: ['LOW TOM', 'CONGA', 'COWBELL', 'CLAVE'],
-  bass: ['SINE SUB', 'SOLID', 'GROWL', 'FM CLANG'],
-  pad: ['GLASS', 'WARM', 'STRINGS', 'ETHEREAL'],
-  lead: ['ODD 2:3', 'SAW 1:1', 'OCT 1:2', 'FIFTH 3:2'],
-  pluck: ['GLASS PLUCK', 'SAW PLUCK', 'SQUARE PLUCK', 'RAGE DONK'],
-};
-
-/**
- * A TIMBRE position saved with four sounds, on today's list: each old sound lands on
- * itself, positions between two sounds keep their share of the way. (Where a new sound now
- * sits between them the blend differs; the loader re-derives the SOUND page trims, so a
- * loaded sound still plays exactly as saved.)
- */
-export function remapTimbreV18(kind: SoundKind, timbre: number): number {
-  const old = ANCHORS_V18[kind];
-  const anchors = MACROS[kind].anchors;
-  const pos = (name: string) => anchors.findIndex((a) => a.name === (RENAMED[name] ?? name));
-  const u = Math.min(1, Math.max(0, timbre)) * (old.length - 1);
-  const i = Math.min(old.length - 2, Math.floor(u));
-  const f = u - i;
-  return between(pos(old[i]), pos(old[i + 1]), f) / (anchors.length - 1);
-}
-
-/**
- * Share f of the way from sound a to sound b (indices on today's list). When they are no
- * longer neighbours, the nearer one: going between them would pass through other sounds.
- */
-function between(a: number, b: number, f: number): number {
-  return Math.abs(b - a) === 1 ? a + (b - a) * f : f < 0.5 ? a : b;
-}
-
-/** PAD's TIMBRE sounds before v32 (3 CARRIER engine), in their order then. */
-export const PAD_ANCHORS_V31 = ['GLASS', 'TINE', 'WARM', 'STRINGS', 'ETHEREAL'];
-
-/** A TIMBRE position saved on an older order of a type's sounds (`old`), on today's list: the same sound. */
-function remapTimbreOrder(kind: SoundKind, old: readonly string[], timbre: number): number {
-  const anchors = MACROS[kind].anchors;
-  const pos = (name: string) => anchors.findIndex((a) => a.name === name);
-  const u = Math.min(1, Math.max(0, timbre)) * (old.length - 1);
-  const i = Math.min(old.length - 2, Math.floor(u));
-  return between(pos(old[i]), pos(old[i + 1]), u - i) / (anchors.length - 1);
-}
-
-/** A PAD TIMBRE position saved before v32 (the old order), on today's list: same sound. */
-export function remapPadTimbreV31(timbre: number): number {
-  return remapTimbreOrder('pad', PAD_ANCHORS_V31, timbre);
-}
-
-/** BASS's sounds in their v19 - v39 order (v40: GROWL and SOLID swapped). */
-export const BASS_ANCHORS_V39 = ['SINE SUB', 'SOLID', 'ACID', 'GROWL', 'FM 2:3'];
-
-/** A BASS TIMBRE position saved v19 - v39, on today's order: the same sound. */
-export function remapBassTimbreV39(timbre: number): number {
-  return remapTimbreOrder('bass', BASS_ANCHORS_V39, timbre);
-}
 
 /** Name of the anchor nearest a TIMBRE position (for the screen). */
 export function timbreName(kind: SoundKind, timbre: number): string {

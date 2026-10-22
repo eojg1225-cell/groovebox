@@ -4,8 +4,8 @@
  * ProjectStore interface, so a cloud store can take its place later: records are keyed by
  * a fixed random id, the slot is just where an id sits.
  */
-import { NUM_PATTERNS, PROJECT_VERSION, cloneNotes, clonePatch, patchOf, type Project } from '../engine/project';
-import { fromStored, toStored } from '../engine/projectFile';
+import type { Project } from '../engine/project';
+import { fromStored, isOldFormat, toStored } from '../engine/projectFile';
 
 export const SLOTS_PER_BANK = 16;
 export const PROJECT_BANKS = 4;
@@ -26,6 +26,8 @@ export interface ProjectStore {
   save(slot: number, name: string, project: Project, id?: string): SlotEntry | null;
   /** The saved project. */
   load(id: string): Project | null;
+  /** Saved in a format older than the reader reads exactly: its sounds may differ. */
+  isOld(id: string): boolean;
   /** Its working copy (unsaved edits), if any. */
   loadWork(id: string): Project | null;
   saveWork(id: string, project: Project): void;
@@ -45,9 +47,6 @@ export function onSlotChange(fn: SlotListener | null): void {
 
 const INDEX = 'groovebox.projects';
 const OPEN = 'groovebox.open';
-const LEGACY = 'groovebox.project';
-/** The format every stored project was last brought up to (upgrade). */
-const UPGRADED = 'groovebox.upgraded';
 const data = (id: string) => `groovebox.proj.${id}`;
 const work = (id: string) => `groovebox.work.${id}`;
 
@@ -90,46 +89,6 @@ function parse(raw: string | null): Project | null {
   }
 }
 
-function storedVersion(raw: string | null): number {
-  try {
-    const v = (JSON.parse(raw ?? 'null') as { version?: unknown } | null)?.version;
-    return typeof v === 'number' ? v : 0;
-  } catch {
-    return PROJECT_VERSION;
-  }
-}
-
-/** Stored JSON text in the current format: older versions go through the load migrations. */
-function current(raw: string): string {
-  if (storedVersion(raw) >= PROJECT_VERSION) return raw;
-  const project = parse(raw);
-  return project ? JSON.stringify(toStored(project)) : raw;
-}
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-
-function sameValues(a: Record<string, number>, b: Record<string, number>): boolean {
-  for (const k in a) if (Math.abs(a[k] - (b[k] ?? NaN)) > 1e-9 || !(k in b)) return false;
-  for (const k in b) if (!(k in a)) return false;
-  return true;
-}
-
-/** Each pattern's saved notes / patch taken from the project's saved copy (same track type). */
-function adoptSaved(work: Project, saved: Project): void {
-  work.channels.forEach((c, ch) => {
-    const s = saved.channels[ch];
-    if (!s || s.instrument !== c.instrument) return;
-    for (let p = 0; p < NUM_PATTERNS; p++) {
-      const pat = c.patterns[p];
-      pat.savedNotes = cloneNotes(s.patterns[p]);
-      pat.notesDirty = !same(pat.savedNotes, cloneNotes(pat));
-      pat.savedPatch = clonePatch(patchOf(s, p));
-      const now = patchOf(c, p);
-      pat.patchDirty = !sameValues(pat.savedPatch.sound, now.sound) || !sameValues(pat.savedPatch.trims, now.trims);
-    }
-  });
-}
-
 class LocalProjectStore implements ProjectStore {
   slots(): (SlotEntry | null)[] {
     let list: unknown = null;
@@ -138,26 +97,11 @@ class LocalProjectStore implements ProjectStore {
     } catch {
       list = null;
     }
-    if (!Array.isArray(list)) return this.migrate();
+    if (!Array.isArray(list)) return new Array(PROJECT_SLOTS).fill(null);
     return Array.from({ length: PROJECT_SLOTS }, (_, i) => {
       const e = list[i] as SlotEntry | null;
       return e && typeof e.id === 'string' ? { id: e.id, name: String(e.name ?? ''), savedAt: Number(e.savedAt) || 0 } : null;
     });
-  }
-
-  /** First run: the single project saved before slots becomes slot 1. */
-  private migrate(): (SlotEntry | null)[] {
-    const slots: (SlotEntry | null)[] = new Array(PROJECT_SLOTS).fill(null);
-    const legacy = get(LEGACY);
-    if (legacy && parse(legacy)) {
-      const id = newId();
-      if (put(data(id), legacy)) {
-        slots[0] = { id, name: 'PROJECT 1', savedAt: Date.now() };
-        if (!this.openId()) this.setOpen(id);
-      }
-    }
-    put(INDEX, JSON.stringify(slots));
-    return slots;
   }
 
   save(slot: number, name: string, project: Project, id = newId()): SlotEntry | null {
@@ -196,7 +140,7 @@ class LocalProjectStore implements ProjectStore {
   place(slot: number, entry: SlotEntry, raw: string): boolean {
     const slots = this.slots();
     const old = slots[slot];
-    if (!put(data(entry.id), current(raw))) return false;
+    if (!put(data(entry.id), raw)) return false;
     if (old && old.id !== entry.id) {
       drop(data(old.id));
       drop(work(old.id));
@@ -217,45 +161,17 @@ class LocalProjectStore implements ProjectStore {
     return parse(get(data(id)));
   }
 
-  loadWork(id: string): Project | null {
-    const raw = get(work(id));
-    const project = parse(raw);
-    if (!project) return null;
-    // Before v31 nothing kept saved versions per pattern: they come from the saved copy.
-    const saved = storedVersion(raw) < 31 ? this.load(id) : null;
-    if (saved) adoptSaved(project, saved);
-    return project;
+  isOld(id: string): boolean {
+    const raw = get(work(id)) ?? get(data(id));
+    try {
+      return isOldFormat(JSON.parse(raw ?? 'null'));
+    } catch {
+      return false;
+    }
   }
 
-  /**
-   * Rewrites every saved project and working copy stored in an older format in the
-   * current one (read through the load migrations; savedAt kept), so the migrations for
-   * older versions can later go. Run at startup, before the cloud sync; once per format.
-   * Returns how many records it rewrote.
-   */
-  upgrade(): number {
-    // Done once per format: every write since stores the current one (cloud copies included).
-    if (get(UPGRADED) === String(PROJECT_VERSION)) return 0;
-    let n = 0;
-    for (const e of this.slots()) {
-      if (!e) continue;
-      const w = get(work(e.id));
-      // The working copy first: before v31 it reads its saved versions from the saved copy.
-      if (w && storedVersion(w) < PROJECT_VERSION) {
-        const p = this.loadWork(e.id);
-        if (p) {
-          this.saveWork(e.id, p);
-          n++;
-        }
-      }
-      const d = get(data(e.id));
-      if (d && storedVersion(d) < PROJECT_VERSION) {
-        const up = current(d);
-        if (up !== d && put(data(e.id), up)) n++;
-      }
-    }
-    put(UPGRADED, String(PROJECT_VERSION));
-    return n;
+  loadWork(id: string): Project | null {
+    return parse(get(work(id)));
   }
 
   saveWork(id: string, project: Project): void {

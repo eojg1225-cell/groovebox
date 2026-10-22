@@ -19,7 +19,7 @@ Goal: the Android / Fire APK becomes the main version; the web build stays as th
 
 ## Keeping these docs right
 - This file describes the app **as it is now**. When behaviour changes, edit the section it belongs to (replace the old description, don't append a dated note), and add a one-line entry to `docs/HISTORY.md`.
-- Save format changes: bump `PROJECT_VERSION` (`engine/project.ts`), add the load migration in `engine/projectFile.ts` (named after the version, e.g. `bassFilterV38`), and record it in `docs/HISTORY.md`.
+- Save format changes: bump `PROJECT_VERSION` (`engine/project.ts`), add the load migration in `engine/projectFile.ts` (named after the version it upgrades from, e.g. `...V40`, guarded by the stored `version`), and record it in `docs/HISTORY.md`. Old migrations can be retired by raising `OLDEST_EXACT` (as in October 2026, see HISTORY).
 - `ARCHITECTURE.md` = code structure, message protocol, data model. Keep its protocol table in step with `engine/protocol.ts`.
 - Never trust a comment over the code: if they disagree, fix the comment in the same commit.
 
@@ -44,7 +44,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** per-send delay time editing.
 | param `fm` | FM LVL |
 | param `ogain` | OUT GAIN (TIMBRE's, no knob) |
 | SONG: `ring` / `dyn:accent` buttons | INSERT ROW / DELETE ROW |
-| `remap*V18`, `*V38`, `OCTAVE_SHIFT_V33` ... | load migrations only; never use for new behaviour |
+| anything named `...V<n>` | a load migration for saves older than v<n>; never use for new behaviour |
 
 ### Panel
 - Top: modes RECORD / PLAY / DESIGN / SONG; channels 1-8 (select on release) with M (mute) / S (solo, not saved; Alt+1-8) under each; page buttons (3); FX 1 / 2 / 3 / LFO; SAVE (pattern), SAVE/LOAD PROJECT, RESET; PAT A-D.
@@ -97,8 +97,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** per-send delay time editing.
 - Projects (`storage/projects.ts`, `ProjectStore`): 64 slots (4 banks x 16); each has a saved copy and a working copy. Stopped only: SAVE PROJECT = save menu (name entry with knobs 1-4 = A-Z / a-z / 0-9 / symbols, ◀ ▶ cursor, BAR + ◀ ▶ bank, tap a slot; another project's slot = tap twice); FUNC + SAVE PROJECT = load (CLEAR + slot twice = delete).
 - Cloud slots (`storage/slotSync.ts`, claude.ai only): the slots mirror to the db collection `slots`; `planSync` merges on start and when SAVE/LOAD opens.
 - SAVE: RECORD = the track's notes, DESIGN = its patch, PLAY = both (FUNC = every track); unsaved edits show *. RESET: patches back to saved (gliding to the next bar line while playing), mix / FX / LFO to the saved project, live knobs centred; a second tap within 3 s = notes too; hold channel buttons to keep those tracks out of it.
-- File format: `engine/projectFile.ts` (compact; the reader accepts every earlier version and never loses notes).
-- Upgrade (phase 3 of the audit, step 1): at startup `localProjects.upgrade()` and `upgradeUserPatches()` rewrite every slot, working copy and USER patch stored in an older format in the current one (savedAt kept; once per format, marker `groovebox.upgraded`); cloud copies are converted as they arrive (`place`). Step 2, once every device has opened this build: delete the load migrations for versions below 40.
+- File format: `engine/projectFile.ts` (compact; forgiving: missing / out-of-range values take defaults, notes are never lost). It reads v40 on exactly (`OLDEST_EXACT`); the migrations for v1-v39 were retired in October 2026. An older save still loads its notes, mix and FX, its sounds as stored; LOAD then shows `OLD SAVE, SOUNDS MAY DIFFER` (`ProjectStore.isOld`).
 
 ### Engine safety and performance
 - A non-finite engine output mutes the block and starts a fresh engine (ENGINE RESTARTED; main resends the project). The worklet file is re-fetched with `cache: 'reload'`.
@@ -114,6 +113,5 @@ Run `npm run build:artifact` and republish `dist-artifact/groovebox.html` (with 
 
 ## Build / deploy
 - `npm install` then `npm run dev` (dev server), `npm test` (Vitest, engine offline in Node), `npm run build` (typecheck incl. DOM-free engine check via `tsconfig.engine.json` and the tools/ sound tests, then static build to `dist/`), `npm run unused` (knip: no unused files / exports; keep it clean, export only what another file imports).
-- Deploy: push to `main`; the workflow tests, builds and publishes `dist/` to the `gh-pages` branch. Pages source: branch `gh-pages`, folder `/`.
-- Live URL: https://eojg1225-cell.github.io/groovebox/
+- The app is the claude.ai Artifact (above). CI: every push to `main` runs the workflow (tests, `npm run unused`, build) and publishes `dist/` to the `gh-pages` branch, but GitHub Pages is not switched on for the repo, so https://eojg1225-cell.github.io/groovebox/ is not live.
 - Architecture and message protocol: `ARCHITECTURE.md`.

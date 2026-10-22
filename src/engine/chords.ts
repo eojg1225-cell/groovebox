@@ -22,8 +22,6 @@ export const CHORDS: readonly { name: string; intervals: readonly number[] }[] =
 
 export const CHORD_NAMES = CHORDS.map((c) => c.name);
 
-/** Chord list before MAJOR/MINOR were added (project format < 6), for migrating saves. */
-export const CHORD_NAMES_V5 = ['OFF', 'MIN7', 'MAJ7', 'DOM7', 'MIN9', 'MAJ9', 'DOM9', 'MIN11', 'SUS4'];
 
 /** NOTES: how many of the chord's tones play (the most a chord has; MAX = all). */
 export const MAX_CHORD_NOTES = 6;

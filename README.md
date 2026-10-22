@@ -4,7 +4,7 @@
 
 Web-first groovebox for techno, DnB, dub and jungle. Runs in desktop Chrome/Edge and Silk on a Fire tablet; nothing to install.
 
-**Live build:** https://eojg1225-cell.github.io/groovebox/
+**Live build:** the claude.ai Artifact https://claude.ai/artifact/1gX3NeJdaGnWsLa3szA6q1 (GitHub Pages is not switched on for this repo).
 
 Spec: [`groovebox-brief.md`](groovebox-brief.md). Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -28,7 +28,7 @@ npm run preview    # serve dist/ locally
 npm run build:artifact  # also pack a single-page copy into dist-artifact/ for publishing as a claude.ai Artifact
 ```
 
-Note: AudioWorklet needs a secure context, so on another device use the HTTPS Pages URL (plain `http://<lan-ip>` will not start audio).
+Note: AudioWorklet needs a secure context, so on another device use an HTTPS URL such as the Artifact (plain `http://<lan-ip>` will not start audio).
 
 ## Current state
 
@@ -110,7 +110,7 @@ Chords: MAJOR, MINOR, MIN7, MAJ7, DOM7, MIN9, MAJ9, DOM9, MIN11, SUS4, 5TH, 5TH+
 
 **Ties on the strip:** when a synth / PERC track shows steps (placing RING / SLIDE / ACCENT / GHOST, or CLEAR held), steps a note is tied over show as a line through the middle of the button; tap one to put the flag on that note. A held note that changes dynamic (a slide from a ghost into an accent) moves its level and tone over a few milliseconds instead of jumping, so no click.
 
-**Saving:** SAVE (patterns / patches, above). PRESET (SOUND + FUNC) still loads the factory sounds and earlier USER patches into the current pattern's patch. **Projects** (stopped only): 64 slots in 4 banks of 16, each project with its tracks' sounds and its own working copy (unsaved edits are kept when you switch). **SAVE PROJECT** opens SAVE: name the project on screen (◀ / ▶ move along the name; knobs 1-4 dial capitals, lower case, digits, symbols at the cursor — each starts on a space and the character only changes once a knob is turned; up to 16 characters), hold BAR + ◀ / ▶ to change bank, then tap a strip step to save into that slot (a slot holding another project needs a second tap to overwrite; its own slot just saves). **FUNC + SAVE PROJECT** opens LOAD: the bank's 16 names on screen and on the strip (lit = used, cursor = open), ◀ / ▶ change bank, tap a slot to load it, hold CLEAR + tap a slot twice to delete it. Tap SAVE PROJECT again to leave; RESET returns to the saved versions. All in this browser's local storage (each slot keeps a working copy of unsaved edits); on claude.ai the working project is also mirrored to the artifact's store. The save format is forgiving: notes carry over across format changes. **Cloud slots (claude.ai Artifact):** all 64 slots are also kept in the artifact's database, so every device that opens the Artifact has the same slots (merged on start and when SAVE / LOAD opens; each save or delete is copied up at once). Nothing is lost in a merge: the same project keeps its newest save; two different projects saved in one slot independently — the earlier save keeps the slot, the later one moves to a free slot; deletes travel as markers. The GitHub Pages build keeps its slots in that browser only.
+**Saving:** SAVE (patterns / patches, above). PRESET (SOUND + FUNC) still loads the factory sounds and earlier USER patches into the current pattern's patch. **Projects** (stopped only): 64 slots in 4 banks of 16, each project with its tracks' sounds and its own working copy (unsaved edits are kept when you switch). **SAVE PROJECT** opens SAVE: name the project on screen (◀ / ▶ move along the name; knobs 1-4 dial capitals, lower case, digits, symbols at the cursor — each starts on a space and the character only changes once a knob is turned; up to 16 characters), hold BAR + ◀ / ▶ to change bank, then tap a strip step to save into that slot (a slot holding another project needs a second tap to overwrite; its own slot just saves). **FUNC + SAVE PROJECT** opens LOAD: the bank's 16 names on screen and on the strip (lit = used, cursor = open), ◀ / ▶ change bank, tap a slot to load it, hold CLEAR + tap a slot twice to delete it. Tap SAVE PROJECT again to leave; RESET returns to the saved versions. All in this browser's local storage (each slot keeps a working copy of unsaved edits); on claude.ai the working project is also mirrored to the artifact's store. The save format is forgiving: notes carry over across format changes (a save from before v40, October 2026, keeps its notes, mix and FX, but its sounds may differ; LOAD says so). **Cloud slots (claude.ai Artifact):** all 64 slots are also kept in the artifact's database, so every device that opens the Artifact has the same slots (merged on start and when SAVE / LOAD opens; each save or delete is copied up at once). Nothing is lost in a merge: the same project keeps its newest save; two different projects saved in one slot independently — the earlier save keeps the slot, the later one moves to a free slot; deletes travel as markers. A build served elsewhere (dev server) keeps its slots in that browser only.
 
 Keyboard: Space play/stop · Z FUNC (hold) · 1-8 select channel · Shift+1-8 mute · Q-I / A-K the strip.
 

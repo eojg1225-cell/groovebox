@@ -32,12 +32,10 @@ export const ARP_RATES = [
   { name: '1/4', steps: 4 }, { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 },
   { name: '1/16', steps: 1 }, { name: '1/16T', steps: 2 / 3 }, { name: '1/32', steps: 0.5 },
 ] as const;
-/** OCTAVE (v33: -4 ... +4; before, -2 ... +2 at indices 0-4, see OCTAVE_SHIFT_V33). */
+/** OCTAVE: -4 ... +4 (the value is the index). */
 const OCTAVES = ['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4'] as const;
 /** Index of OCTAVE 0 (OCTAVE's value is the index into OCTAVES). */
 const OCTAVE_ZERO = 4;
-/** v33 added two octaves each way: an older OCTAVE index moves up this much. */
-export const OCTAVE_SHIFT_V33 = 2;
 const MAX_VOICES = 6;
 /** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
@@ -164,9 +162,7 @@ const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'cru
 export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
 export const BASS_FIXED = { voice: 1, envlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
-export const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
-/** PAD's envelope before v27 (a stab), for keeping an untouched one up to date. */
-export const PAD_ENVELOPE_V26 = { attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3 };
+const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 export const PAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 });
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts). */
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2 };

@@ -70,7 +70,7 @@ export function toNorm(spec: ParamSpec, value: number): number {
 }
 
 /** FX 1 FILTER: the dead zone either side of the centre (OFF). */
-export const DJ_DEAD = 0.02;
+const DJ_DEAD = 0.02;
 /**
  * FX 1 FILTER position (0..1) -> cutoff: negative = low-pass at that many Hz (left of the
  * centre, 20 kHz down to 30 Hz), positive = high-pass (right, 20 Hz up to 16 kHz), 0 = off.

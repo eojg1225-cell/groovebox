@@ -233,9 +233,6 @@ export function liveContribution(t: LiveTarget, offset: number): number {
   return offset < 0 ? -shaped : shaped;
 }
 
-/** CHORD / LEAD / PLUCK output trim before v20 (-14 dB; older saves' volumes are scaled by it). */
-export const SYNTH_TRIM = 0.2;
-
 interface InstrumentEntry {
   name: string;
   /** All of the type's parameters (stored, set by presets, lockable). */
@@ -332,15 +329,6 @@ export function stepsOnStrip(kind: InstrumentKind): boolean {
 
 export function paramSpec(kind: InstrumentKind, id: string): ParamSpec | undefined {
   return instrumentParams(kind).find((p) => p.id === id);
-}
-
-/**
- * Sounds saved before each synth oscillator had its own SUSTAIN / RELEASE: OSC 2 takes
- * OSC 1's (as it did then). In place.
- */
-export function mirrorOsc2(values: Record<string, number>): void {
-  if (values.sustain !== undefined && values.sustain2 === undefined) values.sustain2 = values.sustain;
-  if (values.release !== undefined && values.release2 === undefined) values.release2 = values.release;
 }
 
 /**

@@ -22,15 +22,6 @@ export const LFO_RATES = [
   { name: '1/32', steps: 0.5 }, { name: '1/32T', steps: 1 / 3 }, { name: '1/64', steps: 0.25 },
 ] as const;
 
-/** The rate list of v18 - v24 (stored by index), for loading those saves. */
-export const LFO_RATES_V24 = [
-  '4 BAR', '3 BAR', '2 BAR', '1.5 BAR', '1 BAR', '3/4', '1/2', '3/8', '1/2T', '5/16', '1/4', '3/16',
-  '1/4T', '1/8', '1/8T', '1/16', '1/16T', '1/32', '1/64',
-];
-
-/** The rate list before v18 (stored by index), for loading older saves. */
-export const LFO_RATES_V17 = ['4 BAR', '2 BAR', '1 BAR', '1/2', '1/4', '1/4T', '1/8', '1/8T', '1/16', '1/16T', '1/32', '1/64'];
-
 export const LFO_SHAPES = ['SINE', 'SQUARE', 'TRI', 'SAW DN', 'SAW UP', 'S+H'] as const;
 
 export interface LfoState {

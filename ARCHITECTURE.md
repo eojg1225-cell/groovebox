@@ -104,9 +104,11 @@ are the reference, with a doc comment on every field; they are not repeated here
 - `sendWet` / `sendInt` are `[3][4]` (row 0 unused, rows 1-2 = FX 2 / FX 3; `fx/index.ts EFFECTS` order).
 
 Every save and load goes through `src/engine/projectFile.ts`: a compact stored format (only steps with
-notes) whose reader accepts every earlier version and keeps everything it recognises (notes and pattern
-lengths first, then mixer, sounds, FX), so format changes never lose notes. Each format change has a
-named migration there (`...V38` etc.; see `docs/HISTORY.md`).
+notes) and a forgiving reader (missing or out-of-range values take defaults, unknown parameters are
+dropped, notes are never lost). It reads formats from `OLDEST_EXACT` (40) on exactly; a later format
+change adds its migration there, named after the version. An older save still loads its notes, mix and
+FX, its sounds as stored (`isOldFormat`; LOAD warns). The v1-v39 migrations were retired in October
+2026 (`docs/HISTORY.md`).
 
 `storage/projects.ts` keeps 64 slots behind the `ProjectStore` interface (localStorage now; a native
 store in the Capacitor app later): per slot id a saved copy `groovebox.proj.<id>` and a working copy
@@ -248,7 +250,7 @@ self-contained script. A non-finite output mutes the block and restarts the engi
 ## Deployment
 
 `.github/workflows/deploy.yml` runs tests, `npm run unused` and the build, and publishes `dist/` to the
-`gh-pages` branch, which GitHub Pages serves at https://eojg1225-cell.github.io/groovebox/. Vite uses
-`base: './'` so the build works from any sub-path. `npm run build:artifact` builds the single-file
+`gh-pages` branch (GitHub Pages is not switched on for the repo, so that site is not live). Vite uses
+`base: './'` so the build works from any sub-path. The app people use is the claude.ai Artifact. `npm run build:artifact` builds the single-file
 claude.ai Artifact (`dist-artifact/`). `public/sw.js` is a network-first service worker (installable,
 offline fallback).

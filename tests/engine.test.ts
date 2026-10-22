@@ -3,14 +3,14 @@ import { CHORD_NAMES as CHORD_LIST, chordVoicing } from '../src/engine/chords';
 import { dynVelocity } from '../src/engine/mixParams';
 import { describe, expect, it } from 'vitest';
 import { Engine, LOCK_SLOTS, hitToneCutoff, type RecordedMsg } from '../src/engine/Engine';
-import { djCutoff, formatValue, toNorm, toValue } from '../src/engine/params';
+import { formatValue, toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
 import { DYNAMIC_VELOCITY, METERS, NUM_PATTERNS, stepPlays, editPattern, emptyPattern, initPatterns, lockProject, patchOf, type Project, type SoundKind } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
-import { Drum, ROLL_DIVS, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
+import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { midiToHz } from '../src/instruments/dsp';
 import { Delay } from '../src/fx/Delay';
@@ -23,7 +23,7 @@ import { LFO_RATES, lfoValue } from '../src/engine/lfo';
 
 /** An LFO rate's index by name. */
 const RATE = (name: string) => LFO_RATES.findIndex((r) => r.name === name);
-import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound, remapPadTimbreV31, remapTimbreV18, timbreName } from '../src/instruments/macros';
+import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound } from '../src/instruments/macros';
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { drumPage, soundPage, stepsOnStrip } from '../src/instruments/registry';
@@ -771,17 +771,6 @@ describe('LFO', () => {
     expect(stats(l.subarray(13000, 24000)).peak).toBeGreaterThan(0.01);
   });
 
-  it('old per-track LFOs become the shared LFO with those tracks on it', () => {
-    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
-    old.version = 7;
-    delete old.lfo;
-    for (const c of old.channels) { delete c.lfoOn; c.lfo = { rate: 4, shape: 0, vol: 0, pitch: 0 }; }
-    old.channels[5].lfo = { rate: 7, shape: 5, vol: 0.4, pitch: 3 }; // old layout: track 6 = LEAD
-    const p = fromStored(old)!;
-    expect(p.channels.map((c) => c.lfoOn)).toEqual([false, false, false, false, false, false, true, false]); // now track 7
-    expect(p.lfo).toMatchObject({ rate: RATE('1/8T'), shape: 5, vol: 0.4, pitch: 3 }); // old index 7 = 1/8T
-  });
-
   it('every shape stays within -1..1', () => {
     for (let shape = 0; shape < 6; shape++) {
       for (let k = 0; k <= 100; k++) {
@@ -1019,53 +1008,6 @@ describe('project', () => {
     expect(p.channels.every((c) => c.patterns.every((pat) => pat.steps.every((st) => !st.active)))).toBe(true);
   });
 
-  it('loads notes from an old full-format project (v4 object)', () => {
-    const p = busy();
-    const old = JSON.parse(JSON.stringify(p)); // the pre-compact format: full step arrays
-    const loaded = fromStored(old)!;
-    expect(loaded.channels[4].patterns[1].steps[20]).toMatchObject({ active: true, note: 41, gate: 3 });
-    expect(loaded.channels[4].patterns[1].length).toBe(32);
-    expect(loaded.channels[1].mute).toBe(true);
-  });
-
-  it('maps old chord numbers and send amounts into the v6 model', () => {
-    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
-    old.version = 5;
-    old.channels[4].chord = 4; // MIN9 in the v5 list (old layout: track 5 = PAD)
-    old.sendFx = old.sendWet;
-    delete old.sendWet;
-    delete old.sendInt;
-    old.sendFx[0][0] = 0.33; // the old dub delay send is today's FX 2
-    const p = fromStored(old)!;
-    expect(CHORDS[p.channels[5].chord].name).toBe('MIN9');
-    expect(p.sendWet[1][0]).toBe(0.33);
-    expect(p.sendInt[1][0]).toBe(0.5);
-  });
-
-  it('maps the old per-effect sends onto the new routing', () => {
-    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
-    for (const c of old.channels) { delete c.fxSend; delete c.sendLevel; c.sends = [0, 0, 0, 0, 0, 0]; }
-    old.channels[5].sends[4] = 0.3; // reverb
-    old.channels[6].sends[0] = 0.4; // delay
-    old.channels[2].sends[1] = 0.6; // distortion
-    const p = fromStored(old)!;
-    expect([p.channels[5].fxSend, p.channels[6].fxSend, p.channels[2].fxSend, p.channels[0].fxSend]).toEqual([3, 2, 3, 0]);
-    expect(p.channels[6].sendLevel).toBe(0.4);
-  });
-
-  it('projects before v15 take each type\'s default live knobs; later choices are kept', () => {
-    const old = { ...toStored(createDefaultProject()), version: 14 };
-    old.channels[0].live = ['mix:volume', 'mix:cutoff'];
-    old.channels[0].liveOffset = { t_decay: 0.5 };
-    old.channels[0].liveFunc = ['mix:pan', 'mix:send'];
-    const k = fromStored(old)!.channels[0];
-    expect(k.live).toEqual(['macro:attack', 'macro:decay']);
-    expect(k.liveFunc).toEqual(['mix:volume', 'macro:grit']);
-    const now = toStored(createDefaultProject());
-    now.channels[0].live = ['t_decay', 'mix:pan'];
-    expect(fromStored(now)!.channels[0].live).toEqual(['t_decay', 'mix:pan']);
-  });
-
   it('the start project holds the sequence in progress, with each type\'s live knobs (VOLUME on FUNC)', () => {
     const p = createStartProject();
     expect(p.channels[4].patterns[0].length).toBe(64);
@@ -1075,29 +1017,6 @@ describe('project', () => {
     expect(p.channels.every((c) => c.liveFunc[0] === (c.instrument === 'pluck' ? 'macro:sustain' : 'mix:volume'))).toBe(true);
     // Every synth's first live knob is its CUTOFF.
     expect(p.channels.filter((c) => !isDrum(c.instrument)).every((c) => c.live[0] === 'cutoff')).toBe(true);
-  });
-
-  it('keeps the notes even from an older, different format', () => {
-    // A version-1 style project: other instrument kinds, a "sound" field, no sends or fx.
-    const steps = Array.from({ length: 64 }, (_, i) => ({ active: i % 4 === 0, note: 36 + i, velocity: 0.8, gate: 1, slide: false, accent: false }));
-    const v1 = {
-      version: 1, bpm: 140, swing: 54, master: 0.8,
-      channels: [
-        { instrument: 'kick', sound: { tune: 50 }, volume: 0.9, pan: 0, mute: false, activePattern: 1, patterns: [{ length: 16, steps }, { length: 12, steps }, { length: 16, steps }] },
-        { instrument: 'bass', sound: {}, volume: 0.7, pan: 0.2, mute: false, activePattern: 0, patterns: [{ length: 16, steps }] },
-      ],
-    };
-    const p = fromStored(v1)!;
-    expect(p.bpm).toBe(140);
-    expect(p.channels[0].activePattern).toBe(1);
-    expect(p.channels[0].patterns[1].length).toBe(12);
-    expect(p.channels[0].patterns[0].steps.filter((s) => s.active).length).toBe(16);
-    expect(p.channels[1].instrument).toBe('bass');
-    expect(p.channels[1].patterns[0].steps[8]).toMatchObject({ active: true, note: 44 });
-    expect(p.channels[1].pan).toBe(0.2);
-    // Unknown things fall back to defaults.
-    expect(p.channels[1].fxSend).toBe(0);
-    expect(p.sendWet).toHaveLength(3);
   });
 
   it('rejects data with no channels', () => {
@@ -1345,15 +1264,6 @@ describe('slides and rolls', () => {
     expect(level(held, 0.4)).toBeGreaterThan(0.2);
     held.noteOff(52);
     expect(level(held, 0.4)).toBeLessThan(0.02);
-  });
-
-  it('older projects keep their slide time (GLIDE 0 used to mean a 60 ms slide)', () => {
-    const p = createDefaultProject();
-    p.channels[4].sounds.bass = { ...p.channels[4].sounds.bass!, glide: 0 };
-    const old = JSON.parse(JSON.stringify(toStored(p)));
-    old.version = 12;
-    expect(fromStored(old)!.channels[4].sounds.bass!.glide).toBeCloseTo(0.06);
-    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[4].sounds.bass!.glide).toBe(0);
   });
 
   it('slides and rolls survive the stored format', () => {
@@ -1626,20 +1536,6 @@ describe('song mode', () => {
 });
 
 describe('v10 track order', () => {
-  it('older projects move PERC from track 7 to track 4, with their patterns and song cells', () => {
-    const old = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
-    old.version = 9;
-    const kinds = ['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'perc', 'lead'];
-    old.channels.forEach((c: { instrument: string; patterns: { len: number; steps: unknown[] }[] }, i: number) => {
-      c.instrument = kinds[i];
-      c.patterns[0].len = 16 + i; // a fingerprint per old track
-    });
-    old.song = { rows: [{ b: 2, p: [0, 1, 2, 3, 0, 1, 2, 3] }] };
-    const p = fromStored(old)!;
-    expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']); // track 8 became the PLUCK (v11)
-    expect(p.channels.map((c) => c.patterns[0].length)).toEqual([16, 17, 18, 22, 19, 20, 21, 23]);
-    expect(p.song.rows[0].patterns).toEqual([0, 1, 2, 2, 3, 0, 1, 3]);
-  });
 });
 
 describe('drum RING follows the decay knobs', () => {
@@ -1714,17 +1610,6 @@ describe('PLUCK and ARP', () => {
 });
 
 describe('v12 slide flag', () => {
-  it('older projects move SLIDE from the note slid into to the note that slides', () => {
-    const p = createDefaultProject();
-    const pat = p.channels[4].patterns[0];
-    Object.assign(pat.steps[0], { active: true, note: 45 });
-    Object.assign(pat.steps[2], { active: true, note: 52, slide: true }); // old meaning: slid into
-    const old = JSON.parse(JSON.stringify(toStored(p)));
-    old.version = 11;
-    const q = fromStored(old)!;
-    expect(q.channels[4].patterns[0].steps[0].slide).toBe(true);
-    expect(q.channels[4].patterns[0].steps[2].slide).toBe(false);
-  });
 
   it('a SLIDE note holds into the next note even after a gap', () => {
     const p = kickProject([], { bpm: 120 });
@@ -1768,23 +1653,6 @@ describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
     expect(tail(2)).toBeGreaterThan(0.05);
   });
 
-  it('presets and older projects give OSC 2 the OSC 1 SUSTAIN / RELEASE; LIVE 3 / 4 are saved', () => {
-    const lead = presetSound('lead', 1);
-    expect(lead.sustain2).toBe(lead.sustain);
-    expect(lead.release2).toBe(lead.release);
-    const p = createDefaultProject();
-    p.channels[6].sounds.lead = { ...p.channels[6].sounds.lead!, sustain: 0.2, release: 3 };
-    p.channels[6].liveFunc = ['fm', 'mix:pan'];
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    const q = fromStored(stored)!;
-    expect(q.channels[6].liveFunc).toEqual(['fm', 'mix:pan']);
-    delete stored.channels[6].sounds.lead.sustain2;
-    delete stored.channels[6].sounds.lead.release2;
-    stored.version = 13;
-    const old = fromStored(stored)!.channels[6].sounds.lead!;
-    expect(old.sustain2).toBe(0.2);
-    expect(old.release2).toBe(3);
-  });
 });
 
 describe('relative live knobs', () => {
@@ -1846,14 +1714,6 @@ describe('relative live knobs', () => {
     expect(after).toBeCloseTo(stats(render(fresh, 0.3).l.subarray(8000, 14000)).peak, 2); // centred again (within the limiter's look-ahead)
   });
 
-  it('live offsets are saved; projects before v16 take the new defaults', () => {
-    const p = createDefaultProject();
-    expect(p.channels[0].live).toEqual(['macro:attack', 'macro:decay']);
-    p.channels[0].liveOffset = { 'macro:decay': 0.4 };
-    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[0].liveOffset).toEqual({ 'macro:decay': 0.4 });
-    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 15 };
-    expect(fromStored(old)!.channels[0].liveOffset).toEqual({});
-  });
 });
 
 describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => {
@@ -2021,13 +1881,6 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
 });
 
 describe('LFO: odd rates, MORPH, FM MOD', () => {
-  it('has odd and dotted rates; older saves keep their rate by name', () => {
-    for (const n of ['3 BAR', '1.5 BAR', '3/4', '3/8', '5/16', '3/16']) expect(RATE(n), n).toBeGreaterThanOrEqual(0);
-    const p = createDefaultProject();
-    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 17 };
-    old.lfo.rate = 4; // '1/4' in the old list
-    expect(LFO_RATES[fromStored(old)!.lfo.rate].name).toBe('1/4');
-  });
 
   it('MORPH blends the shape into the next one', () => {
     const at = 0.1;
@@ -2077,20 +1930,6 @@ describe('a fifth TIMBRE sound (v19)', () => {
     for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
   });
 
-  it('older saves keep each sound: TIMBRE moves onto the same sound, values play exactly as saved', () => {
-    const p = createDefaultProject();
-    const ch = p.channels[2]; // hat
-    // Saved at old CRASH (2/3 with four sounds) with a tweak.
-    ch.sounds.hat = { ...ch.sounds.hat!, timbre: 2 / 3, m_tone: 3333 };
-    ch.presets.hat = 4; // a user patch (after the four factory presets)
-    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 18 };
-    const q = fromStored(old)!.channels[2];
-    expect(timbreName('hat', q.sounds.hat!.timbre)).toBe('CRASH');
-    expect(q.sounds.hat!.m_tone).toBeCloseTo(3333);
-    expect(q.presets.hat).toBe(5);
-    const hidden = hiddenSound('hat', q.sounds.hat!, INSTRUMENTS.hat.params);
-    expect(applyTrim(paramSpec('hat', 'm_tone')!, hidden.m_tone, q.trims.hat!.m_tone)).toBeCloseTo(3333, 3);
-  });
 });
 
 describe('PAD on the 3 carrier engine', () => {
@@ -2123,16 +1962,6 @@ describe('PAD on the 3 carrier engine', () => {
 });
 
 describe('CHORD / LEAD / PLUCK level, CHORD stabs, FLT DEC curve', () => {
-  it('saves from before the v20 synth trim scale VOLUME up (PAD / LEAD / PLUCK only)', () => {
-    const p = createDefaultProject();
-    expect(p.channels[5].volume).toBe(0.5);
-    p.channels[6].volume = 0.1; // LEAD at 10 % before the trim
-    p.channels[0].volume = 0.8;
-    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 19 };
-    const q = fromStored(old)!;
-    expect(q.channels[6].volume).toBeCloseTo(0.5);
-    expect(q.channels[0].volume).toBeCloseTo(0.8);
-  });
 
   it('PAD holds its chords, fading in and out quickly', () => {
     expect(INSTRUMENTS.pad.name).toBe('PAD');
@@ -2310,21 +2139,6 @@ describe('FX 1 FILTER (one knob: low-pass <- off -> high-pass)', () => {
 });
 
 describe('v23: drum filter gone, PERC interval, FX 1 FILTER', () => {
-  it('older saves keep their sound: LP cutoff -> FILTER, metal Hz -> INTERVAL, dead live knobs reset', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p))) as Record<string, any>;
-    stored.version = 22;
-    stored.fx1 = { ...stored.fx1, lp_cutoff: 800 };
-    delete stored.fx1.flt;
-    const perc = stored.channels[3];
-    perc.sounds.perc = { ...perc.sounds.perc, m_pitch: perc.sounds.perc.t_pitch * Math.pow(2, 7 / 12) };
-    delete perc.sounds.perc.m_interval;
-    stored.channels[2].live = ['macro:decay', 'cutoff'];
-    const back = fromStored(stored)!;
-    expect(djCutoff(back.fx1.flt)).toBeCloseTo(-800, -1);
-    expect(back.channels[3].sounds.perc!.m_interval).toBe(7);
-    expect(back.channels[2].live).toEqual(INSTRUMENTS.hat.live);
-  });
 });
 
 describe('ACC/GHOST depth (per track)', () => {
@@ -2493,48 +2307,9 @@ describe('v24 knob review', () => {
     expect(bell(1.2)).toBeGreaterThan(bell(0.3) * 5);
   });
 
-  it('old saves: knobs that left the page go back to TIMBRE / INT, and every track takes the new live knobs', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p))) as Record<string, any>;
-    stored.version = 23;
-    const bass = stored.channels[4];
-    bass.trims = { ...(bass.trims ?? {}), bass: { ...(bass.trims?.bass ?? {}), shape: 0.2, cutoff: -0.1 } };
-    bass.live = ['cutoff', 'reso'];
-    const back = fromStored(stored)!.channels[4];
-    expect(back.trims.bass!.shape).toBeUndefined();
-    expect(back.trims.bass!.cutoff).toBeCloseTo(-0.1);
-    expect(back.sounds.bass!.shape).toBeCloseTo(hiddenSound('bass', back.sounds.bass!, INSTRUMENTS.bass.params).shape);
-    expect(back.live).toEqual([...INSTRUMENTS.bass.live]);
-    expect(back.liveFunc).toEqual([...INSTRUMENTS.bass.liveFunc]);
-  });
-
-  it('v35 load: BASS / PLUCK on the old default live knobs take CUTOFF first; chosen ones stay', () => {
-    const p = createDefaultProject();
-    p.channels[4].live = ['macro:env', 'macro:grit'];
-    p.channels[4].liveFunc = ['mix:volume', 'cutoff'];
-    p.channels[4].liveOffset = { 'macro:env': 0.3 };
-    p.channels[7].live = ['track:notes', 'reso'];
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 34;
-    const q = fromStored(stored)!;
-    expect(q.channels[4].live).toEqual(['cutoff', 'macro:env']);
-    expect(q.channels[4].liveFunc).toEqual(['mix:volume', 'macro:grit']);
-    expect(q.channels[4].liveOffset['macro:env']).toBeCloseTo(0.3);
-    expect(q.channels[7].live).toEqual(['track:notes', 'reso']);
-  });
 });
 
 describe('LFO rates v25', () => {
-  it('adds dotted / odd rates and keeps older saves on the same rate', () => {
-    const names = LFO_RATES.map((r) => r.name);
-    for (const n of ['3/16', '3/32', '7/16', '5/8', '7/8', '1/32T']) expect(names, n).toContain(n);
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p))) as Record<string, any>;
-    stored.version = 24;
-    stored.lfo = { ...stored.lfo, rate: 11 }; // '3/16' in the v18-v24 list
-    expect(LFO_RATES[fromStored(stored)!.lfo.rate].name).toBe('3/16');
-    expect(LFO_RATES[createDefaultProject().lfo.rate].name).toBe('1/4');
-  });
 });
 
 describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', () => {
@@ -2642,8 +2417,6 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     // FM LVL itself still goes from none to full.
     const fm = specs.find((x) => x.id === 'fm')!;
     expect([fm.min, fm.max]).toEqual([0, 1]);
-    // A v18 save on FM CLANG lands on FM 2:3.
-    expect(remapTimbreV18('bass', 1)).toBe(1);
   });
 
   it('every TIMBRE sound on every track is equally loud at its default VOLUME', () => {
@@ -2687,40 +2460,6 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(Math.max(...levels) - Math.min(...levels)).toBeLessThan(1);
   }, 30_000);
 
-  it('v40 load: a v39 bass keeps its sound (TIMBRE follows it to its new place, preset too)', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 39;
-    // v39 order: SINE SUB, SOLID, ACID, GROWL, FM 2:3 - GROWL was at 0.75 (preset 3).
-    const bass = stored.channels[4];
-    Object.assign(bass.sounds.bass, { timbre: 0.75, fm: 0, cutoff: 900, intensity: 0.5 });
-    bass.presets = { bass: 3 };
-    bass.trims = { bass: {} };
-    bass.patterns[0].steps = [{ i: 0, n: 33, v: 0.8, l: { timbre: 0.25 } }];
-    const q = fromStored(stored)!.channels[4];
-    expect(q.sounds.bass!.timbre).toBeCloseTo(0.25); // GROWL's new place
-    expect(INSTRUMENTS.bass.presets[q.presets.bass!].name).toBe('GROWL');
-    expect(q.sounds.bass!.fm).toBe(0);
-    expect(q.sounds.bass!.cutoff).toBeCloseTo(900);
-    expect(q.patterns[0].steps[0].locks!.timbre).toBeCloseTo(0.75); // SOLID was at 0.25
-  });
-
-  it('v38 load: a saved BASS keeps its filter envelope (FLT ATK = ATTACK, FLT DEC = DECAY x its ratio)', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 37;
-    const bass = stored.channels[4].sounds.bass;
-    Object.assign(bass, { attack: 0.004, decay: 0.8, fratio: 0.25 });
-    delete bass.fattack;
-    delete bass.fdecay;
-    const q = fromStored(stored)!.channels[4];
-    expect(q.sounds.bass!.fdecay).toBeCloseTo(0.2);
-    expect(q.sounds.bass!.fattack).toBeCloseTo(0.004);
-    expect(q.sounds.bass!.fratio).toBeUndefined();
-    // Kept as trims, so TIMBRE / INT moves keep it.
-    expect(q.trims.bass!.fdecay).toBeDefined();
-  });
-
   it('PLUCK echoes through its onboard delay; SPACE fully left dries it up', () => {
     const tail = (values: Record<string, number>) => {
       const l = play(synth('pluck', { decay: 0.05, release: 0.02, dtime: 2, dfdbk: 0.3, ...values }), 0.6, 0.02);
@@ -2742,21 +2481,6 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(rms(held, SR * 0.6, SR * 0.7)).toBeGreaterThan(rms(plucked, SR * 0.6, SR * 0.7) * 10 + 1e-3);
   });
 
-  it('v27 load: sends move to PAD / LEAD, an untouched PAD stab holds, PLUCK takes SUSTAIN / SPACE', () => {
-    const p = createDefaultProject();
-    p.channels[4].fxSend = 2;
-    p.channels[7].fxSend = 2;
-    p.channels[5].fxSend = 0;
-    p.channels[5].sounds.pad = { ...p.channels[5].sounds.pad!, attack: 0.003, attack2: 0.003, decay: 0.45, decay2: 0.45, sustain: 0, sustain2: 0, release: 0.3, release2: 0.3 };
-    p.channels[7].live = ['track:notes', 'cutoff'];
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 26;
-    const q = fromStored(stored)!;
-    expect(q.channels.slice(4).map((c) => c.fxSend)).toEqual([0, 3, 2, 0]);
-    expect(q.channels[5].sounds.pad!.sustain).toBeGreaterThan(0.5);
-    expect(q.channels[7].live).toEqual([...INSTRUMENTS.pluck.live]);
-    expect(q.channels[7].liveFunc).toEqual([...INSTRUMENTS.pluck.liveFunc]);
-  });
 });
 
 describe('GATE: how long a sequenced note\'s last step is held', () => {
@@ -2855,15 +2579,6 @@ describe('MID CUT per track (MIX, FUNC) at the sound\'s MID FREQ', () => {
     expect(stale).toBeLessThan(1e-6);
   });
 
-  it('v29 load: MID CUT leaves the sends, the other effects keep their settings', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 28;
-    stored.sendWet = [[0, 0, 0, 0, 0], [0.6, 0.1, 0.9, 0.2, 0.3], [0, 0, 0.5, 0.4, 0.7]];
-    const q = fromStored(stored)!;
-    expect(q.sendWet[1]).toEqual([0.6, 0.1, 0.2, 0.3]);
-    expect(q.sendWet[2]).toEqual([0, 0, 0.4, 0.7]);
-  });
 });
 
 describe('LEAD voices', () => {
@@ -2892,19 +2607,6 @@ describe('LEAD voices', () => {
 });
 
 describe('v30: ROLL RATE and roll runs', () => {
-  it('ROLL DIV becomes ROLL RATE at the same speed; per-step hit counts become ROLL', () => {
-    expect(ROLL_DIVS.map((r) => r.name)).toEqual(['1:1', '1:2', '1:3', '1:4', '1:6', '1:8']);
-    expect(presetSound('kick', 0).rolldiv).toBe(3); // 1:4
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 29;
-    stored.channels[0].sounds.kick.rolldiv = 0; // 1/32
-    stored.channels[0].patterns[0].steps = [{ i: 0, n: 36, v: 0.8, k: 3 }, { i: 1, n: 36, v: 0.8, l: { rolldiv: 2 } }];
-    const q = fromStored(stored)!;
-    expect(q.channels[0].sounds.kick!.rolldiv).toBe(1); // 1:2, the same 2 hits per step
-    expect(q.channels[0].patterns[0].steps[0].slide).toBe(true);
-    expect(q.channels[0].patterns[0].steps[1].locks!.rolldiv).toBe(3); // 1/64 -> 1:4
-  });
 });
 
 describe('drum retrigger', () => {
@@ -2932,7 +2634,6 @@ describe('drum retrigger', () => {
 
 describe('v32: PAD on 2 STACKS', () => {
   const names = () => MACROS.pad.anchors.map((a) => a.name);
-  const at = (name: string) => names().indexOf(name) / 4;
 
   it('soft -> bell-like on the 2 STACKS engine, FM topping out at level 92', () => {
     expect(PAD_FIXED.algo).toBe(2);
@@ -2969,38 +2670,6 @@ describe('v32: PAD on 2 STACKS', () => {
     }
   });
 
-  it('older PAD positions land on the same sound by name', () => {
-    expect(remapPadTimbreV31(0)).toBeCloseTo(at('GLASS'));
-    expect(remapPadTimbreV31(0.25)).toBeCloseTo(at('TINE'));
-    expect(remapPadTimbreV31(0.5)).toBeCloseTo(at('WARM'));
-    expect(remapPadTimbreV31(1)).toBeCloseTo(at('ETHEREAL'));
-    // GLASS -> TINE are still neighbours: a third of the way stays a third of the way.
-    expect(remapPadTimbreV31(1 / 12)).toBeCloseTo(at('GLASS') + (at('TINE') - at('GLASS')) / 3);
-    // TINE -> WARM no longer are: the nearer one.
-    expect(remapPadTimbreV31(0.3)).toBeCloseTo(at('TINE'));
-    expect(remapPadTimbreV31(0.45)).toBeCloseTo(at('WARM'));
-  });
-
-  it('a v31 save keeps its PAD sound by name, the new sound under its SOUND page trims', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 31;
-    const pad = stored.channels[5];
-    pad.sounds.pad.timbre = 0; // GLASS in the old order
-    pad.sounds.pad.fm = 0.99; // an old engine value: rebuilt from the new sound
-    pad.trims.pad = { cutoff: -0.1 };
-    pad.presets.pad = 0; // GLASS
-    pad.patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { timbre: 0.5 } }]; // WARM, locked
-    const q = fromStored(stored)!.channels[5];
-    const s = q.sounds.pad!;
-    expect(s.timbre).toBeCloseTo(at('GLASS'));
-    const hidden = hiddenSound('pad', s, INSTRUMENTS.pad.params);
-    expect(s.fm).toBeCloseTo(hidden.fm);
-    expect(s.cutoff).toBeCloseTo(applyTrim(paramSpec('pad', 'cutoff')!, hidden.cutoff, -0.1));
-    expect(q.trims.pad!.cutoff).toBeCloseTo(-0.1);
-    expect(INSTRUMENTS.pad.presets[q.presets.pad!].name).toBe('GLASS');
-    expect(q.patterns[0].steps[0].locks!.timbre).toBeCloseTo(at('WARM'));
-  });
 });
 
 describe('v33: OCTAVE -4 ... +4', () => {
@@ -3028,18 +2697,6 @@ describe('v33: OCTAVE -4 ... +4', () => {
     expect(pitch(4, 93) / pitch(0, 93)).toBeCloseTo(16, 0);
   });
 
-  it('older saves keep their octave (sounds, pattern patches and locks)', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 32;
-    stored.channels[4].sounds.bass.octave = 1; // -1 then
-    stored.channels[6].sounds.lead.octave = 3; // +1 then (LEAD's default)
-    stored.channels[6].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { octave: 4 } }]; // +2 then
-    const q = fromStored(stored)!;
-    expect(spec('bass').options![q.channels[4].sounds.bass!.octave]).toBe('-1');
-    expect(spec('lead').options![q.channels[6].patterns[0].steps[0].locks!.octave]).toBe('+2');
-    expect(spec('lead').options![q.channels[6].sounds.lead!.octave]).toBe('+1');
-  });
 });
 
 describe('BASS trills: letting go of the slid-to note slides back', () => {
@@ -3349,20 +3006,4 @@ describe('v36: time signature, STEPS, triplet time', () => {
 });
 
 describe('v37: the new RIDE', () => {
-  it('a saved hat on RIDE takes the new bell ride, its SOUND page trims kept', () => {
-    const p = createDefaultProject();
-    const hat = p.channels[2];
-    applyPreset(hat, 'hat', 0);
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 36;
-    // As saved by v36: the old tonal ride (FM metal at 1150 Hz), with a CUTOFF-like trim.
-    Object.assign(stored.channels[2].sounds.hat, { m_mode: 2, m_pitch: 1150, h_mode: 2, h_pitch: 1500 });
-    stored.channels[2].trims = { hat: { m_tone: 0.05 } };
-    const q = fromStored(stored)!.channels[2];
-    expect(q.sounds.hat!.m_mode).toBeCloseTo(1);
-    expect(q.sounds.hat!.m_pitch).toBeCloseTo(640, 0);
-    expect(q.sounds.hat!.h_mode).toBeCloseTo(1);
-    expect(q.trims.hat!.m_tone).toBeCloseTo(0.05);
-    expect(q.sounds.hat!.m_tone).toBeGreaterThan(2400);
-  });
 });

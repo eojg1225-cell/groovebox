@@ -1977,7 +1977,7 @@ export class App {
       this.replaceProject(project);
     }
     this.closeProjectMenu();
-    this.flash(`LOADED ${entry.name}`);
+    this.flash(projectStore.isOld(entry.id) ? `${entry.name}: OLD SAVE, SOUNDS MAY DIFFER` : `LOADED ${entry.name}`);
   }
 
   private deleteSlot(slot: number): void {
