@@ -13,6 +13,8 @@ function makeApp() {
   const noop = () => {};
   /** Strip button flags as last set (`step1` -> flags on). */
   const flags = new Map<string, Set<string>>();
+  /** Step lights as last set. */
+  const leds: string[] = [];
   const setButtonFlag = (id: string, f: string, on: boolean) => {
     const set = flags.get(id) ?? new Set<string>();
     if (on) set.add(f); else set.delete(f);
@@ -20,14 +22,15 @@ function makeApp() {
   };
   const panel = new Proxy({}, {
     get: (_t, k) => (k === 'subscribe' ? (h: (e: ControlEvent) => void) => { handler = h; return noop; }
-      : k === 'root' ? { classList: { toggle: noop } } : k === 'setButtonFlag' ? setButtonFlag : noop),
+      : k === 'root' ? { classList: { toggle: noop } } : k === 'setButtonFlag' ? setButtonFlag
+      : k === 'setLed' ? (i: number, state: string) => { leds[i] = state; } : noop),
   }) as unknown as Panel;
   const sent: MainToWorklet[] = [];
   const app = new App(createDefaultProject(), panel, (m) => sent.push(m));
   const press = (id: string) => handler({ type: 'button', id, pressed: true });
   const release = (id: string) => handler({ type: 'button', id, pressed: false });
   const tap = (id: string) => { press(id); release(id); };
-  return { app, sent, press, release, tap, flags };
+  return { app, sent, press, release, tap, flags, leds };
 }
 
 beforeEach(() => {
@@ -126,6 +129,22 @@ describe('PAD step entry: every note with its own tie', () => {
     press('step8'); // E joins step 3
     expect(keys('cursor')).toEqual(['step8']);
     expect(keys('lit')).toEqual(['step1', 'step5']);
+    release('step8');
+  });
+
+  it('step lights: only the steps of the note being entered, not of the notes already there', () => {
+    const { app, press, release, tap, leds } = makeApp();
+    const lit = () => { app.updateFrame(0); return leds.flatMap((st, i) => (st === 'cursor' ? [i] : [])); };
+    tap('mode:record');
+    tap('ch6');
+    enter(press, release, tap, 1, 8); // A on step 1, 8 steps
+    goTo(app, tap, 0);
+    expect(lit()).toEqual([0]);
+    press('step5'); // C# joins step 1
+    expect(lit()).toEqual([0]);
+    tap('cur+');
+    expect(lit()).toEqual([0, 1]);
+    release('step5');
   });
 
   it('live-recorded chord notes keep their own lengths', () => {

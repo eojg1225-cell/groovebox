@@ -2354,7 +2354,7 @@ export class App {
 
     // LEDs: the step being played (red while recording), the step-entry cursor, and while
     // a key is held in step entry, every step the note covers.
-    const entryGate = this.entry ? pattern.steps[this.entry.index].gate : 0;
+    const entryGate = this.entry ? this.entryLength() : 0; // the entered note's own length (PAD)
     const inEntry = (index: number) =>
       !!this.entry && (index - this.entry.index + pattern.length) % pattern.length < entryGate;
     for (let i = 0; i < STEP_BUTTONS; i++) {
@@ -2369,9 +2369,11 @@ export class App {
       const sounding = soundingNote(pattern.steps, pattern.length, head);
       const cursorStep = pattern.steps[cursor];
       let cursorNotes = pitchedRecord && cursorStep.active ? [cursorStep.note, ...(cursorStep.extra ?? [])] : [];
-      // PAD step entry: the ring = only the note(s) being entered; the other notes sounding
-      // at the step (on it, or tied over from earlier) are lit dim.
+      // PAD: every note sounding at the playhead is lit dim (held keys show bright). Step
+      // entry: the ring = only the note(s) being entered; the other notes sounding at the
+      // step (on it, or tied over from earlier) are lit dim.
       let under: number[] = [];
+      if (c.instrument === 'pad' && head >= 0) under = soundingAt(pattern.steps, pattern.length, head).map((n) => n.note);
       if (pitchedRecord && c.instrument === 'pad') {
         cursorNotes = this.entry?.notes ?? [];
         under = soundingAt(pattern.steps, pattern.length, this.entry?.index ?? cursor).map((n) => n.note).filter((n) => !cursorNotes.includes(n));
