@@ -122,7 +122,10 @@ export type WorkletToMain =
       start?: boolean;
     }
   | { type: 'recordedLock'; channel: number; pattern: number; index: number; id: string; value: number }
-  /** PAD: a note played with the one being recorded went onto its step (Step.extra). */
-  | { type: 'recordedChord'; channel: number; pattern: number; index: number; note: number };
+  /**
+   * PAD: a note played with the one being recorded went onto its step (Step.extra), one step
+   * long; sent again with its own length (gate) when its key is released.
+   */
+  | { type: 'recordedChord'; channel: number; pattern: number; index: number; note: number; gate: number };
 
 export const STATUS_HZ = 30;

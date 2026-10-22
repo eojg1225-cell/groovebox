@@ -2674,6 +2674,30 @@ describe('PAD chords on one step', () => {
     }
   });
 
+  it('live recording: each chord note gets its own length from its own release', () => {
+    const e = new Engine(SR);
+    e.handleMessage({ type: 'loadProject', project: createDefaultProject() });
+    const got: string[] = [];
+    e.onRecorded = (m) => { if (m.type !== 'recordedLock') got.push(`${m.type} ${m.note} ${m.gate}`); };
+    e.handleMessage({ type: 'transport', playing: true });
+    const L = new Float32Array(128), R = new Float32Array(128);
+    const steps = (n: number) => { for (let k = 0; k < Math.round(n * 44.1); k++) e.process(L, R, 128); }; // ~n steps at 128 BPM
+    steps(1);
+    e.handleMessage({ type: 'recordNote', channel: 5, note: 57, velocity: 0.8, accent: false });
+    e.handleMessage({ type: 'recordNote', channel: 5, note: 61, velocity: 0.8, accent: false, chord: true });
+    e.handleMessage({ type: 'recordNote', channel: 5, note: 64, velocity: 0.8, accent: false, chord: true });
+    steps(2);
+    e.handleMessage({ type: 'release', channel: 5, note: 61 });
+    steps(2);
+    e.handleMessage({ type: 'release', channel: 5, note: 57 });
+    steps(4);
+    e.handleMessage({ type: 'release', channel: 5, note: 64 });
+    expect(got).toEqual([
+      'recordedNote 57 1', 'recordedChord 61 1', 'recordedChord 64 1',
+      'recordedChord 61 2', 'recordedNote 57 4', 'recordedChord 64 8',
+    ]);
+  });
+
   it('each PAD note holds for its own length: A 1-8 and G 1-16 on step 1, C 9-16 (G keeps sounding)', () => {
     const p = createDefaultProject();
     const pad = p.channels[5];

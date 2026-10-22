@@ -220,6 +220,13 @@ export class Engine {
   private readonly recPattern = new Int8Array(NUM_CHANNELS);
   private readonly recVel = new Float32Array(NUM_CHANNELS);
   private readonly recAccent = new Uint8Array(NUM_CHANNELS);
+  /**
+   * PAD live recording: notes that joined a step's chord and are still held (-1 = free
+   * slot), each with its step and start, so its release sets its own length.
+   */
+  private readonly chordNote = new Int16Array(NUM_CHANNELS * STEP_NOTES).fill(-1);
+  private readonly chordSlot = new Int32Array(NUM_CHANNELS * STEP_NOTES);
+  private readonly chordStart = new Float64Array(NUM_CHANNELS * STEP_NOTES);
   private readonly recSlide = new Uint8Array(NUM_CHANNELS);
   /** The held note came from a SLIDE step: the next note glides out of it. */
   private readonly sliding = new Uint8Array(NUM_CHANNELS);
@@ -518,6 +525,7 @@ export class Engine {
         this.gateSteps[ch] = 0;
         this.gateAt[ch] = -1;
         this.recNote[ch] = -1;
+        this.chordNote.fill(-1, ch * STEP_NOTES, (ch + 1) * STEP_NOTES);
         this.restoreBase(ch);
       }
     }
@@ -1111,19 +1119,46 @@ export class Engine {
   private release(ch: number, note: number): void {
     if (this.arpHeld[ch] && this.arpRoot[ch] === note) this.stopArp(ch);
     this.current[ch]?.noteOff(note);
+    if (this.releaseChordNote(ch, note)) return;
     if (this.recNote[ch] !== note) return;
     this.recNote[ch] = -1;
     if (!this.playing) return;
-    const endStep = this.chanCount[ch] + Math.round(this.heardStep(ch));
     const pattern = this.recPattern[ch];
-    // Up to the whole loop (a note may be held past the end and on from the start).
-    const gate = Math.max(1, Math.min(this.patternLength[ch * NUM_PATTERNS + pattern], endStep - this.recStart[ch]));
+    const gate = this.heldLength(ch, pattern, this.recStart[ch]);
     const index = this.recIndex[ch];
     this.stepGate[(ch * NUM_PATTERNS + pattern) * MAX_STEPS + index] = gate;
     this.onRecorded?.({
       type: 'recordedNote', channel: ch, pattern, index, note,
       velocity: this.recVel[ch], accent: this.recAccent[ch] === 1, gate, slide: this.recSlide[ch] === 1,
     });
+  }
+
+  /** Steps from `start` (global) to the step heard now: a released note's length, up to the whole loop. */
+  private heldLength(ch: number, pattern: number, start: number): number {
+    const endStep = this.chanCount[ch] + Math.round(this.heardStep(ch));
+    // Up to the whole loop (a note may be held past the end and on from the start).
+    return Math.max(1, Math.min(this.patternLength[ch * NUM_PATTERNS + pattern], endStep - start));
+  }
+
+  /** PAD: a chord note recorded onto a step was released: its own length. False if it was none. */
+  private releaseChordNote(ch: number, note: number): boolean {
+    for (let k = ch * STEP_NOTES; k < (ch + 1) * STEP_NOTES; k++) {
+      if (this.chordNote[k] !== note) continue;
+      this.chordNote[k] = -1;
+      if (!this.playing) return true;
+      const slot = this.chordSlot[k];
+      const pattern = (slot / MAX_STEPS | 0) % NUM_PATTERNS;
+      const index = slot % MAX_STEPS;
+      const gate = this.heldLength(ch, pattern, this.chordStart[k]);
+      const ex = slot * (STEP_NOTES - 1);
+      for (let j = 0; j < this.stepExtraN[slot]; j++) {
+        if (this.stepExtra[ex + j] !== note) continue;
+        this.stepExtraGate[ex + j] = gate;
+        this.onRecorded?.({ type: 'recordedChord', channel: ch, pattern, index, note, gate });
+      }
+      return true;
+    }
+    return false;
   }
 
   /** A slot's value with the relative LIVE knobs' push added (clamped to its range). */
@@ -1278,6 +1313,8 @@ export class Engine {
     this.stepSlide[s] = 0;
     this.stepGate[s] = 1;
     this.stepExtraN[s] = 0;
+    // Chord notes still held from this step's old notes are gone with them.
+    for (let k = ch * STEP_NOTES; k < (ch + 1) * STEP_NOTES; k++) if (this.chordSlot[k] === s) this.chordNote[k] = -1;
     // The note already sounded now; don't play it again when that step comes round.
     if (isNext) this.skipStep[ch] = index;
     // Remember it so the release sets its length.
@@ -1313,9 +1350,17 @@ export class Engine {
     this.noteOn(ch, note, velocity);
     if (present || n >= STEP_NOTES - 1) return true;
     this.stepExtra[ex + n] = note;
-    this.stepExtraGate[ex + n] = this.stepGate[s];
+    // One step long until its own release sets its length.
+    this.stepExtraGate[ex + n] = 1;
     this.stepExtraN[s] = n + 1;
-    this.onRecorded?.({ type: 'recordedChord', channel: ch, pattern, index, note });
+    this.onRecorded?.({ type: 'recordedChord', channel: ch, pattern, index, note, gate: 1 });
+    for (let k = ch * STEP_NOTES; k < (ch + 1) * STEP_NOTES; k++) {
+      if (this.chordNote[k] >= 0) continue;
+      this.chordNote[k] = note;
+      this.chordSlot[k] = s;
+      this.chordStart[k] = this.recStart[ch];
+      break;
+    }
     return true;
   }
 

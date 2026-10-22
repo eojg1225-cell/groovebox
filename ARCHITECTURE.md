@@ -82,7 +82,7 @@ Worklet -> main:
 | `pong` | `id` | Answer to `ping` |
 | `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate`, `slide`, `start?` | A live-recorded note was written (sent again with its length on release; `start` = it replaced the step's notes) |
-| `recordedChord` | `channel`, `pattern`, `index`, `note` | PAD: a note played with the recorded one joined its step (`Step.extra`) |
+| `recordedChord` | `channel`, `pattern`, `index`, `note`, `gate` | PAD: a note played with the recorded one joined its step (`Step.extra`, one step long; sent again with its own length on release) |
 | `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A recorded lock was written |
 
 The worklet decides where recorded events land because only it knows the exact play position. A note

@@ -152,6 +152,21 @@ function tiedSteps(steps: Step[], length: number, poly: boolean): boolean[] {
   return tied;
 }
 
+/**
+ * PAD: every note sounding at step `at` (each by its own length, also across the loop
+ * end), with the step it started on and how many steps back that is.
+ */
+function soundingAt(steps: Step[], length: number, at: number): { index: number; note: number; back: number }[] {
+  const out: { index: number; note: number; back: number }[] = [];
+  for (let j = 0; j < length; j++) {
+    for (const n of stepNotes(steps[j])) {
+      const back = (at - j + length) % length;
+      if (back < n.gate) out.push({ index: j, note: n.note, back });
+    }
+  }
+  return out;
+}
+
 /** Note sounding at step `head`, including notes tied over from earlier steps; -1 if none. */
 function soundingNote(steps: Step[], length: number, head: number): number {
   if (head < 0) return -1;
@@ -340,10 +355,17 @@ export class App {
   onRecorded(m: Recorded): void {
     const step = this.project.channels[m.channel].patterns[m.pattern].steps[m.index];
     if (m.type === 'recordedChord') {
-      step.extra = [...(step.extra ?? []), m.note];
-      if (step.extraGate) step.extraGate = [...step.extraGate, step.gate];
+      // A PAD note joined the step (one step long), or was released (its own length).
+      if (!step.active) return;
+      const notes = stepNotes(step);
+      const k = notes.findIndex((n, i) => i > 0 && n.note === m.note);
+      if (k > 0) notes[k].gate = m.gate;
+      else notes.push({ note: m.note, gate: m.gate });
+      setStepNotes(step, notes);
     } else if (m.type === 'recordedNote') {
       if (m.start) { delete step.extra; delete step.extraGate; } // a new note replaces the step, chord notes too
+      // Chord notes keep their own lengths when the first note's changes.
+      if (step.extra && !step.extraGate) step.extraGate = step.extra.map(() => step.gate);
       step.active = true;
       step.note = m.note;
       step.velocity = m.velocity;
@@ -1699,15 +1721,8 @@ export class App {
    * not counted.
    */
   private padMakeRoom(at: number, note: number, keep?: { index: number; note: number }): void {
-    const len = this.pattern.length;
-    const sounding: { index: number; note: number; back: number }[] = [];
-    for (let j = 0; j < len; j++) {
-      for (const n of stepNotes(this.pattern.steps[j])) {
-        if (keep && keep.index === j && keep.note === n.note) continue;
-        const back = (at - j + len) % len;
-        if (back < n.gate) sounding.push({ index: j, note: n.note, back });
-      }
-    }
+    const sounding = soundingAt(this.pattern.steps, this.pattern.length, at)
+      .filter((n) => !(keep && keep.index === n.index && keep.note === n.note));
     if (sounding.length < STEP_NOTES) return;
     sounding.sort((a, b) => b.back - a.back || Math.abs(a.note - note) - Math.abs(b.note - note));
     const out = sounding[0];
@@ -2353,13 +2368,20 @@ export class App {
     if (this.keyboard) {
       const sounding = soundingNote(pattern.steps, pattern.length, head);
       const cursorStep = pattern.steps[cursor];
-      const cursorNotes = pitchedRecord && cursorStep.active ? [cursorStep.note, ...(cursorStep.extra ?? [])] : [];
+      let cursorNotes = pitchedRecord && cursorStep.active ? [cursorStep.note, ...(cursorStep.extra ?? [])] : [];
+      // PAD step entry: the ring = only the note(s) being entered; the other notes sounding
+      // at the step (on it, or tied over from earlier) are lit dim.
+      let under: number[] = [];
+      if (pitchedRecord && c.instrument === 'pad') {
+        cursorNotes = this.entry?.notes ?? [];
+        under = soundingAt(pattern.steps, pattern.length, this.entry?.index ?? cursor).map((n) => n.note).filter((n) => !cursorNotes.includes(n));
+      }
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
         const note = this.octave[ch] + i;
         this.panel.setButtonText(id, noteName(note));
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
-        this.panel.setButtonFlag(id, 'lit', note === sounding);
+        this.panel.setButtonFlag(id, 'lit', note === sounding || under.includes(note));
         this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
         for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
       }
