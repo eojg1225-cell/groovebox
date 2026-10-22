@@ -2698,6 +2698,21 @@ describe('PAD chords on one step', () => {
     ]);
   });
 
+  it('PLUCK: chord notes on a step play, each held by its own length', () => {
+    const p = createDefaultProject();
+    const steps = p.channels[7].patterns[0].steps;
+    Object.assign(steps[0], { active: true, note: 45, gate: 8, extra: [55], extraGate: [16] });
+    Object.assign(steps[8], { active: true, note: 48, gate: 8 });
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const held = () => [...(e as unknown as { holdNote: Int16Array }).holdNote.slice(7 * 12, 8 * 12)].filter((n) => n >= 0).sort();
+    const stepFrames = (60 / 128 / 4) * SR;
+    render(e, (stepFrames * 3.5) / SR); // inside step 4
+    expect(held()).toEqual([45, 55]);
+    render(e, (stepFrames * 8) / SR); // inside step 12
+    expect(held()).toEqual([48, 55]);
+  });
+
   it('each PAD note holds for its own length: A 1-8 and G 1-16 on step 1, C 9-16 (G keeps sounding)', () => {
     const p = createDefaultProject();
     const pad = p.channels[5];

@@ -82,7 +82,7 @@ Worklet -> main:
 | `pong` | `id` | Answer to `ping` |
 | `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate`, `slide`, `start?` | A live-recorded note was written (sent again with its length on release; `start` = it replaced the step's notes) |
-| `recordedChord` | `channel`, `pattern`, `index`, `note`, `gate` | PAD: a note played with the recorded one joined its step (`Step.extra`, one step long; sent again with its own length on release) |
+| `recordedChord` | `channel`, `pattern`, `index`, `note`, `gate` | PAD / PLUCK: a note played with the recorded one joined its step (`Step.extra`, one step long; sent again with its own length on release) |
 | `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A recorded lock was written |
 
 The worklet decides where recorded events land because only it knows the exact play position. A note
@@ -151,10 +151,10 @@ params switch at the landing); song rows glide over the old row's last bar (`gli
 velocity (`hitToneCutoff`), so softer hits are also darker; it glides to a new hit's cutoff over 3 ms.
 
 **Notes, gates, chords:** the engine expands each note through the track's chord and NOTES
-(`chords.ts`), tagging voices with the root so they release together; PAD steps can also carry their
+(`chords.ts`), tagging voices with the root so they release together; PAD and PLUCK steps can also carry their
 own notes (`Step.extra`). A sequenced note releases when the step `gate` steps later starts; its last
 step is held for the track's TRIM (`gateAt`, sample-accurate). Live notes release on `release`.
-PAD notes (no RING / SLIDE / ARP) are held each by its own length (`Step.gate` / `Step.extraGate`) in a per-track list (`holdNote` / `holdSteps` / `holdAt`, each its own voice group), so later notes don't cut them. RING holds a note until the next hit or REST on the track (drums: long decay; the next hit chokes it).
+PAD / PLUCK notes (`registry.playsChords`; no RING / SLIDE / ARP) are held each by its own length (`Step.gate` / `Step.extraGate`) in a per-track list (`holdNote` / `holdSteps` / `holdAt`, each its own voice group), so later notes don't cut them. RING holds a note until the next hit or REST on the track (drums: long decay; the next hit chokes it).
 SLIDE holds the note at full sustain and glides into the next. Drum ROLL runs (`startRollRun`) spread
 hits evenly from the first ROLL step's start to the last's end at the sound's ROLL RATE, velocity
 ramping across the run.

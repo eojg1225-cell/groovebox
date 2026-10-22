@@ -159,6 +159,21 @@ describe('PAD step entry: every note with its own tie', () => {
     expect(notesAt(app, 0)).toEqual([{ note: 57, gate: 4 }, { note: 61, gate: 2 }, { note: 64, gate: 8 }]);
   });
 
+  it('PLUCK works the same: A 1-8, C 9-16, G 1-16 all stay', () => {
+    const { app, press, release, tap } = makeApp();
+    tap('mode:record');
+    tap('ch8');
+    const c = app.project.channels[7];
+    const at = (i: number) => stepNotes(c.patterns[c.activePattern].steps[i]);
+    const cur = () => (app as unknown as { cursor: number[] }).cursor[7];
+    enter(press, release, tap, 1, 8);
+    enter(press, release, tap, 4, 8);
+    while (cur() !== 0) tap('cur-');
+    enter(press, release, tap, 11, 16);
+    expect(at(0).map((n) => n.gate)).toEqual([8, 16]);
+    expect(at(8)).toHaveLength(1);
+  });
+
   it('BASS still replaces the note on a step', () => {
     const { app, tap } = makeApp();
     tap('mode:record');

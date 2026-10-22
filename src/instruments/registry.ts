@@ -313,6 +313,14 @@ export function isDrum(kind: InstrumentKind): boolean {
   return kind === 'none' || INSTRUMENTS[kind].drum;
 }
 
+/**
+ * Polyphonic tracks (PAD, PLUCK): up to STEP_NOTES notes per step, each with its own length,
+ * entered and recorded as chords. The others play one note at a time.
+ */
+export function playsChords(kind: InstrumentKind): boolean {
+  return kind === 'pad' || kind === 'pluck';
+}
+
 /** Steps are tapped on the strip in step entry (drums), not entered from the keyboard. */
 export function stepsOnStrip(kind: InstrumentKind): boolean {
   return kind === 'none' || (INSTRUMENTS[kind].drum && !INSTRUMENTS[kind].pitched);

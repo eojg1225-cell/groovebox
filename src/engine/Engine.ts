@@ -7,7 +7,7 @@ import {
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
 import type { Instrument } from '../instruments/Instrument';
-import { INSTRUMENTS, SOUND_KINDS, liveContribution, liveTargets } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, liveContribution, liveTargets, playsChords } from '../instruments/registry';
 import { toNorm, toValue } from './params';
 import { ARP_RATES } from '../instruments/Synth';
 import { ROLL_DIVS } from '../instruments/Drum';
@@ -20,9 +20,9 @@ import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
 import { METERS, NUM_SENDS, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
 
-/** PAD notes held at once by their own lengths, per channel (more than the voices: tails overlap). */
+/** PAD / PLUCK notes held at once by their own lengths, per channel (more than the voices: tails overlap). */
 const HOLDS = 12;
-/** PAD live recording: keys pressed within this long (s) of a chord's first key join its step. */
+/** PAD / PLUCK live recording: keys pressed within this long (s) of a chord's first key join its step. */
 const CHORD_WINDOW = 0.08;
 /** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
 const CHUNK = 64;
@@ -98,10 +98,10 @@ export class Engine {
   /** Hits per step (ROLL), 1 = a single hit. */
   /** Note length in steps (1 = until the next step starts). */
   private readonly stepGate = new Uint8Array(STEP_SLOTS).fill(1);
-  /** PAD chords: a step's further notes (STEP_NOTES - 1 slots each) and how many. */
+  /** PAD / PLUCK chords: a step's further notes (STEP_NOTES - 1 slots each) and how many. */
   private readonly stepExtra = new Float32Array(STEP_SLOTS * (STEP_NOTES - 1));
   private readonly stepExtraN = new Uint8Array(STEP_SLOTS);
-  /** Each PAD chord note's own length in steps (Step.extraGate; default the step's gate). */
+  /** Each PAD / PLUCK chord note's own length in steps (Step.extraGate; default the step's gate). */
   private readonly stepExtraGate = new Int16Array(STEP_SLOTS * (STEP_NOTES - 1));
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
   private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
@@ -194,7 +194,7 @@ export class Engine {
   private readonly chord = new Uint8Array(NUM_CHANNELS);
   private readonly notes = new Uint8Array(NUM_CHANNELS).fill(MAX_CHORD_NOTES);
   /**
-   * PAD: sequenced notes held each by its own length (each its own voice group), so a note
+   * PAD / PLUCK: sequenced notes held each by its own length (each its own voice group), so a note
    * tied on keeps sounding under later ones: note (-1 = free), steps left, and a pending
    * early / late release (frames, -1 = none), HOLDS per channel.
    */
@@ -213,7 +213,7 @@ export class Engine {
   private readonly ringing = new Uint8Array(NUM_CHANNELS);
   /** Live recording: the held note per channel (-1 = none) and where it started. */
   private readonly recNote = new Int16Array(NUM_CHANNELS).fill(-1);
-  /** When the note being recorded was played (engine frames): PAD chord keys near it join it. */
+  /** When the note being recorded was played (engine frames): PAD / PLUCK chord keys near it join it. */
   private readonly recFrame = new Float64Array(NUM_CHANNELS);
   private readonly recStart = new Float64Array(NUM_CHANNELS);
   private readonly recIndex = new Int16Array(NUM_CHANNELS);
@@ -221,7 +221,7 @@ export class Engine {
   private readonly recVel = new Float32Array(NUM_CHANNELS);
   private readonly recAccent = new Uint8Array(NUM_CHANNELS);
   /**
-   * PAD live recording: notes that joined a step's chord and are still held (-1 = free
+   * PAD / PLUCK live recording: notes that joined a step's chord and are still held (-1 = free
    * slot), each with its step and start, so its release sets its own length.
    */
   private readonly chordNote = new Int16Array(NUM_CHANNELS * STEP_NOTES).fill(-1);
@@ -562,7 +562,7 @@ export class Engine {
           const g = Math.ceil(this.gateAt[ch]);
           if (g < n) n = g;
         }
-        // ... and the PAD's held notes' releases.
+        // ... and the PAD / PLUCK's held notes' releases.
         for (let k = 0; k < NUM_CHANNELS * HOLDS; k++) {
           if (this.holdAt[k] < 0) continue;
           if (this.holdAt[k] <= 0) { this.releaseHold(k); continue; }
@@ -822,14 +822,14 @@ export class Engine {
       // A SLIDE note is held (like RING) until the next note, which it glides into.
       const slide = this.rollDiv[ch] === 0 && slideFlag;
       const vel = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
-      // PAD chords: CHORD OFF plays every note of the step; a CHORD plays on the lowest.
-      const extra = this.kind[ch] === 'pad' ? this.stepExtraN[s] : 0;
+      // PAD / PLUCK chords: CHORD OFF plays every note of the step; a CHORD plays on the lowest.
+      const extra = playsChords(this.kind[ch]) ? this.stepExtraN[s] : 0;
       const ex = s * (STEP_NOTES - 1);
       const all = extra > 0 && this.chord[ch] === 0 && this.arpMode[ch] === 0;
       let root = this.stepNote[s];
       if (extra > 0 && !all) for (let k = 0; k < extra; k++) root = Math.min(root, this.stepExtra[ex + k]);
-      // PAD (no RING / SLIDE / ARP): every note held by its own length, under later ones.
-      const poly = this.kind[ch] === 'pad' && !ring && !slide && slideFrom < 0 && this.arpMode[ch] === 0;
+      // PAD / PLUCK (no RING / SLIDE / ARP): every note held by its own length, under later ones.
+      const poly = playsChords(this.kind[ch]) && !ring && !slide && slideFrom < 0 && this.arpMode[ch] === 0;
       if (poly) {
         this.holdStart(ch, root, this.stepGate[s], stepLen);
         this.noteOn(ch, root, vel);
@@ -1061,7 +1061,7 @@ export class Engine {
     this.arpAt[ch] = 0;
   }
 
-  /** PAD: hold `note` for `steps` steps from now (a held one of the same pitch ends first). */
+  /** PAD / PLUCK: hold `note` for `steps` steps from now (a held one of the same pitch ends first). */
   private holdStart(ch: number, note: number, steps: number, stepLen: number): void {
     const base = ch * HOLDS;
     let free = -1;
@@ -1076,7 +1076,7 @@ export class Engine {
     this.holdAt[free] = steps <= 1 && this.gateLength[ch] < 1 ? this.gateLength[ch] * stepLen : -1;
   }
 
-  /** PAD: a step went by; held notes count down and end where their length (and TRIM) says. */
+  /** PAD / PLUCK: a step went by; held notes count down and end where their length (and TRIM) says. */
   private stepHolds(ch: number, stepLen: number): void {
     const gl = this.gateLength[ch];
     for (let k = ch * HOLDS; k < (ch + 1) * HOLDS; k++) {
@@ -1140,7 +1140,7 @@ export class Engine {
     return Math.max(1, Math.min(this.patternLength[ch * NUM_PATTERNS + pattern], endStep - start));
   }
 
-  /** PAD: a chord note recorded onto a step was released: its own length. False if it was none. */
+  /** PAD / PLUCK: a chord note recorded onto a step was released: its own length. False if it was none. */
   private releaseChordNote(ch: number, note: number): boolean {
     for (let k = ch * STEP_NOTES; k < (ch + 1) * STEP_NOTES; k++) {
       if (this.chordNote[k] !== note) continue;
@@ -1330,13 +1330,13 @@ export class Engine {
   }
 
   /**
-   * PAD: a key played while the note being recorded is held joins its step (Step.extra, up
+   * PAD / PLUCK: a key played while the note being recorded is held joins its step (Step.extra, up
    * to STEP_NOTES) when it lands on the same step, or comes within CHORD_WINDOW of it (the
    * keys of one chord, pressed a little apart, even across the middle of a step). False when
    * it belongs on another step (then it is recorded as a note of its own).
    */
   private recordChordNote(ch: number, note: number, velocity: number): boolean {
-    if (!this.playing || this.recNote[ch] < 0 || this.kind[ch] !== 'pad') return false;
+    if (!this.playing || this.recNote[ch] < 0 || !playsChords(this.kind[ch])) return false;
     const nearest = this.nearestStep(ch);
     const together = this.frame - this.recFrame[ch] < CHORD_WINDOW * this.sampleRate;
     if (!together && (nearest.index !== this.recIndex[ch] || this.activePattern[ch] !== this.recPattern[ch])) return false;
