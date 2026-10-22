@@ -1377,6 +1377,10 @@ export class App {
           this.send({ type: 'trigger', channel: ch, note, velocity: vel });
           return;
         }
+        if (!this.entry && this.channel.instrument === 'pad' && this.pattern.steps[this.cursor[ch]].active) {
+          this.padChordNote(this.cursor[ch], note, button, vel);
+          return;
+        }
         let index = this.cursor[ch];
         if (this.entry && this.entry.button !== button) {
           const prev = this.pattern.steps[this.entry.index];
@@ -1637,6 +1641,40 @@ export class App {
       this.entry = null;
       this.refreshPanel();
     }
+  }
+
+  /**
+   * PAD step entry on a step that already has notes: the key joins its chord (up to
+   * STEP_NOTES; the step's length is kept, so a chord can be built one note at a time over
+   * a tied note), or, already in it, comes back out (the last one out empties the step).
+   */
+  private padChordNote(index: number, note: number, button: number, vel: number): void {
+    const step = this.pattern.steps[index];
+    const notes = [step.note, ...(step.extra ?? [])];
+    if (notes.includes(note)) {
+      const rest = notes.filter((n) => n !== note);
+      if (rest.length === 0) {
+        step.active = false;
+        delete step.extra;
+      } else {
+        step.note = rest[0];
+        if (rest.length > 1) step.extra = rest.slice(1);
+        else delete step.extra;
+      }
+      this.heldNotes.delete(button); // nothing sounds for this key: its release is a no-op
+      this.flash(rest.length ? `${noteName(note)} OUT OF THE CHORD` : 'STEP CLEARED');
+    } else if (notes.length >= STEP_NOTES) {
+      this.heldNotes.delete(button);
+      this.flash(`CHORD FULL (${STEP_NOTES} NOTES)`);
+      return;
+    } else {
+      step.extra = [...(step.extra ?? []), note];
+      // As any entered note: hold + ▶ / ◀ sets the step's length, the cursor moves on when let go.
+      this.entry = { button, index };
+      this.send({ type: 'trigger', channel: this.selected, note, velocity: vel });
+    }
+    this.sendStep(index, step);
+    this.save();
   }
 
   /** Lengthen (+1) or shorten (-1) the note being entered; tied-over steps are cleared. */

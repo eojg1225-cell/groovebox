@@ -18,7 +18,7 @@ src/ui           App (controller), Panel (on-screen ControlSurface), Knob, Pixel
                  3x5 font), views (screen view-models -> drawing), orientation
 src/storage      projects.ts (64 slots, ProjectStore), slotSync.ts (slots <-> claude.ai artifact db),
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
-tests            Vitest: the engine offline in Node, project storage / sync
+tests            Vitest: the engine offline in Node, project storage / sync, the App via button events
 tools            Standalone sound-test pages (not part of the app)
 ```
 
