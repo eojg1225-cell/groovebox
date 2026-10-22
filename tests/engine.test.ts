@@ -2652,6 +2652,28 @@ describe('PAD chords on one step', () => {
     expect(got).toEqual([`recordedNote ${step} 57`, `recordedChord ${step} 61`, `recordedChord ${step} 64`]);
   });
 
+  it('live recording: a chord\'s keys pressed up to 80 ms apart stay on one step (even across a step\'s middle)', () => {
+    const L = new Float32Array(128), R = new Float32Array(128);
+    // Every start position within a step (128 BPM: a step is ~44 blocks), keys 53 ms apart.
+    for (let at = 0; at < 48; at += 3) {
+      const e = new Engine(SR);
+      e.handleMessage({ type: 'loadProject', project: createDefaultProject() });
+      const got: string[] = [];
+      e.onRecorded = (m) => { if (m.type !== 'recordedLock') got.push(`${m.type} ${m.index}`); };
+      e.handleMessage({ type: 'transport', playing: true });
+      for (let k = 0; k < 40 + at; k++) e.process(L, R, 128);
+      e.handleMessage({ type: 'recordNote', channel: 5, note: 57, velocity: 0.8, accent: false });
+      for (let k = 0; k < 20; k++) e.process(L, R, 128);
+      e.handleMessage({ type: 'recordNote', channel: 5, note: 61, velocity: 0.8, accent: false, chord: true });
+      const step = got[0].split(' ')[1];
+      expect(got, `at ${at}`).toEqual([`recordedNote ${step}`, `recordedChord ${step}`]);
+      // A key pressed well after (a new note over the held one) goes on its own step.
+      for (let k = 0; k < 120; k++) e.process(L, R, 128);
+      e.handleMessage({ type: 'recordNote', channel: 5, note: 64, velocity: 0.8, accent: false, chord: true });
+      expect(got[2], `at ${at}`).not.toBe(`recordedChord ${step}`);
+    }
+  });
+
   it('chords are saved; only 6 notes a step', () => {
     const p = createDefaultProject();
     const s = p.channels[5].patterns[0].steps[3];

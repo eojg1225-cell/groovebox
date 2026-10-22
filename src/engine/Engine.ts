@@ -20,6 +20,8 @@ import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
 import { METERS, NUM_SENDS, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
 
+/** PAD live recording: keys pressed within this long (s) of a chord's first key join its step. */
+const CHORD_WINDOW = 0.08;
 /** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
 const CHUNK = 64;
 /** Max sound parameters per instrument that can be locked per step. */
@@ -199,6 +201,8 @@ export class Engine {
   private readonly ringing = new Uint8Array(NUM_CHANNELS);
   /** Live recording: the held note per channel (-1 = none) and where it started. */
   private readonly recNote = new Int16Array(NUM_CHANNELS).fill(-1);
+  /** When the note being recorded was played (engine frames): PAD chord keys near it join it. */
+  private readonly recFrame = new Float64Array(NUM_CHANNELS);
   private readonly recStart = new Float64Array(NUM_CHANNELS);
   private readonly recIndex = new Int16Array(NUM_CHANNELS);
   private readonly recPattern = new Int8Array(NUM_CHANNELS);
@@ -1192,6 +1196,7 @@ export class Engine {
     if (isNext) this.skipStep[ch] = index;
     // Remember it so the release sets its length.
     this.recNote[ch] = note;
+    this.recFrame[ch] = this.frame;
     this.recStart[ch] = global;
     this.recIndex[ch] = index;
     this.recPattern[ch] = pattern;
@@ -1202,15 +1207,18 @@ export class Engine {
   }
 
   /**
-   * PAD: a key played while the note being recorded is held, landing on the same step,
-   * joins it (Step.extra, up to STEP_NOTES). False when it belongs on another step (then it
-   * is recorded as a note of its own).
+   * PAD: a key played while the note being recorded is held joins its step (Step.extra, up
+   * to STEP_NOTES) when it lands on the same step, or comes within CHORD_WINDOW of it (the
+   * keys of one chord, pressed a little apart, even across the middle of a step). False when
+   * it belongs on another step (then it is recorded as a note of its own).
    */
   private recordChordNote(ch: number, note: number, velocity: number): boolean {
     if (!this.playing || this.recNote[ch] < 0 || this.kind[ch] !== 'pad') return false;
-    const { index } = this.nearestStep(ch);
-    const pattern = this.activePattern[ch];
-    if (index !== this.recIndex[ch] || pattern !== this.recPattern[ch]) return false;
+    const nearest = this.nearestStep(ch);
+    const together = this.frame - this.recFrame[ch] < CHORD_WINDOW * this.sampleRate;
+    if (!together && (nearest.index !== this.recIndex[ch] || this.activePattern[ch] !== this.recPattern[ch])) return false;
+    const index = this.recIndex[ch];
+    const pattern = this.recPattern[ch];
     const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
     const n = this.stepExtraN[s];
     const ex = s * (STEP_NOTES - 1);
