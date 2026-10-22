@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 41;
+export const PROJECT_VERSION = 42;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -77,6 +77,34 @@ export interface Step {
    * a CHORD only the lowest plays (the chord's root).
    */
   extra?: number[];
+  /**
+   * PAD: each extra note's own length in steps (absent, or a missing entry = the step's
+   * gate), so notes on one step can be tied to different ends.
+   */
+  extraGate?: number[];
+}
+
+/** A PAD step's notes with their own lengths, its first note first. */
+export function stepNotes(step: Step): { note: number; gate: number }[] {
+  if (!step.active) return [];
+  return [{ note: step.note, gate: step.gate }, ...(step.extra ?? []).map((note, k) => ({ note, gate: step.extraGate?.[k] ?? step.gate }))];
+}
+
+/** Writes a step's notes (the first becomes its note; none = an empty step). In place. */
+export function setStepNotes(step: Step, notes: readonly { note: number; gate: number }[]): void {
+  delete step.extra;
+  delete step.extraGate;
+  if (notes.length === 0) {
+    step.active = false;
+    return;
+  }
+  step.active = true;
+  step.note = notes[0].note;
+  step.gate = notes[0].gate;
+  if (notes.length > 1) {
+    step.extra = notes.slice(1).map((n) => n.note);
+    if (notes.some((n) => n.gate !== step.gate)) step.extraGate = notes.slice(1).map((n) => n.gate);
+  }
 }
 
 /** Notes a step can hold (PAD: one per voice). */
@@ -281,6 +309,7 @@ function copyStep(s: Step): Step {
   const out: Step = { ...s };
   if (s.locks) out.locks = { ...s.locks };
   if (s.extra) out.extra = [...s.extra];
+  if (s.extraGate) out.extraGate = [...s.extraGate];
   return out;
 }
 

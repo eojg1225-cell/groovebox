@@ -2674,6 +2674,28 @@ describe('PAD chords on one step', () => {
     }
   });
 
+  it('each PAD note holds for its own length: A 1-8 and G 1-16 on step 1, C 9-16 (G keeps sounding)', () => {
+    const p = createDefaultProject();
+    const pad = p.channels[5];
+    pad.chord = 0;
+    pad.sounds.pad = { ...pad.sounds.pad!, attack: 0.001, attack2: 0.001, release: 0.005, release2: 0.005, sustain: 1, sustain2: 1 };
+    const steps = pad.patterns[0].steps;
+    Object.assign(steps[0], { active: true, note: 45, gate: 8, extra: [55], extraGate: [16] });
+    Object.assign(steps[8], { active: true, note: 48, gate: 8 });
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const voices = () => (e as unknown as { current: { voices: { stage: Uint8Array; note: number }[] }[] }).current[5].voices
+      .filter((v) => v.stage[0] === 1 || v.stage[0] === 2 || v.stage[0] === 3).map((v) => v.note).sort();
+    const stepFrames = (60 / 128 / 4) * SR;
+    render(e, (stepFrames * 3.5) / SR); // inside step 4
+    expect(voices()).toEqual([45, 55]);
+    render(e, (stepFrames * 8) / SR); // inside step 12
+    expect(voices()).toEqual([48, 55]);
+    // Saved and read back with their own lengths.
+    const back = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
+    expect(back.channels[5].patterns[0].steps[0].extraGate).toEqual([16]);
+  });
+
   it('chords are saved; only 6 notes a step', () => {
     const p = createDefaultProject();
     const s = p.channels[5].patterns[0].steps[3];

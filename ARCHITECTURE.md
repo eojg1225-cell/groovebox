@@ -154,7 +154,7 @@ velocity (`hitToneCutoff`), so softer hits are also darker; it glides to a new h
 (`chords.ts`), tagging voices with the root so they release together; PAD steps can also carry their
 own notes (`Step.extra`). A sequenced note releases when the step `gate` steps later starts; its last
 step is held for the track's TRIM (`gateAt`, sample-accurate). Live notes release on `release`.
-RING holds a note until the next hit or REST on the track (drums: long decay; the next hit chokes it).
+PAD notes (no RING / SLIDE / ARP) are held each by its own length (`Step.gate` / `Step.extraGate`) in a per-track list (`holdNote` / `holdSteps` / `holdAt`, each its own voice group), so later notes don't cut them. RING holds a note until the next hit or REST on the track (drums: long decay; the next hit chokes it).
 SLIDE holds the note at full sustain and glides into the next. Drum ROLL runs (`startRollRun`) spread
 hits evenly from the first ROLL step's start to the last's end at the sound's ROLL RATE, velocity
 ramping across the run.

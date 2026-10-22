@@ -26,3 +26,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - New project (2026-10-22): LOAD on an empty slot starts the default project (the open one keeps its edits; an unsaved, changed one needs a second tap).
 - PAD live recording (2026-10-22): a chord's keys pressed up to 80 ms apart stay on one step (before, a key landing past the step's middle went on the next step as a note of its own).
 - PAD step entry (2026-10-22): a key on a step that already has notes joins its chord (the same key again takes it out); before, it replaced the step. First App tests (tests/app.test.ts).
+- v42 (2026-10-22): PAD notes each have their own length (Step.extraGate, stored cg): step-entry ties extend only the entered note and keep other steps; the engine holds PAD notes per note (a later note no longer cuts an earlier one); at most 6 sound at a step (the earliest-started, or nearest-pitch among simultaneous, is replaced). The screen shows PAD ties per note.

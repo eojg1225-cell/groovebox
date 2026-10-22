@@ -20,6 +20,8 @@ import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
 import { METERS, NUM_SENDS, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
 
+/** PAD notes held at once by their own lengths, per channel (more than the voices: tails overlap). */
+const HOLDS = 12;
 /** PAD live recording: keys pressed within this long (s) of a chord's first key join its step. */
 const CHORD_WINDOW = 0.08;
 /** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
@@ -99,6 +101,8 @@ export class Engine {
   /** PAD chords: a step's further notes (STEP_NOTES - 1 slots each) and how many. */
   private readonly stepExtra = new Float32Array(STEP_SLOTS * (STEP_NOTES - 1));
   private readonly stepExtraN = new Uint8Array(STEP_SLOTS);
+  /** Each PAD chord note's own length in steps (Step.extraGate; default the step's gate). */
+  private readonly stepExtraGate = new Int16Array(STEP_SLOTS * (STEP_NOTES - 1));
   /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
   private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
   /** STEPS: the step is switched the other way from the time signature. */
@@ -189,6 +193,14 @@ export class Engine {
   /** Chord mode per channel (index into CHORDS). */
   private readonly chord = new Uint8Array(NUM_CHANNELS);
   private readonly notes = new Uint8Array(NUM_CHANNELS).fill(MAX_CHORD_NOTES);
+  /**
+   * PAD: sequenced notes held each by its own length (each its own voice group), so a note
+   * tied on keeps sounding under later ones: note (-1 = free), steps left, and a pending
+   * early / late release (frames, -1 = none), HOLDS per channel.
+   */
+  private readonly holdNote = new Int16Array(NUM_CHANNELS * HOLDS).fill(-1);
+  private readonly holdSteps = new Int16Array(NUM_CHANNELS * HOLDS);
+  private readonly holdAt = new Float64Array(NUM_CHANNELS * HOLDS).fill(-1);
   /** Steps until the sequenced note on a channel is released (0 = none held). */
   private readonly gateSteps = new Int16Array(NUM_CHANNELS);
   /** GATE per track (steps the last step of a note is held), and a pending early / late release (frames, -1 = none). */
@@ -502,6 +514,7 @@ export class Engine {
       if (!playing) {
         if (this.arpHeld[ch]) this.stopArp(ch);
         this.current[ch]?.noteOff(-1);
+        this.clearHolds(ch);
         this.gateSteps[ch] = 0;
         this.gateAt[ch] = -1;
         this.recNote[ch] = -1;
@@ -541,6 +554,13 @@ export class Engine {
           const g = Math.ceil(this.gateAt[ch]);
           if (g < n) n = g;
         }
+        // ... and the PAD's held notes' releases.
+        for (let k = 0; k < NUM_CHANNELS * HOLDS; k++) {
+          if (this.holdAt[k] < 0) continue;
+          if (this.holdAt[k] <= 0) { this.releaseHold(k); continue; }
+          const g = Math.ceil(this.holdAt[k]);
+          if (g < n) n = g;
+        }
         // Steps between master steps (double time, triplets) land on their exact sample.
         for (let ch = 0; ch < NUM_CHANNELS; ch++) {
           if (this.subAt[ch] < 0) continue;
@@ -576,6 +596,7 @@ export class Engine {
         for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.rollLeft[ch] > 0) this.rollAt[ch] -= n;
         for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.subAt[ch] > 0) this.subAt[ch] = Math.max(0, this.subAt[ch] - n);
         for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.gateAt[ch] > 0) this.gateAt[ch] = Math.max(0, this.gateAt[ch] - n);
+        for (let k = 0; k < NUM_CHANNELS * HOLDS; k++) if (this.holdAt[k] > 0) this.holdAt[k] = Math.max(0, this.holdAt[k] - n);
       }
     }
     this.finishBlock(outL, outR, frames);
@@ -747,6 +768,7 @@ export class Engine {
     if (idx < 0) idx = this.nextOn(base, 0, len);
     if (idx < 0) {
       if (this.gateSteps[ch] > 0) this.releaseGate(ch);
+      this.releaseHolds(ch);
       this.rollLeft[ch] = 0;
       this.runLeft[ch] = 0;
       this.currentStep[ch] = -1;
@@ -782,6 +804,7 @@ export class Engine {
         } else this.releaseGate(ch);
       } else if (this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen); // its last step
     }
+    this.stepHolds(ch, stepLen);
     this.applyLocks(ch, s);
     if (hit && !inRun) {
       const ring = this.stepRing[s] === 1 || this.forceRing[ch] === 1;
@@ -797,19 +820,35 @@ export class Engine {
       const all = extra > 0 && this.chord[ch] === 0 && this.arpMode[ch] === 0;
       let root = this.stepNote[s];
       if (extra > 0 && !all) for (let k = 0; k < extra; k++) root = Math.min(root, this.stepExtra[ex + k]);
-      this.noteOn(ch, root, vel, ring, slideFrom, slide);
-      if (all) {
-        const v = dynVelocity(vel, this.dynDepth[ch]);
-        for (let k = 0; k < extra; k++) inst.noteOn(this.stepExtra[ex + k], v, root, ring, -1, slide);
+      // PAD (no RING / SLIDE / ARP): every note held by its own length, under later ones.
+      const poly = this.kind[ch] === 'pad' && !ring && !slide && slideFrom < 0 && this.arpMode[ch] === 0;
+      if (poly) {
+        this.holdStart(ch, root, this.stepGate[s], stepLen);
+        this.noteOn(ch, root, vel);
+        if (all) {
+          const v = dynVelocity(vel, this.dynDepth[ch]);
+          for (let k = 0; k < extra; k++) {
+            const note = this.stepExtra[ex + k];
+            this.holdStart(ch, note, this.stepExtraGate[ex + k], stepLen);
+            inst.noteOn(note, v, note, false, -1, false);
+          }
+        }
+        this.sliding[ch] = 0;
+      } else {
+        this.noteOn(ch, root, vel, ring, slideFrom, slide);
+        if (all) {
+          const v = dynVelocity(vel, this.dynDepth[ch]);
+          for (let k = 0; k < extra; k++) inst.noteOn(this.stepExtra[ex + k], v, root, ring, -1, slide);
+        }
+        // A chord slid from: voices the slide did not carry over end now.
+        if (slideFrom >= 0 && slideFrom !== root) inst.noteOff(slideFrom);
+        this.gateGroup[ch] = root;
+        this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
+        this.ringing[ch] = ring || slide ? 1 : 0;
+        this.gateAt[ch] = -1;
+        if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
+        this.sliding[ch] = slide ? 1 : 0;
       }
-      // A chord slid from: voices the slide did not carry over end now.
-      if (slideFrom >= 0 && slideFrom !== root) inst.noteOff(slideFrom);
-      this.gateGroup[ch] = root;
-      this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
-      this.ringing[ch] = ring || slide ? 1 : 0;
-      this.gateAt[ch] = -1;
-      if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
-      this.sliding[ch] = slide ? 1 : 0;
       if (drumRoll) this.startRollRun(ch, pat, idx, len, vel);
     }
     this.skipStep[ch] = -1;
@@ -874,6 +913,7 @@ export class Engine {
       this.rollLeft[ch] = 0;
       if (p < 0) {
         if (!this.songOff[ch] && this.gateSteps[ch] > 0) this.releaseGate(ch);
+        if (!this.songOff[ch]) this.releaseHolds(ch);
         this.songOff[ch] = 1;
       } else {
         this.songOff[ch] = 0;
@@ -1013,6 +1053,51 @@ export class Engine {
     this.arpAt[ch] = 0;
   }
 
+  /** PAD: hold `note` for `steps` steps from now (a held one of the same pitch ends first). */
+  private holdStart(ch: number, note: number, steps: number, stepLen: number): void {
+    const base = ch * HOLDS;
+    let free = -1;
+    for (let k = base; k < base + HOLDS; k++) {
+      if (this.holdNote[k] === note) this.releaseHold(k);
+      if (free < 0 && this.holdNote[k] < 0) free = k;
+    }
+    if (free < 0) { free = base; this.releaseHold(free); }
+    this.holdNote[free] = note;
+    this.holdSteps[free] = Math.max(1, steps);
+    // One step long: TRIM below 1 ends it early, as for any note's last step.
+    this.holdAt[free] = steps <= 1 && this.gateLength[ch] < 1 ? this.gateLength[ch] * stepLen : -1;
+  }
+
+  /** PAD: a step went by; held notes count down and end where their length (and TRIM) says. */
+  private stepHolds(ch: number, stepLen: number): void {
+    const gl = this.gateLength[ch];
+    for (let k = ch * HOLDS; k < (ch + 1) * HOLDS; k++) {
+      if (this.holdNote[k] < 0) continue;
+      if (this.holdAt[k] >= 0) { this.releaseHold(k); continue; } // due by now
+      if (--this.holdSteps[k] === 0) {
+        if (gl > 1) { this.holdSteps[k] = 1; this.holdAt[k] = (gl - 1) * stepLen; }
+        else this.releaseHold(k);
+      } else if (this.holdSteps[k] === 1 && gl < 1) this.holdAt[k] = gl * stepLen;
+    }
+  }
+
+  private releaseHold(k: number): void {
+    const note = this.holdNote[k];
+    this.holdNote[k] = -1;
+    this.holdAt[k] = -1;
+    if (note >= 0) this.current[Math.floor(k / HOLDS)]?.noteOff(note);
+  }
+
+  private releaseHolds(ch: number): void {
+    for (let k = ch * HOLDS; k < (ch + 1) * HOLDS; k++) if (this.holdNote[k] >= 0) this.releaseHold(k);
+  }
+
+  /** Forget the held notes without releasing them (their voices were already silenced). */
+  private clearHolds(ch: number): void {
+    this.holdNote.fill(-1, ch * HOLDS, (ch + 1) * HOLDS);
+    this.holdAt.fill(-1, ch * HOLDS, (ch + 1) * HOLDS);
+  }
+
   private releaseGate(ch: number): void {
     this.sliding[ch] = 0;
     this.gateAt[ch] = -1;
@@ -1082,6 +1167,7 @@ export class Engine {
     this.arpMode[ch] = 0;
     this.rollDiv[ch] = 0;
     this.current[ch]?.noteOff(-1);
+    this.clearHolds(ch);
     this.gateSteps[ch] = 0;
     this.gateAt[ch] = -1;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
@@ -1227,6 +1313,7 @@ export class Engine {
     this.noteOn(ch, note, velocity);
     if (present || n >= STEP_NOTES - 1) return true;
     this.stepExtra[ex + n] = note;
+    this.stepExtraGate[ex + n] = this.stepGate[s];
     this.stepExtraN[s] = n + 1;
     this.onRecorded?.({ type: 'recordedChord', channel: ch, pattern, index, note });
     return true;
@@ -1684,7 +1771,10 @@ export class Engine {
     this.stepOn[s] = on ^ this.stepFlip[s];
     const extra = step.active && step.extra ? Math.min(step.extra.length, STEP_NOTES - 1) : 0;
     this.stepExtraN[s] = extra;
-    for (let k = 0; k < extra; k++) this.stepExtra[s * (STEP_NOTES - 1) + k] = step.extra![k];
+    for (let k = 0; k < extra; k++) {
+      this.stepExtra[s * (STEP_NOTES - 1) + k] = step.extra![k];
+      this.stepExtraGate[s * (STEP_NOTES - 1) + k] = Math.max(1, Math.round(step.extraGate?.[k] ?? step.gate));
+    }
     const base = s * LOCK_SLOTS;
     this.locks.fill(NaN, base, base + LOCK_SLOTS);
     const inst = this.current[ch];

@@ -46,6 +46,8 @@ interface StoredStep {
   l?: Record<string, number>;
   /** v34: PAD chord, the step's further notes. */
   c?: number[];
+  /** v42: their own lengths (absent = the step's gate). */
+  cg?: number[];
 }
 
 /** A patch: s = sound values, t = SOUND page trims, p = preset index. */
@@ -88,6 +90,7 @@ function storeSteps(steps: Step[]): StoredStep[] {
     if (s.slide) out.s = 1;
     if (s.locks && Object.keys(s.locks).length) out.l = { ...s.locks };
     if (s.extra?.length) out.c = [...s.extra];
+    if (s.extra?.length && s.extraGate?.length) out.cg = s.extraGate.slice(0, s.extra.length);
     return [out];
   });
 }
@@ -258,7 +261,11 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     if (version < 41) fmEnvV41(locks);
     if (Object.keys(locks).length) step.locks = locks;
     const extra = readExtra(s.c);
-    if (extra) step.extra = extra;
+    if (extra) {
+      step.extra = extra;
+      const gates = Array.isArray(s.cg) ? s.cg : null;
+      if (gates) step.extraGate = extra.map((_, k) => Math.round(num(gates[k], step.gate, 1, MAX_STEPS)));
+    }
   }
 }
 

@@ -49,7 +49,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { BUS_LAYOUT, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, stepPlays,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockPattern, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
@@ -120,16 +120,34 @@ type Status = Extract<WorkletToMain, { type: 'status' }>;
 function coveringNote(steps: Step[], length: number, index: number): [number, number] | null {
   for (let k = 0; k < length; k++) {
     const j = (index - k + length) % length;
-    if (steps[j].active) return Math.max(1, steps[j].gate) > k ? [j, k] : null;
+    if (steps[j].active) return longest(steps[j]) > k ? [j, k] : null;
   }
   return null;
 }
 
-/** Steps covered by an earlier note's gate (ties, also across the loop end), per step. */
-function tiedSteps(steps: Step[], length: number): boolean[] {
+/** A step's longest note (PAD notes each have their own length), in steps. */
+function longest(step: Step): number {
+  return Math.max(1, step.gate, ...(step.extraGate ?? []));
+}
+
+/**
+ * Steps covered by an earlier note (ties, also across the loop end), per step. One note at
+ * a time (`poly` false): a later note ends the one before. PAD (`poly`): notes overlap, so
+ * any earlier note's own length counts.
+ */
+function tiedSteps(steps: Step[], length: number, poly: boolean): boolean[] {
   const tied = new Array<boolean>(steps.length).fill(false);
-  for (let i = 0; i < length; i++) {
-    if (!steps[i].active) tied[i] = coveringNote(steps, length, i) !== null;
+  if (!poly) {
+    for (let i = 0; i < length; i++) if (!steps[i].active) tied[i] = coveringNote(steps, length, i) !== null;
+    return tied;
+  }
+  for (let j = 0; j < length; j++) {
+    if (!steps[j].active) continue;
+    const g = Math.min(length, longest(steps[j]));
+    for (let k = 1; k < g; k++) {
+      const i = (j + k) % length;
+      if (!steps[i].active) tied[i] = true;
+    }
   }
   return tied;
 }
@@ -235,7 +253,8 @@ export class App {
   private songPlaying = false;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   /** chord: PAD keys added to the step meanwhile (the cursor moves on when all are up). */
-  private entry: { button: number; index: number; chord?: boolean } | null = null;
+  /** The note(s) being entered in step entry: their key, step, held chord, and (PAD) which notes ▶ / ◀ tie. */
+  private entry: { button: number; index: number; chord?: boolean; notes?: number[] } | null = null;
   /**
    * A paint stroke on a drum lane (RECORD): the first step pressed decides what every step
    * the finger slides onto gets (a hit with the armed flags, the flags set / cleared, a rest,
@@ -322,8 +341,9 @@ export class App {
     const step = this.project.channels[m.channel].patterns[m.pattern].steps[m.index];
     if (m.type === 'recordedChord') {
       step.extra = [...(step.extra ?? []), m.note];
+      if (step.extraGate) step.extraGate = [...step.extraGate, step.gate];
     } else if (m.type === 'recordedNote') {
-      if (m.start) delete step.extra; // a new note replaces the step, chord notes too
+      if (m.start) { delete step.extra; delete step.extraGate; } // a new note replaces the step, chord notes too
       step.active = true;
       step.note = m.note;
       step.velocity = m.velocity;
@@ -457,7 +477,7 @@ export class App {
     else if (!stepsOnStrip(c.instrument) && this.mode === 'record' && !this.stepsMode) {
       // Step entry: the cursor's block, or while a note is being tied, the block its end is in
       // (a tie runs on past the bar line into the next block, and round past the loop end).
-      const at = this.entry ? (this.entry.index + c.patterns[c.activePattern].steps[this.entry.index].gate - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
+      const at = this.entry && ch === this.selected ? (this.entry.index + this.entryLength() - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
       // Placing RING / SLIDE / ACCENT / GHOST: the bar chosen with FUNC + ◀ / ▶.
       page = this.placing ? this.viewPage[ch] : Math.floor(at / 16);
     }
@@ -1365,11 +1385,14 @@ export class App {
         // on when the key is released (past any steps tied with ▶ meanwhile).
         // A key pressed while another is still held goes right after the held note.
         if (chord && this.entry && this.entry.button !== button) {
-          // PAD: the key joins the step being entered (up to STEP_NOTES notes).
+          // PAD: the key joins the step being entered, as long as the notes entered with it.
           const step = this.pattern.steps[this.entry.index];
-          const notes = [step.note, ...(step.extra ?? [])];
-          if (!notes.includes(note) && notes.length < STEP_NOTES) {
-            step.extra = [...(step.extra ?? []), note];
+          const notes = stepNotes(step);
+          if (!notes.some((n) => n.note === note)) {
+            const gate = notes.find((n) => n.note === this.entry!.notes?.[0])?.gate ?? 1;
+            this.padMakeRoom(this.entry.index, note);
+            setStepNotes(step, [...stepNotes(step), { note, gate }]);
+            this.entry.notes = [...(this.entry.notes ?? []), note];
             this.sendStep(this.entry.index, step);
             this.save();
           }
@@ -1383,9 +1406,10 @@ export class App {
         }
         let index = this.cursor[ch];
         if (this.entry && this.entry.button !== button) {
-          const prev = this.pattern.steps[this.entry.index];
-          index = (this.entry.index + prev.gate) % this.pattern.length; // wraps past the end
+          index = (this.entry.index + this.entryLength()) % this.pattern.length; // wraps past the end
         }
+        // PAD: notes tied over from earlier steps stay (six sound at most).
+        if (this.channel.instrument === 'pad') this.padMakeRoom(index, note);
         const step = this.pattern.steps[index];
         step.active = true;
         step.note = note;
@@ -1394,10 +1418,11 @@ export class App {
         step.rest = false;
         step.slide = this.slideArm; // ROLL on PERC
         delete step.extra;
+        delete step.extraGate;
         setStepDynamic(step, this.dynamic);
         this.sendStep(index, step);
         this.send({ type: 'trigger', channel: ch, note, velocity: vel });
-        this.entry = { button, index };
+        this.entry = { button, index, notes: [note] };
         this.save();
       } else {
         // PLAY and DESIGN: play only, never recorded.
@@ -1548,6 +1573,7 @@ export class App {
     step.gate = 1;
     delete step.locks;
     delete step.extra;
+    delete step.extraGate;
     this.sendStep(index, step);
     this.clearUsed = true;
     this.save();
@@ -1578,7 +1604,7 @@ export class App {
       const step: Step = JSON.parse(JSON.stringify(s));
       if (plainDrum) step.note = emptyStep().note; // a drum's own pitch (as designed)
       if (from.instrument !== to.instrument) delete step.locks;
-      if (to.instrument !== 'pad') delete step.extra; // chords on the PAD only
+      if (to.instrument !== 'pad') { delete step.extra; delete step.extraGate; } // chords on the PAD only
       dst.steps[i] = step;
       this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
     });
@@ -1636,7 +1662,7 @@ export class App {
     // The cursor moves on when the entered key is up (a PAD chord: when all its keys are).
     if (this.entry && (this.entry.chord ? this.heldNotes.size === 0 : this.entry.button === button)) {
       const len = this.pattern.length;
-      this.cursor[this.selected] = (this.entry.index + this.pattern.steps[this.entry.index].gate) % len;
+      this.cursor[this.selected] = (this.entry.index + this.entryLength()) % len;
       if (!this.plays(this.cursor[this.selected])) this.moveCursor(1); // past dark steps
       this.entry = null;
       this.refreshPanel();
@@ -1644,45 +1670,90 @@ export class App {
   }
 
   /**
-   * PAD step entry on a step that already has notes: the key joins its chord (up to
-   * STEP_NOTES; the step's length is kept, so a chord can be built one note at a time over
-   * a tied note), or, already in it, comes back out (the last one out empties the step).
+   * PAD step entry on a step that already has notes: the key joins them as a note of its own
+   * (one step long; hold + ▶ ties it on, the others keep their lengths), or, already there,
+   * comes back out (the last one out empties the step).
    */
   private padChordNote(index: number, note: number, button: number, vel: number): void {
     const step = this.pattern.steps[index];
-    const notes = [step.note, ...(step.extra ?? [])];
-    if (notes.includes(note)) {
-      const rest = notes.filter((n) => n !== note);
-      if (rest.length === 0) {
-        step.active = false;
-        delete step.extra;
-      } else {
-        step.note = rest[0];
-        if (rest.length > 1) step.extra = rest.slice(1);
-        else delete step.extra;
-      }
+    const notes = stepNotes(step);
+    if (notes.some((n) => n.note === note)) {
+      const rest = notes.filter((n) => n.note !== note);
+      setStepNotes(step, rest);
       this.heldNotes.delete(button); // nothing sounds for this key: its release is a no-op
-      this.flash(rest.length ? `${noteName(note)} OUT OF THE CHORD` : 'STEP CLEARED');
-    } else if (notes.length >= STEP_NOTES) {
-      this.heldNotes.delete(button);
-      this.flash(`CHORD FULL (${STEP_NOTES} NOTES)`);
-      return;
+      this.flash(rest.length ? `${noteName(note)} OUT OF THE STEP` : 'STEP CLEARED');
     } else {
-      step.extra = [...(step.extra ?? []), note];
-      // As any entered note: hold + ▶ / ◀ sets the step's length, the cursor moves on when let go.
-      this.entry = { button, index };
+      this.padMakeRoom(index, note);
+      setStepNotes(step, [...stepNotes(step), { note, gate: 1 }]);
+      this.entry = { button, index, notes: [note] };
       this.send({ type: 'trigger', channel: this.selected, note, velocity: vel });
     }
     this.sendStep(index, step);
     this.save();
   }
 
-  /** Lengthen (+1) or shorten (-1) the note being entered; tied-over steps are cleared. */
+  /**
+   * PAD: at most STEP_NOTES notes sound at any step. Before `note` starts (or reaches) step
+   * `at`, if six already sound there, the one that started earliest goes (several started
+   * together: the one nearest in pitch to the new note). `keep` = the note being tied on,
+   * not counted.
+   */
+  private padMakeRoom(at: number, note: number, keep?: { index: number; note: number }): void {
+    const len = this.pattern.length;
+    const sounding: { index: number; note: number; back: number }[] = [];
+    for (let j = 0; j < len; j++) {
+      for (const n of stepNotes(this.pattern.steps[j])) {
+        if (keep && keep.index === j && keep.note === n.note) continue;
+        const back = (at - j + len) % len;
+        if (back < n.gate) sounding.push({ index: j, note: n.note, back });
+      }
+    }
+    if (sounding.length < STEP_NOTES) return;
+    sounding.sort((a, b) => b.back - a.back || Math.abs(a.note - note) - Math.abs(b.note - note));
+    const out = sounding[0];
+    const step = this.pattern.steps[out.index];
+    setStepNotes(step, stepNotes(step).filter((n) => n.note !== out.note));
+    this.sendStep(out.index, step);
+    this.flash(`6 NOTES: ${noteName(out.note)} REPLACED`);
+  }
+
+  /** How long the note being entered is (PAD: its own length), in steps. */
+  private entryLength(): number {
+    const step = this.pattern.steps[this.entry!.index];
+    if (this.channel.instrument !== 'pad') return step.gate;
+    const notes = stepNotes(step).filter((n) => this.entry!.notes?.includes(n.note));
+    return notes.length ? Math.max(...notes.map((n) => n.gate)) : step.gate;
+  }
+
+  /**
+   * Lengthen (+1) or shorten (-1) the note being entered. Tied-over steps are cleared; on
+   * PAD each note ties on its own and the others stay (six sound at most).
+   */
   private tie(delta: number): void {
     if (!this.entry) return;
     const { index } = this.entry;
     const len = this.pattern.length;
     const step = this.pattern.steps[index];
+    if (this.channel.instrument === 'pad') {
+      const notes = stepNotes(step);
+      let changed = false;
+      for (const n of notes) {
+        if (!this.entry.notes?.includes(n.note)) continue;
+        // Up to the whole loop: a tie can run past the end and on from the start.
+        const gate = Math.max(1, Math.min(len, n.gate + delta));
+        if (gate === n.gate) continue;
+        if (delta > 0) this.padMakeRoom((index + gate - 1) % len, n.note, { index, note: n.note });
+        n.gate = gate;
+        changed = true;
+      }
+      if (!changed) return;
+      // padMakeRoom may have taken a note off this very step: keep the others as they are now.
+      const now = stepNotes(step);
+      setStepNotes(step, now.map((m) => notes.find((n) => n.note === m.note) ?? m));
+      this.sendStep(index, step);
+      this.save();
+      return;
+    }
     // Up to the whole loop: a tie can run past the end and on from the start.
     const gate = Math.max(1, Math.min(len, step.gate + delta));
     if (gate === step.gate) return;
@@ -2404,7 +2475,7 @@ export class App {
       const page = this.visiblePage(i);
       const head = this.playing && shown === heard ? (this.status?.steps[i] ?? -1) : -1;
       const pitched = !stepsOnStrip(lc.instrument);
-      const tied = pitched ? tiedSteps(pat.steps, pat.length) : null;
+      const tied = pitched ? tiedSteps(pat.steps, pat.length, lc.instrument === 'pad') : null;
       const cells: LaneCell[] = [];
       for (let k = 0; k < 16; k++) {
         const idx = page * 16 + k;
