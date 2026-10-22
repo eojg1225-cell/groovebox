@@ -8,8 +8,9 @@ src/engine       Pure engine: project model (project.ts), stored format + load m
                  params, smoothing, protocol, chords, LFO, Engine (sequencer, mixer, buses, master). No DOM/Web Audio.
 src/instruments  Instrument interface, registry (8 track types, their pages, live knobs), Drum (layered),
                  Synth (up to 6 voices, FM algorithms), macros (TIMBRE / INTENSITY), trims, driveComp, DSP. No DOM/Web Audio.
-src/fx           Delay, Distortion, Chorus, Reverb, Compressor, TrackCut (per-track MID CUT), Limiter,
-                 SendBus (FX 2/3: four effects), DrumBus (FX 1). No DOM/Web Audio.
+src/fx           buses.ts (FX 1-3: units, TYPE lists, knob specs, layout, defaults), FxBus (one bus),
+                 units.ts (MOD, DELAY, VERB, DIST), Compressor, TrackCut (per-track MID CUT), Limiter,
+                 Delay + Reverb (PLUCK's onboard delay / room). No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
 src/controls     ControlSurface event interface (knob / encoder / button, values normalised 0..1)
@@ -62,9 +63,7 @@ Main -> worklet:
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
 | `setRouting` | `channel`, `send` | Send FX 2 / FX 3 (0 = none) |
 | `setDrumBus` | `channel`, `on` | Through FX 1, the drum bus |
-| `setDrumBusParam` | `id`, `value` | A drum bus parameter (`DRUM_BUS_PARAMS`, real units) |
-| `setSendFx` | `send`, `effect`, `control` (`wet` / `int`), `value` | WET or DEPTH of one effect (`EFFECTS` order) in a send |
-| `setSendComp` | `send`, `id`, `value` | A send's bus compressor (`COMP_PARAMS`) |
+| `setBus` | `bus` (0-2 = FX 1-3), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
 | `transport` | `playing`, `song?`, `fromRow?` | Start (from step 1) / stop; `song` = play the song from row `fromRow` |
@@ -96,12 +95,12 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 The types in `src/engine/project.ts` (`Project`, `ChannelState`, `Pattern`, `Step`, `Patch`, `Song`)
 are the reference, with a doc comment on every field; they are not repeated here. Key points:
-- `PROJECT_VERSION` is the stored format's version (40 now).
+- `PROJECT_VERSION` is the stored format's version (41 now).
 - A pattern being edited keeps its patch in the channel's `sounds` / `trims` / `presets`; the other
   patterns keep theirs in `Pattern.patch`. Read and write through `patchOf` / `setPatchOf` / `editPattern`.
 - `sounds` hold resulting values; `trims` hold the SOUND page offsets on top of TIMBRE / INTENSITY
   (`instruments/trims.ts`), so a TIMBRE change keeps them.
-- `sendWet` / `sendInt` are `[3][4]` (row 0 unused, rows 1-2 = FX 2 / FX 3; `fx/index.ts EFFECTS` order).
+- `buses[3]`: each FX bus's settings by `BUS_PARAMS` id (TYPE stored as an index into that bus's list).
 
 Every save and load goes through `src/engine/projectFile.ts`: a compact stored format (only steps with
 notes) and a forgiving reader (missing or out-of-range values take defaults, unknown parameters are
@@ -176,13 +175,15 @@ switch (never glide, never on a relative live knob).
   (`ringExtra`). A retrigger fades the old hit's last output over 3 ms.
 - **Synth** (`Synth.ts`): up to 6 voices (oldest stolen; `voices` limits it, LEAD 3; `voice: 1` = mono
   BASS), two polyBLEP oscillators with SHAPE (sine -> triangle -> saw -> square), detune, unison, sine
-  sub, per-voice SVF low-pass with its own envelope, ADSR per oscillator (`envlink` = one for both:
-  BASS, PLUCK), DRIVE / CRUSH / OUT GAIN. `algo` 0 (BASS, PLUCK): an FM pair (BASS: root-locked ratio
+  sub, per-voice SVF low-pass with its own envelope, an FM envelope (`fmattack` / `fmdecay`: the FM
+  index of every algorithm swings with it), ADSR per oscillator (`envlink` = one for both: BASS,
+  PLUCK), DRIVE / CRUSH / OUT GAIN. `algo` 0 (BASS, PLUCK): an FM pair (BASS: root-locked ratio
   ladder via `cratio` / `fmratio`). `algo` 1 (LEAD): a sine modulator with DX7-style feedback
   phase-modulating three carriers (1 / RATIO 2 / RATIO 3; `dx7Index` level curve). `algo` 2 (PAD): two
   stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3), DC blocker at 8 Hz.
-  PLUCK runs an ARP and an onboard delay + room (`Instrument.post`); BASS ducks from KICK hits
-  (`Instrument.duck`).
+  PLUCK runs an onboard delay + room (`Instrument.post`); BASS ducks from KICK hits
+  (`Instrument.duck`). The engine's ARP (`arp` / `arprate` / `arpoct`) is still there, but no type
+  lists those params now.
 
 **Macros** (`macros.ts`): each type defines five anchor sounds and an INTENSITY excite list.
 `macroSound(kind, timbre, intensity)` blends the two neighbouring anchors on each parameter's own curve
@@ -195,17 +196,23 @@ in the engine (`setOffset`), clamped at each parameter's limits.
 
 ## Buses and master
 
-Tracks on FX 1 are summed into the `DrumBus` instead of the mix: a reverse delay (a circular buffer
-read backwards by two sin^2-windowed heads, tanh feedback, allpass SMEAR), distortion and a one-knob DJ
-filter (`djCutoff`: left low-pass, right high-pass, centre off) with an envelope, then the bus
-`Compressor`. It passes straight through when every effect is at rest.
-
-A track also feeds at most one send (FX 2 / FX 3), post-fader, by its send level. A `SendBus` runs
-four effects in parallel (DELAY, DISTORT, CHORUS, REVERB; `EFFECTS` in `fx/index.ts`), each with WET
-(return volume) and DEPTH (`int`: feedback, drive, chorus depth + rate, reverb size); their returns
-pass the bus `Compressor`. Delay time is fixed per send (FX 2 3/16, FX 3 1/4, tempo-synced). Effects at
-WET 0 are skipped after a 0.15 s fade (`Effect.reset` on return); a bus silent in and out for 5 s is
-skipped altogether.
+Three `FxBus`es (defined in `fx/buses.ts`). Each is four units of two knob modules; an effect unit has
+VOLUME (its return level, smoothed; at 0 it fades for 0.15 s and is then skipped, starting clean when
+turned up) over TYPE (a change fades the unit out for 15 ms, switches mode, resets and fades back in)
+and two controls. The effects (`fx/units.ts`) write their wet signal into a scratch buffer; the bus
+scales and sums them:
+- **FX 1** (an insert): tracks with `fx1` are summed into it instead of the mix; they go through
+  `Compressor` (series, RATIO 1:1 = off) and on to the mix, and MOD (FLANGER, PHASER), DELAY (TAPE,
+  SWEEP, REVERSE) and VERB (ROOM, PLATE, EARLY) return alongside at their VOLUMEs.
+- **FX 2 / FX 3** (sends): a track feeds at most one, post-fader, by its send level; only the returns
+  reach the mix, through TONE: LOW CUT / HI CUT (12 dB SVFs) and ducking (FX 2 PUMP: every KICK hit,
+  `FxBus.kick` from `Engine.kickHit`; FX 3 DUCK: a peak follower on the bus input).
+- Units: `ModFx` (CHORUS, ENSEMBLE, FLANGER, PHASER; RATE in Hz), `DelayFx` (STEREO, PING-PONG, TAPE,
+  DUB TAPE, SWEEP, REVERSE, SLAPBACK; RATE = `FX_DELAY_TIMES`, tempo-synced, FEEDBACK up to 1.1 into
+  tanh), `VerbFx` (Freeverb combs stretched by SIZE (fractional while moving, whole samples at rest):
+  ROOM, HALL, PLATE (diffused input); EARLY (a tap line), SHIMMER (octave-up feedback), SPRING
+  (dispersion loop)), `DriveFx` (TUBE, FUZZ, BIT).
+- A send with nothing in or out for 5 s is skipped altogether.
 
 Each track has its own MID CUT (`TrackCut`: 18 dB peaking cut at the sound's MID FREQ, after the
 instrument's DRIVE and onboard FX).

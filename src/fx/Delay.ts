@@ -74,6 +74,7 @@ export class Delay implements Effect {
       const d = Math.min(this.time.next(), len - 2);
       let rp = this.write - d;
       if (rp < 0) rp += len;
+      if (rp >= len) rp -= len; // a tiny negative + len can round to len
       const i0 = Math.floor(rp);
       const frac = rp - i0;
       const i1 = i0 + 1 === len ? 0 : i0 + 1;

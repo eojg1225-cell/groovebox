@@ -13,10 +13,9 @@ import { ARP_RATES } from '../instruments/Synth';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { Noise, Svf } from '../instruments/dsp';
 import { LFO_RATES, lfoValue, type LfoId } from './lfo';
-import { SendBus } from '../fx/SendBus';
-import { DrumBus } from '../fx/DrumBus';
+import { FxBus } from '../fx/FxBus';
 import { Limiter } from '../fx/Limiter';
-import { EFFECTS, SEND_BUSES } from '../fx';
+import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
 import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
 import { METERS, NUM_SENDS, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
@@ -248,11 +247,10 @@ export class Engine {
   private readonly scratchR = new Float32Array(CHUNK);
 
 
-  // FX 1, the drum bus: member tracks pass through it instead of going straight out.
-  private readonly drumBus: DrumBus;
+  // FX 1-3 (buses.ts). FX 1: member tracks pass through it (COMP) instead of going straight
+  // out. FX 2 / FX 3 (index 1 / 2) are sends: each track feeds at most one.
+  private readonly buses: FxBus[] = [];
   private readonly inDrumBus = new Uint8Array(NUM_CHANNELS);
-  // Sends FX 2 / FX 3 (index 1 / 2; index 0 = FX 1 is not a send): each track feeds at most one.
-  private readonly sends: (SendBus | null)[] = [];
   private readonly route = new Int8Array(NUM_CHANNELS).fill(-1); // bus index or -1
   private readonly sendLevel: Smoother[] = [];
   /** ACC/GHOST depth per track (1 = as designed; see dynVelocity). */
@@ -299,9 +297,8 @@ export class Engine {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
     this.limiter = new Limiter(sampleRate);
-    this.drumBus = new DrumBus(sampleRate);
-    for (let k = 0; k < NUM_SENDS; k++) {
-      this.sends.push(k === 0 ? null : new SendBus(sampleRate, k));
+    for (let k = 0; k < NUM_BUSES; k++) {
+      this.buses.push(new FxBus(sampleRate, k));
       this.busL.push(new Float32Array(CHUNK));
       this.busR.push(new Float32Array(CHUNK));
     }
@@ -346,19 +343,14 @@ export class Engine {
       case 'setMix': this.setMix(msg.channel, msg.id, msg.value); break;
       case 'setListenLatency': this.listenFrames = Math.max(0, msg.ms) * 0.001 * this.sampleRate; break;
       case 'setGlobal':
-        if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.sends) b?.setTempo(msg.value); this.instrumentTempo(); }
+        if (msg.id === 'bpm') { this.bpm = msg.value; for (const b of this.buses) b.setTempo(msg.value); this.instrumentTempo(); }
         else if (msg.id === 'swing') this.swing = (msg.value - 50) / 50;
         else if (msg.id === 'master') this.master.setTarget(msg.value);
         else if (msg.id === 'meter') this.setMeter(msg.value);
         break;
       case 'setRouting': this.route[msg.channel] = this.busIndex(msg.send); break;
       case 'setDrumBus': this.inDrumBus[msg.channel] = msg.on ? 1 : 0; break;
-      case 'setDrumBusParam': this.drumBus.setParam(msg.id, msg.value); break;
-      case 'setSendComp': this.sends[msg.send]?.comp.setParam(msg.id, msg.value); break;
-      case 'setSendFx':
-        if (msg.control === 'wet') this.sends[msg.send]?.setWet(msg.effect, msg.value);
-        else this.sends[msg.send]?.setIntensity(msg.effect, msg.value);
-        break;
+      case 'setBus': this.buses[msg.bus]?.setParam(msg.id, msg.value); break;
       case 'setLfo': this.setLfo(msg.id, msg.value); break;
       case 'setLfoTrack': this.lfoOn[msg.channel] = msg.on ? 1 : 0; break;
       case 'transport':
@@ -416,28 +408,21 @@ export class Engine {
     for (const set of this.instruments) for (const k in set) set[k].setTempo?.(this.bpm);
   }
 
-  /** SIDECHAIN: a KICK hit ducks every track that listens (BASS DUCK). */
+  /** SIDECHAIN: a KICK hit ducks every track that listens (BASS DUCK) and pumps FX 2 (PUMP). */
   private kickHit(ch: number): void {
     if (this.kind[ch] !== 'kick') return;
     for (let c = 0; c < NUM_CHANNELS; c++) if (c !== ch) this.current[c]?.duck?.();
+    for (const b of this.buses) b.kick();
   }
 
   loadProject(p: Project): void {
     this.bpm = p.bpm;
     this.instrumentTempo();
-    for (const id in p.fx1) this.drumBus.setParam(id, p.fx1[id]);
-    this.drumBus.settle();
-    for (const k of SEND_BUSES) {
-      const bus = this.sends[k];
-      if (!bus) continue;
+    this.buses.forEach((bus, k) => {
       bus.setTempo(p.bpm);
-      for (let e = 0; e < EFFECTS.length; e++) {
-        bus.setWet(e, p.sendWet[k]?.[e] ?? 0);
-        bus.setIntensity(e, p.sendInt[k]?.[e] ?? 0.5);
-      }
-      for (const id in p.sendComp[k] ?? {}) bus.comp.setParam(id, p.sendComp[k][id]);
+      for (const spec of BUS_PARAMS[k]) bus.setParam(spec.id, p.buses[k]?.[spec.id] ?? spec.defaultValue);
       bus.settle();
-    }
+    });
     this.setSong(p.song ?? { rows: [] });
     this.pendingMeter = -1;
     this.applyMeter(Math.max(0, Math.min(METERS.length - 1, Math.round(p.meter ?? 0))));
@@ -1354,10 +1339,8 @@ export class Engine {
         }
       }
     }
-    this.drumBus.setClock(this.lfoClock, this.lfoStepInc());
-    this.drumBus.process(this.busL[0], this.busR[0], outL, outR, off, n);
-    // Each send bus runs its effects back into the mix.
-    for (const k of SEND_BUSES) this.sends[k]?.process(this.busL[k], this.busR[k], outL, outR, off, n);
+    // FX 1 (the drums through it, plus its returns), then the sends' returns, into the mix.
+    for (let k = 0; k < NUM_BUSES; k++) this.buses[k].process(this.busL[k], this.busR[k], outL, outR, off, n);
     this.lfoClock += n * this.lfoStepInc();
   }
 

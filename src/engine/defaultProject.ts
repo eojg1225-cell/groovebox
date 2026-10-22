@@ -1,7 +1,7 @@
 import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
 import { CHORD_NAMES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
-import { defaultDrumBus, defaultSendComp, defaultSendInt, defaultSendWet } from '../fx';
+import { defaultBuses } from '../fx/buses';
 import { fromStored } from './projectFile';
 import { defaultLfo } from './lfo';
 import startProject from './startProject.json';
@@ -38,15 +38,18 @@ export function createDefaultProject(): Project {
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });
-  // Nothing routed: no track on FX 1-3 or the LFO (PLUCK's onboard delay / room start dry),
-  // so a new project is just the sound engines, dry - clean to record track by track.
+  // Routing: the drums through FX 1 (transparent until its effects are turned up), PAD to
+  // FX 2, LEAD to FX 3; BASS and PLUCK carry their own effects. No track on the LFO.
   const of = (kind: SoundKind) => channels.find((c) => c.instrument === kind) as ChannelState;
+  for (const c of channels) if (INSTRUMENTS[c.instrument as SoundKind].drum) c.fx1 = true;
+  of('pad').fxSend = 2;
+  of('lead').fxSend = 3;
   of('pad').chord = CHORD_NAMES.indexOf('MIN9');
   // The sustained synths' trimmed output: half VOLUME sits with the drums.
   for (const kind of ['pad', 'lead', 'pluck'] as const) of(kind).volume = 0.5;
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
-    fx1: defaultDrumBus(), lfo: defaultLfo(), song: { rows: [] }, meter: 0, sendWet: defaultSendWet(), sendInt: defaultSendInt(), sendComp: defaultSendComp(), channels,
+    buses: defaultBuses(), lfo: defaultLfo(), song: { rows: [] }, meter: 0, channels,
   };
 }
 

@@ -22,17 +22,16 @@ const ROW = PAGE_SLOTS / 2;
 
 /**
  * The SOUND page, the same frame on every track: the sound first, then DRIVE / CRUSH, then
- * the performance pair. Synth filters sit together in three modules: FLT ATK / FLT DEC,
- * RESO / FM LVL, FLT ENV / CUTOFF.
- * PAD / LEAD: 1 TIMBRE / INT, 2 OSC 1 ATTACK / RELEASE, 3 OSC 2 ATTACK / RELEASE, 4 FLT ATK /
- * FLT DEC, 5 RESO / FM LVL, 6 FLT ENV / CUTOFF, 7 DRIVE / CRUSH, 8 `perform` (LEAD SLIDE /
- * DETUNE, PAD CHORD / DETUNE). BASS and PLUCK have their own pages (below).
+ * the performance pair. Synths follow the sound chain: TIMBRE / INT, the amp envelope, FM
+ * (FM ATK / FM DEC, FM LVL / RESO), the filter (FLT ATK / FLT DEC, FLT ENV / CUTOFF), DRIVE /
+ * CRUSH, then module 8: BASS SLIDE / SUB, LEAD SLIDE / DETUNE, PAD CHORD / DETUNE, PLUCK its
+ * delay (DLY TIME / DLY FDBK). `amp` = module 2 (BASS ATTACK / DECAY, PAD and LEAD ATTACK /
+ * RELEASE of both oscillators, PLUCK ATTACK / SUSTAIN).
  */
-export function soundPage(elements: readonly string[], perform: readonly [string, string]): string[] {
-  const [a1, d1, a2, d2] = elements;
+export function synthPage(amp: readonly [string, string], perform: readonly [string, string]): string[] {
   return [
-    'timbre', a1, a2, 'fattack', 'reso', 'fenv', 'drive', perform[0],
-    'intensity', d1, d2, 'fdecay', 'fm', 'cutoff', 'crush', perform[1],
+    'timbre', amp[0], 'fmattack', 'fm', 'fattack', 'fenv', 'drive', perform[0],
+    'intensity', amp[1], 'fmdecay', 'reso', 'fdecay', 'cutoff', 'crush', perform[1],
   ];
 }
 
@@ -51,25 +50,6 @@ export function drumPage(elements: readonly string[], pitch: readonly [string, s
   ];
 }
 
-/**
- * BASS (one amp envelope, its own filter envelope, sidechain): 1 TIMBRE / INT, 2 ATTACK /
- * DECAY (FUNC SUSTAIN / RELEASE), 3 FLT ATK / FLT DEC, 4 RESO / FM LVL, 5 FLT ENV / CUTOFF,
- * 6 DUCK / DUCK REL, 7 DRIVE / CRUSH, 8 SLIDE / SUB.
- */
-const BASS_PAGE = [
-  'timbre', 'attack', 'fattack', 'reso', 'fenv', 'duck', 'drive', 'glide',
-  'intensity', 'decay', 'fdecay', 'fm', 'cutoff', 'duckrel', 'crush', 'sub',
-];
-/**
- * PLUCK (one envelope, onboard delay + room): 1 TIMBRE / INT, 2 ATTACK / SUSTAIN (a pluck
- * that rings on, up to a held pad), 3 DLY TIME / DLY FDBK (FUNC DLY MIX / VERB; the filter
- * starts at 4 as on PAD, since FUNC module 6 is LIVE 3 / 4 on every track), 4 FLT ATK / FLT
- * DEC, 5 RESO / FM LVL, 6 FLT ENV / CUTOFF, 7 DRIVE / CRUSH, 8 CHORD / DETUNE.
- */
-const PLUCK_PAGE = [
-  'timbre', 'attack', 'dtime', 'fattack', 'reso', 'fenv', 'drive', 'track:chord',
-  'intensity', 'sustain', 'dfdbk', 'fdecay', 'fm', 'cutoff', 'crush', 'detune',
-];
 
 /**
  * The FUNC layer of a SOUND page (FUNC held): top row, then bottom row, 8 each; null = no
@@ -80,31 +60,40 @@ function funcPage(top: readonly (string | null)[], bottom: readonly (string | nu
 }
 const _ = null;
 /*
- * FUNC layers. Synths: element columns SUSTAIN / RELEASE (each oscillator its own), column
- * 8 under the performance pair (DETUNE or UNISON; PLUCK ARP / ARP RATE, column 7 ARP OCT);
- * CHORD column 1 FEEDBACK, column 4 CARRIERS; PLUCK column 4 UNISON. SHAPE is TIMBRE's.
- * OCTAVE has no knob: OCT - / + in DESIGN (App.stepOctave). Drums: no FUNC layer yet.
+ * FUNC layers. Synths: the rest of the amp envelope under module 2, then what each type
+ * needs (below). SHAPE and FM RATIO are TIMBRE's. OCTAVE has no knob: OCT - / + in DESIGN
+ * (App.stepOctave). Drums: no FUNC layer yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
-/** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY (column 2), DETUNE under column 8. */
-const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, _, _], [_, 'release', _, _, _, _, _, 'detune']);
-/** PLUCK FUNC: DECAY / RELEASE, DLY MIX / VERB, UNISON, ARP OCT, ARP / ARP RATE. */
-const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', 'unison', _, _, _, 'arp'], [_, 'release', 'verb', _, _, _, 'arpoct', 'arprate']);
+/** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
+const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, 'duck', _], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
+/** PLUCK FUNC: DECAY / RELEASE, UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
+const PLUCK_FUNC = funcPage([_, 'decay', _, 'unison', _, _, 'track:chord', 'dmix'], [_, 'release', _, _, _, _, 'detune', 'verb']);
+
 /**
- * PAD / LEAD FUNC layer: each oscillator's DECAY / SUSTAIN on the element columns (their
- * ATTACK / RELEASE are on the page), the rest as given (columns 1, 4, 7, 8).
+ * PAD / LEAD FUNC layer: DECAY / SUSTAIN (both oscillators) under module 2, OSC 2's own
+ * ATTACK / RELEASE on module 3, the rest as given (columns 1, 4, 7, 8).
  */
-function decSus(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
+function heldFunc(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
   return funcPage(
-    [top[0], 'decay', 'decay2', top[1], _, _, top[2], top[3]],
-    [bottom[0], 'sustain', 'sustain2', bottom[1], _, _, bottom[2], bottom[3]],
+    [top[0], 'decay', 'attack2', top[1], _, _, top[2], top[3]],
+    [bottom[0], 'sustain', 'release2', bottom[1], _, _, bottom[2], bottom[3]],
   );
 }
+
 /**
- * PAD / LEAD: held notes (high SUSTAIN), so RELEASE shapes what is heard: each oscillator's
- * ATTACK / RELEASE on modules 2-3.
+ * PAD / LEAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;
+ * OSC 2's own ATTACK / RELEASE (FUNC module 3) set it apart afterwards.
  */
-const HELD_ELEMENTS = ['attack', 'release', 'attack2', 'release2'];
+const BOTH_OSCS: Readonly<Record<string, readonly string[]>> = {
+  attack: ['attack2'], decay: ['decay2'], sustain: ['sustain2'], release: ['release2'],
+};
+const LINKED: Partial<Record<SoundKind, Readonly<Record<string, readonly string[]>>>> = { pad: BOTH_OSCS, lead: BOTH_OSCS };
+
+/** Parameters a SOUND page knob on `id` sets along with it (none = just itself). */
+export function linkedParams(kind: InstrumentKind, id: string): readonly string[] {
+  return kind === 'none' ? [] : LINKED[kind]?.[id] ?? [];
+}
 
 /**
  * Every track's FUNC layer also holds the track's setup (the same slots on every type):
@@ -288,22 +277,22 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
     name: 'BASS', gain: 0.383, live: ['cutoff', 'macro:env'], liveFunc: ['mix:volume', 'macro:grit'], params: BASS_PARAMS,
-    layout: BASS_PAGE,
+    layout: synthPage(['attack', 'decay'], ['glide', 'sub']),
     funcLayout: trackFunc(BASS_FUNC),
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: 0.273, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    layout: soundPage(HELD_ELEMENTS, ['track:chord', 'detune']),
-    funcLayout: trackFunc(decSus([_, 'carriers', _, _], ['feedback', _, _, 'unison'])),
+    layout: synthPage(['attack', 'release'], ['track:chord', 'detune']),
+    funcLayout: trackFunc(heldFunc([_, 'carriers', _, _], ['feedback', _, _, 'unison'])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.633, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
-    layout: soundPage(HELD_ELEMENTS, ['glide', 'detune']),
-    funcLayout: trackFunc(decSus([_, _, _, _], [_, _, _, _])),
+    layout: synthPage(['attack', 'release'], ['glide', 'detune']),
+    funcLayout: trackFunc(heldFunc([_, _, _, _], [_, _, _, _])),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: 1.366, live: ['cutoff', 'track:notes'], liveFunc: ['macro:sustain', 'macro:space'], params: PLUCK_PARAMS,
-    layout: PLUCK_PAGE,
+    layout: synthPage(['attack', 'sustain'], ['dtime', 'dfdbk']),
     funcLayout: trackFunc(PLUCK_FUNC),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },
 };

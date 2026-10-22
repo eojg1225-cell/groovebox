@@ -24,7 +24,7 @@ Goal: the Android / Fire APK becomes the main version; the web build stays as th
 - Never trust a comment over the code: if they disagree, fix the comment in the same commit.
 
 ## Current state
-Milestone M2 (mixer + FX) mostly done. **Next:** per-send delay time editing.
+Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the Fire (CPU: all nine effects at once cost ~20 % more than the old buses; default settings about the same as before).
 
 ### Naming traps (stored id / code name vs what the panel shows)
 | Code | Panel / meaning |
@@ -40,7 +40,9 @@ Milestone M2 (mixer + FX) mostly done. **Next:** per-send delay time editing.
 | button `len` | STEPS |
 | buttons `dpage0-2` | page buttons (SOUND / MIX / PROJECT) |
 | buttons `fx1-4` | FX 1, 2, 3, LFO |
-| `sendInt` / control `'int'` | DEPTH (FX 2/3) |
+| `ChannelState.fx1` / `fxSend` | on FX 1 (drums) / which send: 2 = FX 2 (PAD), 3 = FX 3 (LEAD) |
+| bus params `mod_vol`, `dly_vol`, `vrb_vol`, `drv_vol` | each effect's VOLUME knob, labelled MOD / DELAY / VERB / DIST |
+| bus param `tone_duck` | PUMP on FX 2 (kick-triggered), DUCK on FX 3 (its own input) |
 | param `fm` | FM LVL |
 | param `ogain` | OUT GAIN (TIMBRE's, no knob) |
 | SONG: `ring` / `dyn:accent` buttons | INSERT ROW / DELETE ROW |
@@ -79,30 +81,34 @@ Milestone M2 (mixer + FX) mostly done. **Next:** per-send delay time editing.
 - **Layers**, bottom to top: TIMBRE / INTENSITY macros (`macros.ts`: TIMBRE blends five designed sounds per type; INTENSITY = modulation amount, below 50 % towards a dull floor, above excited) < SOUND page knobs (stored as **trims** on top of the macros, `trims.ts`, so turning TIMBRE keeps them) < LIVE knobs (relative, in the engine via `setOffset`).
 - Five TIMBRE sounds per type: KICK 808 BOOM / VINTAGE / PUNCH / TECHNO / PSY DOOF; SNARE RIMSHOT / PICCOLO / TIGHT / BREAK / INDUSTRIAL; HAT RIDE / HAT / SPLASH / CRASH / CHINA; PERC LOW TOM / SYN DRUM / CONGA / COWBELL / CLAVE; BASS SINE SUB / GROWL / ACID / SOLID / FM 2:3; PAD WARM / STRINGS / TINE / GLASS / ETHEREAL; LEAD ODD 2:3 / ORGAN / SAW 1:1 / OCT 1:2 / FIFTH 3:2; PLUCK STEEL / GLASS PLUCK / SAW PLUCK / SQUARE PLUCK / RAGE DONK.
 - Loudness: every TIMBRE sound plays equally loud at the default VOLUME (within 1 dB; there's a test). Per-sound `ogain` evens a type's sounds; `InstrumentEntry.gain` sets the type.
-- SOUND page layouts live in `registry.ts` (`drumPage`, `soundPage`, `BASS_PAGE`, `PLUCK_PAGE`, FUNC layers) — read them there, not here. Every FUNC layer also holds PRESET (module 1 top), MID FREQ (4 bottom), LIVE 1 / 2 (5), LIVE 3 / 4 (6). Drums have no other FUNC knobs.
+- SOUND page layouts live in `registry.ts` (`drumPage`, `synthPage`, FUNC layers) — read them there, not here. Synths follow the sound chain: 1 TIMBRE / INT, 2 amp envelope, 3 FM ATK / FM DEC, 4 FM LVL / RESO, 5 FLT ATK / FLT DEC, 6 FLT ENV / CUTOFF, 7 DRIVE / CRUSH, 8 BASS SLIDE / SUB, PAD CHORD / DETUNE, LEAD SLIDE / DETUNE, PLUCK DLY TIME / DLY FDBK. Every FUNC layer also holds PRESET (module 1 top), MID FREQ (4 bottom), LIVE 1 / 2 (5), LIVE 3 / 4 (6). Drums have no other FUNC knobs.
+- PAD / LEAD: module 2's ATTACK / RELEASE and FUNC DECAY / SUSTAIN move both oscillators (`registry.linkedParams`, applied in `App.paramTarget`); OSC 2's own ATTACK / RELEASE are FUNC module 3.
 - Live knobs: two per track (+ two with FUNC), defaults in `INSTRUMENTS[kind].live` / `liveFunc`; macros in `LIVE_MACROS`. Relative: centred = the sound as set, ±60 % of the range with a taper; CUTOFF / RESO / CHORD / NOTES and mixer ids are absolute. RESET centres them.
 - **Drums** (`Drum.ts`): layers body (tone + sweep), click, metal (808-style bank / ring-mod / FM + noise) -> DRIVE -> CRUSH (fractional-rate) -> OUT GAIN. No filter per drum (FX 1's FILTER is the kit's). BALANCE between the elements; RING = decays x3 + a fixed 0.6 s extension. A retrigger fades the old hit over 3 ms.
-- **Synths** (`Synth.ts`, up to 6 voices): BASS mono (one envelope for both oscillators, own filter envelope, sub, FM ratio ladder 1:2 / 2:3 / 3:2 root-locked, SIDECHAIN DUCK from KICK hits); PAD polyphonic, algorithm 2 (two FM stacks; chords via CHORD / NOTES or on-step notes); LEAD 3 voices, algorithm 1 (DX7-style: 3 carriers + 1 feedback modulator); PLUCK polyphonic with ARP (UP / DOWN / UP-DN / CASCADE / RANDOM) and onboard delay + room. DRIVE is level-compensated per type (`driveComp.ts`).
+- **Synths** (`Synth.ts`, up to 6 voices): BASS mono (one envelope for both oscillators, own filter envelope, sub, FM ratio ladder 1:2 / 2:3 / 3:2 root-locked, SIDECHAIN DUCK from KICK hits, FUNC under module 7); PAD polyphonic, algorithm 2 (two FM stacks; chords via CHORD / NOTES or on-step notes); LEAD 3 voices, algorithm 1 (DX7-style: 3 carriers + 1 feedback modulator); PLUCK polyphonic with onboard delay + room (CHORD / DETUNE and DLY MIX / VERB on FUNC). Every synth has an FM envelope of its own (FM ATK / FM DEC, `fmattack` / `fmdecay`; the FM index swings with it; each TIMBRE sound starts it where its filter envelope is). The PLUCK's ARP has no controls for now (the engine still plays `arp` / `arprate` / `arpoct` if a type lists them again). DRIVE is level-compensated per type (`driveComp.ts`).
 - PRESET loads factory sounds and USER patches saved by older versions (new USER patches can't be saved).
 
 ### Mixer, FX, LFO, master
 - Per track: VOLUME, PAN, SEND LVL, MID CUT (`fx/TrackCut.ts`, centre = the sound's MID FREQ), ACC/GHOST, TRIM, mute / solo.
-- FX 1 = drum bus (tracks pass through it): REVERSE (delay / reverb), DISTORT, DJ FILTER (left LP, right HP, centre off), then a bus compressor (THRESH / RATIO / ATTACK / RELEASE, 1:1 = off).
-- FX 2 / FX 3 = sends, each track feeds at most one: DELAY, DISTORT, CHORUS, REVERB (WET on top, DEPTH below), then a bus compressor. Delay time is fixed per send (FX 2 3/16, FX 3 1/4) until per-send editing lands.
+- Three FX buses (`fx/buses.ts` defines them, `fx/FxBus.ts` runs one, `fx/units.ts` holds the effects): four units of two knob modules each, no FUNC layer. An effect unit = VOLUME (return level) over TYPE, then its two controls (MOD RATE / DEPTH, DELAY RATE (tempo-synced) / FDBK, VERB SIZE / LENGTH, DIST DRIVE / TONE). A TYPE change fades over 15 ms; a unit at VOLUME 0 is skipped.
+- FX 1 = drums (an insert: the drums stay in the mix through COMP (RATIO / THRESH, ATTACK / RELEASE, 1:1 = off), plus MOD (FLANGER, PHASER), DELAY (TAPE, SWEEP, REVERSE), VERB (ROOM, PLATE, EARLY) returning alongside). Transparent by default.
+- FX 2 = PAD send: MOD (CHORUS, ENSEMBLE, PHASER), DELAY (STEREO, PING-PONG, TAPE), VERB (HALL, PLATE, SHIMMER), TONE (LOW CUT / HI CUT on the returns, PUMP / PUMP REL: KICK hits duck the returns).
+- FX 3 = LEAD send: DIST (TUBE, FUZZ, BIT), DELAY (PING-PONG, DUB TAPE, SLAPBACK), VERB (ROOM, PLATE, SPRING), TONE (LOW CUT / HI CUT, DUCK / DUCK REL: the bus input ducks its own echoes).
+- Each track feeds at most one send (by SEND LVL); FX 1 is separate. A new project routes KICK / SNARE / HAT / PERC to FX 1, PAD to FX 2, LEAD to FX 3; BASS and PLUCK have their own effects.
 - One shared tempo-synced LFO (bus button 4): rate, shape + MORPH, phase, smooth, fade in, retrig, vol / pitch / filter / pan / send / FM mod, spread; tracks join it like a send.
-- A new project routes nothing (no FX, no LFO). Master: MASTER (x sqrt2 pan-law make-up) -> look-ahead limiter (`fx/Limiter.ts`, -1 dBFS). No master colouring.
+- No track is on the LFO in a new project. Master: MASTER (x sqrt2 pan-law make-up) -> look-ahead limiter (`fx/Limiter.ts`, -1 dBFS). No master colouring.
 
 ### Saving
 - Startup = blank slate (`createDefaultProject`, no project open). The working project is mirrored to the artifact db `projects/current` (`storage/cloud.ts`). `startProject.json` is for tests only.
 - Projects (`storage/projects.ts`, `ProjectStore`): 64 slots (4 banks x 16); each has a saved copy and a working copy. Stopped only: SAVE PROJECT = save menu (name entry with knobs 1-4 = A-Z / a-z / 0-9 / symbols, ◀ ▶ cursor, BAR + ◀ ▶ bank, tap a slot; another project's slot = tap twice); FUNC + SAVE PROJECT = load (CLEAR + slot twice = delete).
 - Cloud slots (`storage/slotSync.ts`, claude.ai only): the slots mirror to the db collection `slots`; `planSync` merges on start and when SAVE/LOAD opens.
 - SAVE: RECORD = the track's notes, DESIGN = its patch, PLAY = both (FUNC = every track); unsaved edits show *. RESET: patches back to saved (gliding to the next bar line while playing), mix / FX / LFO to the saved project, live knobs centred; a second tap within 3 s = notes too; hold channel buttons to keep those tracks out of it.
-- File format: `engine/projectFile.ts` (compact; forgiving: missing / out-of-range values take defaults, notes are never lost). It reads v40 on exactly (`OLDEST_EXACT`); the migrations for v1-v39 were retired in October 2026. An older save still loads its notes, mix and FX, its sounds as stored; LOAD then shows `OLD SAVE, SOUNDS MAY DIFFER` (`ProjectStore.isOld`).
+- File format: `engine/projectFile.ts` (compact; forgiving: missing / out-of-range values take defaults, notes are never lost). Format v41 (`PROJECT_VERSION`); it reads v40 on exactly (`OLDEST_EXACT`; v41 load: FM ATK / DEC from FLT ATK / DEC incl. trims and locks (`fmEnvV41`), FX 2 / FX 3 routing swapped, old FX settings replaced by the bus defaults). The migrations for v1-v39 were retired in October 2026. An older save still loads its notes and mix, its sounds as stored; LOAD then shows `OLD SAVE, SOUNDS MAY DIFFER` (`ProjectStore.isOld`).
 
 ### Engine safety and performance
 - A non-finite engine output mutes the block and starts a fresh engine (ENGINE RESTARTED; main resends the project). The worklet file is re-fetched with `cache: 'reload'`.
 - Clicks avoided: hit tone glides 3 ms, held-voice velocity follows over 4 ms, drum retrigger fade 3 ms.
-- CPU: SendBus skips effects at WET 0 and goes idle after 5 s of silence; DrumBus passes through at rest; PixelScreen redraws only changed frames.
+- CPU: FxBus skips units at VOLUME 0 and a send goes idle after 5 s of silence; the reverbs use whole-sample comb delays while SIZE is at rest; PixelScreen redraws only changed frames.
 
 ### Tests and tools
 - `tests/engine.test.ts` (engine offline in Node), `tests/projects.test.ts` (slots, sync). The UI (`App.ts`) has no tests yet.

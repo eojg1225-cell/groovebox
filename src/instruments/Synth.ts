@@ -110,6 +110,10 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.4, unit: '', curve: 'linear' },
   { id: 'fattack', name: 'FLT ATK', min: 0.0005, max: 10, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'power', power: FDECAY_POWER },
+  // FM envelope: how the FM amount rises (FM ATK) and falls back (FM DEC) on every note, on
+  // the same curves as the filter's. Each FM algorithm's index swings with it.
+  { id: 'fmattack', name: 'FM ATK', min: 0.0005, max: 10, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 },
+  { id: 'fmdecay', name: 'FM DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'power', power: FDECAY_POWER },
   { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
@@ -144,7 +148,7 @@ const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p)
 function synthParams(ids: string[], defaults: Record<string, number>, names: Record<string, string> = {}): ParamSpec[] {
   return ids.map((id) => ({ ...BY_ID[id], defaultValue: defaults[id] ?? BY_ID[id].defaultValue, name: names[id] ?? BY_ID[id].name }));
 }
-/** One envelope for both oscillators: plain names. */
+/** Plain envelope names (BASS / PLUCK: one envelope; PAD / LEAD: these move both oscillators). */
 const SHARED_NAMES = { attack: 'ATTACK', decay: 'DECAY', sustain: 'SUSTAIN', release: 'RELEASE' };
 
 /**
@@ -154,7 +158,7 @@ const SHARED_NAMES = { attack: 'ATTACK', decay: 'DECAY', sustain: 'SUSTAIN', rel
  * type's own; BASS and PLUCK sounds bring theirs, one envelope for both oscillators.
  * Settings outside the list are fixed (*_FIXED).
  */
-const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'detune', 'unison', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
+const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'fmattack', 'fmdecay', 'detune', 'unison', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
 
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 /** One envelope for both oscillators (envlink). */
@@ -163,18 +167,20 @@ export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'o
 export const BASS_FIXED = { voice: 1, envlink: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts). */
 export const PAD_FIXED = { voice: 0, glide: SLIDE_SECONDS, sub: 0, algo: 2 };
 /**
  * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
  * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 });
+export const LEAD_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 }, SHARED_NAMES);
 /** LEAD: 3 voices, so a note's release rings under the next one (and live chords work). */
 export const LEAD_FIXED = { voice: 0, voices: 3, sub: 0, unison: 0, algo: 1 };
 /** PLUCK: a polyphonic pluck with an ARP. */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...SHARED_ENVELOPE, 'arp', 'arprate', 'arpoct', 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
+// The ARP's controls are off the PLUCK for now (the engine still plays 'arp' / 'arprate' /
+// 'arpoct' if a type lists them again).
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, glide: SLIDE_SECONDS, envlink: 1, onboard: 1 };
 
 /** SIDECHAIN: how fast a KICK hit pulls the level down (no click). */
@@ -231,6 +237,9 @@ class Voice {
   readonly amp = new Float64Array(2);
   fenv = 0;
   fattacking = false;
+  /** FM envelope (0..1): the FM index swings with it. */
+  fmenv = 0;
+  fmattacking = false;
   age = 0;
   counter = 0;
   readonly filter = new Svf();
@@ -264,6 +273,7 @@ export class Synth implements Instrument {
   private readonly uRatio = new Float64Array(4);
   private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
+  private fmDecayMul = 0; private fmAttackInc = 0;
   private filterMod = 0;
   private drive = 1; private crush = 0; private level = 0.7; private driveComp = 1;
   private crushPhase = 1; private held = 0;
@@ -348,6 +358,8 @@ export class Synth implements Instrument {
     v.stage[1] = STAGE_ATTACK;
     v.fattacking = this.fattackInc > 0;
     v.fenv = v.fattacking ? 0 : 1;
+    v.fmattacking = this.fmAttackInc > 0;
+    v.fmenv = v.fmattacking ? 0 : 1;
     v.age = ++this.ageCounter;
     v.counter = 0;
   }
@@ -410,6 +422,8 @@ export class Synth implements Instrument {
       case 'fenv': this.fenvAmt = value; break;
       case 'fdecay': this.fdecayMul = decayMul(value, sr); break;
       case 'fattack': this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
+      case 'fmdecay': this.fmDecayMul = decayMul(value, sr); break;
+      case 'fmattack': this.fmAttackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
       case 'drive': this.drive = value; this.driveComp = driveCompGain(this.driveRise, value); break;
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
@@ -574,8 +588,8 @@ export class Synth implements Instrument {
           const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
           v.fb2 = v.fb1;
           v.fb1 = m;
-          // The modulation follows the filter envelope (a struck attack) but sustains.
-          const pm = (m * this.fmIndex * (0.6 + 0.4 * v.fenv)) / (2 * Math.PI);
+          // The modulation follows the FM envelope (a struck attack) but sustains.
+          const pm = (m * this.fmIndex * (0.6 + 0.4 * v.fmenv)) / (2 * Math.PI);
           const d5 = dt1 * this.ratio2 * det;
           const d6 = dt1 * this.ratio3;
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
@@ -602,7 +616,7 @@ export class Synth implements Instrument {
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
           v.p6 += dt1 * this.ratio3; if (v.p6 >= 1) v.p6 -= 1;
           const m2 = Math.sin(2 * Math.PI * v.p6);
-          const idx = (this.fmIndex * (0.6 + 0.4 * v.fenv)) / (2 * Math.PI);
+          const idx = (this.fmIndex * (0.6 + 0.4 * v.fmenv)) / (2 * Math.PI);
           const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
           const c1 = this.osc(wrap(v.p1 + m1 * idx + cfb), dt1);
           v.cf2 = v.cf1;
@@ -615,10 +629,10 @@ export class Synth implements Instrument {
           o2 = this.osc(v.p2, dt2);
         }
         if (this.fmEff > 0 && this.algo === 0) {
-          // FM pair: the index rises with FM and with the filter envelope (a struck clang).
+          // FM pair: the index rises with FM and with the FM envelope (a struck clang).
           v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
           const fm = this.fmEff;
-          const index = fm * (0.5 + 4.5 * v.fenv);
+          const index = fm * (0.5 + 4.5 * v.fmenv);
           let carrier = v.p1;
           if (this.cRatio !== 1) {
             v.p5 += dt1 * this.cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);
@@ -675,6 +689,13 @@ export class Synth implements Instrument {
           if (v.fenv >= 1) { v.fenv = 1; v.fattacking = false; }
         } else {
           v.fenv *= this.fdecayMul;
+        }
+        // FM envelope: the same shape, its own times.
+        if (v.fmattacking) {
+          v.fmenv += this.fmAttackInc;
+          if (v.fmenv >= 1) { v.fmenv = 1; v.fmattacking = false; }
+        } else {
+          v.fmenv *= this.fmDecayMul;
         }
         if (v.counter-- <= 0) {
           v.counter = FILTER_UPDATE;

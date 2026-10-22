@@ -202,6 +202,15 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   },
 };
 
+// Each synth sound's FM envelope (FM ATK / FM DEC) starts where its filter envelope is: the FM
+// followed the filter envelope until it got its own (v41), so every sound plays as before.
+for (const kind of ['bass', 'pad', 'lead', 'pluck'] as const) {
+  for (const a of MACROS[kind].anchors) {
+    if (a.values.fattack !== undefined) a.values.fmattack ??= a.values.fattack;
+    if (a.values.fdecay !== undefined) a.values.fmdecay ??= a.values.fdecay;
+  }
+}
+
 // BASS and PLUCK sounds each bring their whole character: amp envelope (one for both
 // oscillators; PLUCK's OSC 2 decays by its own ratio) and width (DETUNE, UNISON) morph
 // with TIMBRE, and SOUND page changes are trims on top.

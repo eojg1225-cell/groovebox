@@ -44,9 +44,9 @@
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { EFFECT_INTENSITY, EFFECT_WET, GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { COMP_PARAMS, DRUM_BUS_LAYOUT, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
+import { BUS_LAYOUT, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, stepPlays,
@@ -55,7 +55,7 @@ import {
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, paramSpec, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, isDrum, linkedParams, liveTargets, paramSpec, stepsOnStrip } from '../instruments/registry';
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
@@ -155,7 +155,7 @@ interface KnobTarget {
   get(): number;
   set(value: number): void;
   highlight?: boolean;
-  /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "fx1:id" ... */
+  /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "bus:k:id" ... */
   key?: string;
 }
 
@@ -598,7 +598,11 @@ export class App {
     return {
       label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
-      set: (v) => this.setSoundParam(ch, kind, id, v),
+      set: (v) => {
+        this.setSoundParam(ch, kind, id, v);
+        // PAD / LEAD: ATTACK, DECAY, SUSTAIN, RELEASE move both oscillators.
+        for (const other of linkedParams(kind, id)) this.setSoundParam(ch, kind, other, v);
+      },
     };
   }
 
@@ -693,45 +697,20 @@ export class App {
   }
 
   /**
-   * A bus's knobs (FX 1-3 in RECORD/PLAY). FX 1, the drum bus: two modules each for
-   * REVERSE, DISTORT and FILTER. FX 2 / 3: one module per effect, WET (return volume,
-   * labelled with the effect) on top, DEPTH (how hard it works) below; then the bus compressor.
+   * A bus's knobs (k = 0-2: FX 1-3; 3: the LFO): four units of two modules each (buses.ts),
+   * the same in RECORD, PLAY and DESIGN. No FUNC layer.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
     if (k === 3) return LFO_LAYOUT.map((id) => (id ? this.paramTarget(this.selected, `lfo:${id}`) : null));
-    if (k === 0) {
-      const fx1 = this.project.fx1;
-      return DRUM_BUS_LAYOUT.map((id): KnobTarget => {
-        const spec = DRUM_BUS_PARAMS.find((p) => p.id === id)!;
-        return {
-          label: spec.name, spec, channel: this.selected, key: `fx1:${spec.id}`,
-          get: () => fx1[spec.id] ?? spec.defaultValue,
-          set: (v: number) => { fx1[spec.id] = v; this.send({ type: 'setDrumBusParam', id: spec.id, value: v }); },
-        };
-      });
-    }
-    const control = (control: 'wet' | 'int') => EFFECTS.map((fx, e): KnobTarget => {
-      const grid = control === 'wet' ? this.project.sendWet : this.project.sendInt;
+    const values = this.project.buses[k];
+    return BUS_LAYOUT[k].map((id): KnobTarget => {
+      const spec = busParam(k, id)!;
       return {
-        label: control === 'wet' ? fx.name : 'INTENSITY', key: `send:${k}:${e}:${control}`,
-        spec: control === 'wet' ? EFFECT_WET : EFFECT_INTENSITY,
-        channel: this.selected,
-        get: () => grid[k][e],
-        set: (v: number) => { grid[k][e] = v; this.send({ type: 'setSendFx', send: k, effect: e, control, value: v }); },
+        label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`,
+        get: () => values[id] ?? spec.defaultValue,
+        set: (v: number) => { values[id] = v; this.send({ type: 'setBus', bus: k, id, value: v }); },
       };
     });
-    const comp = this.project.sendComp[k];
-    const c = (id: string): KnobTarget => {
-      const spec = COMP_PARAMS.find((p) => p.id === id)!;
-      return {
-        label: spec.name, spec, channel: this.selected, key: `sendcomp:${k}:${id}`,
-        get: () => comp[id] ?? spec.defaultValue,
-        set: (v: number) => { comp[id] = v; this.send({ type: 'setSendComp', send: k, id, value: v }); },
-      };
-    };
-    // The effects on modules 1-4, 5-6 free, the bus COMPRESSOR on 7-8 (as FX 1).
-    const pad = (row: (KnobTarget | null)[]) => [...row, ...new Array<KnobTarget | null>(KNOBS_PER_ROW - 2 - row.length).fill(null)];
-    return [...pad(control('wet')), c('cmp_thresh'), c('cmp_attack'), ...pad(control('int')), c('cmp_ratio'), c('cmp_release')];
   }
 
   /** One knob per track (knob = track number); `only` leaves the others blank. */
@@ -1104,18 +1083,8 @@ export class App {
     });
     const notesToo = this.project.channels.some((c, ch) => !keep.has(ch) && c.patterns.some((pat) => pat.notesDirty));
     for (const id of Object.keys(LFO_PARAMS) as LfoId[]) fromTarget(this.paramTarget(this.selected, `lfo:${id}`), saved.lfo[id]);
-    for (const t of this.sendTargets(0)) if (t?.key) fromTarget(t, saved.fx1[t.key.slice(4)] ?? t.spec.defaultValue);
-    for (const k of [1, 2]) {
-      for (const t of this.sendTargets(k)) {
-        if (!t?.key) continue;
-        if (t.key.startsWith('sendcomp:')) {
-          const id = t.key.split(':')[2];
-          fromTarget(t, saved.sendComp?.[k]?.[id] ?? t.spec.defaultValue);
-          continue;
-        }
-        const [, , e, control] = t.key.split(':');
-        fromTarget(t, (control === 'wet' ? saved.sendWet : saved.sendInt)[k]?.[Number(e)] ?? t.get());
-      }
+    for (let k = 0; k < NUM_BUSES; k++) {
+      for (const t of this.sendTargets(k)) if (t?.key) fromTarget(t, saved.buses[k]?.[t.key.split(':')[2]] ?? t.spec.defaultValue);
     }
     for (const gid of ['swing'] as const) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
@@ -2454,7 +2423,7 @@ export class App {
     const members = this.project.channels.flatMap((c, i) => (this.onBus(c, n) ? [String(i + 1)] : []));
     return {
       ...this.header(),
-      channelLabel: n === 1 ? 'FX 1 DRUM BUS' : n === 4 ? 'LFO' : `FX ${n} SEND`,
+      channelLabel: n === 1 ? 'FX 1 DRUMS' : n === 2 ? 'FX 2 PAD' : n === 3 ? 'FX 3 LEAD' : 'LFO',
       patternLabel: '',
       kindLabel: this.mode.toUpperCase(),
       pages: ['FX 1', 'FX 2', 'FX 3', 'LFO'],

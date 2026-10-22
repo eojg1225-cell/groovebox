@@ -57,12 +57,8 @@ export type MainToWorklet =
   | { type: 'setRouting'; channel: number; send: number }
   /** Pass a track through FX 1, the drum bus, or not. */
   | { type: 'setDrumBus'; channel: number; on: boolean }
-  /** A send bus's compressor parameter (COMP_PARAMS id), real units. */
-  | { type: 'setSendComp'; send: number; id: string; value: number }
-  /** A drum bus parameter in real units (DRUM_BUS_PARAMS). */
-  | { type: 'setDrumBusParam'; id: string; value: number }
-  /** WET or INTENSITY 0..1 of effect `effect` (EFFECTS order) inside send bus `send` (1-2). */
-  | { type: 'setSendFx'; send: number; effect: number; control: 'wet' | 'int'; value: number }
+  /** An FX bus parameter (bus 0-2 = FX 1-3; BUS_PARAMS id), real units / TYPE index. */
+  | { type: 'setBus'; bus: number; id: string; value: number }
   /** LFO setting (rate/shape as option indices, vol / pan 0..1, pitch in semitones, filter in octaves). */
   | { type: 'setLfo'; id: LfoId; value: number }
   /** Put a track on / off the LFO. */

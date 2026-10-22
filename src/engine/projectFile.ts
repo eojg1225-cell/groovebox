@@ -15,7 +15,7 @@ import {
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, pageParams, presetSound } from '../instruments/registry';
 import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
-import { COMP_PARAMS, DRUM_BUS_PARAMS, EFFECTS } from '../fx';
+import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
 import { METERS, type InstrumentKind, type PatternSpeed } from './project';
@@ -144,12 +144,10 @@ interface StoredProject {
   bpm: number;
   swing: number;
   master: number;
-  fx1: Record<string, number>;
   lfo: LfoState;
   song: { rows: { b: number; p: number[] }[] };
-  sendWet: number[][];
-  sendInt: number[][];
-  sendComp?: Record<string, number>[];
+  /** v41: FX 1-3 settings (BUS_PARAMS ids). */
+  buses: Record<string, number>[];
   /** v36: time signature (index into METERS; absent = 4/4). */
   meter?: number;
   channels: StoredChannel[];
@@ -163,12 +161,9 @@ export function toStored(p: Project): StoredProject {
     swing: p.swing,
     master: p.master,
     meter: p.meter,
-    fx1: { ...p.fx1 },
     lfo: { ...p.lfo },
     song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })) },
-    sendWet: p.sendWet.map((row) => [...row]),
-    sendInt: p.sendInt.map((row) => [...row]),
-    sendComp: p.sendComp.map((row) => ({ ...row })),
+    buses: p.buses.map((b) => ({ ...b })),
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
       sounds: JSON.parse(JSON.stringify(c.sounds)) as Record<string, Record<string, number>>,
@@ -208,6 +203,15 @@ function numbers(x: unknown): Record<string, number> {
   return out;
 }
 
+/**
+ * v41: FM ATK / FM DEC (the FM's own envelope) start where FLT ATK / FLT DEC are: before,
+ * the FM followed the filter envelope. On values, trims or locks, in place.
+ */
+function fmEnvV41(values: Record<string, number>): void {
+  if (values.fattack !== undefined && values.fmattack === undefined) values.fmattack = values.fattack;
+  if (values.fdecay !== undefined && values.fmdecay === undefined) values.fmdecay = values.fdecay;
+}
+
 /** Stored data in a format older than the reader reads exactly: its sounds may differ. */
 export function isOldFormat(data: unknown): boolean {
   return isObj(data) && num(data.version, 0) < OLDEST_EXACT;
@@ -229,7 +233,7 @@ function liveIdValid(kind: InstrumentKind, id: string): boolean {
 }
 
 /** A stored pattern's length, speed, flips and notes into `pat` (its steps start empty). */
-function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }): void {
+function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, version: number): void {
   pat.length = Math.round(num(sp.len, pat.length, 1, MAX_STEPS));
   if (STORED_SPEEDS.includes(sp.sp)) pat.speed = sp.sp as StoredSpeed;
   if (Array.isArray(sp.f)) {
@@ -251,6 +255,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     step.slide = s.s === 1;
     if (s.r === 1) step.ring = true;
     const locks = numbers(s.l);
+    if (version < 41) fmEnvV41(locks);
     if (Object.keys(locks).length) step.locks = locks;
     const extra = readExtra(s.c);
     if (extra) step.extra = extra;
@@ -261,9 +266,10 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
  * A sound's stored values for a type: known parameters kept, the rest from the first
  * preset, and parameters the save did not have from TIMBRE / INTENSITY at its position.
  */
-function readSound(kind: SoundKind, x: unknown, base: Record<string, number> = presetSound(kind, 0)): Record<string, number> {
+function readSound(kind: SoundKind, x: unknown, version: number, base: Record<string, number> = presetSound(kind, 0)): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
   const values = numbers(x);
+  if (version < 41) fmEnvV41(values);
   const sound = { ...base };
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
   const hidden = hiddenSound(kind, sound, specs);
@@ -272,23 +278,24 @@ function readSound(kind: SoundKind, x: unknown, base: Record<string, number> = p
 }
 
 /** SOUND page trims as stored (derived from the values when absent), pruned to the page. */
-function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown): Record<string, number> {
+function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, version: number): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
   const trims = isObj(x) ? numbers(x) : deriveTrims(kind, sound, specs);
+  if (version < 41 && isObj(x)) fmEnvV41(trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
 
 /** A stored patch for a type (s = sound, t = trims, p = preset). */
-function readPatch(kind: SoundKind, x: unknown): Patch | undefined {
+function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefined {
   if (!isObj(x) || !isObj(x.s)) return undefined;
-  const sound = readSound(kind, x.s);
-  const patch: Patch = { sound, trims: readTrims(kind, sound, x.t) };
+  const sound = readSound(kind, x.s, version);
+  const patch: Patch = { sound, trims: readTrims(kind, sound, x.t, version) };
   if (typeof x.p === 'number') patch.preset = Math.max(0, Math.round(x.p));
   return patch;
 }
 
-function readChannel(src: Obj, ch: ChannelState): void {
+function readChannel(src: Obj, ch: ChannelState, version: number): void {
   const kind = src.instrument;
   if (typeof kind === 'string' && (SOUND_KINDS as string[]).includes(kind) && kind !== ch.instrument) {
     applyPreset(ch, kind as SoundKind, 0);
@@ -296,9 +303,9 @@ function readChannel(src: Obj, ch: ChannelState): void {
   // Each type's sound (remembered when the track switches type) and its trims.
   for (const k of SOUND_KINDS) {
     const stored = isObj(src.sounds) ? src.sounds[k] : undefined;
-    if (isObj(stored)) ch.sounds[k] = readSound(k, stored, ch.sounds[k] ?? presetSound(k, 0));
+    if (isObj(stored)) ch.sounds[k] = readSound(k, stored, version, ch.sounds[k] ?? presetSound(k, 0));
     const sound = ch.sounds[k];
-    if (sound) ch.trims[k] = readTrims(k, sound, isObj(src.trims) ? src.trims[k] : undefined);
+    if (sound) ch.trims[k] = readTrims(k, sound, isObj(src.trims) ? src.trims[k] : undefined, version);
   }
   if (isObj(src.presets)) {
     for (const k of SOUND_KINDS) if (typeof src.presets[k] === 'number') ch.presets[k] = Math.max(0, Math.round(src.presets[k] as number));
@@ -325,6 +332,9 @@ function readChannel(src: Obj, ch: ChannelState): void {
   ch.fx1 = src.fx1 === true;
   const send = Math.round(num(src.fxSend, 0, 0, NUM_SENDS));
   ch.fxSend = send >= 2 ? send : 0;
+  // v41: FX 2 is the PAD's bus and FX 3 the LEAD's (before: FX 2 the dub delay for bass /
+  // lead, FX 3 the pad reverb), so older routings swap.
+  if (version < 41 && ch.fxSend) ch.fxSend = ch.fxSend === 2 ? 3 : 2;
   ch.sendLevel = num(src.sendLevel, ch.sendLevel, 0, 1);
   ch.activePattern = Math.round(num(src.activePattern, 0, 0, NUM_PATTERNS - 1));
 
@@ -333,21 +343,21 @@ function readChannel(src: Obj, ch: ChannelState): void {
     const sp = src.patterns[p];
     if (!isObj(sp)) continue;
     const pat = ch.patterns[p];
-    readNotes(sp, pat);
+    readNotes(sp, pat, version);
     if (ch.instrument === 'none') continue;
     // Each pattern's own patch (the active one's is the channel's sounds), and what was last
     // SAVEd while it differs.
-    if (p !== ch.activePattern) pat.patch = readPatch(ch.instrument, sp.patch);
+    if (p !== ch.activePattern) pat.patch = readPatch(ch.instrument, sp.patch, version);
     if (isObj(sp.saved)) {
       // Empty steps on the note a fresh pattern of this type has (as the working ones).
       const kind = INSTRUMENTS[ch.instrument];
       const saved = emptyPattern(kind.drum ? 36 : kind.baseNote);
-      readNotes(sp.saved, saved);
+      readNotes(sp.saved, saved, version);
       pat.savedNotes = { length: saved.length, steps: saved.steps };
       if (saved.speed) pat.savedNotes.speed = saved.speed;
       pat.notesDirty = true;
     }
-    const savedPatch = readPatch(ch.instrument, sp.savedPatch);
+    const savedPatch = readPatch(ch.instrument, sp.savedPatch, version);
     if (savedPatch) {
       pat.savedPatch = savedPatch;
       pat.patchDirty = true;
@@ -381,24 +391,17 @@ export function fromStored(data: unknown): Project | null {
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
   p.meter = Math.round(num(data.meter, 0, 0, METERS.length - 1));
-  if (isObj(data.fx1)) {
-    for (const spec of DRUM_BUS_PARAMS) p.fx1[spec.id] = num(data.fx1[spec.id], p.fx1[spec.id], spec.min, spec.max);
-  }
-  // Send grids, [bus][effect]: row 0 (FX 1) unused.
-  const readGrid = (grid: unknown, into: number[][]) => {
-    if (!Array.isArray(grid)) return;
-    for (let k = 1; k < NUM_SENDS; k++) {
-      const row = grid[k];
-      if (Array.isArray(row)) for (let e = 0; e < EFFECTS.length; e++) into[k][e] = num(row[e], into[k][e], 0, 1);
+  const version = num(data.version, 0);
+  // FX 1-3 (v41; older FX settings take the new buses' defaults).
+  if (version >= 41 && Array.isArray(data.buses)) {
+    for (let k = 0; k < NUM_BUSES; k++) {
+      const src = data.buses[k];
+      if (!isObj(src)) continue;
+      for (const spec of BUS_PARAMS[k]) {
+        const v = num(src[spec.id], p.buses[k][spec.id], spec.min, spec.max);
+        p.buses[k][spec.id] = spec.options ? Math.round(v) : v;
+      }
     }
-  };
-  readGrid(data.sendWet, p.sendWet);
-  readGrid(data.sendInt, p.sendInt);
-  if (Array.isArray(data.sendComp)) {
-    data.sendComp.forEach((row, k) => {
-      if (k >= p.sendComp.length || !isObj(row)) return;
-      for (const spec of COMP_PARAMS) p.sendComp[k][spec.id] = num(row[spec.id], p.sendComp[k][spec.id], spec.min, spec.max);
-    });
   }
   readLfo(data.lfo, p.lfo);
   if (isObj(data.song) && Array.isArray(data.song.rows)) {
@@ -411,7 +414,7 @@ export function fromStored(data: unknown): Project | null {
   }
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];
-    if (isObj(src)) readChannel(src, p.channels[i]);
+    if (isObj(src)) readChannel(src, p.channels[i], version);
   }
   // Every pattern gets its patch and saved versions (where the save had none).
   for (const c of p.channels) initPatterns(c);
