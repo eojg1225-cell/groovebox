@@ -54,17 +54,15 @@ import {
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset } from '../engine/defaultProject';
-import { bassFilterV38 } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, paramSpec, stepsOnStrip } from '../instruments/registry';
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
 import { ROLL_DIVS } from '../instruments/Drum';
-import { macroIds, remapBassTimbreV39, remapTimbreV18, timbreName } from '../instruments/macros';
-import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { userPatches } from '../storage/saved';
-import { OCTAVE_SHIFT_V33 } from '../instruments/Synth';
+import { macroIds, timbreName } from '../instruments/macros';
+import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
+import { readUserPatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, ProjectView, SongView } from './views';
 
@@ -416,26 +414,12 @@ export class App {
     } else {
       const patch = userPatches(kind)[index - factory];
       if (!patch) return;
-      const defaults: Record<string, number> = {};
-      for (const p of INSTRUMENTS[kind].params) defaults[p.id] = p.defaultValue;
-      const values = { ...patch.values };
-      mirrorOsc2(values);
-      // Patches saved with four TIMBRE sounds: move TIMBRE, re-derive the trims.
-      const old = (patch.v ?? 0) < 19;
-      if (old && values.timbre !== undefined) values.timbre = remapTimbreV18(kind, values.timbre);
-      // BASS patches from before v40: its sounds were in another order (the same sound).
-      const bassOrder = kind === 'bass' && !old && (patch.v ?? 0) < 40;
-      if (bassOrder && values.timbre !== undefined) values.timbre = remapBassTimbreV39(values.timbre);
-      // A BASS patch from v27 - v37: its filter envelope followed the amp (now its own).
-      if (kind === 'bass' && values.fratio !== undefined) bassFilterV38(values);
-      // Every USER patch predates v33's wider OCTAVE: the same octave, two indices up.
-      if ((patch.v ?? 0) < 33 && values.octave !== undefined) values.octave += OCTAVE_SHIFT_V33;
-      c.sounds[kind] = { ...defaults, ...values };
-      c.trims[kind] = patch.trims && !old && !bassOrder ? { ...patch.trims } : deriveTrims(kind, c.sounds[kind]!, INSTRUMENTS[kind].params);
-      pruneTrims(c.sounds[kind]!, c.trims[kind]!, hiddenSound(kind, c.sounds[kind]!, INSTRUMENTS[kind].params), pageParams(kind));
+      const now = readUserPatch(kind, patch);
+      c.sounds[kind] = now.sound;
+      c.trims[kind] = now.trims;
       c.presets[kind] = index;
-      c.live = [...patch.live];
-      if (patch.liveFunc) c.liveFunc = [...patch.liveFunc];
+      c.live = now.live;
+      if (now.liveFunc) c.liveFunc = now.liveFunc;
     }
     const sound = c.sounds[kind] ?? {};
     c.patterns[c.activePattern].patchDirty = true;

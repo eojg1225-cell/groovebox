@@ -19,3 +19,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 
 - Audit phase 1 (2026-10-22): dead code removed (old saved.ts writers, storage/session.ts, isRotated, widen, NUM_EFFECTS, NUM_SEND_BUSES, knob-centre cleanup); exports used only in their own file made private; `npm run unused` (knip) in CI; typecheck covers tools/.
 - Audit phase 2 (2026-10-22): CLAUDE.md rewritten as the current state; this file holds the history; ARCHITECTURE.md brought up to date.
+- Audit phase 3 step 1 (2026-10-22): every stored project, working copy and USER patch is rewritten in the current format at startup (projects.upgrade, saved.upgradeUserPatches; USER patch conversion moved from App.ts into saved.readUserPatch). Cloud slots were already all v40 (one slot, MTHED).

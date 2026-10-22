@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDefaultProject } from '../src/engine/defaultProject';
+import { PROJECT_VERSION } from '../src/engine/project';
 import { toStored } from '../src/engine/projectFile';
 import { PROJECT_SLOTS, type SlotEntry } from '../src/storage/projects';
 import { planSync, type CloudSlot } from '../src/storage/slotSync';
@@ -78,6 +79,53 @@ describe('project slots (localStorage)', () => {
     expect(loaded.channels[4].patterns[1].patchDirty).toBe(true); // one sound on all four before
     expect(loaded.channels[3].patterns[0].patchDirty).toBe(false);
     expect(loaded.channels[1].patterns[0].notesDirty).toBe(false);
+  });
+
+  it('upgrade: older saved and working copies are rewritten in the current format, loading the same', async () => {
+    const { localProjects } = await import('../src/storage/projects');
+    const p = createDefaultProject();
+    const e = localProjects.save(2, 'OLD', p)!;
+    const before = localProjects.slots()[2];
+    // An older saved copy (v14: the live knobs reset to the type defaults on load) and a v30 working copy.
+    const old = { ...toStored(p), version: 14 } as Record<string, unknown>;
+    const work = { ...toStored(p), version: 30 } as unknown as { channels: { patterns: { steps: unknown[] }[] }[] };
+    work.channels[0].patterns[0].steps.push({ i: 4, n: 36, v: 0.8 });
+    localStorage.setItem(`groovebox.proj.${e.id}`, JSON.stringify(old));
+    localStorage.setItem(`groovebox.work.${e.id}`, JSON.stringify(work));
+    const savedThen = localProjects.load(e.id);
+    const workThen = localProjects.loadWork(e.id);
+    expect(localProjects.upgrade()).toBe(2);
+    const version = (key: string) => (JSON.parse(localStorage.getItem(key)!) as { version: number }).version;
+    expect(version(`groovebox.proj.${e.id}`)).toBe(PROJECT_VERSION);
+    expect(version(`groovebox.work.${e.id}`)).toBe(PROJECT_VERSION);
+    expect(localProjects.load(e.id)).toEqual(savedThen);
+    expect(localProjects.loadWork(e.id)).toEqual(workThen);
+    expect(localProjects.slots()[2]).toEqual(before); // savedAt kept: no new save for the sync
+    expect(localStorage.getItem('groovebox.upgraded')).toBe(String(PROJECT_VERSION));
+    expect(localProjects.upgrade()).toBe(0); // nothing left
+    // A later format runs it again (the marker names the format it reached).
+    localStorage.setItem('groovebox.upgraded', '1');
+    expect(localProjects.upgrade()).toBe(0);
+  });
+
+  it('place: an older cloud copy is stored in the current format', async () => {
+    const { localProjects } = await import('../src/storage/projects');
+    const old = JSON.stringify({ ...toStored(createDefaultProject()), version: 30 });
+    localProjects.place(0, { id: 'c', name: 'C', savedAt: 1 }, old);
+    expect((JSON.parse(localProjects.raw('c')!) as { version: number }).version).toBe(PROJECT_VERSION);
+  });
+
+  it('upgrade: USER patches are rewritten as they load now', async () => {
+    const { readUserPatch, upgradeUserPatches, userPatches } = await import('../src/storage/saved');
+    // A pre-v19 BASS patch (four TIMBRE sounds, old OCTAVE indices, filter envelope linked to the amp).
+    const old = { name: 'USER 1', values: { timbre: 0.4, octave: 2, cutoff: 900, decay: 0.3, fratio: 0.5 }, live: ['cutoff', 'mix:pan'] as [string, string] };
+    localStorage.setItem('groovebox.patches', JSON.stringify({ bass: [old] }));
+    const then = readUserPatch('bass', old);
+    expect(upgradeUserPatches()).toBe(1);
+    const [now] = userPatches('bass');
+    expect(now.v).toBe(PROJECT_VERSION);
+    expect(readUserPatch('bass', now)).toEqual(then);
+    expect(upgradeUserPatches()).toBe(0);
   });
 
   it('first run: the project saved before slots becomes slot 1 and is open', async () => {

@@ -10,7 +10,8 @@ import { drawDesignView, drawLiveView, drawProjectView, drawSongView } from './u
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
-import { projectStore } from './storage/projects';
+import { localProjects, projectStore } from './storage/projects';
+import { upgradeUserPatches } from './storage/saved';
 import { startSlotSync } from './storage/slotSync';
 import { textWidth } from './ui/font';
 
@@ -36,6 +37,9 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 // Every start is a blank slate: the default project, nothing open. Saved projects (and
 // their working copies) stay in their slots for LOAD (FUNC + SAVE PROJECT).
 projectStore.slots(); // first run: the project saved before slots becomes slot 1
+// Every save in this browser brought up to the current format (older ones are converted on
+// load, and those conversions are being retired).
+const upgraded = localProjects.upgrade() + upgradeUserPatches();
 projectStore.setOpen(null);
 const project = createDefaultProject();
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
@@ -47,6 +51,7 @@ const screen = new PixelScreen(panel.screenCanvas);
 let host: AudioHost | null = null;
 const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
+if (upgraded > 0) app.notify(`${upgraded} SAVES UPGRADED`);
 // On claude.ai the 64 project slots are kept in the artifact's db too: the same on every device.
 startSlotSync(() => app.notify('PROJECTS SYNCED'));
 

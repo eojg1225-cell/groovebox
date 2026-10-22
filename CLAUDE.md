@@ -98,6 +98,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** per-send delay time editing.
 - Cloud slots (`storage/slotSync.ts`, claude.ai only): the slots mirror to the db collection `slots`; `planSync` merges on start and when SAVE/LOAD opens.
 - SAVE: RECORD = the track's notes, DESIGN = its patch, PLAY = both (FUNC = every track); unsaved edits show *. RESET: patches back to saved (gliding to the next bar line while playing), mix / FX / LFO to the saved project, live knobs centred; a second tap within 3 s = notes too; hold channel buttons to keep those tracks out of it.
 - File format: `engine/projectFile.ts` (compact; the reader accepts every earlier version and never loses notes).
+- Upgrade (phase 3 of the audit, step 1): at startup `localProjects.upgrade()` and `upgradeUserPatches()` rewrite every slot, working copy and USER patch stored in an older format in the current one (savedAt kept; once per format, marker `groovebox.upgraded`); cloud copies are converted as they arrive (`place`). Step 2, once every device has opened this build: delete the load migrations for versions below 40.
 
 ### Engine safety and performance
 - A non-finite engine output mutes the block and starts a fresh engine (ENGINE RESTARTED; main resends the project). The worklet file is re-fetched with `cache: 'reload'`.

@@ -46,6 +46,8 @@ export function onSlotChange(fn: SlotListener | null): void {
 const INDEX = 'groovebox.projects';
 const OPEN = 'groovebox.open';
 const LEGACY = 'groovebox.project';
+/** The format every stored project was last brought up to (upgrade). */
+const UPGRADED = 'groovebox.upgraded';
 const data = (id: string) => `groovebox.proj.${id}`;
 const work = (id: string) => `groovebox.work.${id}`;
 
@@ -95,6 +97,13 @@ function storedVersion(raw: string | null): number {
   } catch {
     return PROJECT_VERSION;
   }
+}
+
+/** Stored JSON text in the current format: older versions go through the load migrations. */
+function current(raw: string): string {
+  if (storedVersion(raw) >= PROJECT_VERSION) return raw;
+  const project = parse(raw);
+  return project ? JSON.stringify(toStored(project)) : raw;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -187,7 +196,7 @@ class LocalProjectStore implements ProjectStore {
   place(slot: number, entry: SlotEntry, raw: string): boolean {
     const slots = this.slots();
     const old = slots[slot];
-    if (!put(data(entry.id), raw)) return false;
+    if (!put(data(entry.id), current(raw))) return false;
     if (old && old.id !== entry.id) {
       drop(data(old.id));
       drop(work(old.id));
@@ -216,6 +225,37 @@ class LocalProjectStore implements ProjectStore {
     const saved = storedVersion(raw) < 31 ? this.load(id) : null;
     if (saved) adoptSaved(project, saved);
     return project;
+  }
+
+  /**
+   * Rewrites every saved project and working copy stored in an older format in the
+   * current one (read through the load migrations; savedAt kept), so the migrations for
+   * older versions can later go. Run at startup, before the cloud sync; once per format.
+   * Returns how many records it rewrote.
+   */
+  upgrade(): number {
+    // Done once per format: every write since stores the current one (cloud copies included).
+    if (get(UPGRADED) === String(PROJECT_VERSION)) return 0;
+    let n = 0;
+    for (const e of this.slots()) {
+      if (!e) continue;
+      const w = get(work(e.id));
+      // The working copy first: before v31 it reads its saved versions from the saved copy.
+      if (w && storedVersion(w) < PROJECT_VERSION) {
+        const p = this.loadWork(e.id);
+        if (p) {
+          this.saveWork(e.id, p);
+          n++;
+        }
+      }
+      const d = get(data(e.id));
+      if (d && storedVersion(d) < PROJECT_VERSION) {
+        const up = current(d);
+        if (up !== d && put(data(e.id), up)) n++;
+      }
+    }
+    put(UPGRADED, String(PROJECT_VERSION));
+    return n;
   }
 
   saveWork(id: string, project: Project): void {
