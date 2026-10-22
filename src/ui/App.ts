@@ -53,7 +53,8 @@ import {
   cloneNotes, clonePatch, editPattern, initPatterns, lockPattern, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
-import { applyPreset } from '../engine/defaultProject';
+import { applyPreset, createDefaultProject } from '../engine/defaultProject';
+import { toStored } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, linkedParams, liveTargets, paramSpec, stepsOnStrip } from '../instruments/registry';
 import { mirrorToCloud } from '../storage/cloud';
@@ -261,6 +262,8 @@ export class App {
   private statusAt = 0;
   /** State RESET returns to when nothing has been saved: the project as the session began. */
   private baseline: Project;
+  /** The empty slot a new project was started from (LOAD): SAVE opens on its bank. -1 = none. */
+  private newSlot = -1;
   /** SAVE / LOAD (stopped only): name entry and the 64 slots, 16 to a bank on the strip. */
   projMenu: ProjectMenu | null = null;
   private glides = new Map<string, Glide>();
@@ -1848,7 +1851,7 @@ export class App {
     const openId = projectStore.openId();
     const at = slots.findIndex((e) => !!e && e.id === openId);
     const name = (at >= 0 ? slots[at]!.name : 'PROJECT').slice(0, NAME_LENGTH);
-    this.projMenu = { kind, bank: at >= 0 ? Math.floor(at / SLOTS_PER_BANK) : 0, name: [...name], cursor: Math.min(name.length, NAME_LENGTH - 1), confirm: -1, knobs: [0, 0, 0, 0] };
+    this.projMenu = { kind, bank: Math.floor((at >= 0 ? at : Math.max(0, this.newSlot)) / SLOTS_PER_BANK), name: [...name], cursor: Math.min(name.length, NAME_LENGTH - 1), confirm: -1, knobs: [0, 0, 0, 0] };
     this.touchedKnob = -1;
   }
 
@@ -1922,6 +1925,7 @@ export class App {
       return;
     }
     projectStore.setOpen(saved.id);
+    this.newSlot = -1;
     this.baseline = JSON.parse(JSON.stringify(this.project)) as Project;
     this.closeProjectMenu();
     this.flash(`SAVED ${name} IN ${slot + 1}`);
@@ -1930,10 +1934,11 @@ export class App {
   private loadFromSlot(slot: number): void {
     const entry = projectStore.slots()[slot];
     if (!entry) {
-      this.flash('EMPTY SLOT');
+      this.newProject(slot);
       return;
     }
     const openId = projectStore.openId();
+    this.newSlot = -1;
     if (entry.id !== openId) {
       // Keep this project's unsaved edits with it, then open the other one where it was left.
       if (openId) projectStore.saveWork(openId, this.project);
@@ -1947,6 +1952,29 @@ export class App {
     }
     this.closeProjectMenu();
     this.flash(projectStore.isOld(entry.id) ? `${entry.name}: OLD SAVE, SOUNDS MAY DIFFER` : `LOADED ${entry.name}`);
+  }
+
+  /**
+   * LOAD on an empty slot: a new project (the default one). The project open now keeps its
+   * unsaved edits in its slot, as on any load; one never saved (and changed) needs a second
+   * tap, since it is not kept anywhere.
+   */
+  private newProject(slot: number): void {
+    const menu = this.projMenu!;
+    const openId = projectStore.openId();
+    const fresh = createDefaultProject();
+    const changed = JSON.stringify(toStored(this.project)) !== JSON.stringify(toStored(fresh));
+    if (!openId && changed && menu.confirm !== slot) {
+      menu.confirm = slot;
+      this.flash(`NOT SAVED: TAP ${slot + 1} AGAIN FOR NEW`);
+      return;
+    }
+    if (openId) projectStore.saveWork(openId, this.project);
+    projectStore.setOpen(null);
+    this.newSlot = slot;
+    this.replaceProject(fresh);
+    this.closeProjectMenu();
+    this.flash('NEW PROJECT: SAVE TO KEEP');
   }
 
   private deleteSlot(slot: number): void {

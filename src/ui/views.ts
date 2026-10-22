@@ -346,7 +346,7 @@ export function drawProjectView(s: PixelScreen, v: ProjectView): void {
   });
   const hint = save
     ? '< > MOVE  KNOBS 1-4 LETTER  BAR+< > BANK  TAP SLOT = SAVE'
-    : '< > BANK  TAP SLOT = LOAD  CLEAR+SLOT = DELETE';
+    : '< > BANK  TAP = LOAD (EMPTY = NEW)  CLEAR+SLOT = DELETE';
   s.rect(0, FOOTER_Y - 3, SCREEN_W, 1, INK.dim);
   if (v.message) s.text(2, FOOTER_Y, v.message, INK.warn);
   else s.text(2, FOOTER_Y, hint, INK.mid);
