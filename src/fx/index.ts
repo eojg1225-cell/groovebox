@@ -14,9 +14,7 @@ export const EFFECTS = [
   { id: 'reverb', name: 'REVERB' },
 ] as const;
 
-export const NUM_SEND_BUSES = 3;
-
-/** Send bus numbers (FX 2, FX 3) as indexes into the [3][6] send grids; row 0 is FX 1. */
+/** Send bus numbers (FX 2, FX 3) as indexes into the [3][4] send grids; row 0 is FX 1. */
 export const SEND_BUSES = [1, 2] as const;
 
 /**

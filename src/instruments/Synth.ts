@@ -26,7 +26,7 @@ const VOICE_MODES = ['POLY', 'MONO'] as const;
  * ARP: how the held chord (over ARP OCT octaves) is stepped through. CASCADE goes up (or down)
  * in overlapping skips: 1 5 3 7 5 9 ... (or from the top: 11 7 9 5 7 3 ...).
  */
-export const ARP_MODES = ['OFF', 'UP', 'DOWN', 'UP/DN', 'CASC UP', 'CASC DN', 'RANDOM'] as const;
+const ARP_MODES = ['OFF', 'UP', 'DOWN', 'UP/DN', 'CASC UP', 'CASC DN', 'RANDOM'] as const;
 /** ARP speeds in 16th steps. */
 export const ARP_RATES = [
   { name: '1/4', steps: 4 }, { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 },
@@ -78,7 +78,7 @@ const UNISON_SPREAD = [-1, -0.4, 0.4, 1];
 const UNISON_PHASE = [0.13, 0.61, 0.37, 0.89];
 const FILTER_UPDATE = 16;
 
-export const SYNTH_PARAMS: readonly ParamSpec[] = [
+const SYNTH_PARAMS: readonly ParamSpec[] = [
   TIMBRE,
   INTENSITY,
   { id: 'shape', name: 'SHAPE', min: 0, max: 3, defaultValue: 2, unit: '', curve: 'linear' },

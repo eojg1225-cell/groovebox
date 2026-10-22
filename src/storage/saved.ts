@@ -1,15 +1,12 @@
 /**
- * Saved patches and project, kept in localStorage so they survive closing the browser.
- * (The working session also lives in sessionStorage; see session.ts.)
+ * USER patches saved by older versions (localStorage), still offered by PRESET. Nothing
+ * writes new ones (patches now live in each pattern).
  */
-import type { Project, SoundKind } from '../engine/project';
-import { fromStored, toStored } from '../engine/projectFile';
+import type { SoundKind } from '../engine/project';
 
 const PATCHES_KEY = 'groovebox.patches';
-const PROJECT_KEY = 'groovebox.project';
-export const MAX_USER_PATCHES = 16;
 
-export interface UserPatch {
+interface UserPatch {
   name: string;
   values: Record<string, number>;
   live: [string, string];
@@ -32,37 +29,9 @@ function read<T>(key: string): T | null {
   }
 }
 
-function write(key: string, value: unknown): boolean {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-    return true;
-  } catch {
-    return false; // storage full or blocked
-  }
-}
 
 export function userPatches(kind: SoundKind): UserPatch[] {
   return read<PatchStore>(PATCHES_KEY)?.[kind] ?? [];
 }
 
 /** Saves a patch as the next USER n for its track type; returns its name, or null on failure. */
-export function savePatch(kind: SoundKind, values: Record<string, number>, live: [string, string], liveFunc: [string, string], trims: Record<string, number>): string | null {
-  const store = read<PatchStore>(PATCHES_KEY) ?? {};
-  const list = store[kind] ?? [];
-  if (list.length >= MAX_USER_PATCHES) list.shift();
-  const used = new Set(list.map((p) => p.name));
-  let n = 1;
-  while (used.has(`USER ${n}`)) n++;
-  const name = `USER ${n}`;
-  list.push({ name, values: { ...values }, live: [...live], liveFunc: [...liveFunc], trims: { ...trims }, v: 33 });
-  store[kind] = list;
-  return write(PATCHES_KEY, store) ? name : null;
-}
-
-export function saveProject(project: Project): boolean {
-  return write(PROJECT_KEY, toStored(project));
-}
-
-export function loadSavedProject(): Project | null {
-  return fromStored(read<unknown>(PROJECT_KEY));
-}

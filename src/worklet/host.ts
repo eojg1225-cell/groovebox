@@ -8,7 +8,7 @@ import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 // Must match the name registered in processor.ts.
 const PROCESSOR_NAME = 'groovebox-engine';
 
-export interface LatencyInfo {
+interface LatencyInfo {
   sampleRate: number;
   /** AudioContext.baseLatency in ms (processing latency), or NaN if unsupported. */
   baseMs: number;

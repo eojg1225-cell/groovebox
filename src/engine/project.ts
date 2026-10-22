@@ -3,14 +3,13 @@
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
 export const PROJECT_VERSION = 40;
-/** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of six effects. */
+/** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
-export const NUM_EFFECTS = 5;
 export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 4;
 export const MAX_STEPS = 64;
-/** Most hits a ROLL step can have. */
-export const DEFAULT_STEPS = 16;
+/** Length of a new pattern. */
+const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D'] as const;
 export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 /** Song: up to this many rows, each up to SONG_MAX_BARS bars. */

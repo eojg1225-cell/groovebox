@@ -5,7 +5,7 @@
 import { ADVANCE, GLYPH_H, GLYPH_W, glyphBits, textWidth } from './font';
 
 export const SCREEN_W = 256;
-export const SCREEN_H = 128;
+const SCREEN_H = 128;
 
 export const INK = {
   bg: '#061312',

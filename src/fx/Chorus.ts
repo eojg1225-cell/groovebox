@@ -2,7 +2,7 @@ import type { Effect } from './Effect';
 import type { ParamSpec } from '../engine/params';
 import { Smoother } from '../engine/smoother';
 
-export const CHORUS_PARAMS: readonly ParamSpec[] = [
+const CHORUS_PARAMS: readonly ParamSpec[] = [
   { id: 'cho_rate', name: 'CHO RATE', min: 0.05, max: 5, defaultValue: 0.6, unit: 'HZ', curve: 'exp' },
   { id: 'cho_depth', name: 'CHO DEPTH', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'cho_width', name: 'WIDTH', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
@@ -69,7 +69,7 @@ export class Chorus implements Effect {
 }
 
 /** Linear-interpolated read `delay` samples behind `write`. */
-export function read(buf: Float32Array, write: number, delay: number, len: number): number {
+function read(buf: Float32Array, write: number, delay: number, len: number): number {
   let rp = write - delay;
   if (rp < 0) rp += len;
   const i0 = Math.floor(rp);

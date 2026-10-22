@@ -26,7 +26,7 @@ export type CloudSlot =
   | { id: string; deleted: true; deletedAt: number };
 
 /** What a sync does to one slot. */
-export type SyncAction =
+type SyncAction =
   | { kind: 'push'; slot: number }
   | { kind: 'pull'; slot: number; from: CloudSlot & { deleted?: false } }
   | { kind: 'clear'; slot: number }

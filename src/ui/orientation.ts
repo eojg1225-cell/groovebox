@@ -9,10 +9,6 @@ export function setRotated(value: boolean): void {
   rotated = value;
 }
 
-export function isRotated(): boolean {
-  return rotated;
-}
-
 /** Pointer position along the panel's vertical axis (grows downward on the panel). */
 export function localY(e: { clientX: number; clientY: number }): number {
   return rotated ? -e.clientX : e.clientY;

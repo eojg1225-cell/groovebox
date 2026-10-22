@@ -40,7 +40,7 @@ function toneRank(interval: number): number {
  * CHORD_VOICINGS[chord][notes - 1]: the chord's intervals with only its first `notes` tones
  * (in tone order: root, 5th, 3rd, 7th, 9th, 11th), played low to high. Built once.
  */
-export const CHORD_VOICINGS: readonly (readonly (readonly number[])[])[] = CHORDS.map((c) => {
+const CHORD_VOICINGS: readonly (readonly (readonly number[])[])[] = CHORDS.map((c) => {
   const ranked = [...c.intervals].sort((a, b) => toneRank(a) - toneRank(b));
   return Array.from({ length: MAX_CHORD_NOTES }, (_, n) => ranked.slice(0, n + 1).sort((a, b) => a - b));
 });

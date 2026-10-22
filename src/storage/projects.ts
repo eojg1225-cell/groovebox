@@ -18,6 +18,7 @@ export interface SlotEntry {
   savedAt: number;
 }
 
+/** @public The storage seam for the Capacitor app (native ProjectStore later). */
 export interface ProjectStore {
   /** Every slot: its project, or null when empty. */
   slots(): (SlotEntry | null)[];
@@ -105,7 +106,7 @@ function sameValues(a: Record<string, number>, b: Record<string, number>): boole
 }
 
 /** Each pattern's saved notes / patch taken from the project's saved copy (same track type). */
-export function adoptSaved(work: Project, saved: Project): void {
+function adoptSaved(work: Project, saved: Project): void {
   work.channels.forEach((c, ch) => {
     const s = saved.channels[ch];
     if (!s || s.instrument !== c.instrument) return;

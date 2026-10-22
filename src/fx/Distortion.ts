@@ -2,7 +2,7 @@ import type { Effect } from './Effect';
 import type { ParamSpec } from '../engine/params';
 import { Smoother } from '../engine/smoother';
 
-export const DIST_PARAMS: readonly ParamSpec[] = [
+const DIST_PARAMS: readonly ParamSpec[] = [
   { id: 'dst_drive', name: 'DRIVE', min: 1, max: 50, defaultValue: 8, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'dst_tone', name: 'DST TONE', min: 300, max: 12000, defaultValue: 4000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'dst_char', name: 'CHARACTER', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },

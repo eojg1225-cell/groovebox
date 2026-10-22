@@ -26,7 +26,7 @@ export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate' | 'cut';
 export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength', cut: 'midCut' } as const;
 
 /** Velocity of a normal hit (ghost 0.45, accent 1.0). */
-export const NORMAL_VELOCITY = 0.8;
+const NORMAL_VELOCITY = 0.8;
 
 /**
  * A hit's velocity after the track's ACC/GHOST depth: its distance from a normal hit is

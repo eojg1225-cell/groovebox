@@ -43,7 +43,7 @@ export function choice(id: string, name: string, options: readonly string[], def
   return { id, name, min: 0, max: options.length - 1, defaultValue, unit: '', curve: 'linear', options, coarse: true };
 }
 
-export function clamp(x: number, lo: number, hi: number): number {
+function clamp(x: number, lo: number, hi: number): number {
   return x < lo ? lo : x > hi ? hi : x;
 }
 

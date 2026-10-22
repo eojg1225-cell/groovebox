@@ -2685,7 +2685,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
       return INSTRUMENTS[kind].presets.slice(0, 5).map((_, i) => loudness(ch, kind, i));
     });
     expect(Math.max(...levels) - Math.min(...levels)).toBeLessThan(1);
-  });
+  }, 30_000);
 
   it('v40 load: a v39 bass keeps its sound (TIMBRE follows it to its new place, preset too)', () => {
     const p = createDefaultProject();

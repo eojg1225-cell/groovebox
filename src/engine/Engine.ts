@@ -1357,7 +1357,7 @@ export class Engine {
     }
     this.drumBus.setClock(this.lfoClock, this.lfoStepInc());
     this.drumBus.process(this.busL[0], this.busR[0], outL, outR, off, n);
-    // Each send bus runs its six effects back into the mix.
+    // Each send bus runs its effects back into the mix.
     for (const k of SEND_BUSES) this.sends[k]?.process(this.busL[k], this.busR[k], outL, outR, off, n);
     this.lfoClock += n * this.lfoStepInc();
   }

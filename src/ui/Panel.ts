@@ -22,15 +22,15 @@ import { Knob } from './Knob';
 import { setRotated } from './orientation';
 import { BPM_MAX, BPM_MIN } from '../engine/mixParams';
 
-export const DESIGN_W = 1200;
-export const DESIGN_H = 760;
+const DESIGN_W = 1200;
+const DESIGN_H = 760;
 export const KNOB_COUNT = 16;
 export const KNOBS_PER_ROW = 8;
 export const STEP_BUTTONS = 16;
 export const DESIGN_PAGE_BUTTONS = 3;
 /** FX 1-3 then the LFO (fx4): buses the tracks are put on. */
 export const FX_SEND_BUTTONS = 4;
-export const MASTER_KNOBS = [
+const MASTER_KNOBS = [
   { id: 'mtempo', label: 'TEMPO' },
   { id: 'mmaster', label: 'MASTER' },
 ] as const;
@@ -43,14 +43,14 @@ export const MODES = [
 ] as const;
 
 /** Function row: groups of [id, label] (labels may contain <small> lines). */
-export const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
+const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['clear', 'CLEAR<small>HOLD</small>'], ['copy', 'COPY<small>HOLD</small>']],
   [['oct-', 'OCT −'], ['oct+', 'OCT +']],
   [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],
 ];
 
-export interface PanelConfig {
+interface PanelConfig {
   channels: number;
   patterns: readonly string[];
 }

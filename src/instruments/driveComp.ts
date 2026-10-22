@@ -9,8 +9,8 @@ import type { SoundKind } from '../engine/project';
  * DRIVE_RISE: how much louder (dB, RMS) each type gets at DRIVE_POINTS without
  * compensation, measured over its TIMBRE sounds (tests/engine.test.ts checks it).
  */
-export const DRIVE_POINTS = [1, 1.5, 2, 3, 4, 6, 8, 12, 20, 40, 100, 200] as const;
-export const DRIVE_LIFT_DB = 2.5;
+const DRIVE_POINTS = [1, 1.5, 2, 3, 4, 6, 8, 12, 20, 40, 100, 200] as const;
+const DRIVE_LIFT_DB = 2.5;
 
 export const DRIVE_RISE: Record<SoundKind, readonly number[]> = {
   kick: [0, 1.2, 2.5, 4.4, 5.6, 7.0, 7.8, 8.8, 9.9, 11.0, 12.2, 12.9],

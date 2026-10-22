@@ -2,7 +2,7 @@ import type { Effect } from './Effect';
 import type { ParamSpec } from '../engine/params';
 import { Smoother } from '../engine/smoother';
 
-export const REVERB_PARAMS: readonly ParamSpec[] = [
+const REVERB_PARAMS: readonly ParamSpec[] = [
   { id: 'rev_size', name: 'SIZE', min: 0, max: 1, defaultValue: 0.7, unit: '', curve: 'linear' },
   { id: 'rev_damp', name: 'DAMPING', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'rev_predelay', name: 'PREDELAY', min: 0, max: 120, defaultValue: 15, unit: 'MS', curve: 'linear', decimals: 0 },

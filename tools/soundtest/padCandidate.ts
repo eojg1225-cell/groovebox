@@ -82,7 +82,7 @@ export function withRatios(list: readonly Anchor[], from: readonly Anchor[]): An
  * Its ratios step through whole and half steps only (E_RATIO_STEPS): no thirds or quarters,
  * so every stop on the way is harmonic or an octave down, never out of tune with a chord.
  */
-export const E_RATIO_STEPS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8];
+const E_RATIO_STEPS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8];
 
 export function snapHalves(r: number): number {
   let best = E_RATIO_STEPS[0];

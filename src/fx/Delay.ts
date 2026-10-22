@@ -9,7 +9,7 @@ export const DELAY_DIVISIONS = [
   { name: '3/4', sixteenths: 12 }, { name: '1 BAR', sixteenths: 16 },
 ] as const;
 
-export const DELAY_PARAMS: readonly ParamSpec[] = [
+const DELAY_PARAMS: readonly ParamSpec[] = [
   // Discrete, but a performance control (not coarse): dub players ride the time.
   { id: 'dly_time', name: 'DLY TIME', min: 0, max: DELAY_DIVISIONS.length - 1, defaultValue: 2, unit: '', curve: 'linear', options: DELAY_DIVISIONS.map((d) => d.name) },
   { id: 'dly_fdbk', name: 'FEEDBACK', min: 0, max: 1.1, defaultValue: 0.45, unit: '', curve: 'linear' },

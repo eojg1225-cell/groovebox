@@ -41,7 +41,7 @@ export interface Excite {
 /** How far INTENSITY 0 pulls the modulation towards its floor (the rest stays TIMBRE's). */
 export const CONVERGE = 0.98;
 
-export interface MacroDef {
+interface MacroDef {
   anchors: readonly Anchor[];
   excite: readonly Excite[];
 }
@@ -250,7 +250,7 @@ function between(a: number, b: number, f: number): number {
 export const PAD_ANCHORS_V31 = ['GLASS', 'TINE', 'WARM', 'STRINGS', 'ETHEREAL'];
 
 /** A TIMBRE position saved on an older order of a type's sounds (`old`), on today's list: the same sound. */
-export function remapTimbreOrder(kind: SoundKind, old: readonly string[], timbre: number): number {
+function remapTimbreOrder(kind: SoundKind, old: readonly string[], timbre: number): number {
   const anchors = MACROS[kind].anchors;
   const pos = (name: string) => anchors.findIndex((a) => a.name === name);
   const u = Math.min(1, Math.max(0, timbre)) * (old.length - 1);
@@ -300,7 +300,7 @@ const RATIO_LADDER: Partial<Record<SoundKind, readonly (readonly [number, number
 };
 
 /** The ladder's ratio pair at a TIMBRE position. */
-export function ladderAt(kind: SoundKind, timbre: number): readonly [number, number] | undefined {
+function ladderAt(kind: SoundKind, timbre: number): readonly [number, number] | undefined {
   const ladder = RATIO_LADDER[kind];
   if (!ladder) return undefined;
   return ladder[Math.min(ladder.length - 1, Math.floor(Math.min(1, Math.max(0, timbre)) * ladder.length))];

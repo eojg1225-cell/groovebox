@@ -17,7 +17,7 @@ import {
 import { DRIVE_RISE } from './driveComp';
 
 /** Knob slots per page: 2 rows of 8 modules. */
-export const PAGE_SLOTS = 16;
+const PAGE_SLOTS = 16;
 const ROW = PAGE_SLOTS / 2;
 
 /**
@@ -69,19 +69,11 @@ const PLUCK_PAGE = [
   'intensity', 'sustain', 'dfdbk', 'reso', 'fdecay', 'fm', 'crush', 'detune',
 ];
 
-/** A 2 x 6 layout on the 2 x 8 panel: modules 1-6, modules 7-8 empty. */
-export function widen<T>(six: readonly (T | null)[]): (T | null)[] {
-  if (six.length === PAGE_SLOTS) return [...six];
-  const out: (T | null)[] = new Array(PAGE_SLOTS).fill(null);
-  six.forEach((x, i) => { out[i < 6 ? i : i - 6 + ROW] = x; });
-  return out;
-}
-
 /**
  * The FUNC layer of a SOUND page (FUNC held): top row, then bottom row, 8 each; null = no
  * FUNC parameter on that knob (it does nothing while FUNC is held).
  */
-export function funcPage(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
+function funcPage(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
   return [...top, ...bottom];
 }
 const _ = null;
@@ -117,7 +109,7 @@ const HELD_ELEMENTS = ['attack', 'release', 'attack2', 'release2'];
  * PRESET (module 1 top), MID FREQ (4 bottom: the MID CUT's centre), LIVE 1 / 2 (5) and
  * LIVE 3 / 4 (6) - what the live knobs control.
  */
-export const TRACK_FUNC: Readonly<Record<number, string>> = {
+const TRACK_FUNC: Readonly<Record<number, string>> = {
   0: 'track:preset', [ROW + 3]: 'midfreq', 4: 'track:live1', [ROW + 4]: 'track:live2', 5: 'track:live3', [ROW + 5]: 'track:live4',
 };
 function trackFunc(func: readonly (string | null)[]): (string | null)[] {
@@ -130,12 +122,12 @@ function trackFunc(func: readonly (string | null)[]): (string | null)[] {
 }
 
 /** How far a relative live knob reaches at full turn: this share of each parameter's range. */
-export const LIVE_RANGE = 0.6;
+const LIVE_RANGE = 0.6;
 /**
  * The relative knobs' gentle log taper: halfway to either end gives 40 % of the push
  * (|x|^LIVE_TAPER, 0.5^LIVE_TAPER = 0.4), so the area around the centre is finer.
  */
-export const LIVE_TAPER = Math.log(0.4) / Math.log(0.5);
+const LIVE_TAPER = Math.log(0.4) / Math.log(0.5);
 
 /**
  * LIVE knobs (the top layer: live > SOUND page > TIMBRE / INTENSITY) only push SOUND page
@@ -144,7 +136,7 @@ export const LIVE_TAPER = Math.log(0.4) / Math.log(0.5);
  * parameter's own curve, with a gentle taper), clamped at its limits. A macro moves several at once.
  * CUTOFF and RESO (and the mixer, LFO) stay absolute.
  */
-export interface LiveTarget {
+interface LiveTarget {
   id: string;
   /** Share of the push (negative = moves the other way). */
   amount: number;
@@ -152,7 +144,7 @@ export interface LiveTarget {
   top?: boolean;
 }
 
-export interface LiveMacro {
+interface LiveMacro {
   /** "macro:<name>" */
   id: string;
   name: string;
@@ -244,7 +236,7 @@ export function liveContribution(t: LiveTarget, offset: number): number {
 /** CHORD / LEAD / PLUCK output trim before v20 (-14 dB; older saves' volumes are scaled by it). */
 export const SYNTH_TRIM = 0.2;
 
-export interface InstrumentEntry {
+interface InstrumentEntry {
   name: string;
   /** All of the type's parameters (stored, set by presets, lockable). */
   params: readonly ParamSpec[];
@@ -325,7 +317,7 @@ export function pageParams(kind: SoundKind): ReadonlySet<string> {
   return new Set([...e.layout, ...e.funcLayout].filter((id): id is string => !!id));
 }
 
-export function instrumentParams(kind: InstrumentKind): readonly ParamSpec[] {
+function instrumentParams(kind: InstrumentKind): readonly ParamSpec[] {
   return kind === 'none' ? [] : INSTRUMENTS[kind].params;
 }
 

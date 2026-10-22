@@ -58,7 +58,7 @@ import { applyPreset } from '../engine/defaultProject';
 import { bassFilterV38 } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, liveTargets, mirrorOsc2, pageParams, paramSpec, stepsOnStrip } from '../instruments/registry';
-import { saveSession } from '../storage/session';
+import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
 import { ROLL_DIVS } from '../instruments/Drum';
@@ -69,7 +69,7 @@ import { OCTAVE_SHIFT_V33 } from '../instruments/Synth';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, ProjectView, SongView } from './views';
 
-export type Mode = 'record' | 'play' | 'design' | 'song';
+type Mode = 'record' | 'play' | 'design' | 'song';
 
 
 /** SAVE / LOAD state. */
@@ -109,7 +109,7 @@ const OFFSET_SPEC: ParamSpec = { id: 'offset', name: 'OFFSET', min: -100, max: 1
 const FUNC_TAP_MS = 350;
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-export function noteName(n: number): string {
+function noteName(n: number): string {
   return `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
 }
 const isBlackKey = (n: number) => NOTE_NAMES[n % 12].length > 1;
@@ -712,8 +712,8 @@ export class App {
 
   /**
    * A bus's knobs (FX 1-3 in RECORD/PLAY). FX 1, the drum bus: two modules each for
-   * REVERSE, DISTORT and FILTER. FX 2 / 3: six modules = six effects, WET (return volume,
-   * labelled with the effect) on top, INTENSITY (how hard it works) below.
+   * REVERSE, DISTORT and FILTER. FX 2 / 3: one module per effect, WET (return volume,
+   * labelled with the effect) on top, DEPTH (how hard it works) below; then the bus compressor.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
     if (k === 3) return LFO_LAYOUT.map((id) => (id ? this.paramTarget(this.selected, `lfo:${id}`) : null));
@@ -1886,7 +1886,7 @@ export class App {
   }
 
   private save(): void {
-    saveSession(this.project);
+    mirrorToCloud(this.project);
     saveWorkSoon(this.project);
   }
 

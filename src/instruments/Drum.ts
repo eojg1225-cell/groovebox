@@ -42,7 +42,7 @@ export const ROLL_DIVS = [
   { name: '1:1', hits: 1 }, { name: '1:2', hits: 2 }, { name: '1:3', hits: 3 }, { name: '1:4', hits: 4 }, { name: '1:6', hits: 6 }, { name: '1:8', hits: 8 },
 ] as const;
 /** ROLL RATE 1:4: a plain ROLL sounds like a roll, not a double. */
-export const DEFAULT_ROLL_RATE = 3;
+const DEFAULT_ROLL_RATE = 3;
 
 /** Every drum parameter; each drum type exposes a subset with its own defaults. */
 const ALL: Record<string, ParamSpec> = Object.fromEntries(([
@@ -139,7 +139,7 @@ export const PERC_PARAMS = drumParams(
 export const PERC_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
 /** Per type voice settings: which layers BALANCE trades, the fixed ring extension, PERC tuning. */
-export interface DrumVoice {
+interface DrumVoice {
   /**
    * The layers on each side of BALANCE (left = side 1 only, right = side 2 only), e.g.
    * PERC's body against click + metal.

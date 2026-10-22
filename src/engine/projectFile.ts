@@ -36,7 +36,7 @@ import { DJ_DEAD } from './params';
 import { METERS, type InstrumentKind, type PatternSpeed } from './project';
 import { LFO_RATES, LFO_RATES_V17, LFO_RATES_V24, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
-export const FILE_FORMAT = 'groovebox-project';
+const FILE_FORMAT = 'groovebox-project';
 
 /** Track order change in v10: old track index -> new (PERC moved from 7 to 4). */
 const V9_TO_V10 = [0, 1, 2, 4, 5, 6, 3, 7];
@@ -45,7 +45,7 @@ const V9_TO_V10 = [0, 1, 2, 4, 5, 6, 3, 7];
  * One step with a note: index, note, velocity; gate/accent/ring/slide/roll/locks only when set.
  * A rest marker is stored as { i, x: 1 } (no note).
  */
-export interface StoredStep {
+interface StoredStep {
   i: number;
   n?: number;
   v?: number;
@@ -61,13 +61,13 @@ export interface StoredStep {
 }
 
 /** A patch: s = sound values, t = SOUND page trims, p = preset index. */
-export interface StoredPatch {
+interface StoredPatch {
   s: Record<string, number>;
   t: Record<string, number>;
   p?: number;
 }
 
-export interface StoredPattern {
+interface StoredPattern {
   len: number;
   /** v34: half / double time, v36 triplet (absent = normal). */
   sp?: StoredSpeed;
@@ -126,7 +126,7 @@ function storePattern(c: ChannelState, pat: Pattern, p: number): StoredPattern {
   return out;
 }
 
-export interface StoredChannel {
+interface StoredChannel {
   instrument: string;
   sounds: Record<string, Record<string, number>>;
   presets: Record<string, number>;
@@ -150,7 +150,7 @@ export interface StoredChannel {
   patterns: StoredPattern[];
 }
 
-export interface StoredProject {
+interface StoredProject {
   format: typeof FILE_FORMAT;
   version: number;
   bpm: number;
