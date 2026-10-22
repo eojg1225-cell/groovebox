@@ -171,8 +171,9 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   lead: {
     // DX7-style: one feedback modulator into three carriers at related ratios (carrier 1 :
     // carrier 2 : carrier 3, modulator). ODD (the most chilled) first. With INTENSITY down
-    // carrier 1 alone plays a simple wave - one clear note; carriers 2 / 3 and the
-    // modulation come in as it rises, the ratios biting in the top quarter.
+    // carrier 1 alone plays a simple wave - one clear note; carriers 2 / 3 come in as it
+    // rises, in full in the top quarter. INTENSITY leaves the modulation alone: FM LVL,
+    // FEEDBACK and the FM envelope set it (as on the BASS and PAD).
     anchors: [
       { name: 'ODD 2:3', values: { ogain: 1.136, shape: 0.7, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, drive: 1.2 } },
       // Organ: drawbar-style carriers 1 : 2 : 3 on soft waves, full sustain - a bass or a lead.
@@ -182,7 +183,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       { name: 'FIFTH 3:2', values: { ogain: 1.358, shape: 1.5, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, drive: 1.3 } },
     ],
     excite: [
-      { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'feedback', floor: 0, knee: 0.6, top: 1 }, { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
+      { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'cutoff', floor: 700, high: 1.4 }, { id: 'reso', floor: 0.05, high: 1.15 }, { id: 'drive', floor: 1, high: 1.5 },
       { id: 'fenv', floor: 0.05, high: 1.3 },
     ],

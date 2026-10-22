@@ -32,3 +32,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - PLUCK chords (2026-10-22): PLUCK works like PAD: chords of up to 6 notes per step, each note with its own length, entry / recording / strip the same (`registry.playsChords`).
 - PAD (2026-10-22): CARRIERS fixed at 0.85 (off FUNC, out of the TIMBRE sounds and INTENSITY), CRUSH removed; older saves' PAD CARRIERS / CRUSH are ignored; the five PAD sounds re-levelled (OUT GAIN).
 - PAD INT (2026-10-22): CARRIERS back under INTENSITY (0.85 at the middle on every sound, 0 at INT 0, 1 at the top; still no knob); INTENSITY no longer moves FM LVL / FEEDBACK (FM LVL alone sets the modulation).
+- PAD / LEAD FM (2026-10-22): FM ATK / FM DEC now shape the modulation like on the BASS (each note's FM envelope lifts it up to 4x FM LVL, settling to FM LVL; before it only swung 0.6 -> 1x); LEAD's INTENSITY sets CARRIERS only, no longer FM LVL / FEEDBACK.

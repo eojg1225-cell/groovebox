@@ -37,6 +37,15 @@ const OCTAVES = ['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4'] as const;
 /** Index of OCTAVE 0 (OCTAVE's value is the index into OCTAVES). */
 const OCTAVE_ZERO = 4;
 const MAX_VOICES = 6;
+
+/**
+ * PAD / LEAD (DX7-style algorithms): the modulation index against FM LVL's through the FM
+ * envelope. Settled (envelope 0) = FM LVL's own level; each note's FM envelope (FM ATK /
+ * FM DEC) lifts it up to 4x - a struck clang, or a slow bloom. (BASS / PLUCK: 0.5 -> 5x.)
+ */
+function fmEnvGain(env: number): number {
+  return 0.6 + 1.8 * env;
+}
 /** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
 /**
@@ -588,8 +597,7 @@ export class Synth implements Instrument {
           const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
           v.fb2 = v.fb1;
           v.fb1 = m;
-          // The modulation follows the FM envelope (a struck attack) but sustains.
-          const pm = (m * this.fmIndex * (0.6 + 0.4 * v.fmenv)) / (2 * Math.PI);
+          const pm = (m * this.fmIndex * fmEnvGain(v.fmenv)) / (2 * Math.PI);
           const d5 = dt1 * this.ratio2 * det;
           const d6 = dt1 * this.ratio3;
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
@@ -616,7 +624,7 @@ export class Synth implements Instrument {
           v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
           v.p6 += dt1 * this.ratio3; if (v.p6 >= 1) v.p6 -= 1;
           const m2 = Math.sin(2 * Math.PI * v.p6);
-          const idx = (this.fmIndex * (0.6 + 0.4 * v.fmenv)) / (2 * Math.PI);
+          const idx = (this.fmIndex * fmEnvGain(v.fmenv)) / (2 * Math.PI);
           const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
           const c1 = this.osc(wrap(v.p1 + m1 * idx + cfb), dt1);
           v.cf2 = v.cf1;

@@ -1713,9 +1713,9 @@ describe('master limiter', () => {
 });
 
 describe('LEAD: 3 carriers on a feedback modulator', () => {
-  const leadAt = (timbre: number, intensity: number) => {
+  const leadAt = (timbre: number, intensity: number, set: Record<string, number> = {}) => {
     const s = new Synth(SR, LEAD_PARAMS, LEAD_FIXED);
-    const sound = macroSound('lead', timbre, intensity, LEAD_PARAMS);
+    const sound = { ...macroSound('lead', timbre, intensity, LEAD_PARAMS), ...set };
     for (const id in sound) s.setParam(id, id === 'cutoff' ? 20000 : id === 'fenv' ? 0 : sound[id]);
     s.noteOn(45, 1, 45, false);
     const l = new Float32Array(SR / 4);
@@ -1736,17 +1736,20 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
     expect(dx7Index(1)).toBeCloseTo(13);
   });
 
-  it('INTENSITY: 75 % reaches level 60, the top quarter goes on to 99', () => {
-    const fm = (x: number) => macroSound('lead', 0, x, LEAD_PARAMS).fm;
-    expect(fm(0.75)).toBeCloseTo(0.6, 2);
-    expect(fm(1)).toBeCloseTo(1, 2);
-    expect(fm(0)).toBeLessThan(0.02);
+  it('INTENSITY leaves FM LVL and FEEDBACK as the sound sets them', () => {
+    for (const t of [0, 0.5, 1]) {
+      const mid = macroSound('lead', t, 0.5, LEAD_PARAMS);
+      for (const x of [0, 0.75, 1]) {
+        const s = macroSound('lead', t, x, LEAD_PARAMS);
+        expect([s.fm, s.feedback]).toEqual([mid.fm, mid.feedback]);
+      }
+    }
   });
 
-  it('every TIMBRE is a plain lead at INTENSITY 0 and bites at 100 %', () => {
+  it('every TIMBRE is a plain lead at FM LVL 0 and bites at FM LVL 100', () => {
     for (const t of [0, 1 / 3, 2 / 3, 1]) {
-      const plain = leadAt(t, 0);
-      const wild = leadAt(t, 1);
+      const plain = leadAt(t, 0.5, { fm: 0 });
+      const wild = leadAt(t, 0.5, { fm: 1 });
       expect(stats(wild).nan).toBe(false);
       expect(edge(wild), `t=${t}`).toBeGreaterThan(edge(plain) * 1.5);
     }
@@ -1765,8 +1768,24 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
       for (let i = SR / 10; i < l.length - k; i++) { num += l[i] * l[i + k]; den += l[i] * l[i]; }
       return num / den;
     };
-    expect(repeat(leadAt(0, 0))).toBeGreaterThan(0.95);
-    expect(repeat(leadAt(0, 1))).toBeLessThan(repeat(leadAt(0, 0)) - 0.2);
+    const clean = { fm: 0, feedback: 0 }; // no modulation: the carriers alone
+    expect(repeat(leadAt(0, 0, clean))).toBeGreaterThan(0.95);
+    expect(repeat(leadAt(0, 1, clean))).toBeLessThan(repeat(leadAt(0, 0, clean)) - 0.2);
+  });
+
+  it('PAD / LEAD: FM ATK / FM DEC shape the modulation (a struck burst settling to FM LVL)', () => {
+    for (const [kind, params, fixed] of [['lead', LEAD_PARAMS, LEAD_FIXED], ['pad', PAD_PARAMS, PAD_FIXED]] as const) {
+      const brightness = (fmdecay: number) => {
+        const s = new Synth(SR, params, fixed);
+        const sound: Record<string, number> = { ...macroSound(kind, 0.5, 0.5, params), fm: 0.7, fmattack: 0.0005, fmdecay, cutoff: 20000, fenv: 0, attack: 0.001, attack2: 0.001 };
+        for (const id in sound) s.setParam(id, sound[id]);
+        s.noteOn(57, 1, 57, false);
+        const l = new Float32Array(SR / 20); // the first 50 ms
+        s.render(l, new Float32Array(l.length), 0, l.length);
+        return edge(l.subarray(SR / 200));
+      };
+      expect(brightness(2), kind).toBeGreaterThan(brightness(0.002) * 3); // the old 0.6 -> 1x swing: under 2x
+    }
   });
 
   it('TIMBRE steps FM ratios through related ratios between sounds', () => {
