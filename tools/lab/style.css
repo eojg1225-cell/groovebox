@@ -99,3 +99,4 @@ td.knob-id { color: var(--muted); font-family: var(--body); text-align: left; }
 .err { color: var(--gold); margin: 0; }
 .err:empty { display: none; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.play.ring { min-width: 0; }

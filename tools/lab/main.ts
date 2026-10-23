@@ -22,6 +22,8 @@ const state = {
   kind: 'kick' as SoundKind,
   source: 'project' as Source,
   solo: false,
+  /** Every hit on the test track rings (drums: open; the RING step flag, as PLAY's RING). */
+  ring: false,
   cand: 0, // 0 = A
   timbre: 0.5,
   intensity: 0.5,
@@ -83,6 +85,7 @@ function load(): void {
   sent = {};
   volumeSent = -1;
   post({ type: 'loadProject', project: built.project });
+  post({ type: 'setForce', channel: built.ch, ring: state.ring, slide: false });
   applySound();
 }
 
@@ -333,6 +336,12 @@ document.querySelectorAll<HTMLInputElement>('input[name="src"]').forEach((r) => 
   state.source = r.value as Source;
   rebuild();
 }));
+$('ring').addEventListener('click', () => {
+  state.ring = !state.ring;
+  $('ring').classList.toggle('on', state.ring);
+  $('ring').setAttribute('aria-pressed', String(state.ring));
+  if (built) post({ type: 'setForce', channel: built.ch, ring: state.ring, slide: false });
+});
 $<HTMLInputElement>('solo').addEventListener('change', (e) => {
   state.solo = (e.target as HTMLInputElement).checked;
   rebuild();
@@ -356,11 +365,12 @@ $('play').addEventListener('click', () => {
 document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space') { e.preventDefault(); $('play').click(); return; }
+  if (e.key === 'r' || e.key === 'R') { $('ring').click(); return; }
   const i = LETTERS.indexOf(e.key.toUpperCase());
   if (i >= 0 && !e.metaKey && !e.ctrlKey && !e.altKey) setCandidate(i);
 });
 
 const savedAt = (stored as { savedAt?: number }).savedAt;
-$('foot').textContent = `Your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops.`;
+$('foot').textContent = `Your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit.`;
 // Open on the track type with candidates to try (KICK when there are none).
 setKind(SOUND_KINDS.find((k) => CANDIDATES[k]?.length) ?? 'kick');
