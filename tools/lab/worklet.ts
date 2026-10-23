@@ -1,10 +1,13 @@
 /// <reference path="../../src/worklet/worklet-globals.d.ts" />
-/** FM bass ratio test worklet: the real engine, one instance. */
+/**
+ * Sound lab worklet: the real engine. A non-finite block is muted and the engine starts
+ * afresh (main resends the project, as in the app).
+ */
 import { Engine } from '../../src/engine/Engine';
 import type { MainToWorklet } from '../../src/engine/protocol';
 
-class FmBassProcessor extends AudioWorkletProcessor {
-  private readonly engine = new Engine(sampleRate);
+class LabProcessor extends AudioWorkletProcessor {
+  private engine = new Engine(sampleRate);
 
   constructor() {
     super();
@@ -17,12 +20,15 @@ class FmBassProcessor extends AudioWorkletProcessor {
     const left = out[0];
     const right = out.length > 1 ? out[1] : out[0];
     this.engine.process(left, right, left.length);
-    for (let i = 0; i < left.length; i++) {
-      if (left[i] !== left[i]) left[i] = 0;
-      if (right[i] !== right[i]) right[i] = 0;
+    let sum = 0;
+    for (let i = 0; i < left.length; i++) sum += left[i] + right[i];
+    if (sum - sum !== 0) {
+      left.fill(0); right.fill(0);
+      this.engine = new Engine(sampleRate);
+      this.port.postMessage('reset');
     }
     return true;
   }
 }
 
-registerProcessor('fmbass-engine', FmBassProcessor);
+registerProcessor('lab-engine', LabProcessor);

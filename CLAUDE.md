@@ -112,13 +112,13 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 
 ### Tests and tools
 - `tests/engine.test.ts` (engine offline in Node), `tests/projects.test.ts` (slots, sync), `tests/app.test.ts` (the App driven by button events through a stand-in panel; `makeApp()`: add UI tests there).
-- `tools/soundtest`, `tools/fmbass`, `tools/basssweep`: standalone sound-comparison pages (each has a README); not part of the app.
-- **Next time the user asks for a sound test:** first propose replacing these one-off pages with one permanent sound lab (any track type, TIMBRE / INT knobs + auto-sweep, plays the project from `projects/current` or a built-in groove, A = the app now, B / C ... = candidates from one small file, one fixed Artifact URL), then delete the one-offs. The user asked to keep `tools/soundtest` as it is until then, and needs sound tests often.
+- **Sound lab** (`tools/lab`, Artifact https://claude.ai/artifact/Sqc91DULeGhJthmm8hqbR1; not part of the app): any track type on the real engine, TIMBRE / INT knobs + auto sweep, A = the app now against candidates B, C ... from `tools/lab/candidates.ts` (a candidate's TIMBRE sounds can carry their own INT 0 `soft` / INT 100 `hard` values, `tools/lab/sound.ts`), level-matched, with a table of what TIMBRE / INT set and where each knob is. Plays a copy of `projects/current` (`tools/lab/project.json`: refresh it from the app's db with ArtifactData before each lab build) or a built-in groove. Use it for every sound test: add candidates, `npm run lab:level` (prints the `ogain` values that level them), `npm run build:lab`, republish `dist-lab-artifact/lab.html` with `files: {"lab-worklet.js": "dist-lab-artifact/lab-worklet.js"}` to that URL. A winning candidate moves into `macros.ts` (and out of `candidates.ts`).
+- Under test in the lab: KICK B (soft / extreme per TIMBRE sound, INT moving SWEEP / SWP TIME too, so they can drop to FUNC); then the other drum tracks one by one.
 
 ## After every build
 Run `npm run build:artifact` and republish `dist-artifact/groovebox.html` (with `files: {"groovebox-worklet.js": "dist-artifact/groovebox-worklet.js"}`) to the user's Artifact https://claude.ai/artifact/1gX3NeJdaGnWsLa3szA6q1, then end the reply with a **▶ Launch** link to it.
 
 ## Build / deploy
-- `npm install` then `npm run dev` (dev server), `npm test` (Vitest, engine offline in Node), `npm run build` (typecheck incl. DOM-free engine check via `tsconfig.engine.json` and the tools/ sound tests, then static build to `dist/`), `npm run unused` (knip: no unused files / exports; keep it clean, export only what another file imports).
+- `npm install` then `npm run dev` (dev server), `npm test` (Vitest, engine offline in Node), `npm run build` (typecheck incl. DOM-free engine check via `tsconfig.engine.json` and the sound lab, then static build to `dist/`), `npm run unused` (knip: no unused files / exports; keep it clean, export only what another file imports).
 - The app is the claude.ai Artifact (above). CI: every push to `main` runs the workflow (tests, `npm run unused`, build) and publishes `dist/` to the `gh-pages` branch, but GitHub Pages is not switched on for the repo, so https://eojg1225-cell.github.io/groovebox/ is not live.
 - Architecture and message protocol: `ARCHITECTURE.md`.

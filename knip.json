@@ -1,6 +1,18 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["tools/*/vite.config.ts", "src/worklet/processor.ts", "tools/*/main.ts", "tools/*/worklet.ts"],
-  "project": ["src/**/*.ts", "tests/**/*.ts", "tools/**/*.ts"],
-  "rules": { "duplicates": "off" }
+  "entry": [
+    "tools/*/vite.config.ts",
+    "src/worklet/processor.ts",
+    "tools/*/main.ts",
+    "tools/*/worklet.ts",
+    "tools/lab/level.test.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "tools/**/*.ts"
+  ],
+  "rules": {
+    "duplicates": "off"
+  }
 }

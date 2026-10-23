@@ -3,9 +3,5 @@ dist
 *.log
 .DS_Store
 dist-artifact
-dist-soundtest
-dist-soundtest-artifact
-dist-fmbass
-dist-fmbass-artifact
-dist-basssweep
-dist-basssweep-artifact
+dist-lab
+dist-lab-artifact

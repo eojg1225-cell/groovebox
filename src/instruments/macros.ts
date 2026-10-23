@@ -39,7 +39,7 @@ export interface Excite {
 }
 
 /** How far INTENSITY 0 pulls the modulation towards its floor (the rest stays TIMBRE's). */
-export const CONVERGE = 0.98;
+const CONVERGE = 0.98;
 
 interface MacroDef {
   anchors: readonly Anchor[];
@@ -268,11 +268,6 @@ function nearest(steps: readonly number[], r: number): number {
   return best;
 }
 
-/** The nearest related ratio (on a log scale). */
-export function snapRatio(r: number): number {
-  return nearest(RATIO_STEPS, r);
-}
-
 /**
  * Per type, the steps a ratio moves through (default RATIO_STEPS). PAD: its modulators (FM
  * RATIO, RATIO 3) in whole and half steps; stack 2's carrier (RATIO 2) is a note heard, so it
@@ -291,6 +286,23 @@ export function macroIds(kind: SoundKind, specs: readonly ParamSpec[]): Set<stri
   for (const a of MACROS[kind].anchors) for (const id in a.values) if (specs.some((p) => p.id === id)) ids.add(id);
   for (const [id, from] of MIRRORED) if (ids.has(from) && specs.some((p) => p.id === id)) ids.add(id);
   return ids;
+}
+
+/** A parameter's value after INTENSITY x (0..1) by its Excite rule. */
+export function excited(e: Excite, spec: ParamSpec, value: number, x: number): number {
+  if (x < 0.5) {
+    if (e.floor === undefined) return value;
+    const n = toNorm(spec, value);
+    return toValue(spec, n + (toNorm(spec, e.floor) - n) * CONVERGE * (1 - 2 * x));
+  }
+  if (e.knee !== undefined && e.top !== undefined) {
+    const t = 2 * x - 1;
+    const a = toNorm(spec, value);
+    const k = Math.max(a, toNorm(spec, e.knee));
+    return toValue(spec, t <= 0.5 ? a + (k - a) * t * 2 : k + (Math.max(k, toNorm(spec, e.top)) - k) * (t - 0.5) * 2);
+  }
+  if (e.high !== undefined) return Math.min(spec.max, Math.max(spec.min, value * Math.pow(e.high, 2 * x - 1)));
+  return value;
 }
 
 export function macroSound(kind: SoundKind, timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
@@ -320,20 +332,7 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
   const x = Math.min(1, Math.max(0, intensity));
   for (const e of excite) {
     const spec = specs.find((p) => p.id === e.id);
-    if (!spec || out[e.id] === undefined) continue;
-    if (x < 0.5) {
-      if (e.floor === undefined) continue;
-      const n = toNorm(spec, out[e.id]);
-      out[e.id] = toValue(spec, n + (toNorm(spec, e.floor) - n) * CONVERGE * (1 - 2 * x));
-    } else if (e.knee !== undefined && e.top !== undefined) {
-      const t = 2 * x - 1;
-      const a = toNorm(spec, out[e.id]);
-      const k = Math.max(a, toNorm(spec, e.knee));
-      const n = t <= 0.5 ? a + (k - a) * t * 2 : k + (Math.max(k, toNorm(spec, e.top)) - k) * (t - 0.5) * 2;
-      out[e.id] = toValue(spec, n);
-    } else if (e.high !== undefined) {
-      out[e.id] = Math.min(spec.max, Math.max(spec.min, out[e.id] * Math.pow(e.high, 2 * x - 1)));
-    }
+    if (spec && out[e.id] !== undefined) out[e.id] = excited(e, spec, out[e.id], x);
   }
   // OSC 2's SUSTAIN / RELEASE and FM LVL2 follow OSC 1's / FM LVL unless the sounds set their own.
   for (const [id, from] of MIRRORED) {

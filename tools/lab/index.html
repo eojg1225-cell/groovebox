@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GrooveAccess Sound Lab</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <h1>GrooveAccess Sound Lab</h1>
+    <p>One track's sound driven only by TIMBRE and INT, on the real engine. <b>A</b> is the app as it is; <b>B</b>, <b>C</b> … are candidates. Switch between them at the same knob positions (keys A–E), or let a knob sweep on its own.</p>
+  </header>
+
+  <section class="deck" aria-label="Lab">
+    <div class="transport">
+      <button id="play" type="button" class="play">Play</button>
+      <div class="seg" role="radiogroup" aria-label="What plays">
+        <label for="src-project"><input type="radio" name="src" id="src-project" value="project" checked> Your project</label>
+        <label for="src-groove"><input type="radio" name="src" id="src-groove" value="groove"> Built-in groove</label>
+      </div>
+      <label class="check" for="solo"><input type="checkbox" id="solo"> Solo</label>
+      <span class="meta" id="meta"></span>
+    </div>
+
+    <div class="kinds" id="kinds" role="radiogroup" aria-label="Track type"></div>
+
+    <div class="cands" id="cands" aria-label="Candidates"></div>
+    <div class="levelrow">
+      <label class="check" for="match"><input type="checkbox" id="match" checked> Match levels</label>
+      <span class="meta" id="level"></span>
+    </div>
+
+    <div class="knobs">
+      <div class="knob-wrap">
+        <div class="knob" id="timbre" tabindex="0" role="slider" aria-label="TIMBRE" aria-valuemin="0" aria-valuemax="100">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <path class="track" d="M 21.7 78.3 A 40 40 0 1 1 78.3 78.3"></path>
+            <path class="arc"></path>
+            <circle class="cap" cx="50" cy="50" r="27"></circle>
+            <line class="ptr" x1="50" y1="50" x2="50" y2="20"></line>
+          </svg>
+        </div>
+        <div class="klabel">TIMBRE</div>
+        <div class="kval" id="timbre-val"></div>
+        <div class="names" id="names"></div>
+      </div>
+      <div class="knob-wrap">
+        <div class="knob" id="int" tabindex="0" role="slider" aria-label="INT" aria-valuemin="0" aria-valuemax="100">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <path class="track" d="M 21.7 78.3 A 40 40 0 1 1 78.3 78.3"></path>
+            <path class="arc"></path>
+            <circle class="cap" cx="50" cy="50" r="27"></circle>
+            <line class="ptr" x1="50" y1="50" x2="50" y2="20"></line>
+          </svg>
+        </div>
+        <div class="klabel">INT</div>
+        <div class="kval" id="int-val"></div>
+        <div class="names" id="int-marks">
+          <button type="button" data-v="0">0</button><button type="button" data-v="0.25">25</button><button type="button" data-v="0.5">50</button><button type="button" data-v="0.75">75</button><button type="button" data-v="1">100</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sweep">
+      <span class="slabel">Auto sweep</span>
+      <div class="seg" role="radiogroup" aria-label="Sweep">
+        <label for="sw-off"><input type="radio" name="sweep" id="sw-off" value="off" checked> Off</label>
+        <label for="sw-timbre"><input type="radio" name="sweep" id="sw-timbre" value="timbre"> TIMBRE</label>
+        <label for="sw-int"><input type="radio" name="sweep" id="sw-int" value="int"> INT</label>
+      </div>
+      <label class="check" for="bars">over
+        <select id="bars">
+          <option value="2">2 bars</option><option value="4">4 bars</option><option value="8" selected>8 bars</option><option value="16">16 bars</option>
+        </select>
+        each way</label>
+      <span class="meta" id="sweep-pos"></span>
+    </div>
+    <p class="err" id="err"></p>
+  </section>
+
+  <section class="params">
+    <h2>What TIMBRE and INT set here</h2>
+    <div class="table-wrap"><table id="table"></table></div>
+  </section>
+
+  <p class="foot" id="foot"></p>
+</main>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>

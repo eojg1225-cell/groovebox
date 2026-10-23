@@ -19,7 +19,7 @@ src/ui           App (controller), Panel (on-screen ControlSurface), Knob, Pixel
 src/storage      projects.ts (64 slots, ProjectStore), slotSync.ts (slots <-> claude.ai artifact db),
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
 tests            Vitest: the engine offline in Node, project storage / sync, the App via button events
-tools            Standalone sound-test pages (not part of the app)
+tools/lab        The sound lab: A/B page for TIMBRE / INT candidates (not part of the app)
 ```
 
 The "no DOM / no Web Audio" rule for engine, instruments and fx is enforced: `tsconfig.engine.json`
