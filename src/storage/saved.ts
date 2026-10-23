@@ -5,7 +5,7 @@
 import type { SoundKind } from '../engine/project';
 import { INSTRUMENTS, pageParams } from '../instruments/registry';
 import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
-import { drumsV43, hatV44 } from '../engine/projectFile';
+import { drumsV43, hatV44, percV45 } from '../engine/projectFile';
 
 const PATCHES_KEY = 'groovebox.patches';
 
@@ -57,10 +57,12 @@ export function readUserPatch(kind: SoundKind, patch: UserPatch): LoadedPatch {
   const sound: Record<string, number> = {};
   for (const p of params) sound[p.id] = p.defaultValue;
   for (const p of params) if (typeof patch.values[p.id] === 'number') sound[p.id] = patch.values[p.id];
-  // USER patches all predate v43 (and the v44 RIDE: a HAT is rebuilt from the new sounds).
-  const trims = patch.trims ? { ...patch.trims } : kind === 'hat' ? {} : deriveTrims(kind, sound, params);
+  // USER patches all predate v43 (and the v44 RIDE, the v45 TIMBALE: a HAT / PERC is rebuilt
+  // from the new sounds).
+  const trims = patch.trims ? { ...patch.trims } : kind === 'hat' || kind === 'perc' ? {} : deriveTrims(kind, sound, params);
   if (patch.trims) drumsV43(kind, sound, trims);
   hatV44(kind, sound, trims);
+  percV45(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, params), pageParams(kind));
   const out: LoadedPatch = { sound, trims, live: [...patch.live] };
   if (patch.liveFunc) out.liveFunc = [...patch.liveFunc];

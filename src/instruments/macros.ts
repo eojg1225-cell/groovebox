@@ -148,8 +148,9 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // on the SOUND page), so switching TIMBRE never moves a line up or down.
     anchors: [
       { name: 'LOW TOM', values: { ogain: 0.747, t_level: 0.95, t_pitch: 130.81, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
-      // Syn drum: the Simmons 'pew' - a deep pitch sweep.
-      { name: 'SYN DRUM', values: { ogain: 0.724, t_level: 0.95, t_pitch: 130.81, t_sweep: 24, t_stime: 0.12, c_level: 0.1, c_tone: 2500, c_reso: 0.2, c_len: 0.003, c_noise: 0.3, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
+      // Timbale: a shallow metal shell - a hard, bright stick, a short drop and the shell's
+      // ring-mod clang an octave up (INTVL).
+      { name: 'TIMBALE', values: { ogain: 0.821, t_level: 0.85, t_pitch: 130.81, t_sweep: 3, t_stime: 0.03, c_level: 0.6, c_tone: 4200, c_reso: 0.45, c_len: 0.003, c_noise: 0.35, m_level: 0.35, m_spread: 0.35, m_noise: 0.15, m_tone: 1200, m_mode: 0.8, m_fm: 0.3, drive: 1.4 } },
       { name: 'CONGA', values: { ogain: 0.797, t_level: 0.9, t_pitch: 130.81, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.2 } },
       { name: 'COWBELL', values: { ogain: 2.824, t_level: 0, t_pitch: 130.81, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.5 } },
       { name: 'CLAVE', values: { ogain: 0.822, t_level: 0.85, t_pitch: 130.81, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.1 } },

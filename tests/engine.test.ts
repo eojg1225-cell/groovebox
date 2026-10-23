@@ -1411,7 +1411,7 @@ describe('PERC track', () => {
   it('is pitched from the sequencer (keyboard step entry) and has its five sounds', () => {
     expect(stepsOnStrip('perc')).toBe(false);
     expect(stepsOnStrip('snare')).toBe(true);
-    expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'SYN DRUM', 'CONGA', 'COWBELL', 'CLAVE']);
+    expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'TIMBALE', 'CONGA', 'COWBELL', 'CLAVE']);
     const crossings = (note: number) => {
       const d = new Drum(SR, PERC_PARAMS, PERC_VOICE);
       const sound = presetSound('perc', 0);
@@ -3429,5 +3429,23 @@ describe('whole-number tempo', () => {
     const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
     stored.bpm = 132.5;
     expect(fromStored(stored)!.bpm).toBe(133);
+  });
+});
+
+describe('v45: PERC TIMBALE', () => {
+  it('TIMBALE replaces SYN DRUM; v44 saves: a PERC is rebuilt from the new sounds under its stored trims', () => {
+    const specs = INSTRUMENTS.perc.params;
+    const t = anchorPosition('perc', 1);
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 44;
+    const perc = stored.channels[3];
+    Object.assign(perc.sounds.perc, { timbre: t, intensity: 0.5, t_sweep: 24, t_stime: 0.12, m_level: 0 }); // the old SYN DRUM
+    perc.trims = { perc: { c_tone: 0.05 } };
+    const back = fromStored(stored)!.channels[3];
+    const hidden = macroSound('perc', t, 0.5, specs);
+    expect(back.sounds.perc!.t_sweep).toBeCloseTo(hidden.t_sweep, 9);
+    expect(back.sounds.perc!.m_level).toBeCloseTo(hidden.m_level, 9);
+    expect(back.sounds.perc!.c_tone).toBeCloseTo(applyTrim(paramSpec('perc', 'c_tone')!, hidden.c_tone, 0.05), 9);
   });
 });
