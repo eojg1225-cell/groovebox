@@ -235,6 +235,18 @@ export function drumsV43(kind: SoundKind, sound: Record<string, number>, trims: 
   for (const spec of specs) if (hidden[spec.id] !== undefined) sound[spec.id] = applyTrim(spec, hidden[spec.id], trims[spec.id]);
 }
 
+/**
+ * v44: the HAT's RIDE was redone (BELL, RATTLE), so a saved HAT's TIMBRE / INT values are
+ * rebuilt from the new sounds under its stored trims (none stored: none kept, so the old
+ * ride's values don't come back as trims). On a sound and its trims, in place.
+ */
+export function hatV44(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (kind !== 'hat') return;
+  const specs = INSTRUMENTS.hat.params;
+  const hidden = hiddenSound(kind, sound, specs);
+  for (const spec of specs) if (hidden[spec.id] !== undefined) sound[spec.id] = applyTrim(spec, hidden[spec.id], trims[spec.id]);
+}
+
 /** Stored data in a format older than the reader reads exactly: its sounds may differ. */
 export function isOldFormat(data: unknown): boolean {
   return isObj(data) && num(data.version, 0) < OLDEST_EXACT;
@@ -312,11 +324,12 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
 /** SOUND page trims as stored (derived from the values when absent), pruned to the page. */
 function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, version: number): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
-  const trims = isObj(x) ? numbers(x) : deriveTrims(kind, sound, specs);
+  const trims = isObj(x) ? numbers(x) : version < 44 && kind === 'hat' ? {} : deriveTrims(kind, sound, specs);
   if (version < 41 && isObj(x)) fmEnvV41(trims);
   // Trims stored without a linked parameter's (FM LVL2, added later): the knob's own.
   for (const id of Object.keys(trims)) for (const t of linkedParams(kind, id)) if (isObj(x) && typeof x[t] !== 'number') trims[t] = trims[id];
   if (version < 43 && isObj(x)) drumsV43(kind, sound, trims);
+  if (version < 44) hatV44(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }

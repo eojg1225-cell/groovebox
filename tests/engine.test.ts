@@ -3386,3 +3386,38 @@ describe('HAT BELL and RATTLE', () => {
     expect(peaks(hit({ h_rattle: 1, m_noise: 1 }))).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('v44: the HAT RIDE (BELL, RATTLE)', () => {
+  const specs = INSTRUMENTS.hat.params;
+
+  it('RIDE plays BELL and RATTLE; INT leaves its pitch; the other sounds have neither', () => {
+    for (const x of [0, 0.5, 1]) {
+      const ride = macroSound('hat', 0, x, specs);
+      expect(ride.m_bell).toBeGreaterThan(0.2);
+      expect(ride.h_rattle).toBeGreaterThan(0.2);
+      expect(ride.m_pitch).toBeCloseTo(1470, 6);
+    }
+    for (let i = 1; i < 5; i++) {
+      const s = macroSound('hat', anchorPosition('hat', i), 0.5, specs);
+      expect([s.m_bell, s.h_rattle]).toEqual([0, 0]);
+    }
+  });
+
+  it('v43 saves: a HAT is rebuilt from the new sounds under its stored trims', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 43;
+    const hat = stored.channels[2];
+    Object.assign(hat.sounds.hat, { timbre: 0, intensity: 0.5, m_pitch: 640, m_tone: 9000 });
+    delete hat.sounds.hat.m_bell;
+    delete hat.sounds.hat.h_rattle;
+    hat.trims = { hat: { m_tone: 0.05 } };
+    const back = fromStored(stored)!.channels[2];
+    const sound = back.sounds.hat!;
+    const hidden = macroSound('hat', 0, 0.5, specs);
+    expect(sound.m_pitch).toBeCloseTo(1470, 6); // the new ride
+    expect([sound.m_bell, sound.h_rattle]).toEqual([hidden.m_bell, hidden.h_rattle]);
+    expect(back.trims.hat!.m_tone).toBe(0.05);
+    expect(sound.m_tone).toBeCloseTo(applyTrim(paramSpec('hat', 'm_tone')!, hidden.m_tone, 0.05), 9);
+  });
+});
