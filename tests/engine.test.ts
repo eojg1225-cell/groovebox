@@ -1411,7 +1411,7 @@ describe('PERC track', () => {
   it('is pitched from the sequencer (keyboard step entry) and has its five sounds', () => {
     expect(stepsOnStrip('perc')).toBe(false);
     expect(stepsOnStrip('snare')).toBe(true);
-    expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'TIMBALE', 'CONGA', 'COWBELL', 'CLAVE']);
+    expect(INSTRUMENTS.perc.presets.map((p) => p.name)).toEqual(['LOW TOM', 'CONGA', 'COWBELL', 'TIMBALE', 'CLAVE']);
     const crossings = (note: number) => {
       const d = new Drum(SR, PERC_PARAMS, PERC_VOICE);
       const sound = presetSound('perc', 0);
@@ -3432,20 +3432,35 @@ describe('whole-number tempo', () => {
   });
 });
 
-describe('v45: PERC TIMBALE', () => {
-  it('TIMBALE replaces SYN DRUM; v44 saves: a PERC is rebuilt from the new sounds under its stored trims', () => {
-    const specs = INSTRUMENTS.perc.params;
-    const t = anchorPosition('perc', 1);
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 44;
+describe('v46: PERC TIMBALE and its order', () => {
+  const specs = INSTRUMENTS.perc.params;
+  const v45 = (sound: Record<string, number>, trims: Record<string, number>, extra: (c: Record<string, unknown>) => void = () => {}) => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 45;
     const perc = stored.channels[3];
-    Object.assign(perc.sounds.perc, { timbre: t, intensity: 0.5, t_sweep: 24, t_stime: 0.12, m_level: 0 }); // the old SYN DRUM
-    perc.trims = { perc: { c_tone: 0.05 } };
-    const back = fromStored(stored)!.channels[3];
-    const hidden = macroSound('perc', t, 0.5, specs);
+    Object.assign(perc.sounds.perc, sound);
+    perc.trims = { perc: trims };
+    extra(perc);
+    return fromStored(stored)!.channels[3];
+  };
+
+  it('LOW TOM, CONGA, COWBELL, TIMBALE, CLAVE: skins, metal, wood', () => {
+    expect(MACROS.perc.anchors.map((a) => a.name)).toEqual(['LOW TOM', 'CONGA', 'COWBELL', 'TIMBALE', 'CLAVE']);
+  });
+
+  it('older saves keep their sound by name (TIMBRE, preset, locks) and are rebuilt under their stored trims', () => {
+    // Before: TIMBALE (and SYN DRUM before v45) at 0.25, CONGA 0.5, COWBELL 0.75.
+    const back = v45({ timbre: 0.25, intensity: 0.5, t_sweep: 24 }, { c_tone: 0.05 }, (c) => {
+      c.presets = { perc: 1 };
+      (c.patterns as { steps: unknown[] }[])[0].steps = [{ i: 0, n: 36, v: 0.8, l: { timbre: 0.5 } }];
+    });
+    expect(back.sounds.perc!.timbre).toBe(0.75); // TIMBALE's new place
+    expect(back.presets.perc).toBe(3);
+    expect(back.patterns[0].steps[0].locks).toEqual({ timbre: 0.25 }); // CONGA
+    const hidden = macroSound('perc', 0.75, 0.5, specs);
     expect(back.sounds.perc!.t_sweep).toBeCloseTo(hidden.t_sweep, 9);
-    expect(back.sounds.perc!.m_level).toBeCloseTo(hidden.m_level, 9);
     expect(back.sounds.perc!.c_tone).toBeCloseTo(applyTrim(paramSpec('perc', 'c_tone')!, hidden.c_tone, 0.05), 9);
+    // Between two sounds still neighbours (CONGA -> COWBELL) the position moves with them.
+    expect(v45({ timbre: 0.625 }, {}).sounds.perc!.timbre).toBeCloseTo(0.375, 9);
   });
 });

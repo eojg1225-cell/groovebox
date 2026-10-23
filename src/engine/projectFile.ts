@@ -251,9 +251,38 @@ export function hatV44(kind: SoundKind, sound: Record<string, number>, trims: Re
   if (kind === 'hat') rebuildMacros(kind, sound, trims);
 }
 
-/** v45: PERC's SYN DRUM became TIMBALE: a saved PERC is rebuilt likewise (as hatV44). */
-export function percV45(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
-  if (kind === 'perc') rebuildMacros(kind, sound, trims);
+/**
+ * v46: PERC's order before v46 (v45: SYN DRUM became TIMBALE in place) -> now, by sound:
+ * LOW TOM, TIMBALE, CONGA, COWBELL, CLAVE -> LOW TOM, CONGA, COWBELL, TIMBALE, CLAVE.
+ */
+const PERC_ORDER_V46 = [0, 3, 1, 2, 4];
+
+/**
+ * A PERC TIMBRE position from before v46, by sound: on (or between two sounds still next to
+ * each other) it moves with them; between sounds now apart it takes the nearer one's place.
+ */
+function percTimbreV46(t: number): number {
+  const n = PERC_ORDER_V46.length - 1;
+  const u = Math.min(1, Math.max(0, t)) * n;
+  const i = Math.min(n - 1, Math.floor(u));
+  const f = u - i;
+  const a = PERC_ORDER_V46[i], b = PERC_ORDER_V46[i + 1];
+  return (Math.abs(a - b) === 1 ? a + (b - a) * f : f < 0.5 ? a : b) / n;
+}
+
+/** A PERC preset number (= its TIMBRE sound) from before v46. */
+function percPresetV46(p: number): number {
+  return PERC_ORDER_V46[p] ?? p;
+}
+
+/**
+ * v46 (and v45: SYN DRUM became TIMBALE): a saved PERC's TIMBRE moves to its sound's new place
+ * and its TIMBRE / INT values are rebuilt under its stored trims (as hatV44). In place.
+ */
+export function percV46(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (kind !== 'perc') return;
+  if (sound.timbre !== undefined) sound.timbre = percTimbreV46(sound.timbre);
+  rebuildMacros(kind, sound, trims);
 }
 
 /** Stored data in a format older than the reader reads exactly: its sounds may differ. */
@@ -277,7 +306,7 @@ function liveIdValid(kind: InstrumentKind, id: string): boolean {
 }
 
 /** A stored pattern's length, speed, flips and notes into `pat` (its steps start empty). */
-function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, version: number): void {
+function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, version: number, kind: InstrumentKind): void {
   pat.length = Math.round(num(sp.len, pat.length, 1, MAX_STEPS));
   if (STORED_SPEEDS.includes(sp.sp)) pat.speed = sp.sp as StoredSpeed;
   if (Array.isArray(sp.f)) {
@@ -300,6 +329,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     if (s.r === 1) step.ring = true;
     const locks = numbers(s.l);
     if (version < 41) fmEnvV41(locks);
+    if (version < 46 && kind === 'perc' && locks.timbre !== undefined) locks.timbre = percTimbreV46(locks.timbre);
     if (Object.keys(locks).length) step.locks = locks;
     const extra = readExtra(s.c);
     if (extra) {
@@ -334,14 +364,14 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
 function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, version: number): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
   // A rebuilt type (v44 HAT, v45 PERC) without stored trims keeps none.
-  const rebuilt = (version < 44 && kind === 'hat') || (version < 45 && kind === 'perc');
+  const rebuilt = (version < 44 && kind === 'hat') || (version < 46 && kind === 'perc');
   const trims = isObj(x) ? numbers(x) : rebuilt ? {} : deriveTrims(kind, sound, specs);
   if (version < 41 && isObj(x)) fmEnvV41(trims);
   // Trims stored without a linked parameter's (FM LVL2, added later): the knob's own.
   for (const id of Object.keys(trims)) for (const t of linkedParams(kind, id)) if (isObj(x) && typeof x[t] !== 'number') trims[t] = trims[id];
   if (version < 43 && isObj(x)) drumsV43(kind, sound, trims);
   if (version < 44) hatV44(kind, sound, trims);
-  if (version < 45) percV45(kind, sound, trims);
+  if (version < 46) percV46(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
@@ -352,6 +382,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   const sound = readSound(kind, x.s, version);
   const patch: Patch = { sound, trims: readTrims(kind, sound, x.t, version) };
   if (typeof x.p === 'number') patch.preset = Math.max(0, Math.round(x.p));
+  if (version < 46 && kind === 'perc' && patch.preset !== undefined) patch.preset = percPresetV46(patch.preset);
   return patch;
 }
 
@@ -369,6 +400,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   }
   if (isObj(src.presets)) {
     for (const k of SOUND_KINDS) if (typeof src.presets[k] === 'number') ch.presets[k] = Math.max(0, Math.round(src.presets[k] as number));
+    if (version < 46 && ch.presets.perc !== undefined) ch.presets.perc = percPresetV46(ch.presets.perc);
   }
   const pair = (x: unknown): [string, string] | null =>
     Array.isArray(x) && x.length === 2 && x.every((y) => typeof y === 'string') ? [x[0] as string, x[1] as string] : null;
@@ -403,7 +435,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     const sp = src.patterns[p];
     if (!isObj(sp)) continue;
     const pat = ch.patterns[p];
-    readNotes(sp, pat, version);
+    readNotes(sp, pat, version, ch.instrument);
     if (ch.instrument === 'none') continue;
     // Each pattern's own patch (the active one's is the channel's sounds), and what was last
     // SAVEd while it differs.
@@ -412,7 +444,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       // Empty steps on the note a fresh pattern of this type has (as the working ones).
       const kind = INSTRUMENTS[ch.instrument];
       const saved = emptyPattern(kind.drum ? 36 : kind.baseNote);
-      readNotes(sp.saved, saved, version);
+      readNotes(sp.saved, saved, version, ch.instrument);
       pat.savedNotes = { length: saved.length, steps: saved.steps };
       if (saved.speed) pat.savedNotes.speed = saved.speed;
       pat.notesDirty = true;

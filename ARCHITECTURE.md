@@ -95,7 +95,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 The types in `src/engine/project.ts` (`Project`, `ChannelState`, `Pattern`, `Step`, `Patch`, `Song`)
 are the reference, with a doc comment on every field; they are not repeated here. Key points:
-- `PROJECT_VERSION` is the stored format's version (45 now).
+- `PROJECT_VERSION` is the stored format's version (46 now).
 - A pattern being edited keeps its patch in the channel's `sounds` / `trims` / `presets`; the other
   patterns keep theirs in `Pattern.patch`. Read and write through `patchOf` / `setPatchOf` / `editPattern`.
 - `sounds` hold resulting values; `trims` hold the SOUND page offsets on top of TIMBRE / INTENSITY
