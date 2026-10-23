@@ -51,7 +51,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 ### Panel
 - Top: modes RECORD / PLAY / DESIGN / SONG; channels 1-8 (select on release) with M (mute) / S (solo, not saved; Alt+1-8) under each; page buttons (3); FX 1 / 2 / 3 / LFO; SAVE (pattern), SAVE/LOAD PROJECT, RESET; PAT A-D.
 - 16 knobs in 8 track modules (k1-k8 top row, k9-k16 bottom; module n = k(n) over k(n+8)). Absolute 0-127 over 270°; `encoder` events (mouse wheel, hardware) are relative.
-- Function row: RING, SLIDE, ACCENT, GHOST | STEPS, BAR, CLEAR (hold), COPY (hold) | OCT -, OCT + | ◀, ▶, REST. Then the 16-step strip with LEDs; FUNC (Z; hold = second knob layer, tap = latch) and PLAY (Space); master knobs TEMPO and MASTER.
+- Function row: RING, SLIDE, ACCENT, GHOST | STEPS, BAR, CLEAR (hold), COPY (hold) | OCT -, OCT + | ◀, ▶, REST. Then the 16-step strip with LEDs; FUNC (Z; hold = second knob layer, tap = latch) and PLAY (Space); master knobs TEMPO (whole BPM only: knob and encoder steps of 1, saves load rounded, so a DAW gets the same tempo) and MASTER.
 - Keyboard: 1-8 channels (Shift = mute, Alt = solo), QWERTYUI / ASDFGHJK = strip.
 - Touch: `main.ts` cancels touch defaults; the panel runs on pointer events; everything lets go on `lostpointercapture`, blur and hidden (`Panel.releaseAll`). Portrait screens rotate the panel (`orientation.ts`).
 

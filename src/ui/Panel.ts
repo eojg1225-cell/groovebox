@@ -165,8 +165,8 @@ export class Panel implements ControlSurface {
     playRow.append(this.makeButton('func', 'FUNC', 'btn func'), this.makeButton('play', 'PLAY', 'btn play'));
     q('.play-area').prepend(playRow);
     for (const m of MASTER_KNOBS) {
-      // TEMPO moves in 0.1 BPM steps; everything else is 0-127.
-      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, m.id === 'mtempo' ? (BPM_MAX - BPM_MIN) * 10 : 127);
+      // TEMPO moves in whole BPM steps; everything else is 0-127.
+      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, m.id === 'mtempo' ? BPM_MAX - BPM_MIN : 127);
       knob.el.classList.add('master');
       this.masterKnobs.set(m.id, knob);
       q('.master-knobs').appendChild(knob.el);

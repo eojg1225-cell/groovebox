@@ -435,7 +435,7 @@ function readLfo(src: unknown, lfo: LfoState): void {
 export function fromStored(data: unknown): Project | null {
   if (!isObj(data) || !Array.isArray(data.channels) || data.channels.length === 0) return null;
   const p = createDefaultProject();
-  p.bpm = num(data.bpm, p.bpm, BPM_MIN, BPM_MAX);
+  p.bpm = Math.round(num(data.bpm, p.bpm, BPM_MIN, BPM_MAX)); // whole BPM only
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
   p.meter = Math.round(num(data.meter, 0, 0, METERS.length - 1));

@@ -31,7 +31,8 @@ function makeApp() {
   const press = (id: string) => handler({ type: 'button', id, pressed: true });
   const release = (id: string) => handler({ type: 'button', id, pressed: false });
   const tap = (id: string) => { press(id); release(id); };
-  return { app, sent, press, release, tap, flags, leds };
+  const emit = (e: ControlEvent) => handler(e);
+  return { app, sent, press, release, tap, flags, leds, emit };
 }
 
 beforeEach(() => {
@@ -235,5 +236,19 @@ describe('PAD / PLUCK with a CHORD: one root at a time, legato slides', () => {
     press('step5');
     const steps = app.project.channels[5].patterns[app.project.channels[5].activePattern].steps;
     expect([steps[0].note, steps[0].extra, steps[1].note]).toEqual([45, undefined, 49]);
+  });
+});
+
+describe('TEMPO', () => {
+  it('stays in whole BPM: the knob lands on whole numbers, an encoder detent moves 1 BPM', () => {
+    const { app, emit, sent } = makeApp();
+    emit({ type: 'knob', id: 'mtempo', value: 0.3337 });
+    expect(Number.isInteger(app.project.bpm)).toBe(true);
+    const before = app.project.bpm;
+    emit({ type: 'encoder', id: 'mtempo', delta: 1 });
+    expect(app.project.bpm).toBe(before + 1);
+    const tempos = sent.filter((m) => m.type === 'setGlobal' && m.id === 'bpm').map((m) => (m as { value: number }).value);
+    expect(tempos.length).toBeGreaterThan(1);
+    expect(tempos.every(Number.isInteger)).toBe(true);
   });
 });

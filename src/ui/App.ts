@@ -737,6 +737,7 @@ export class App {
   }
 
   private setGlobal(id: GlobalId, v: number): void {
+    if (id === 'bpm') v = Math.round(v); // whole BPM only
     this.project[id] = v;
     this.send({ type: 'setGlobal', id, value: v });
   }
@@ -1900,13 +1901,13 @@ export class App {
 
   /**
    * Relative encoder turn (hardware encoders; the mouse wheel on screen): one detent =
-   * one 0-127 step, one option for discrete choices, 0.1 BPM for TEMPO.
+   * one 0-127 step, one option for discrete choices, 1 BPM for TEMPO.
    */
   private onEncoder(id: string, delta: number): void {
     const gid = MASTER_GLOBAL[id];
     if (gid) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
-      const step = gid === 'bpm' ? 0.1 : 1 / 127;
+      const step = gid === 'bpm' ? 1 : 1 / 127;
       const value = Math.min(spec.max, Math.max(spec.min, Math.round((this.project[gid] + delta * step) * 1000) / 1000));
       this.glides.delete(`global:${gid}`);
       this.setGlobal(gid, value);
@@ -2493,7 +2494,7 @@ export class App {
       patternLabel: (this.playing && playingPattern !== c.activePattern
         ? `PAT ${PATTERN_NAMES[playingPattern]}>${PATTERN_NAMES[c.activePattern]}`
         : `PAT ${PATTERN_NAMES[c.activePattern]}`) + (this.dirty(c) ? '*' : ''),
-      bpmText: this.project.bpm.toFixed(1),
+      bpmText: this.project.bpm.toFixed(0),
       playing: this.playing,
       message: performance.now() < this.messageUntil ? this.message : '',
     };

@@ -42,7 +42,8 @@ export const BPM_MAX = 300;
 
 /** Project-wide parameters (PROJECT page; TEMPO and MASTER also have master knobs). */
 export const GLOBAL_PARAMS: readonly ParamSpec[] = [
-  { id: 'bpm', name: 'TEMPO', min: BPM_MIN, max: BPM_MAX, defaultValue: 128, unit: '', curve: 'linear', decimals: 1 },
+  // Whole BPM only (a DAW gets the same tempo, so tempo-synced effects line up).
+  { id: 'bpm', name: 'TEMPO', min: BPM_MIN, max: BPM_MAX, defaultValue: 128, unit: '', curve: 'linear', decimals: 0 },
   { id: 'swing', name: 'SWING', min: 50, max: 75, defaultValue: 50, unit: '%', curve: 'linear', decimals: 0 },
   { id: 'master', name: 'MASTER', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
   choice('meter', 'TIME SIG', METERS.map((m) => m.name)),

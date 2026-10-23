@@ -968,7 +968,7 @@ describe('RING and REST', () => {
 describe('project', () => {
   const busy = () => {
     const p = createDefaultProject();
-    p.bpm = 172.5;
+    p.bpm = 172;
     p.channels[0].patterns[0].steps[0].active = true;
     p.channels[0].patterns[0].steps[4].active = true;
     p.channels[0].patterns[0].steps[4].accent = true;
@@ -3419,5 +3419,15 @@ describe('v44: the HAT RIDE (BELL, RATTLE)', () => {
     expect([sound.m_bell, sound.h_rattle]).toEqual([hidden.m_bell, hidden.h_rattle]);
     expect(back.trims.hat!.m_tone).toBe(0.05);
     expect(sound.m_tone).toBeCloseTo(applyTrim(paramSpec('hat', 'm_tone')!, hidden.m_tone, 0.05), 9);
+  });
+});
+
+describe('whole-number tempo', () => {
+  it('TEMPO shows and loads in whole BPM (a fractional save rounds)', () => {
+    const spec = GLOBAL_PARAMS.find((p) => p.id === 'bpm')!;
+    expect(formatValue(spec, 128)).toBe('128');
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.bpm = 132.5;
+    expect(fromStored(stored)!.bpm).toBe(133);
   });
 });
