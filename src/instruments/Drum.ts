@@ -69,6 +69,9 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'm_mode', name: 'M MODE', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'm_fm', name: 'M FM', min: 0, max: 4, defaultValue: 0.5, unit: '', curve: 'linear' },
   // HAT head: what the metal sounds like at the start of the hit, before it becomes the tail.
+  // HAT: a bell's sine partials over the metal, and the jingles' rattle at the start of a hit.
+  { id: 'm_bell', name: 'BELL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'h_rattle', name: 'RATTLE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'h_time', name: 'HEAD', min: 0, max: 0.5, defaultValue: 0, unit: 'S', curve: 'linear', decimals: 3 },
   { id: 'h_pitch', name: 'H PITCH', min: 20, max: 12000, defaultValue: 420, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'h_tone', name: 'H TONE', min: 30, max: 20000, defaultValue: 8500, unit: 'HZ', curve: 'exp', decimals: 0 },
@@ -125,7 +128,7 @@ export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
 export const HAT_PARAMS = drumParams(
   [
     'timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm',
-    'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', ...WHOLE,
+    'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', 'm_bell', 'h_rattle', ...WHOLE,
   ],
   { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03, midfreq: 2000 },
 );
@@ -179,6 +182,22 @@ export const SNARE_PRESETS: readonly Preset[] = anchorPresets('snare');
 export const HAT_PRESETS: readonly Preset[] = anchorPresets('hat');
 export const PERC_PRESETS: readonly Preset[] = anchorPresets('perc');
 
+/**
+ * BELL: a cymbal bell's partials (inharmonic; 2.546 / 2.63 beat against each other), their
+ * levels, how much faster each fades than the metal (the low ones ring longest) and the
+ * bank's level against the metal.
+ */
+const BELL_RATIOS = [1, 1.483, 1.932, 2.546, 2.63, 3.159, 3.799, 4.556] as const;
+const BELL_LEVELS = [1, 0.7, 0.55, 0.5, 0.45, 0.35, 0.3, 0.25] as const;
+const BELL_FADES = [1, 1.2, 1.4, 1.6, 1.6, 2, 2.4, 2.8] as const;
+const BELL_PARTIALS = BELL_RATIOS.length;
+const BELL_GAIN = 0.12;
+/** RATTLE: re-hits after the first, about this far apart (s, jittered), each pulse's fall and the gate's release after the last. */
+const RATTLE_HITS = 4;
+const RATTLE_GAP = 0.011;
+const RATTLE_PULSE = 0.004;
+const RATTLE_RELEASE = 0.03;
+
 /** 808 cymbal oscillator ratios (relative to the lowest). */
 const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];
 const TWO_PI = Math.PI * 2;
@@ -225,6 +244,14 @@ export class Drum implements Instrument {
   private drive = 1; private crush = 0; private driveComp = 1;
   private mLevel = 0; private mPitch = 400; private mSpread = 1; private mNoise = 0.3; private mMode = 0; private mFm = 0.5;
   private fmC = 0; private fmM = 0;
+  // HAT BELL (level, partial phases / fades / fade rates) and RATTLE (amount; per hit: re-hits
+  // left, samples to the next, the gate's pulse and depth, and their rates).
+  private mBell = 0;
+  private readonly bPhase = new Float64Array(BELL_PARTIALS);
+  private readonly bEnv = new Float64Array(BELL_PARTIALS);
+  private readonly bMul = new Float64Array(BELL_PARTIALS);
+  private rattle = 0; private rLeft = 0; private rNext = 0; private rPulse = 0; private rDepth = 0;
+  private readonly rGap: number; private readonly rPulseMul: number; private readonly rRelease: number;
   private tDecayMul = 0; private sweepMul = 0; private mDecayMul = 0; private cDecayMul = 0;
   private tRingMul = 0; private mRingMul = 0; private cRingMul = 0;
   private tDecay = 0.45; private mDecay = 0.2; private cLen = 0.004;
@@ -274,6 +301,9 @@ export class Drum implements Instrument {
     this.fadeLen = Math.max(1, Math.round(RETRIGGER_FADE * sampleRate));
     this.chokeMul = decayMul(CHOKE_SECONDS, sampleRate);
     this.sweepTop = Math.min(18000, 0.4 * sampleRate);
+    this.rGap = RATTLE_GAP * sampleRate;
+    this.rPulseMul = Math.exp(-1 / (RATTLE_PULSE * sampleRate));
+    this.rRelease = Math.exp(-1 / (RATTLE_RELEASE * sampleRate));
     this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
     if (voice.air) {
       this.room = new Reverb(sampleRate);
@@ -321,6 +351,17 @@ export class Drum implements Instrument {
     this.fCounter = 0;
     this.hEnv = this.hTime > 0 ? 1 : 0;
     this.hCounter = 0;
+    if (this.mBell > 0) {
+      for (let k = 0; k < BELL_PARTIALS; k++) {
+        this.bPhase[k] = 0;
+        this.bEnv[k] = 1;
+        this.bMul[k] = Math.pow(this.mMul, BELL_FADES[k] - 1);
+      }
+    }
+    this.rDepth = this.rattle > 0 ? 1 : 0;
+    this.rLeft = RATTLE_HITS;
+    this.rNext = Math.round(this.rGap);
+    this.rPulse = 1;
   }
 
   /** Only a ringing hit responds: it is choked (closed off quickly). */
@@ -374,6 +415,8 @@ export class Drum implements Instrument {
       case 'm_tone': this.mTone = v; this.mFilter.setup(v, 0.3, sr); break;
       case 'm_attack': if (!this.voice.relative) this.mAtk = attackInc(v, sr); break;
       case 'm_decay': if (!this.voice.relative) { this.mDecay = v; this.updateDecays(); } break;
+      case 'm_bell': this.mBell = v; break;
+      case 'h_rattle': this.rattle = v; break;
       case 'h_time': this.hTime = v; this.hMul = v > 0 ? Math.exp(-1 / (v * sr)) : 0; break;
       case 'h_pitch': this.hPitch = v; break;
       case 'h_tone': this.hTone = v; break;
@@ -560,7 +603,31 @@ export class Drum implements Instrument {
         }
         m = m * (1 - mNoise) + this.noise.next() * mNoise;
         this.mFilter.process(m);
-        sum += this.mFilter.high * this.mEnv * this.mLevel * this.gM;
+        let metal = this.mFilter.high * this.mLevel;
+        // BELL: sine partials at a cymbal bell's ratios, past the high-pass, each fading at its own rate.
+        if (this.mBell > 0) {
+          let b = 0;
+          const bp = this.bPhase, be = this.bEnv;
+          for (let k = 0; k < BELL_PARTIALS; k++) {
+            bp[k] += mPitch * BELL_RATIOS[k] * dtBase;
+            if (bp[k] >= 1) bp[k] -= 1;
+            b += Math.sin(TWO_PI * bp[k]) * BELL_LEVELS[k] * be[k];
+            be[k] *= this.bMul[k];
+          }
+          metal += b * this.mBell * BELL_GAIN;
+        }
+        // RATTLE: the jingles' quick re-hits (a gate that snaps open at each and closes fast).
+        if (this.rDepth > 0) {
+          if (--this.rNext <= 0 && this.rLeft > 0) {
+            this.rLeft--;
+            this.rPulse = 1;
+            this.rNext = Math.round(this.rGap * (0.7 + 0.6 * Math.abs(this.noise.next())));
+          }
+          if (this.rLeft === 0) this.rDepth *= this.rRelease;
+          metal *= 1 - this.rattle * this.rDepth * (1 - this.rPulse);
+          this.rPulse *= this.rPulseMul;
+        }
+        sum += metal * this.mEnv * this.gM;
         if (this.mStage === ATTACKING) {
           this.mEnv += this.mAtk;
           if (this.mEnv >= 1) { this.mEnv = 1; this.mStage = DECAYING; }

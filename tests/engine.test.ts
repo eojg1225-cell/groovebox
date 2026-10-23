@@ -1038,7 +1038,7 @@ describe('project', () => {
     const stored = toStored(busy());
     const total = stored.channels.reduce((n, c) => n + c.patterns.reduce((m, pat) => m + pat.steps.length, 0), 0);
     expect(total).toBe(3 + 2); // + the ring hit and the rest marker
-    expect(JSON.stringify(stored).length).toBeLessThan(20000);
+    expect(JSON.stringify(stored).length).toBeLessThan(21000);
   });
 
   it('starts with every pattern empty', () => {
@@ -3346,5 +3346,43 @@ describe('AIR (KICK, SNARE)', () => {
 
   it('only KICK and SNARE have AIR', () => {
     for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(k === 'kick' || k === 'snare');
+  });
+});
+
+describe('HAT BELL and RATTLE', () => {
+  const rms = (x: Float32Array) => Math.sqrt(x.reduce((a, v) => a + v * v, 0) / x.length);
+  /** One hat hit: metal only (plain square bank at 600 Hz, no noise, head or click). */
+  const hit = (values: Record<string, number>, seconds = 0.5) => {
+    const d = new Drum(SR, HAT_PARAMS, HAT_VOICE);
+    const plain = { m_level: 1, m_pitch: 600, m_noise: 0, m_tone: 30, m_mode: 0, m_decay: 1, h_time: 0, c_level: 0, drive: 1 };
+    for (const [id, v] of Object.entries({ ...plain, ...values })) d.setParam(id, v);
+    d.noteOn(36, 1, 36, false);
+    const n = Math.floor(SR * seconds), l = new Float32Array(n), r = new Float32Array(n);
+    d.render(l, r, 0, n);
+    return l;
+  };
+  const at = (x: Float32Array, hz: number) => {
+    let re = 0, im = 0;
+    for (let i = 0; i < SR / 10; i++) { re += x[i] * Math.cos((2 * Math.PI * hz * i) / SR); im += x[i] * Math.sin((2 * Math.PI * hz * i) / SR); }
+    return Math.hypot(re, im);
+  };
+
+  it('BELL adds sine partials at the bell ratios over the metal (0 = none)', () => {
+    const off = hit({ m_level: 0, m_bell: 0 }), bell = hit({ m_level: 0, m_bell: 1 });
+    expect(stats(off).peak).toBe(0);
+    for (const ratio of [1, 1.483, 1.932]) expect(at(bell, 600 * ratio), String(ratio)).toBeGreaterThan(at(bell, 600 * ratio * 1.25) * 5);
+  });
+
+  it('RATTLE breaks the start of a hit into quick re-hits (0 = one smooth hit)', () => {
+    const peaks = (x: Float32Array) => {
+      // Count the gate snapping open again: 1 ms windows rising by half after falling.
+      const win = SR / 1000, e: number[] = [];
+      for (let i = 0; i + win <= SR * 0.08; i += win) e.push(rms(x.subarray(i, i + win)));
+      let n = 0;
+      for (let i = 2; i < e.length; i++) if (e[i] > e[i - 1] * 1.5 && e[i - 1] < e[i - 2]) n++;
+      return n;
+    };
+    expect(peaks(hit({ h_rattle: 0, m_noise: 1 }))).toBe(0);
+    expect(peaks(hit({ h_rattle: 1, m_noise: 1 }))).toBeGreaterThanOrEqual(3);
   });
 });
