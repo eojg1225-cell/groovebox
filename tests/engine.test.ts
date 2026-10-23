@@ -205,10 +205,11 @@ describe('instruments', () => {
       'intensity', 'd1', 'd2', 'p2', 'f2', 's2', 'crush', 'balance',
     ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
-    // KICK: TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2); ROLL DIV /
-    // BALANCE on 5; AIR ends the page beside DRIVE / CRUSH.
-    expect([INSTRUMENTS.kick.layout[4], INSTRUMENTS.kick.layout[12]]).toEqual(['rolldiv', 'balance']);
-    expect([INSTRUMENTS.kick.layout[7], INSTRUMENTS.kick.layout[15]]).toEqual(['air', 'airsize']);
+    // KICK: TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2); the click's
+    // character on 5, AIR on 6 beside DRIVE / CRUSH, ROLL DIV / BALANCE on 8 as on every drum.
+    expect([INSTRUMENTS.kick.layout[4], INSTRUMENTS.kick.layout[12]]).toEqual(['c_reso', 'c_noise']);
+    expect([INSTRUMENTS.kick.layout[5], INSTRUMENTS.kick.layout[13]]).toEqual(['air', 'airsize']);
+    expect([INSTRUMENTS.kick.layout[7], INSTRUMENTS.kick.layout[15]]).toEqual(['rolldiv', 'balance']);
     expect([INSTRUMENTS.kick.funcLayout[1], INSTRUMENTS.kick.funcLayout[9]]).toEqual(['t_sweep', 't_stime']);
     expect([INSTRUMENTS.snare.layout[4], INSTRUMENTS.snare.layout[12]]).toEqual(['t_sweep', 't_stime']); // the sweep together
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
@@ -239,7 +240,9 @@ describe('instruments', () => {
     expect(linkedParams('pad', 'attack')).toEqual(['attack2']);
     expect(linkedParams('lead', 'release')).toEqual(['release2']);
     expect(linkedParams('bass', 'attack')).toEqual([]);
-    expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'detune']);
+    expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'glide']);
+    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['drive', 'unison']); // UNISON where CRUSH would be
+    expect(INSTRUMENTS.pad.funcLayout[7]).toBe('detune');
     // Drums: only the track setup (PRESET, LIVE, MID FREQ) on FUNC, plus the KICK's SWEEP / SWP TIME.
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) {
       expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || (k === 'kick' && id.startsWith('t_s'))), k).toBe(true);
@@ -3194,8 +3197,9 @@ describe('PAD / PLUCK chord slides, FM LVL2', () => {
     }
   });
 
-  it('PAD / PLUCK have a SLIDE knob on FUNC; PAD / LEAD FM LVL2 under FM LVL, set along with it', () => {
-    for (const k of ['pad', 'pluck'] as const) expect(INSTRUMENTS[k].funcLayout).toContain('glide');
+  it('PAD / PLUCK have a SLIDE knob (PAD on its page, PLUCK on FUNC); PAD / LEAD FM LVL2 under FM LVL, set along with it', () => {
+    expect(INSTRUMENTS.pad.layout).toContain('glide');
+    expect(INSTRUMENTS.pluck.funcLayout).toContain('glide');
     for (const k of ['pad', 'lead'] as const) {
       const fmAt = INSTRUMENTS[k].layout.indexOf('fm');
       expect(INSTRUMENTS[k].funcLayout[fmAt]).toBe('fm2');

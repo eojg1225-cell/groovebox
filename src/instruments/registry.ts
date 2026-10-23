@@ -38,22 +38,18 @@ export function synthPage(amp: readonly [string, string], perform: readonly [str
 /**
  * Drums: 1 TIMBRE / INT, 2 element 1 ATTACK / DECAY, 3 element 2 ATTACK / DECAY, 4 the
  * elements' pitch (`pitch`), 5 and 6 their character (`five`, `six`: sweep, click or metal
- * colour), 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2) or the track's other
- * effect (`eight`). KICK: 5 = ROLL DIV / BALANCE (its sweep is TIMBRE / INT's), 8 = AIR LVL /
- * AIR SIZE. Elements: KICK body + click, SNARE body + metal (wires), HAT click + metal, PERC
- * body + click (+ metal halfway between them). No filter per drum (FX 1's FILTER is the kit's).
+ * colour; KICK: 5 CLK RESO / CLK NOISE (its sweep is TIMBRE / INT's), 6 AIR LVL / AIR SIZE),
+ * 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body + click, SNARE
+ * body + metal (wires), HAT click + metal, PERC body + click (+ metal halfway between them).
+ * No filter per drum (FX 1's FILTER is the kit's).
  */
-export function drumPage(
-  elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string, string],
-  eight: readonly [string, string] = ['rolldiv', 'balance'],
-): string[] {
+export function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;
   return [
-    'timbre', a1, a2, pitch[0], five[0], six[0], 'drive', eight[0],
-    'intensity', d1, d2, pitch[1], five[1], six[1], 'crush', eight[1],
+    'timbre', a1, a2, pitch[0], five[0], six[0], 'drive', 'rolldiv',
+    'intensity', d1, d2, pitch[1], five[1], six[1], 'crush', 'balance',
   ];
 }
-
 
 /**
  * The FUNC layer of a SOUND page (FUNC held): top row, then bottom row, 8 each; null = no
@@ -265,9 +261,9 @@ interface InstrumentEntry {
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
     name: 'KICK', gain: 0.565, live: ['macro:attack', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
-    // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2), so ROLL DIV /
-    // BALANCE moved to 5 and AIR ends the page beside DRIVE / CRUSH.
-    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['rolldiv', 'balance'], ['c_reso', 'c_noise'], ['air', 'airsize']),
+    // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2): the click's
+    // character on 5, AIR on 6 beside DRIVE / CRUSH.
+    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(KICK_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
@@ -292,8 +288,9 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: 0.273, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    layout: synthPage(['attack', 'release'], ['track:chord', 'detune']).map((id) => (id === 'crush' ? null : id)), // no CRUSH on the PAD
-    funcLayout: trackFunc(heldFunc([_, 'fm2', _, 'glide'], ['feedback', _, _, 'unison'])),
+    // No CRUSH on the PAD: UNISON under DRIVE; SLIDE (time) on 8 with DETUNE on its FUNC.
+    layout: synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'crush' ? 'unison' : id)),
+    funcLayout: trackFunc(heldFunc([_, 'fm2', _, 'detune'], ['feedback', _, _, _])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.633, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
