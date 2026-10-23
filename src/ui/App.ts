@@ -18,15 +18,15 @@
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
- * A-D (under FX): the selected track's pattern (FUNC + A-D = every track; hold a channel +
- * A-D = that track, unselected). Each pattern has its own patch: RECORD / DESIGN edit the
+ * A-D (under FX): every track's pattern (hold channels + A-D = only those, unselected;
+ * FUNC + A-D = the selected track); playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
  * chosen one; PLAY primes the switch for the loop end and the sound glides there.
  * SAVE: RECORD = the track's pattern notes, DESIGN = its patch, PLAY = both (FUNC = every
  * track). Edits since are marked * on the screen.
  * SONG  arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          OCT -/+ row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
- *          the next bar), A-D (hold track + A-D) = set a cell, FUNC + A-D = the row. PLAY here plays the
+ *          the next bar), A-D = the row, hold tracks + A-D = their cells, FUNC + A-D = the selected track's. PLAY here plays the
  *          song from the cursor row (it keeps playing in the other modes until STOP).
  * RESET: every patch returns to its saved version and the rest (mix, FX, LFO) to the saved
  * project, live knobs centred: while playing it glides back to land on the next bar line,
@@ -513,11 +513,6 @@ export class App {
     this.send({ type: 'setStep', channel: ch, pattern: c.activePattern, index, step });
   }
 
-  /** Pattern switching: immediate while building, at loop end while performing. */
-  private get immediateSwitch(): boolean {
-    return this.mode !== 'play';
-  }
-
   // ---------------------------------------------------------------- knob targets
 
   /**
@@ -916,17 +911,19 @@ export class App {
       this.heldUsed = false;
     }
     if ((m = /^pat([A-D])$/.exec(id))) {
-      // A-D: the selected track's pattern; holding a channel: that track's; FUNC: every track.
+      // A-D: every track; channels held: only those; FUNC: the selected track.
       const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
-      if (this.heldTrack >= 0) {
-        this.selectPattern(this.heldTrack, pat);
+      if (this.heldChannels.size > 0) {
+        const held = [...this.heldChannels].sort();
+        for (const ch of held) this.selectPattern(ch, pat, held.length === 1);
+        if (held.length > 1) this.flash(`${held.map((ch) => ch + 1).join(' ')} PAT ${m[1]}`);
         this.heldUsed = true;
       } else if (this.func) {
-        for (let ch = 0; ch < NUM_CHANNELS; ch++) this.selectPattern(ch, pat, false);
-        this.flash(this.mode === 'song' ? `ROW: ALL ${m[1]}` : `ALL TRACKS PAT ${m[1]}`);
+        this.selectPattern(this.selected, pat);
         if (this.funcHeld) this.funcUsed = true; // not a latching tap
       } else {
-        this.selectPattern(this.selected, pat);
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) this.selectPattern(ch, pat, false);
+        this.flash(this.mode === 'song' ? `ROW: ALL ${m[1]}` : `ALL TRACKS PAT ${m[1]}`);
       }
       this.refreshPanel();
       return;
@@ -1310,8 +1307,8 @@ export class App {
   }
 
   /**
-   * Switch a track's pattern, with its patch (at once while building, at its loop end while
-   * performing, the sound gliding there). The chosen pattern is the one edited.
+   * Switch a track's pattern, with its patch (stopped: at once; playing: at its loop end, in
+   * every mode, the sound gliding there). The chosen pattern is the one edited.
    */
   private selectPattern(ch: number, pattern: number, flash = true): void {
     if (this.mode === 'song') {
@@ -1325,7 +1322,7 @@ export class App {
       this.clampCursor();
       this.entry = null;
     }
-    this.send({ type: 'selectPattern', channel: ch, pattern, immediate: this.immediateSwitch });
+    this.send({ type: 'selectPattern', channel: ch, pattern, immediate: false });
     if (flash) this.flash(`${ch + 1} ${this.kindName(c)} PAT ${PATTERN_NAMES[pattern]}`);
     this.save();
   }

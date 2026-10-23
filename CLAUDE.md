@@ -67,7 +67,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 
 ### Patterns and steps
 - 8 tracks x 4 patterns A-D, 1-64 steps (STEPS held + ◀ / ▶ = a bar shorter / longer). BAR tap = next bar on the strip, BAR + ◀ / ▶ = previous / next. PLAY / live recording follow the playhead.
-- A-D = the selected track's pattern; FUNC + A-D = every track; hold a channel + A-D = that track.
+- A-D = every track's pattern; hold channels + A-D = only those (several at once); FUNC + A-D = the selected track. Playing, a switch always waits for the track's loop end (any mode); stopped = at once.
 - Speed per pattern: normal / double / half / triplet (FUNC + BAR cycles; screen X2 / /2 / T). One master 16th clock; `Engine.stepChannel` runs each track's own steps.
 - TIME SIG (`project.meter`, `METERS`): each 16-step bar has four groups and plays the first n of each; dark steps take no time; changes at the next bar line. STEPS tap = STEPS mode: strip taps flip a step on / off (`Step.flip`).
 - Step flags: SLIDE (303-style: held through to the next note and glides into it; legato playing on BASS / LEAD slides too), RING (held until the next hit or REST; drums ring with long decay), ACCENT / GHOST (velocity 1 / 0.45, normal 0.8; ACC/GHOST per track scales the distance), REST, locks (per-step sound params, written by live recording), PAD / PLUCK chord notes (`Step.extra`, each with its own length `Step.extraGate`; the engine holds their notes each by its own length, `holdStart` / `stepHolds`, so a later note no longer cuts an earlier one; RING / SLIDE steps keep the one-note gate; a CHORD other than OFF plays only the step's lowest note, as its root; a SLIDE glides the chord voice by voice: root to root, 3rd to 3rd ..., at the sound's SLIDE time).
