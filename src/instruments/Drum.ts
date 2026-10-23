@@ -8,7 +8,7 @@ import { Reverb } from '../fx/Reverb';
 
 /**
  * Drum voice built from layers. Each drum type uses two of them (its two "elements"):
- *   KICK  = TONE + CLICK      SNARE = TONE + METAL (+ CLICK: the crack)      HAT = CLICK + METAL
+ *   KICK  = TONE + CLICK      SNARE = TONE + METAL      HAT = CLICK + METAL
  *   PERC  = TONE + CLICK (+ METAL for bells): toms, congas, cowbell, clave; pitched from the
  *           sequencer (step entry on the keyboard)
  *  TONE   pitched oscillator with an exponential pitch sweep
@@ -52,8 +52,6 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 't_attack', name: 'BD ATK', ...ATTACK },
   { id: 't_decay', name: 'BD DEC', min: 0.005, max: 20, defaultValue: 0.45, unit: 'S', curve: 'exp' },
   choice('t_wave', 'BD WAVE', T_WAVES),
-  // SNARE: drumhead overtones on the body (0 = the plain wave).
-  { id: 't_shell', name: 'SHELL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'c_level', name: 'CLK LEVEL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'c_tone', name: 'CLK PITCH', min: 100, max: 20000, defaultValue: 4000, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'c_attack', name: 'CLK ATK', ...ATTACK },
@@ -119,12 +117,7 @@ export const KICK_PARAMS = drumParams(
 export const KICK_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
 export const SNARE_PARAMS = drumParams(
-  [
-    'timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 't_shell',
-    'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm',
-    // The stick's crack (BRUSH: its swish).
-    'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', ...WHOLE, ...AIR,
-  ],
+  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE, ...AIR],
   { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2, midfreq: 500 },
 );
 export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
@@ -172,7 +165,7 @@ interface DrumVoice {
 }
 // KICK's air keeps clear of the sub and the body (only its knock rings); SNARE's opens higher.
 export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { highPass: 350, lowPass: 2500, gain: 1.5 } };
-export const SNARE_VOICE: DrumVoice = { balance: ['tc', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { highPass: 400, lowPass: 6000, gain: 1 } };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { highPass: 400, lowPass: 6000, gain: 1 } };
 export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
@@ -185,14 +178,6 @@ export const KICK_PRESETS: readonly Preset[] = anchorPresets('kick');
 export const SNARE_PRESETS: readonly Preset[] = anchorPresets('snare');
 export const HAT_PRESETS: readonly Preset[] = anchorPresets('hat');
 export const PERC_PRESETS: readonly Preset[] = anchorPresets('perc');
-
-/**
- * SHELL: a struck drumhead's next two modes (circular membrane: 1.59 and 2.14 x the
- * fundamental), their levels at SHELL 1 and how much faster they die than the body.
- */
-const SHELL_RATIOS = [1.594, 2.136] as const;
-const SHELL_LEVELS = [0.6, 0.4] as const;
-const SHELL_FADES = [1.8, 2.6] as const;
 
 /** 808 cymbal oscillator ratios (relative to the lowest). */
 const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];
@@ -235,7 +220,7 @@ export class Drum implements Instrument {
   private readonly filter = new Svf();
 
   // Parameter values (all layers silent unless the drum type sets them)
-  private tLevel = 0; private tPitch = 50; private tSweep = 24; private tWave = 0; private shell = 0;
+  private tLevel = 0; private tPitch = 50; private tSweep = 24; private tWave = 0;
   private cLevel = 0; private cTone = 4000; private cReso = 0.3; private cNoise = 0.6;
   private drive = 1; private crush = 0; private driveComp = 1;
   private mLevel = 0; private mPitch = 400; private mSpread = 1; private mNoise = 0.3; private mMode = 0; private mFm = 0.5;
@@ -275,8 +260,6 @@ export class Drum implements Instrument {
   private tune = 1;
   private pitchMod = 1;
   private tPhase = 0; private sweepEnv = 0;
-  /** SHELL overtones: phases, their own (faster) fades on top of the body's, and fade rates. */
-  private sPh1 = 0; private sPh2 = 0; private sEnv1 = 0; private sEnv2 = 0; private sMul1 = 0; private sMul2 = 0;
   private readonly mPhase = new Float64Array(6);
   private tEnv = 0; private tStage = OFF;
   private mEnv = 0; private mStage = OFF;
@@ -330,10 +313,6 @@ export class Drum implements Instrument {
     this.velocity = velocity;
     this.tPhase = 0;
     this.sweepEnv = 1;
-    this.sPh1 = 0; this.sPh2 = 0; this.sEnv1 = 1; this.sEnv2 = 1;
-    // On top of the body's own decay: overall x SHELL_FADES faster.
-    this.sMul1 = Math.pow(this.tMul, SHELL_FADES[0] - 1);
-    this.sMul2 = Math.pow(this.tMul, SHELL_FADES[1] - 1);
     this.impulse = true;
     // Each layer starts its attack (or at full level when the attack is instant).
     this.tEnv = this.tAtk > 0 ? 0 : 1; this.tStage = this.tAtk > 0 ? ATTACKING : DECAYING;
@@ -380,7 +359,6 @@ export class Drum implements Instrument {
       case 't_attack': this.tAtkS = v; this.tAtk = attackInc(v, sr); this.updateMetalEnv(); break;
       case 't_decay': this.tDecay = v; this.updateMetalEnv(); this.updateDecays(); break;
       case 't_wave': this.tWave = Math.round(v); break;
-      case 't_shell': this.shell = v; break;
       case 'c_level': this.cLevel = v; break;
       case 'c_tone': this.cTone = v; this.setupClick(); break;
       case 'c_reso': this.cReso = v; this.setupClick(); break;
@@ -524,14 +502,6 @@ export class Drum implements Instrument {
             break;
           }
           default: osc = Math.sin(TWO_PI * ph);
-        }
-        // SHELL: two drumhead overtones over the body, each dying away faster than it.
-        if (this.shell > 0) {
-          this.sPh1 += dt * SHELL_RATIOS[0]; if (this.sPh1 >= 1) this.sPh1 -= 1;
-          this.sPh2 += dt * SHELL_RATIOS[1]; if (this.sPh2 >= 1) this.sPh2 -= 1;
-          osc += this.shell * (Math.sin(TWO_PI * this.sPh1) * SHELL_LEVELS[0] * this.sEnv1 + Math.sin(TWO_PI * this.sPh2) * SHELL_LEVELS[1] * this.sEnv2);
-          this.sEnv1 *= this.sMul1;
-          this.sEnv2 *= this.sMul2;
         }
         sum += osc * this.tEnv * this.tLevel * this.gT;
         this.sweepEnv *= this.sweepMul;

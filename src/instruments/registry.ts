@@ -38,7 +38,7 @@ export function synthPage(amp: readonly [string, string], perform: readonly [str
 /**
  * Drums: 1 TIMBRE / INT, 2 element 1 ATTACK / DECAY, 3 element 2 ATTACK / DECAY, 4 the
  * elements' pitch (`pitch`), 5 and 6 their character (`five`, `six`: sweep, click or metal
- * colour; KICK: 5 CLK RESO / CLK NOISE (its sweep is TIMBRE / INT's), 6 AIR LVL / AIR SIZE),
+ * colour; KICK 5 CLK RESO / CLK NOISE, SNARE 5 MTL TONE / MTL NOISE, both 6 AIR LVL / AIR SIZE),
  * 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body + click, SNARE
  * body + metal (wires), HAT click + metal, PERC body + click (+ metal halfway between them).
  * No filter per drum (FX 1's FILTER is the kit's).
@@ -62,11 +62,11 @@ const _ = null;
 /*
  * FUNC layers. Synths: the rest of the amp envelope under module 2, then what each type
  * needs (below). SHAPE and FM RATIO are TIMBRE's. OCTAVE has no knob: OCT - / + in DESIGN
- * (App.stepOctave). Drums: KICK SWEEP / SWP TIME (FUNC 2); the others have none yet.
+ * (App.stepOctave). Drums: KICK / SNARE SWEEP / SWP TIME (FUNC 2); HAT / PERC have none yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
-/** KICK FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
-const KICK_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
+/** KICK / SNARE FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
+const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
 const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, 'duck', _], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
 /** PLUCK FUNC: DECAY / RELEASE, SLIDE (3), UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
@@ -264,12 +264,13 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2): the click's
     // character on 5, AIR on 6 beside DRIVE / CRUSH.
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),
-    funcLayout: trackFunc(KICK_FUNC),
+    funcLayout: trackFunc(SWEEP_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
     name: 'SNARE', gain: 0.797, live: ['macro:snap', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,
-    layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['t_sweep', 't_stime'], ['m_tone', 'm_noise']),
-    funcLayout: trackFunc(NO_FUNC),
+    // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
+    layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
+    funcLayout: trackFunc(SWEEP_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
     name: 'HAT', gain: 4.359, live: ['macro:bright', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
