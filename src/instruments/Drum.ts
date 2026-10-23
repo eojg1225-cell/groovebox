@@ -4,6 +4,7 @@ import { decayMul, Noise, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
+import { Reverb } from '../fx/Reverb';
 
 /**
  * Drum voice built from layers. Each drum type uses two of them (its two "elements"):
@@ -85,6 +86,9 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'ogain', name: 'OUT GAIN', min: 0.05, max: 16, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   // ROLL DIV: how fast a ROLL step repeats (read by the engine; the voice ignores it).
   choice('rolldiv', 'ROLL RATE', ROLL_DIVS.map((r) => r.name), DEFAULT_ROLL_RATE),
+  // AIR (KICK, SNARE): a small room on the drum's own output, its tail through the type's fixed EQ.
+  { id: 'air', name: 'AIR LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'airsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
   midFreq(1000),
 ] as ParamSpec[]).map((p) => [p.id, p]));
 
@@ -95,6 +99,8 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 
 /** Controls every drum has (after its layer parameters). */
 const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq'];
+/** AIR: KICK and SNARE (DrumVoice.air sets each one's EQ). */
+const AIR = ['air', 'airsize'];
 
 /*
  * Each drum type: its parameters (set by TIMBRE / INTENSITY and presets, except the tail
@@ -105,13 +111,13 @@ const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq'];
  * without a knob are set by TIMBRE / INTENSITY.
  */
 export const KICK_PARAMS = drumParams(
-  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', ...WHOLE],
+  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', ...WHOLE, ...AIR],
   { t_level: 0.95, t_pitch: 48, t_sweep: 30, t_stime: 0.035, t_decay: 0.5, c_level: 0.25, c_tone: 3500, c_len: 0.003, midfreq: 350 },
 );
 export const KICK_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
 export const SNARE_PARAMS = drumParams(
-  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE],
+  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE, ...AIR],
   { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2, midfreq: 500 },
 );
 export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
@@ -151,9 +157,15 @@ interface DrumVoice {
   relative?: boolean;
   /** DRIVE level compensation curve (driveComp.ts). */
   driveRise?: readonly number[];
+  /**
+   * AIR's fixed EQ on the room's tail (Hz): a high-pass so it never muddies the low end, a
+   * low-pass so it stays soft; and its level (x AIR_GAIN). No AIR on the type without it.
+   */
+  air?: { highPass: number; lowPass: number; gain: number };
 }
-export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick };
-export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare };
+// KICK's air keeps clear of the sub and the body (only its knock rings); SNARE's opens higher.
+export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { highPass: 350, lowPass: 2500, gain: 1.5 } };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { highPass: 400, lowPass: 6000, gain: 1 } };
 export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
@@ -187,6 +199,19 @@ function attackInc(seconds: number, sr: number): number {
   return seconds <= 0.0006 ? 0 : 1 / (seconds * sr);
 }
 
+/**
+ * AIR: the room (short, close), the level at full AIR LVL (on a square law: fine at the low
+ * end; full = the tail about 10 dB under the hit), the EQ's resonance (Q ~0.7).
+ */
+const AIR_ROOM = { rev_damp: 0.6, rev_predelay: 4, rev_width: 1, rev_return: 1 };
+const AIR_GAIN = 0.8;
+/** AIR SIZE 1 = Reverb SIZE this (a room, never a hall). */
+const AIR_SIZE_MAX = 0.75;
+const AIR_EQ_RESO = 0.3;
+/** AIR LVL glides over this long (s); the room runs in chunks of AIR_CHUNK samples. */
+const AIR_SMOOTH = 0.02;
+const AIR_CHUNK = 128;
+
 export class Drum implements Instrument {
   private readonly sr: number;
   private readonly noise = new Noise(0x5eed);
@@ -218,6 +243,15 @@ export class Drum implements Instrument {
   private readonly chokeMul: number;
   /** The body's sweep never goes above this (Hz): 18 kHz, or below Nyquist at low rates. */
   private readonly sweepTop: number;
+  // AIR: the room, its EQ (high-pass x2 then low-pass, per side), scratch buffers, the level.
+  private readonly room: Reverb | null = null;
+  private readonly airEq: Svf[] = [];
+  private readonly airInL = new Float32Array(AIR_CHUNK);
+  private readonly airInR = new Float32Array(AIR_CHUNK);
+  private readonly airL = new Float32Array(AIR_CHUNK);
+  private readonly airR = new Float32Array(AIR_CHUNK);
+  private airTarget = 0; private airGain = 0; private airIdle = true;
+  private readonly airK: number;
   /** Decay multipliers in use for the current hit (normal, ring or choke). */
   private tMul = 0; private mMul = 0; private cMul = 0;
   private ringing = false;
@@ -240,6 +274,18 @@ export class Drum implements Instrument {
     this.fadeLen = Math.max(1, Math.round(RETRIGGER_FADE * sampleRate));
     this.chokeMul = decayMul(CHOKE_SECONDS, sampleRate);
     this.sweepTop = Math.min(18000, 0.4 * sampleRate);
+    this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
+    if (voice.air) {
+      this.room = new Reverb(sampleRate);
+      for (const id in AIR_ROOM) this.room.setParam(id, AIR_ROOM[id as keyof typeof AIR_ROOM]);
+      const { highPass, lowPass } = voice.air;
+      // Per side: two high-passes (24 dB / octave: the sub stays dry), then the low-pass.
+      for (let k = 0; k < 6; k++) {
+        const f = new Svf();
+        f.setup(k < 4 ? highPass : lowPass, AIR_EQ_RESO, sampleRate);
+        this.airEq.push(f);
+      }
+    }
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
     for (const p of params) this.setParam(p.id, p.defaultValue);
@@ -346,6 +392,8 @@ export class Drum implements Instrument {
       case 'drive': this.drive = v; this.driveComp = driveCompGain(this.voice.driveRise, v); break;
       case 'crush': this.crush = v; break;
       case 'ogain': this.oGain = v; break;
+      case 'air': this.airTarget = v * v * AIR_GAIN * (this.voice.air?.gain ?? 0); break;
+      case 'airsize': this.room?.setParam('rev_size', v * AIR_SIZE_MAX); break;
     }
   }
 
@@ -377,6 +425,40 @@ export class Drum implements Instrument {
     this.tRingMul = decayMul(this.tDecay * RING_STRETCH + extra, sr);
     this.mRingMul = decayMul(this.mDecay * RING_STRETCH + extra, sr);
     this.cRingMul = decayMul(this.cLen * RING_STRETCH, sr);
+  }
+
+  /**
+   * AIR: the room on the track's output (in place), its tail through the type's fixed EQ.
+   * Idle (and cleared) once AIR LVL is down at 0.
+   */
+  post(l: Float32Array, r: Float32Array, n: number): void {
+    const room = this.room;
+    if (!room) return;
+    if (this.airTarget === 0 && this.airGain < 1e-5) {
+      if (!this.airIdle) {
+        room.reset();
+        for (const f of this.airEq) f.reset();
+        this.airGain = 0;
+        this.airIdle = true;
+      }
+      return;
+    }
+    this.airIdle = false;
+    const [hpL, hpR, hp2L, hp2R, lpL, lpR] = this.airEq;
+    for (let off = 0; off < n; off += AIR_CHUNK) {
+      const m = Math.min(AIR_CHUNK, n - off);
+      for (let i = 0; i < m; i++) { this.airInL[i] = l[off + i]; this.airInR[i] = r[off + i]; }
+      this.airL.fill(0, 0, m);
+      this.airR.fill(0, 0, m);
+      room.process(this.airInL, this.airInR, this.airL, this.airR, 0, m);
+      for (let i = 0; i < m; i++) {
+        this.airGain += (this.airTarget - this.airGain) * this.airK;
+        hpL.process(this.airL[i]); hp2L.process(hpL.high); lpL.process(hp2L.high);
+        hpR.process(this.airR[i]); hp2R.process(hpR.high); lpR.process(hp2R.high);
+        l[off + i] += lpL.low * this.airGain;
+        r[off + i] += lpR.low * this.airGain;
+      }
+    }
   }
 
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {

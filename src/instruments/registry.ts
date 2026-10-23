@@ -38,15 +38,19 @@ export function synthPage(amp: readonly [string, string], perform: readonly [str
 /**
  * Drums: 1 TIMBRE / INT, 2 element 1 ATTACK / DECAY, 3 element 2 ATTACK / DECAY, 4 the
  * elements' pitch (`pitch`), 5 and 6 their character (`five`, `six`: sweep, click or metal
- * colour; KICK's 5 is empty, its sweep is TIMBRE / INT's), 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body +
- * click, SNARE body + metal (wires), HAT click + metal, PERC body + click (+ metal halfway
- * between them). No filter per drum (FX 1's FILTER is the kit's).
+ * colour), 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2) or the track's other
+ * effect (`eight`). KICK: 5 = ROLL DIV / BALANCE (its sweep is TIMBRE / INT's), 8 = AIR LVL /
+ * AIR SIZE. Elements: KICK body + click, SNARE body + metal (wires), HAT click + metal, PERC
+ * body + click (+ metal halfway between them). No filter per drum (FX 1's FILTER is the kit's).
  */
-export function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string | null, string | null], six: readonly [string, string]): (string | null)[] {
+export function drumPage(
+  elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string, string],
+  eight: readonly [string, string] = ['rolldiv', 'balance'],
+): string[] {
   const [a1, d1, a2, d2] = elements;
   return [
-    'timbre', a1, a2, pitch[0], five[0], six[0], 'drive', 'rolldiv',
-    'intensity', d1, d2, pitch[1], five[1], six[1], 'crush', 'balance',
+    'timbre', a1, a2, pitch[0], five[0], six[0], 'drive', eight[0],
+    'intensity', d1, d2, pitch[1], five[1], six[1], 'crush', eight[1],
   ];
 }
 
@@ -261,8 +265,9 @@ interface InstrumentEntry {
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
     name: 'KICK', gain: 0.565, live: ['macro:attack', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
-    // Module 5 free: TIMBRE / INT set the sweep; SWEEP / SWP TIME fine-tune it on FUNC 2.
-    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], [null, null], ['c_reso', 'c_noise']),
+    // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2), so ROLL DIV /
+    // BALANCE moved to 5 and AIR ends the page beside DRIVE / CRUSH.
+    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['rolldiv', 'balance'], ['c_reso', 'c_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(KICK_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {

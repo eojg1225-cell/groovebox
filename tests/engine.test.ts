@@ -205,8 +205,10 @@ describe('instruments', () => {
       'intensity', 'd1', 'd2', 'p2', 'f2', 's2', 'crush', 'balance',
     ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
-    // KICK: TIMBRE / INT set the sweep; SWEEP / SWP TIME fine-tune it on FUNC 2, module 5 is free.
-    expect([INSTRUMENTS.kick.layout[4], INSTRUMENTS.kick.layout[12]]).toEqual([null, null]);
+    // KICK: TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2); ROLL DIV /
+    // BALANCE on 5; AIR ends the page beside DRIVE / CRUSH.
+    expect([INSTRUMENTS.kick.layout[4], INSTRUMENTS.kick.layout[12]]).toEqual(['rolldiv', 'balance']);
+    expect([INSTRUMENTS.kick.layout[7], INSTRUMENTS.kick.layout[15]]).toEqual(['air', 'airsize']);
     expect([INSTRUMENTS.kick.funcLayout[1], INSTRUMENTS.kick.funcLayout[9]]).toEqual(['t_sweep', 't_stime']);
     expect([INSTRUMENTS.snare.layout[4], INSTRUMENTS.snare.layout[12]]).toEqual(['t_sweep', 't_stime']); // the sweep together
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
@@ -3290,5 +3292,52 @@ describe('v43: KICK TIMBRE sounds run soft -> extreme', () => {
     expect(sound.t_stime).toBeCloseTo(hidden.t_stime, 9); // the new extreme
     expect(sound.t_sweep).toBeCloseTo(applyTrim(paramSpec('kick', 't_sweep')!, hidden.t_sweep, 0.08), 9);
     expect(applyTrim(paramSpec('kick', 't_decay')!, hidden.t_decay, trims.t_decay)).toBeCloseTo(2, 6);
+  });
+});
+
+describe('AIR (KICK, SNARE)', () => {
+  const rms = (x: Float32Array, a: number, b: number) => {
+    let sum = 0;
+    for (let i = a; i < b; i++) sum += x[i] * x[i];
+    return Math.sqrt(sum / (b - a));
+  };
+  /** One hit, dry and through post (AIR), 2 s. */
+  const hit = (kind: 'kick' | 'snare', values: Record<string, number>) => {
+    const d = kind === 'kick' ? new Drum(SR, KICK_PARAMS, KICK_VOICE) : new Drum(SR, SNARE_PARAMS, SNARE_VOICE);
+    for (const [id, v] of Object.entries({ ...presetSound(kind, 2), ...values })) d.setParam(id, v);
+    d.noteOn(36, 0.8, 36, false);
+    const n = SR * 2, l = new Float32Array(n), r = new Float32Array(n);
+    for (let o = 0; o < n; o += BLOCK) d.render(l, r, o, o + BLOCK);
+    const dry = l.slice();
+    for (let o = 0; o < n; o += BLOCK) d.post(l.subarray(o, o + BLOCK), r.subarray(o, o + BLOCK), BLOCK);
+    return { dry, out: l, wet: l.map((v, i) => v - dry[i]) };
+  };
+
+  it('AIR LVL 0 leaves the hit untouched; turned up it adds a tail under the hit', () => {
+    for (const kind of ['kick', 'snare'] as const) {
+      const off = hit(kind, { air: 0 });
+      expect(off.out, kind).toEqual(off.dry);
+      const on = hit(kind, { air: 1 });
+      const peak = stats(on.dry).peak, wet = stats(on.wet).peak;
+      expect(wet, kind).toBeGreaterThan(peak * 0.1); // audible: within 20 dB
+      expect(wet, kind).toBeLessThan(peak * 0.5); // under the hit
+      // The tail outlasts the hit.
+      expect(rms(on.wet, Math.floor(SR * 0.3), Math.floor(SR * 0.6)), kind).toBeGreaterThan(rms(on.dry, Math.floor(SR * 0.3), Math.floor(SR * 0.6)) * 0.1);
+    }
+  });
+
+  it('AIR SIZE makes the room ring longer', () => {
+    const tail = (airsize: number) => rms(hit('kick', { air: 1, airsize }).wet, SR, 2 * SR);
+    expect(tail(1)).toBeGreaterThan(tail(0) * 10);
+  });
+
+  it("the KICK's AIR keeps out of the low end (its fixed EQ)", () => {
+    // A pure sub body (no click): next to nothing comes back.
+    const sub = hit('kick', { air: 1, c_level: 0, t_sweep: 0, drive: 1 });
+    expect(stats(sub.wet).peak).toBeLessThan(stats(sub.dry).peak * 0.03);
+  });
+
+  it('only KICK and SNARE have AIR', () => {
+    for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(k === 'kick' || k === 'snare');
   });
 });
