@@ -362,4 +362,5 @@ document.addEventListener('keydown', (e) => {
 
 const savedAt = (stored as { savedAt?: number }).savedAt;
 $('foot').textContent = `Your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops.`;
-setKind('kick');
+// Open on the track type with candidates to try (KICK when there are none).
+setKind(SOUND_KINDS.find((k) => CANDIDATES[k]?.length) ?? 'kick');

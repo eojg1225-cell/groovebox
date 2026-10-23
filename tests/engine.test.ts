@@ -607,9 +607,9 @@ describe('chords and gates', () => {
 });
 
 describe('drum layers', () => {
-  it('a kick has no metal layer and a snare no click layer', () => {
+  it('a kick has no metal layer (a snare has a click layer: its crack)', () => {
     expect(KICK_PARAMS.some((p) => p.id.startsWith('m_'))).toBe(false);
-    expect(SNARE_PARAMS.some((p) => p.id.startsWith('c_'))).toBe(false);
+    expect(SNARE_PARAMS.some((p) => p.id.startsWith('c_'))).toBe(true);
     expect(INSTRUMENTS.hat.params.some((p) => p.id.startsWith('t_'))).toBe(false);
   });
 
@@ -1035,7 +1035,7 @@ describe('project', () => {
     const stored = toStored(busy());
     const total = stored.channels.reduce((n, c) => n + c.patterns.reduce((m, pat) => m + pat.steps.length, 0), 0);
     expect(total).toBe(3 + 2); // + the ring hit and the rest marker
-    expect(JSON.stringify(stored).length).toBeLessThan(20000);
+    expect(JSON.stringify(stored).length).toBeLessThan(22000);
   });
 
   it('starts with every pattern empty', () => {
@@ -3343,5 +3343,39 @@ describe('AIR (KICK, SNARE)', () => {
 
   it('only KICK and SNARE have AIR', () => {
     for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(k === 'kick' || k === 'snare');
+  });
+});
+
+describe('SNARE crack and SHELL', () => {
+  /** One snare hit with these values over the plain test sound (no sweep, wires or crack). */
+  const hit = (values: Record<string, number>) => {
+    const d = new Drum(SR, SNARE_PARAMS, SNARE_VOICE);
+    const plain = { t_level: 1, t_pitch: 200, t_sweep: 0, t_decay: 0.3, m_level: 0, c_level: 0, drive: 1, balance: 0.5 };
+    for (const [id, v] of Object.entries({ ...plain, ...values })) d.setParam(id, v);
+    d.noteOn(36, 1, 36, false);
+    const n = SR / 4, l = new Float32Array(n), r = new Float32Array(n);
+    d.render(l, r, 0, n);
+    return l;
+  };
+  /** Magnitude of one frequency over the first 0.1 s. */
+  const at = (x: Float32Array, hz: number) => {
+    let re = 0, im = 0;
+    for (let i = 0; i < SR / 10; i++) { re += x[i] * Math.cos((2 * Math.PI * hz * i) / SR); im += x[i] * Math.sin((2 * Math.PI * hz * i) / SR); }
+    return Math.hypot(re, im);
+  };
+
+  it('SHELL adds the drumhead overtones (1.59, 2.14 x the body); 0 is the plain body', () => {
+    const plain = hit({ t_shell: 0 }), shell = hit({ t_shell: 1 });
+    for (const ratio of [1.594, 2.136]) expect(at(shell, 200 * ratio)).toBeGreaterThan(at(plain, 200 * ratio) * 5);
+    expect(Math.abs(at(shell, 200) / at(plain, 200) - 1)).toBeLessThan(0.01); // the body itself stays
+  });
+
+  it('the crack (click layer) sounds on the snare, with the body under BALANCE', () => {
+    const silent = hit({ t_level: 0 });
+    expect(stats(silent).peak).toBe(0);
+    const crack = hit({ t_level: 0, c_level: 1, c_tone: 2000 });
+    expect(stats(crack).peak).toBeGreaterThan(0.05);
+    // BALANCE fully to the wires turns the crack down with the body.
+    expect(stats(hit({ t_level: 0, c_level: 1, c_tone: 2000, balance: 1 })).peak).toBe(0);
   });
 });
