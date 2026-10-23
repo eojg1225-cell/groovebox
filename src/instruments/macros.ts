@@ -5,7 +5,8 @@
  * move musically): the coarse choice of sound. INTENSITY then sets the amount of
  * modulation / atmosphere around a neutral middle (0.5 = as designed): down, FM, filter
  * envelope, sweep, noise, click, drive and width converge on a dull floor (keeping a
- * trace (2 %) of the TIMBRE's own character); up, they are excited. Never loudness.
+ * trace (2 %) of the TIMBRE's own character); up, they are excited. Never loudness. A sound
+ * can instead bring its own INTENSITY 0 / 1 versions (Anchor soft / hard: the KICK's do).
  * Layers: hidden (these) < design (SOUND page knobs, stored as trims on top, see trims.ts)
  * < live (relative knobs in the engine).
  *
@@ -16,7 +17,15 @@ import { toNorm, toValue, type ParamSpec } from '../engine/params';
 
 export interface Anchor {
   name: string;
+  /** The sound at INTENSITY 0.5. */
   values: Record<string, number>;
+  /**
+   * The sound's own INTENSITY 0 (soft) and 1 (extreme) versions of some of its values: a
+   * parameter given one moves values -> end on its own curve over that half of INTENSITY
+   * (the type's Excite rules leave it alone there). Every id here is also in `values`.
+   */
+  soft?: Record<string, number>;
+  hard?: Record<string, number>;
 }
 
 /**
@@ -41,26 +50,58 @@ export interface Excite {
 /** How far INTENSITY 0 pulls the modulation towards its floor (the rest stays TIMBRE's). */
 const CONVERGE = 0.98;
 
-interface MacroDef {
+export interface MacroDef {
   anchors: readonly Anchor[];
   excite: readonly Excite[];
 }
 
 export const MACROS: Record<SoundKind, MacroDef> = {
   kick: {
+    // Each sound runs from its own soft, slow thump (INT 0) to its own extreme (INT 1); INT
+    // moves the sweep depth and time too (SWEEP / SWP TIME sit on FUNC as fine tuning).
+    // BD DEC is TIMBRE's (0.5 s on every sound; the knob is a trim on top), so a sound's
+    // extreme can be short.
     anchors: [
-      // Dub / jungle: a tuned 808 boom - pure sine, slow drop, no click (RING makes it sing).
-      { name: '808 BOOM', values: { ogain: 1.229, t_level: 1, t_pitch: 41, t_sweep: 12, t_stime: 0.06, c_level: 0, c_tone: 1500, c_reso: 0.1, c_len: 0.004, c_noise: 0.2, drive: 1.1, crush: 0 } },
-      { name: 'VINTAGE', values: { ogain: 1.157, t_level: 0.95, t_pitch: 44, t_sweep: 14, t_stime: 0.07, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.006, c_noise: 0.3, drive: 1.3, crush: 0 } },
-      { name: 'PUNCH', values: { ogain: 0.991, t_level: 0.95, t_pitch: 52, t_sweep: 30, t_stime: 0.03, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 } },
-      { name: 'TECHNO', values: { ogain: 0.955, t_level: 0.95, t_pitch: 49, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 } },
-      // Over the top on purpose: a 6-7 octave laser zap down into a square-driven doof.
-      { name: 'PSY DOOF', values: { ogain: 0.743, t_level: 1, t_pitch: 58, t_sweep: 80, t_stime: 0.028, c_level: 1, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 45, crush: 0 } },
+      {
+        // Dub / jungle: a tuned 808 boom - pure sine, slow drop, no click (RING makes it sing).
+        name: '808 BOOM',
+        values: { ogain: 1.229, t_level: 1, t_pitch: 41, t_decay: 0.5, t_sweep: 12, t_stime: 0.06, c_level: 0, c_tone: 1500, c_reso: 0.1, c_len: 0.004, c_noise: 0.2, drive: 1.1, crush: 0 },
+        soft: { ogain: 1.277, t_sweep: 4, t_stime: 0.09, drive: 1 },
+        // A long, saturated sub drop.
+        hard: { ogain: 0.984, t_sweep: 24, t_stime: 0.1, c_level: 0.12, c_tone: 1800, drive: 3 },
+      },
+      {
+        name: 'VINTAGE',
+        values: { ogain: 1.157, t_level: 0.95, t_pitch: 44, t_decay: 0.5, t_sweep: 14, t_stime: 0.07, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.006, c_noise: 0.3, drive: 1.3, crush: 0 },
+        soft: { ogain: 1.244, t_sweep: 6, t_stime: 0.08, c_level: 0.02, drive: 1 },
+        // A pushed tape-machine kick: more drop, more knock.
+        hard: { ogain: 0.995, t_sweep: 28, t_stime: 0.06, c_level: 0.3, c_tone: 2600, c_reso: 0.35, drive: 3.5 },
+      },
+      {
+        name: 'PUNCH',
+        values: { ogain: 0.991, t_level: 0.95, t_pitch: 52, t_decay: 0.5, t_sweep: 30, t_stime: 0.03, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 },
+        soft: { ogain: 1.096, t_sweep: 10, t_stime: 0.05, c_level: 0.08, c_tone: 2200, drive: 1.2 },
+        hard: { ogain: 0.887, t_sweep: 44, t_stime: 0.03, c_level: 0.75, c_tone: 5500, c_reso: 0.5, c_noise: 0.6, drive: 6 },
+      },
+      {
+        name: 'TECHNO',
+        values: { ogain: 0.955, t_level: 0.95, t_pitch: 49, t_decay: 0.5, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 },
+        soft: { ogain: 1.129, t_sweep: 12, t_stime: 0.04, c_level: 0.08, c_tone: 2500, c_reso: 0.15, drive: 1.3 },
+        // Hardstyle / gabber: a tight drop through the mids, released just after it (so it
+        // reads higher but keeps its low end), clipped into a square.
+        hard: { ogain: 1.16, t_pitch: 58, t_decay: 0.2, t_sweep: 30, t_stime: 0.008, c_level: 0.55, c_tone: 3200, c_reso: 0.6, c_len: 0.004, drive: 140 },
+      },
+      {
+        // Over the top on purpose: a 6-7 octave laser zap down into a square-driven doof.
+        name: 'PSY DOOF',
+        values: { ogain: 0.743, t_level: 1, t_pitch: 58, t_decay: 0.5, t_sweep: 80, t_stime: 0.028, c_level: 1, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 45, crush: 0 },
+        soft: { ogain: 0.924, t_sweep: 10, t_stime: 0.06, c_level: 0.1, c_tone: 3000, c_reso: 0.3, drive: 2 },
+        // Goa laser: a 10-octave zap (held at the top of the hearing range), slow enough to
+        // hear it fall.
+        hard: { ogain: 0.668, t_sweep: 120, t_stime: 0.16, c_level: 1, c_tone: 12000, c_reso: 0.95, drive: 60 },
+      },
     ],
-    excite: [
-      { id: 'drive', floor: 1, high: 2 }, { id: 'c_level', floor: 0.02, high: 1.5 }, { id: 't_sweep', floor: 2, high: 1.15 },
-      { id: 'c_tone', floor: 700, high: 1.4 }, { id: 'c_noise', floor: 0.05, high: 1.2 }, { id: 'c_reso', floor: 0.05, high: 1.2 },
-    ],
+    excite: [],
   },
   snare: {
     anchors: [
@@ -289,7 +330,7 @@ export function macroIds(kind: SoundKind, specs: readonly ParamSpec[]): Set<stri
 }
 
 /** A parameter's value after INTENSITY x (0..1) by its Excite rule. */
-export function excited(e: Excite, spec: ParamSpec, value: number, x: number): number {
+function excited(e: Excite, spec: ParamSpec, value: number, x: number): number {
   if (x < 0.5) {
     if (e.floor === undefined) return value;
     const n = toNorm(spec, value);
@@ -306,18 +347,38 @@ export function excited(e: Excite, spec: ParamSpec, value: number, x: number): n
 }
 
 export function macroSound(kind: SoundKind, timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
-  const { anchors, excite } = MACROS[kind];
+  return macroSoundOf(MACROS[kind], kind, timbre, intensity, specs);
+}
+
+/** A sound's own value at INTENSITY x towards its soft / hard end (undefined = none that side). */
+function ownEnd(a: Anchor, id: string, spec: ParamSpec, x: number): number | undefined {
+  const end = x < 0.5 ? a.soft?.[id] : a.hard?.[id];
+  if (end === undefined) return undefined;
+  const mid = a.values[id] ?? spec.defaultValue;
+  const f = x < 0.5 ? 1 - 2 * x : 2 * x - 1;
+  return toValue(spec, toNorm(spec, mid) + (toNorm(spec, end) - toNorm(spec, mid)) * f);
+}
+
+/** macroSound for any set of sounds and rules (the sound lab tries candidates with it). */
+export function macroSoundOf(def: MacroDef, kind: SoundKind, timbre: number, intensity: number, specs: readonly ParamSpec[]): Record<string, number> {
+  const { anchors, excite } = def;
   const t = Math.min(1, Math.max(0, timbre)) * (anchors.length - 1);
   const i0 = Math.min(anchors.length - 2, Math.floor(t));
   const f = t - i0;
   const a = anchors[i0].values;
   const b = anchors[i0 + 1].values;
+  const x = Math.min(1, Math.max(0, intensity));
   const out: Record<string, number> = {};
+  /** Parameters a sound's own soft / hard end sets here (no Excite rule on them). */
+  const own = new Set<string>();
   for (const id of new Set([...Object.keys(a), ...Object.keys(b)])) {
     const spec = specs.find((p) => p.id === id);
     if (!spec) continue;
-    const va = a[id] ?? b[id];
-    const vb = b[id] ?? a[id];
+    const ea = ownEnd(anchors[i0], id, spec, x);
+    const eb = ownEnd(anchors[i0 + 1], id, spec, x);
+    if (ea !== undefined || eb !== undefined) own.add(id);
+    const va = ea ?? a[id] ?? b[id];
+    const vb = eb ?? b[id] ?? a[id];
     // Blend on the parameter's own curve (log for frequencies and times).
     out[id] = toValue(spec, toNorm(spec, va) + (toNorm(spec, vb) - toNorm(spec, va)) * f);
     // FM ratios step through related ratios between sounds instead of smearing through
@@ -329,10 +390,9 @@ export function macroSound(kind: SoundKind, timbre: number, intensity: number, s
     out.cratio = pair[0];
     out.fmratio = pair[1];
   }
-  const x = Math.min(1, Math.max(0, intensity));
   for (const e of excite) {
     const spec = specs.find((p) => p.id === e.id);
-    if (spec && out[e.id] !== undefined) out[e.id] = excited(e, spec, out[e.id], x);
+    if (spec && out[e.id] !== undefined && !own.has(e.id)) out[e.id] = excited(e, spec, out[e.id], x);
   }
   // OSC 2's SUSTAIN / RELEASE and FM LVL2 follow OSC 1's / FM LVL unless the sounds set their own.
   for (const [id, from] of MIRRORED) {

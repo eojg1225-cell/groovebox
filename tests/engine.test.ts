@@ -106,6 +106,43 @@ function engineWith(p: Project): Engine {
   return e;
 }
 
+/**
+ * Loudness of one default hit (synths: a half-second note) on track ch with this sound:
+ * BS.1770 K-weighting (48 kHz), then the loudest 400 ms (momentary loudness), dB.
+ */
+function loudness(ch: number, kind: SoundKind, sound: Record<string, number>): number {
+  const biquad = (c: number[], x: Float32Array) => {
+    const y = new Float32Array(x.length);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < x.length; i++) {
+      const v = c[0] * x[i] + c[1] * x1 + c[2] * x2 - c[3] * y1 - c[4] * y2;
+      x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v;
+    }
+    return y;
+  };
+  const k = (x: Float32Array) => biquad([1, -2, 1, -1.99004745483398, 0.99007225036621], biquad([1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585], x));
+  const p = createDefaultProject();
+  p.bpm = 120;
+  p.master = 0.2; // under the limiter
+  p.channels.forEach((c, n) => { c.patterns = c.patterns.map(() => emptyPattern(c.patterns[0].steps[0].note)); c.mute = n !== ch; });
+  applyPreset(p.channels[ch], kind, 0);
+  p.channels[ch].sounds[kind] = { ...sound };
+  const pat = p.channels[ch].patterns[0];
+  pat.length = 64;
+  Object.assign(pat.steps[0], { active: true, gate: INSTRUMENTS[kind].drum ? 1 : 4 });
+  const e = engineWith(p);
+  e.handleMessage({ type: 'transport', playing: true });
+  const { l, r } = render(e, 1.5);
+  const wl = k(l), wr = k(r), win = SR * 0.4;
+  let sum = 0, best = 0;
+  for (let n = 0; n < l.length; n++) {
+    sum += wl[n] ** 2 + wr[n] ** 2;
+    if (n >= win) sum -= wl[n - win] ** 2 + wr[n - win] ** 2;
+    best = Math.max(best, sum);
+  }
+  return 10 * Math.log10(best / win);
+}
+
 const near = (actual: number[], expected: number[], tol = 4) => {
   expect(actual.length).toBe(expected.length);
   actual.forEach((a, i) => expect(Math.abs(a - expected[i])).toBeLessThanOrEqual(tol));
@@ -168,7 +205,10 @@ describe('instruments', () => {
       'intensity', 'd1', 'd2', 'p2', 'f2', 's2', 'crush', 'balance',
     ]);
     expect(INSTRUMENTS.kick.layout.slice(1, 3)).toEqual(['t_attack', 'c_attack']);
-    expect([INSTRUMENTS.kick.layout[4], INSTRUMENTS.kick.layout[12]]).toEqual(['t_sweep', 't_stime']); // the sweep together
+    // KICK: TIMBRE / INT set the sweep; SWEEP / SWP TIME fine-tune it on FUNC 2, module 5 is free.
+    expect([INSTRUMENTS.kick.layout[4], INSTRUMENTS.kick.layout[12]]).toEqual([null, null]);
+    expect([INSTRUMENTS.kick.funcLayout[1], INSTRUMENTS.kick.funcLayout[9]]).toEqual(['t_sweep', 't_stime']);
+    expect([INSTRUMENTS.snare.layout[4], INSTRUMENTS.snare.layout[12]]).toEqual(['t_sweep', 't_stime']); // the sweep together
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
     expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
@@ -198,8 +238,10 @@ describe('instruments', () => {
     expect(linkedParams('lead', 'release')).toEqual(['release2']);
     expect(linkedParams('bass', 'attack')).toEqual([]);
     expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'detune']);
-    // Drums: no sound FUNC layer, only the track setup (PRESET, LIVE, MID FREQ).
-    for (const k of ['kick', 'snare', 'hat', 'perc'] as const) expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:')), k).toBe(true);
+    // Drums: only the track setup (PRESET, LIVE, MID FREQ) on FUNC, plus the KICK's SWEEP / SWP TIME.
+    for (const k of ['kick', 'snare', 'hat', 'perc'] as const) {
+      expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || (k === 'kick' && id.startsWith('t_s'))), k).toBe(true);
+    }
     // PAD / LEAD hold their notes: ATTACK / RELEASE on the page, DECAY / SUSTAIN on FUNC.
     for (const k of ['pad', 'lead'] as const) {
       const l = INSTRUMENTS[k].layout;
@@ -853,7 +895,11 @@ describe('TIMBRE and INTENSITY macros', () => {
     const tails = ['t_decay', 'm_decay', 'detune', 'unison', 'attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2'];
     for (const k of SOUND_KINDS.filter((k) => k !== 'bass' && k !== 'pluck')) {
       const ids = macroIds(k, INSTRUMENTS[k].params);
-      for (const id of tails) expect(ids.has(id), `${k} ${id}`).toBe(false);
+      // The KICK's BD DEC is TIMBRE's, but the same on every sound at INT 50 (TECHNO's extreme shortens it).
+      if (k === 'kick') {
+        for (const t of [0, 0.3, 0.5, 0.75, 1]) expect(macroSound(k, t, 0.5, INSTRUMENTS.kick.params).t_decay).toBeCloseTo(0.5, 9);
+      }
+      for (const id of tails) if (!(k === 'kick' && id === 't_decay')) expect(ids.has(id), `${k} ${id}`).toBe(false);
       for (const e of MACROS[k].excite) expect(tails.includes(e.id), `${k} INTENSITY ${e.id}`).toBe(false);
     }
   });
@@ -2261,42 +2307,9 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
   });
 
   it('every TIMBRE sound on every track is equally loud at its default VOLUME', () => {
-    // BS.1770 K-weighting (48 kHz), then the loudest 400 ms (momentary loudness).
-    const biquad = (c: number[], x: Float32Array) => {
-      const y = new Float32Array(x.length);
-      let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-      for (let i = 0; i < x.length; i++) {
-        const v = c[0] * x[i] + c[1] * x1 + c[2] * x2 - c[3] * y1 - c[4] * y2;
-        x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v;
-      }
-      return y;
-    };
-    const k = (x: Float32Array) => biquad([1, -2, 1, -1.99004745483398, 0.99007225036621], biquad([1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585], x));
-    /** One default hit (synths: a half-second note) on track ch with sound i. */
-    const loudness = (ch: number, kind: SoundKind, i: number) => {
-      const p = createDefaultProject();
-      p.bpm = 120;
-      p.master = 0.2; // under the limiter
-      p.channels.forEach((c, n) => { c.patterns = c.patterns.map(() => emptyPattern(c.patterns[0].steps[0].note)); c.mute = n !== ch; });
-      applyPreset(p.channels[ch], kind, i);
-      const pat = p.channels[ch].patterns[0];
-      pat.length = 64;
-      Object.assign(pat.steps[0], { active: true, gate: INSTRUMENTS[kind].drum ? 1 : 4 });
-      const e = engineWith(p);
-      e.handleMessage({ type: 'transport', playing: true });
-      const { l, r } = render(e, 1.5);
-      const wl = k(l), wr = k(r), win = SR * 0.4;
-      let sum = 0, best = 0;
-      for (let n = 0; n < l.length; n++) {
-        sum += wl[n] ** 2 + wr[n] ** 2;
-        if (n >= win) sum -= wl[n - win] ** 2 + wr[n - win] ** 2;
-        best = Math.max(best, sum);
-      }
-      return 10 * Math.log10(best / win);
-    };
     const levels = createDefaultProject().channels.flatMap((c, ch) => {
       const kind = c.instrument as SoundKind;
-      return INSTRUMENTS[kind].presets.slice(0, 5).map((_, i) => loudness(ch, kind, i));
+      return INSTRUMENTS[kind].presets.slice(0, 5).map((_, i) => loudness(ch, kind, presetSound(kind, i)));
     });
     expect(Math.max(...levels) - Math.min(...levels)).toBeLessThan(1);
   }, 30_000);
@@ -3214,5 +3227,68 @@ describe('PAD / PLUCK chord slides, FM LVL2', () => {
     delete pad.fm2;
     const q = fromStored(stored)!.channels[5].sounds.pad!;
     expect(q.fm2).toBe(0.33);
+  });
+});
+
+describe('v43: KICK TIMBRE sounds run soft -> extreme', () => {
+  const specs = INSTRUMENTS.kick.params;
+  const at = (t: number, x: number) => macroSound('kick', t, x, specs);
+
+  it('INT 50 is each sound as designed; INT 0 sweeps less and slower-starting, INT 100 more', () => {
+    MACROS.kick.anchors.forEach((a, i) => {
+      const t = anchorPosition('kick', i);
+      for (const id in a.values) expect(at(t, 0.5)[id], `${a.name} ${id}`).toBeCloseTo(a.values[id], 6);
+      expect(at(t, 0).t_sweep, a.name).toBeLessThan(at(t, 0.5).t_sweep);
+      expect(at(t, 1).t_sweep, a.name).toBeGreaterThanOrEqual(at(t, 0.5).t_sweep - 6);
+      expect(at(t, 0).drive, a.name).toBeLessThanOrEqual(at(t, 0.5).drive);
+    });
+    // TECHNO's extreme: a tighter drop, released soon after; PSY's: a longer, higher zap.
+    const techno = anchorPosition('kick', 3), psy = anchorPosition('kick', 4);
+    expect(at(techno, 1).t_stime).toBeLessThan(at(techno, 0.5).t_stime);
+    expect(at(techno, 1).t_decay).toBeCloseTo(0.2, 6);
+    expect(at(psy, 1).t_sweep).toBe(120);
+    expect(at(psy, 1).t_stime).toBeGreaterThan(at(psy, 0.5).t_stime);
+  });
+
+  it('every sound plays as loud at INT 0 and 100 as at 50 (within 1 dB)', () => {
+    MACROS.kick.anchors.forEach((a, i) => {
+      const t = anchorPosition('kick', i);
+      const sound = (x: number) => ({ ...presetSound('kick', 0), ...at(t, x), timbre: t, intensity: x });
+      const mid = loudness(0, 'kick', sound(0.5));
+      for (const x of [0, 1]) expect(Math.abs(loudness(0, 'kick', sound(x)) - mid), `${a.name} INT ${x}`).toBeLessThan(1);
+    });
+  }, 30_000);
+
+  it('the body sweep is held at the top of the hearing range (no aliasing above it)', () => {
+    // Two sweeps that both start far above 18 kHz sound the same while held there.
+    const hit = (sweep: number) => {
+      const d = new Drum(SR, KICK_PARAMS, KICK_VOICE);
+      for (const [id, v] of Object.entries({ ...presetSound('kick', 0), t_pitch: 1000, t_sweep: sweep, t_stime: 2, t_decay: 2, c_level: 0, drive: 1 })) d.setParam(id, v);
+      d.noteOn(36, 1, 36, false);
+      const l = new Float32Array(2400), r = new Float32Array(2400);
+      d.render(l, r, 0, 2400);
+      return l;
+    };
+    const a = hit(120), b = hit(110);
+    expect(stats(a).peak).toBeGreaterThan(0.1);
+    expect(a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0)).toBeLessThan(1e-6);
+  });
+
+  it('v42 saves: a KICK keeps its BD DEC (now a trim) and its SWEEP trim size; the rest follows the new sounds', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 42;
+    const kick = stored.channels[0];
+    const techno = anchorPosition('kick', 3);
+    Object.assign(kick.sounds.kick, { timbre: techno, intensity: 1, t_decay: 2 });
+    kick.trims = { kick: { t_sweep: 0.1 } };
+    const back = fromStored(stored)!.channels[0];
+    const sound = back.sounds.kick!, trims = back.trims.kick!;
+    expect(sound.t_decay).toBeCloseTo(2, 6);
+    expect(trims.t_sweep).toBeCloseTo(0.08, 9);
+    const hidden = at(techno, 1);
+    expect(sound.t_stime).toBeCloseTo(hidden.t_stime, 9); // the new extreme
+    expect(sound.t_sweep).toBeCloseTo(applyTrim(paramSpec('kick', 't_sweep')!, hidden.t_sweep, 0.08), 9);
+    expect(applyTrim(paramSpec('kick', 't_decay')!, hidden.t_decay, trims.t_decay)).toBeCloseTo(2, 6);
   });
 });

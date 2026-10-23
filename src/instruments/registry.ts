@@ -38,11 +38,11 @@ export function synthPage(amp: readonly [string, string], perform: readonly [str
 /**
  * Drums: 1 TIMBRE / INT, 2 element 1 ATTACK / DECAY, 3 element 2 ATTACK / DECAY, 4 the
  * elements' pitch (`pitch`), 5 and 6 their character (`five`, `six`: sweep, click or metal
- * colour), 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body +
+ * colour; KICK's 5 is empty, its sweep is TIMBRE / INT's), 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body +
  * click, SNARE body + metal (wires), HAT click + metal, PERC body + click (+ metal halfway
  * between them). No filter per drum (FX 1's FILTER is the kit's).
  */
-export function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string, string]): string[] {
+export function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string | null, string | null], six: readonly [string, string]): (string | null)[] {
   const [a1, d1, a2, d2] = elements;
   return [
     'timbre', a1, a2, pitch[0], five[0], six[0], 'drive', 'rolldiv',
@@ -62,9 +62,11 @@ const _ = null;
 /*
  * FUNC layers. Synths: the rest of the amp envelope under module 2, then what each type
  * needs (below). SHAPE and FM RATIO are TIMBRE's. OCTAVE has no knob: OCT - / + in DESIGN
- * (App.stepOctave). Drums: no FUNC layer yet.
+ * (App.stepOctave). Drums: KICK SWEEP / SWP TIME (FUNC 2); the others have none yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
+/** KICK FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
+const KICK_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
 const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, 'duck', _], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
 /** PLUCK FUNC: DECAY / RELEASE, SLIDE (3), UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
@@ -259,8 +261,9 @@ interface InstrumentEntry {
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
     name: 'KICK', gain: 0.565, live: ['macro:attack', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
-    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['t_sweep', 't_stime'], ['c_reso', 'c_noise']),
-    funcLayout: trackFunc(NO_FUNC),
+    // Module 5 free: TIMBRE / INT set the sweep; SWEEP / SWP TIME fine-tune it on FUNC 2.
+    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], [null, null], ['c_reso', 'c_noise']),
+    funcLayout: trackFunc(KICK_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
     name: 'SNARE', gain: 0.797, live: ['macro:snap', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,

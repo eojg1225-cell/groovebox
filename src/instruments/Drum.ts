@@ -46,7 +46,7 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   INTENSITY,
   { id: 't_level', name: 'BD LEVEL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 't_pitch', name: 'BD PITCH', min: 10, max: 5000, defaultValue: 50, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 't_sweep', name: 'SWEEP', min: 0, max: 96, defaultValue: 24, unit: 'ST', curve: 'linear', decimals: 0 },
+  { id: 't_sweep', name: 'SWEEP', min: 0, max: 120, defaultValue: 24, unit: 'ST', curve: 'linear', decimals: 0 },
   { id: 't_stime', name: 'SWP TIME', min: 0.001, max: 2, defaultValue: 0.04, unit: 'S', curve: 'exp', decimals: 3 },
   { id: 't_attack', name: 'BD ATK', ...ATTACK },
   { id: 't_decay', name: 'BD DEC', min: 0.005, max: 20, defaultValue: 0.45, unit: 'S', curve: 'exp' },
@@ -99,7 +99,8 @@ const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq'];
 /*
  * Each drum type: its parameters (set by TIMBRE / INTENSITY and presets, except the tail
  * lengths - layer decays and the ring extension - which are the type's own, the same for every
- * TIMBRE, so sounds can be swapped without changing how long they ring),
+ * TIMBRE, so sounds can be swapped without changing how long they ring; the KICK's BD DEC is
+ * the exception: TIMBRE's, 0.5 s on every sound, shortened by TECHNO's INT extreme),
  * and its two elements' ATTACK / DECAY ids (on the SOUND page, see registry). Parameters
  * without a knob are set by TIMBRE / INTENSITY.
  */
@@ -215,6 +216,8 @@ export class Drum implements Instrument {
   // The LFO's filter destination: a low-pass from 20 kHz, only while it modulates.
   private filterOn = false; private filterMod = 0;
   private readonly chokeMul: number;
+  /** The body's sweep never goes above this (Hz): 18 kHz, or below Nyquist at low rates. */
+  private readonly sweepTop: number;
   /** Decay multipliers in use for the current hit (normal, ring or choke). */
   private tMul = 0; private mMul = 0; private cMul = 0;
   private ringing = false;
@@ -236,6 +239,7 @@ export class Drum implements Instrument {
     this.sr = sampleRate;
     this.fadeLen = Math.max(1, Math.round(RETRIGGER_FADE * sampleRate));
     this.chokeMul = decayMul(CHOKE_SECONDS, sampleRate);
+    this.sweepTop = Math.min(18000, 0.4 * sampleRate);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
     for (const p of params) this.setParam(p.id, p.defaultValue);
@@ -400,7 +404,8 @@ export class Drum implements Instrument {
 
       // TONE
       if (this.tStage !== OFF) {
-        const f = tPitch * Math.pow(2, (this.tSweep * this.sweepEnv) / 12);
+        // Held below the top of the hearing range (a long sweep from a high start).
+        const f = Math.min(tPitch * Math.pow(2, (this.tSweep * this.sweepEnv) / 12), this.sweepTop);
         const dt = f * dtBase;
         this.tPhase += dt;
         if (this.tPhase >= 1) this.tPhase -= 1;

@@ -14,7 +14,7 @@ import {
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
-import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
+import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
@@ -215,6 +215,26 @@ function fmEnvV41(values: Record<string, number>): void {
   if (values.fdecay !== undefined && values.fmdecay === undefined) values.fmdecay = values.fdecay;
 }
 
+/**
+ * v43: the KICK's TIMBRE sounds have their own INT 0 / 1 ends and TIMBRE sets BD DEC (0.5 s
+ * on every sound), so a stored BD DEC becomes a trim (the decay stays as it was) and the
+ * other TIMBRE / INT values are rebuilt under the stored trims; SWEEP's range grew from
+ * 0-96 to 0-120 semitones (stored SWEEP trims rescaled to keep their size). On a sound and
+ * its stored trims, in place.
+ */
+export function drumsV43(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (trims.t_sweep !== undefined) trims.t_sweep *= 96 / 120;
+  if (kind !== 'kick') return;
+  const specs = INSTRUMENTS.kick.params;
+  const hidden = hiddenSound(kind, sound, specs);
+  const decay = specs.find((p) => p.id === 't_decay')!;
+  if (trims.t_decay === undefined && sound.t_decay !== undefined) {
+    const t = trimFor(decay, sound.t_decay, hidden.t_decay);
+    if (t !== 0) trims.t_decay = t;
+  }
+  for (const spec of specs) if (hidden[spec.id] !== undefined) sound[spec.id] = applyTrim(spec, hidden[spec.id], trims[spec.id]);
+}
+
 /** Stored data in a format older than the reader reads exactly: its sounds may differ. */
 export function isOldFormat(data: unknown): boolean {
   return isObj(data) && num(data.version, 0) < OLDEST_EXACT;
@@ -296,6 +316,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 41 && isObj(x)) fmEnvV41(trims);
   // Trims stored without a linked parameter's (FM LVL2, added later): the knob's own.
   for (const id of Object.keys(trims)) for (const t of linkedParams(kind, id)) if (isObj(x) && typeof x[t] !== 'number') trims[t] = trims[id];
+  if (version < 43 && isObj(x)) drumsV43(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
