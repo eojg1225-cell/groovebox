@@ -19,6 +19,14 @@
   color-scheme: dark;
 }
 
+/* Panel lettering: Audiowide (src/fonts, OFL), one weight; never faked bold. */
+@font-face {
+  font-family: 'Audiowide';
+  src: url('./fonts/audiowide.woff2') format('woff2');
+  font-weight: 400;
+  font-display: block;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -60,6 +68,8 @@ html, body {
 
 /* ---------- Panel (design size 1200x760, scaled by Panel.fit) ---------- */
 .panel {
+  font-family: 'Audiowide', system-ui, sans-serif;
+  font-synthesis: none;
   position: absolute; left: 0; top: 0;
   transform-origin: 0 0;
   background: var(--panel);
