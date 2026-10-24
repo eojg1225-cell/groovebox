@@ -212,9 +212,10 @@ html, body {
 .panel-bottom { display: flex; gap: 16px; flex: 1; min-height: 0; }
 .bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
-.function-row { display: flex; gap: 8px; height: 44px; flex: none; }
-.fn-group { display: flex; gap: 4px; }
-/* Each a strip step wide (17 keys in five groups over the strip's width). */
+.function-row { display: flex; gap: 16.5px; height: 44px; flex: none; }
+.fn-group { display: flex; gap: 6px; }
+/* Each a strip step wide: 16 keys in five groups over the strip's width (12 gaps of 6 px +
+   4 group gaps take the room of the strip's 15 gaps and 3 group dividers). */
 .btn.fn { flex: 1 1 0; font-size: 10px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
 .btn.fn small { font-size: 8px; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; }
 .btn.fn.blank { cursor: default; }
