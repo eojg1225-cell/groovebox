@@ -173,14 +173,15 @@ export class Panel implements ControlSurface {
       if ((i - 1) % 4 === 0) b.classList.add('beat');
       steps.appendChild(b);
     }
-    // A divider after every four steps, from the function row down through the strip. With
-    // 16 steps, gaps of 6 px and 14 px more between groups, the gap after step 4k is
-    // centred k/4 of the way across plus 5k - 10 px; the line is 4 px wide.
+    // A divider after every four steps, from the function row down through the strip. Steps
+    // of 55 px, gaps of 6 px and 10 px more between groups (style.css): the gap after step
+    // 4k is centred at 254k - 8 px; the line is 4 px wide. The last one (1008 px) sits under
+    // the groove between knob modules 7 and 8.
     const bottom = q('.bottom-main');
     for (let k = 1; k <= 4; k++) {
       const line = document.createElement('div');
       line.className = 'strip-divider';
-      line.style.left = `calc(${k * 25}% + ${5 * k - 12}px)`;
+      line.style.left = `${254 * k - 10}px`;
       bottom.appendChild(line);
     }
     // FUNC (hold: the knobs' second layer; tap: latch) beside PLAY.
