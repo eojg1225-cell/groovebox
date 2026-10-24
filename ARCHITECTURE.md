@@ -9,7 +9,7 @@ src/engine       Pure engine: project model (project.ts), stored format + load m
 src/instruments  Instrument interface, registry (8 track types, their pages, live knobs), Drum (layered),
                  Synth (up to 6 voices, FM algorithms), macros (TIMBRE / INTENSITY), trims, driveComp, DSP. No DOM/Web Audio.
 src/fx           buses.ts (FX 1-3: units, TYPE lists, knob specs, layout, defaults), FxBus (one bus),
-                 units.ts (MOD, DELAY, VERB, DIST), Compressor, TrackCut (per-track MID CUT), Limiter,
+                 units.ts (MOD, DELAY, VERB, DIST; FX 1's FILTER lives in FxBus), Compressor, TrackCut (per-track MID CUT), Limiter,
                  Delay + Reverb (PLUCK's onboard delay / room). No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
@@ -202,8 +202,10 @@ turned up) over TYPE (a change fades the unit out for 15 ms, switches mode, rese
 and two controls. The effects (`fx/units.ts`) write their wet signal into a scratch buffer; the bus
 scales and sums them:
 - **FX 1** (an insert): tracks with `fx1` are summed into it instead of the mix; they go through
-  `Compressor` (series, RATIO 1:1 = off) and on to the mix, and MOD (FLANGER, PHASER), DELAY (TAPE,
-  SWEEP, REVERSE) and VERB (ROOM, PLATE, EARLY) return alongside at their VOLUMEs.
+  `Compressor` (series, RATIO 1:1 = off), with MOD (FLANGER, PHASER) and DELAY (TAPE, SWEEP,
+  REVERSE) returning alongside at their VOLUMEs; drums + returns then pass the FILTER (one SVF:
+  `djCutoff` maps the knob to LP left / HP right / OFF centre, where it is skipped and reset; RESO;
+  ENV raises or lowers the cutoff from a peak follower, ENV REL its fall) on to the mix.
 - **FX 2 / FX 3** (sends): a track feeds at most one, post-fader, by its send level; only the returns
   reach the mix, through TONE: LOW CUT / HI CUT (12 dB SVFs) and ducking (FX 2 PUMP: every KICK hit,
   `FxBus.kick` from `Engine.kickHit`; FX 3 DUCK: a peak follower on the bus input).

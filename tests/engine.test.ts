@@ -25,7 +25,7 @@ import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound }
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { drumPage, linkedParams, synthPage, stepsOnStrip } from '../src/instruments/registry';
-import { BUSES, BUS_LAYOUT, BUS_PARAMS, FX_DELAY_TIMES, defaultBus } from '../src/fx/buses';
+import { BUSES, BUS_LAYOUT, BUS_PARAMS, FX_DELAY_TIMES, busParam, defaultBus } from '../src/fx/buses';
 import { FxBus } from '../src/fx/FxBus';
 
 const SR = 48000;
@@ -2951,8 +2951,8 @@ describe('FX buses (v41)', () => {
     const names = (k: number) => BUS_LAYOUT[k].map((id) => BUS_PARAMS[k].find((p) => p.id === id)!.name);
     // Top row then bottom row; unit u on modules 2u + 1, 2u + 2.
     expect(names(0)).toEqual([
-      'RATIO', 'ATTACK', 'MOD', 'RATE', 'DELAY', 'RATE', 'VERB', 'SIZE',
-      'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'TYPE', 'LENGTH',
+      'RATIO', 'ATTACK', 'MOD', 'RATE', 'DELAY', 'RATE', 'FILTER', 'ENV',
+      'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'RESO', 'ENV REL',
     ]);
     expect(names(1)).toEqual([
       'MOD', 'RATE', 'DELAY', 'RATE', 'VERB', 'SIZE', 'LOW CUT', 'PUMP',
@@ -2965,7 +2965,6 @@ describe('FX buses (v41)', () => {
     const types = (k: number, kind: string) => BUSES[k].units.find((u) => u.kind === kind)!.types;
     expect(types(0, 'mod')).toEqual(['FLANGER', 'PHASER']);
     expect(types(0, 'delay')).toEqual(['TAPE', 'SWEEP', 'REVERSE']);
-    expect(types(0, 'verb')).toEqual(['ROOM', 'PLATE', 'EARLY']);
     expect(types(1, 'mod')).toEqual(['CHORUS', 'ENSEMBLE', 'PHASER']);
     expect(types(1, 'delay')).toEqual(['STEREO', 'PING-PONG', 'TAPE']);
     expect(types(1, 'verb')).toEqual(['HALL', 'PLATE', 'SHIMMER']);
@@ -3004,10 +3003,28 @@ describe('FX buses (v41)', () => {
     let err = 0;
     for (let i = 0; i < x.length; i++) err = Math.max(err, Math.abs(out[i] - x[i]));
     expect(err).toBeLessThan(1e-6);
-    // With VERB up the drums are still there, the reverb adds alongside.
-    const roomy = runBus(0, only(0, { vrb_vol: 1 }), x);
-    expect(stats(roomy.subarray(0, 400).map((v, i) => v - x[i])).peak).toBeLessThan(0.05); // the hit itself unchanged at first
-    expect(stats(roomy.subarray(SR * 0.2, SR * 0.4)).peak).toBeGreaterThan(0.001); // then the room
+    // With DELAY up the drums are still there, the echoes add alongside.
+    const echo = runBus(0, only(0, { dly_vol: 1, dly_fdbk: 0 }), x);
+    expect(stats(echo.subarray(0, 400).map((v, i) => v - x[i])).peak).toBeLessThan(0.05); // the hit itself unchanged at first
+    expect(stats(echo.subarray(SR * 0.2, SR * 0.4)).peak).toBeGreaterThan(0.001); // then the echo
+  });
+
+  it('FX 1 FILTER: left = low-pass, right = high-pass, centre off; it takes the drums and the returns', () => {
+    expect(formatValue(busParam(0, 'flt')!, 0.5)).toBe('OFF');
+    expect(formatValue(busParam(0, 'flt')!, 0.1)).toMatch(/^LP /);
+    expect(formatValue(busParam(0, 'flt')!, 0.9)).toMatch(/^HP /);
+    const tone = (f: number) => Float32Array.from({ length: SR / 2 }, (_, i) => 0.5 * Math.sin((2 * Math.PI * f * i) / SR));
+    const level = (l: Float32Array) => stats(l.subarray(SR / 4)).peak;
+    const low = tone(60), high = tone(8000);
+    // Low-pass a quarter of the way: the highs go, the lows stay.
+    expect(level(runBus(0, only(0, { flt: 0.2 }), high))).toBeLessThan(0.05);
+    expect(level(runBus(0, only(0, { flt: 0.2 }), low))).toBeGreaterThan(0.4);
+    // High-pass three quarters of the way: the other way round.
+    expect(level(runBus(0, only(0, { flt: 0.8 }), low))).toBeLessThan(0.05);
+    expect(level(runBus(0, only(0, { flt: 0.8 }), high))).toBeGreaterThan(0.4);
+    // The DELAY's return goes through it too.
+    const echo = (flt: number) => stats(runBus(0, only(0, { flt, dly_vol: 1, dly_fdbk: 0 }), burst(0.5)).subarray(SR * 0.2, SR * 0.4)).peak;
+    expect(echo(0.15)).toBeLessThan(echo(0.5) * 0.1);
   });
 
   it('FX 1 COMP squeezes the drums in series (1:1 = untouched)', () => {

@@ -5,15 +5,18 @@
  * module is VOLUME (its return level; labelled with the effect) over TYPE, its second the
  * two controls of that effect:
  *  FX 1  drums: COMP (in series on the drums: RATIO / THRESH, ATTACK / RELEASE), MOD
- *        (FLANGER, PHASER), DELAY (TAPE, SWEEP, REVERSE), VERB (ROOM, PLATE, EARLY). The
- *        drums stay in the mix (through COMP); MOD, DELAY and VERB return alongside them.
+ *        (FLANGER, PHASER), DELAY (TAPE, SWEEP, REVERSE), FILTER (FILTER / RESO, ENV / ENV
+ *        REL). The drums stay in the mix (through COMP); MOD and DELAY return alongside
+ *        them, and FILTER (after COMP) takes the drums and both returns.
  *  FX 2  PAD (a send): MOD (CHORUS, ENSEMBLE, PHASER), DELAY (STEREO, PING-PONG, TAPE),
  *        VERB (HALL, PLATE, SHIMMER), TONE (LOW CUT / HI CUT on the returns, PUMP / PUMP
  *        REL: every KICK hit ducks the returns).
  *  FX 3  LEAD (a send): DIST (TUBE, FUZZ, BIT), DELAY (PING-PONG, DUB TAPE, SLAPBACK), VERB
  *        (ROOM, PLATE, SPRING), TONE (LOW CUT / HI CUT, DUCK / DUCK REL: the lead's own
  *        playing ducks its echoes, so they bloom in the gaps).
- * MOD: RATE / DEPTH. DELAY: RATE (tempo-synced) / FEEDBACK. VERB: SIZE / LENGTH. DIST:
+ * FILTER: one knob, low-pass left of the centre, high-pass right, off in the middle
+ * (djCutoff); RESO; ENV (the bus's level lifts (+) or lowers (-) the cutoff on every hit, up
+ * to 8 octaves) / ENV REL (how fast that falls back). MOD: RATE / DEPTH. DELAY: RATE (tempo-synced) / FEEDBACK. VERB: SIZE / LENGTH. DIST:
  * DRIVE / TONE.
  */
 import { choice, type ParamSpec } from '../engine/params';
@@ -21,7 +24,7 @@ import { COMP_PARAMS } from './Compressor';
 
 export const NUM_BUSES = 3;
 
-export type UnitKind = 'comp' | 'mod' | 'delay' | 'verb' | 'drive' | 'tone';
+export type UnitKind = 'comp' | 'mod' | 'delay' | 'verb' | 'drive' | 'tone' | 'filter';
 
 /** The engine's effect modes, in the order units.ts numbers them (each bus offers some as its TYPE list). */
 export const MOD_MODES = ['CHORUS', 'ENSEMBLE', 'FLANGER', 'PHASER'] as const;
@@ -62,7 +65,7 @@ export const BUSES: readonly BusDef[] = [
       { kind: 'comp', defaults: {} },
       { kind: 'mod', types: ['FLANGER', 'PHASER'], defaults: { mod_vol: 0, mod_rate: 0.3, mod_depth: 0.5 } },
       { kind: 'delay', types: ['TAPE', 'SWEEP', 'REVERSE'], defaults: { dly_vol: 0, dly_rate: 4, dly_fdbk: 0.35 } },
-      { kind: 'verb', types: ['ROOM', 'PLATE', 'EARLY'], defaults: { vrb_vol: 0, vrb_size: 0.4, vrb_len: 0.4 } },
+      { kind: 'filter', defaults: {} },
     ],
   },
   {
@@ -117,6 +120,10 @@ function unitSpecs(u: UnitDef): ParamSpec[] {
       case 'drive': return [
         linear('drv_vol', 'DIST', 0, 1, 0), choice('drv_type', 'TYPE', types),
         linear('drv_drive', 'DRIVE', 0, 1, 0.4), exp('drv_tone', 'TONE', 300, 16000, 5000, 'HZ', 0),
+      ];
+      case 'filter': return [
+        { ...linear('flt', 'FILTER', 0, 1, 0.5), display: 'dj' }, linear('flt_reso', 'RESO', 0, 1, 0),
+        linear('flt_env', 'ENV', -1, 1, 0), exp('flt_rel', 'ENV REL', 0.005, 2, 0.15, 'S', 3),
       ];
       case 'tone': {
         const pump = u.duck === 'kick';
