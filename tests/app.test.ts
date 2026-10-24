@@ -305,3 +305,30 @@ describe('PLAY flags carry into DESIGN', () => {
     expect(lastForce(sent, 6)).toMatchObject({ ring: false, slide: false });
   });
 });
+
+describe('CLEAR + A-D and the TIME key', () => {
+  it('CLEAR + the pattern being edited empties it', () => {
+    const { app, press, release, tap } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    const steps = () => app.project.channels[0].patterns[app.project.channels[0].activePattern].steps;
+    tap('step1');
+    expect(steps()[0].active).toBe(true);
+    press('clear');
+    tap('patA');
+    release('clear');
+    expect(steps().some((s) => s.active)).toBe(false);
+    expect(app.project.channels[0].activePattern).toBe(0);
+  });
+
+  it('TIME cycles the pattern speed', () => {
+    const { app, tap } = makeApp();
+    tap('mode:design');
+    tap('ch5');
+    const pat = () => app.project.channels[4].patterns[app.project.channels[4].activePattern];
+    tap('speed');
+    expect(pat().speed).toBe('double');
+    tap('speed');
+    expect(pat().speed).toBe('half');
+  });
+});

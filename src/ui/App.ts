@@ -855,7 +855,7 @@ export class App {
       }
       if (id === 'clear') {
         this.clearHeld = false;
-        if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK');
+        if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK / A-D');
         this.refreshPanel();
       }
       if (id === 'steppage' && this.barHeld) {
@@ -903,6 +903,12 @@ export class App {
     }
     if (this.clearHeld && (m = /^ch(\d)$/.exec(id))) {
       this.clearTrack(Number(m[1]) - 1);
+      this.refreshPanel();
+      return;
+    }
+    if (this.clearHeld && (m = /^pat([A-D])$/.exec(id))) {
+      // CLEAR + A-D: that pattern of the selected track (the one playing / edited too).
+      this.clearTrack(this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
       this.refreshPanel();
       return;
     }
@@ -1025,10 +1031,9 @@ export class App {
       // STEPS: held for ◀ / ▶ (length), a tap (on release) = STEPS mode.
       this.lenHeld = true;
       this.lenUsed = false;
-    } else if (id === 'steppage' && this.func) {
-      // FUNC + BAR: the selected track's pattern in normal -> double -> half time.
+    } else if (id === 'speed') {
+      // TIME: the selected track's pattern in normal -> double -> half -> triplet time.
       this.cycleSpeed();
-      if (this.funcHeld) this.funcUsed = true; // not a latching tap
     } else if (id === 'steppage') {
       // BAR: held for ◀ / ▶, a tap (on release) = the next bar.
       this.barHeld = true;
@@ -1162,8 +1167,9 @@ export class App {
   }
 
   /**
-   * FUNC + BAR: the selected track's pattern steps through normal, double and half time
-   * (its steps last a 16th, a 32nd or an 8th). An unsaved edit of its notes, like LENGTH.
+   * TIME: the selected track's pattern steps through normal, double, half and triplet time
+   * (its steps last a 16th, a 32nd, an 8th or a triplet 16th). An unsaved edit of its notes,
+   * like LENGTH.
    */
   private cycleSpeed(): void {
     const pat = this.pattern;
@@ -1657,9 +1663,11 @@ export class App {
   }
 
   /** CLEAR + channel: empty that track's current pattern (its sound stays). */
-  private clearTrack(ch: number): void {
+  /** CLEAR + channel / A-D: empty a track's pattern (its sound stays). */
+  private clearTrack(ch: number, p = this.project.channels[ch].activePattern): void {
     const c = this.project.channels[ch];
-    c.patterns[c.activePattern].steps.forEach((step, i) => {
+    const pat = c.patterns[p];
+    pat.steps.forEach((step, i) => {
       if (!step.active && !step.rest && !step.locks) return;
       step.active = false;
       step.ring = false;
@@ -1667,10 +1675,13 @@ export class App {
       step.slide = false;
       step.gate = 1;
       delete step.locks;
-      this.sendStep(i, step, ch);
+      delete step.extra;
+      delete step.extraGate;
+      pat.notesDirty = true;
+      this.send({ type: 'setStep', channel: ch, pattern: p, index: i, step });
     });
     this.clearUsed = true;
-    this.flash(`CLEARED ${ch + 1} ${this.kindName(c)} ${PATTERN_NAMES[c.activePattern]}`);
+    this.flash(`CLEARED ${ch + 1} ${this.kindName(c)} ${PATTERN_NAMES[p]}`);
     this.save();
   }
 
@@ -2283,9 +2294,9 @@ export class App {
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
     this.panel.setButtonLit('len', this.stepsMode);
-    // BAR: not where the strip follows the playhead (PLAY, live recording).
-    // FUNC + BAR (half / double time) works in every mode but SONG.
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.func || ((this.stepsMode || (this.mode !== 'play' && !this.recording)) && this.pageCount() > 1));
+    // BAR: not where the strip follows the playhead (PLAY, live recording). TIME (the
+    // pattern's speed) works in every mode but SONG.
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || ((this.stepsMode || (this.mode !== 'play' && !this.recording)) && this.pageCount() > 1));
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design')));
@@ -2309,6 +2320,7 @@ export class App {
       this.panel.setButtonEnabled('dyn:accent', true);
       this.panel.setButtonEnabled('dyn:ghost', false);
       this.panel.setButtonEnabled('len', false);
+      this.panel.setButtonEnabled('speed', false);
       this.panel.setButtonEnabled('rest', false);
       this.panel.setButtonEnabled('steppage', this.songRows.length > 16 || !!this.projMenu);
       for (const id of ['oct-', 'oct+', 'cur-', 'cur+']) this.panel.setButtonEnabled(id, true);
@@ -2317,6 +2329,7 @@ export class App {
       this.panel.setButtonEnabled('dyn:accent', true);
       this.panel.setButtonEnabled('dyn:ghost', true);
       this.panel.setButtonEnabled('len', true);
+      this.panel.setButtonEnabled('speed', true);
     }
   }
 
@@ -2439,9 +2452,9 @@ export class App {
       }
     }
 
-    // With FUNC: the pattern's speed (FUNC + BAR changes it).
-    const speed = this.pattern.speed ?? 'normal';
-    this.panel.setButtonText('steppage', this.func ? `TIME<small>${speed.toUpperCase()}</small>` : `BAR<small>${page + 1}/${this.pageCount()}</small>`);
+    this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
+    // TIME: the pattern's speed (tap to change).
+    this.panel.setButtonText('speed', `TIME<small>${(this.pattern.speed ?? 'normal').toUpperCase()}</small>`);
 
     this.updatePatternButtons(now);
     if (this.touchedKnob >= 0 && now - this.touchedAt > 4000) this.touchedKnob = -1;
@@ -2547,7 +2560,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK' : this.copyHeld ? 'COPY: TRACK / A-D' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
+      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK / A-D' : this.copyHeld ? 'COPY: TRACK / A-D' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
