@@ -5,7 +5,7 @@
 import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
-import { PixelScreen } from './ui/screen';
+import { INK, PixelScreen } from './ui/screen';
 import { drawDesignView, drawLiveView, drawProjectView, drawSongView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
@@ -110,8 +110,34 @@ for (const t of UNLOCK_EVENTS) window.addEventListener(t, unlockAudio, true);
 
 // ------------------------------------------------------------------ title screen
 
-// The title card itself is in index.html (lettered in the panel's Sarpanch, style.css).
 const title = document.getElementById('title') as HTMLElement;
+
+/**
+ * The title card: the panel's Sarpanch drawn small and hard-edged (every pixel fully on or
+ * off) on a TITLE_W x TITLE_H canvas, then shown scaled up with pixelated rendering.
+ */
+const TITLE_W = 180;
+const TITLE_H = 40;
+function drawTitle(canvas: HTMLCanvasElement): void {
+  canvas.width = TITLE_W;
+  canvas.height = TITLE_H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = INK.hi;
+  ctx.font = "700 25px 'Sarpanch'";
+  ctx.fillText('GrooveAccess', TITLE_W / 2, 23);
+  ctx.fillStyle = INK.mid;
+  ctx.font = "600 10px 'Sarpanch'";
+  ctx.fillText('A Garibaldi Production', TITLE_W / 2, 36);
+  // No smoothing: an edge pixel is either the letter's colour or nothing.
+  const img = ctx.getImageData(0, 0, TITLE_W, TITLE_H);
+  for (let i = 3; i < img.data.length; i += 4) img.data[i] = img.data[i] >= 110 ? 255 : 0;
+  ctx.putImageData(img, 0, 0);
+}
+const titleCanvas = title.querySelector('canvas') as HTMLCanvasElement;
+void document.fonts.load("700 25px 'Sarpanch'").then(() => drawTitle(titleCanvas), () => drawTitle(titleCanvas));
 
 let titleGone = false;
 function dismissTitle(): void {
