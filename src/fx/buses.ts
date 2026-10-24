@@ -152,6 +152,16 @@ export const BUS_LAYOUT: readonly (readonly string[])[] = BUSES.map((b) => {
   return [...top, ...bottom];
 });
 
+/**
+ * What a live knob may take from the buses: each effect's VOLUME and FX 1's FILTER (a unit's
+ * first knob; not COMP / TONE), id "fx<n>:<param>", named "FX<n>:<knob>".
+ */
+export const FX_LIVE: readonly { id: string; bus: number; param: string; name: string }[] = BUSES.flatMap((b, k) =>
+  b.units.filter((u) => u.kind !== 'comp' && u.kind !== 'tone').map((u) => {
+    const spec = unitSpecs(u)[0];
+    return { id: `fx${k + 1}:${spec.id}`, bus: k, param: spec.id, name: `FX${k + 1}:${spec.name}` };
+  }));
+
 export function busParam(bus: number, id: string): ParamSpec | undefined {
   return BUS_PARAMS[bus]?.find((p) => p.id === id);
 }

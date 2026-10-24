@@ -16,7 +16,7 @@ import { applyPreset, liveDefaults, createDefaultProject } from './defaultProjec
 import { macroIds } from '../instruments/macros';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
+import { BUS_PARAMS, FX_LIVE, NUM_BUSES } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
 import { METERS, type InstrumentKind, type PatternSpeed } from './project';
@@ -310,8 +310,9 @@ function readExtra(x: unknown): number[] | undefined {
   return notes.length ? notes : undefined;
 }
 
-/** A live knob id this type can use (mixer / track ids, its macros, its parameters). */
+/** A live knob id this type can use (mixer / track / FX ids, its macros, its parameters). */
 function liveIdValid(kind: InstrumentKind, id: string): boolean {
+  if (/^fx\d:/.test(id)) return FX_LIVE.some((f) => f.id === id);
   if (kind === 'none') return true;
   if (id.startsWith('macro:')) return LIVE_MACROS[kind].some((m) => m.id === id);
   if (id.includes(':')) return true;

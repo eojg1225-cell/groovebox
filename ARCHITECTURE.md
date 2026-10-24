@@ -192,7 +192,8 @@ switch (never glide, never on a relative live knob).
 (`trims.ts`) and sends the result as `setSound`.
 
 **Live knobs:** registry `LIVE_MACROS` (several params per knob) or single params; relative, applied
-in the engine (`setOffset`), clamped at each parameter's limits.
+in the engine (`setOffset`), clamped at each parameter's limits. Absolute ones (CUTOFF, choices, mixer,
+LFO, and the FX ids from `fx/buses.ts` `FX_LIVE`) set the value itself (`setMix`, `setLfo`, `setBus` ...).
 
 ## Buses and master
 

@@ -237,8 +237,9 @@ interface InstrumentEntry {
   /** The SOUND page's FUNC layer (16 slots, see funcPage). */
   funcLayout: readonly (string | null)[];
   /**
-   * Default live knobs in RECORD / PLAY: two sound controls (synths: CUTOFF first), and with
-   * FUNC held two more (param ids or "mix:volume|pan|send").
+   * Default live knobs in RECORD / PLAY: two controls (synths: CUTOFF first; KICK / SNARE /
+   * HAT: FX 1's MOD / DELAY / FILTER first), and with FUNC held two more (param ids,
+   * "mix:<id>", "fx<n>:<param>").
    */
   live: readonly [string, string];
   liveFunc: readonly [string, string];
@@ -260,20 +261,20 @@ interface InstrumentEntry {
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
-    name: 'KICK', gain: 0.565, live: ['macro:attack', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
+    name: 'KICK', gain: 0.565, live: ['fx1:mod_vol', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
     // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2): the click's
     // character on 5, AIR on 6 beside DRIVE / CRUSH.
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SWEEP_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
-    name: 'SNARE', gain: 0.797, live: ['macro:snap', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,
+    name: 'SNARE', gain: 0.797, live: ['fx1:dly_vol', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,
     // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SWEEP_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
-    name: 'HAT', gain: 4.359, live: ['macro:bright', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
+    name: 'HAT', gain: 4.359, live: ['fx1:flt', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'c_noise'], ['m_tone', 'm_noise']),
     funcLayout: trackFunc(NO_FUNC),
     presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },

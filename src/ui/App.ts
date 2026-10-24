@@ -46,7 +46,7 @@ import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { BUS_LAYOUT, NUM_BUSES, busParam } from '../fx/buses';
+import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
@@ -519,8 +519,9 @@ export class App {
   // ---------------------------------------------------------------- knob targets
 
   /**
-   * What a track's live knobs may control: its type's macros, the non-coarse sound
-   * parameters on its sound page (both layers), the mixer (volume, pan, send level) and the LFO rate and depths.
+   * What a track's live knobs may control: its type's macros, every sound parameter on its
+   * sound page (both layers; coarse ones and CHORD absolute), the mixer, the FX buses' volumes
+   * (+ FX 1's FILTER) and the LFO.
    */
   private liveCandidates(c: ChannelState): { id: string; spec: ParamSpec }[] {
     const list: { id: string; spec: ParamSpec }[] = [];
@@ -530,10 +531,12 @@ export class App {
       const entry = INSTRUMENTS[c.instrument];
       for (const id of [...entry.layout, ...entry.funcLayout]) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
-        if (spec && !spec.coarse && !list.some((x) => x.id === spec.id)) list.push({ id: spec.id, spec });
+        if (id === 'track:chord' && !list.some((x) => x.id === id)) list.push({ id, spec: choice('chord', 'CHORD', CHORD_NAMES) });
+        if (spec && !list.some((x) => x.id === spec.id)) list.push({ id: spec.id, spec });
       }
     }
     for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
+    for (const fx of FX_LIVE) list.push({ id: fx.id, spec: { ...busParam(fx.bus, fx.param)!, name: fx.name } });
     for (const id of ['rate', 'vol', 'pitch', 'filter', 'pan', 'send', 'fm', 'morph', 'phase', 'smooth'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
     return list;
   }
@@ -544,6 +547,9 @@ export class App {
     if (id.startsWith('lfo:')) return LFO_PARAMS[id.slice(4) as LfoId]?.name ?? '-';
     if (id.startsWith(MIX_PREFIX)) return MIX_PARAMS.find((p) => MIX_PREFIX + p.id === id)?.name ?? '-';
     if (id === 'track:notes') return 'NOTES';
+    if (id === 'track:chord') return 'CHORD';
+    const fx = FX_LIVE.find((f) => f.id === id);
+    if (fx) return fx.name;
     return paramSpec(c.instrument, id)?.name ?? '-';
   }
 
@@ -571,6 +577,8 @@ export class App {
 
   private paramTarget(ch: number, id: string, label?: string, highlight?: boolean): KnobTarget | null {
     const c = this.project.channels[ch];
+    const fx = FX_LIVE.find((f) => f.id === id);
+    if (fx) return { ...this.busTarget(fx.bus, fx.param), label: label ?? fx.name, channel: ch, highlight };
     if (id.startsWith('lfo:')) {
       const lfoId = id.slice(4) as LfoId;
       const spec = LFO_PARAMS[lfoId];
@@ -746,15 +754,17 @@ export class App {
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
     if (k === 3) return LFO_LAYOUT.map((id) => (id ? this.paramTarget(this.selected, `lfo:${id}`) : null));
-    const values = this.project.buses[k];
-    return BUS_LAYOUT[k].map((id): KnobTarget => {
-      const spec = busParam(k, id)!;
-      return {
-        label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`,
-        get: () => values[id] ?? spec.defaultValue,
-        set: (v: number) => { values[id] = v; this.send({ type: 'setBus', bus: k, id, value: v }); },
-      };
-    });
+    return BUS_LAYOUT[k].map((id) => this.busTarget(k, id));
+  }
+
+  /** One bus knob (also a live knob's FX target). */
+  private busTarget(k: number, id: string): KnobTarget {
+    const spec = busParam(k, id)!;
+    return {
+      label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`,
+      get: () => this.project.buses[k][id] ?? spec.defaultValue,
+      set: (v: number) => { this.project.buses[k][id] = v; this.send({ type: 'setBus', bus: k, id, value: v }); },
+    };
   }
 
   /** One knob per track (knob = track number); `only` leaves the others blank. */

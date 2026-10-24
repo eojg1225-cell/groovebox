@@ -344,3 +344,26 @@ describe('CLEAR + A-D and the TIME key', () => {
     expect(pat().speed).toBe('half');
   });
 });
+
+describe('live knobs', () => {
+  it('KICK / SNARE / HAT top live knobs ride FX 1: MOD, DELAY, FILTER', () => {
+    const { app, sent, tap, emit } = makeApp();
+    tap('mode:play');
+    emit({ type: 'knob', id: 'k1', value: 1 });
+    emit({ type: 'knob', id: 'k2', value: 0.5 });
+    emit({ type: 'knob', id: 'k3', value: 0 });
+    expect(app.project.buses[0].mod_vol).toBe(1);
+    expect(app.project.buses[0].dly_vol).toBe(0.5);
+    expect(app.project.buses[0].flt).toBe(0);
+    expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
+  });
+
+  it('a live knob can take every sound page parameter, the FX volumes and CHORD', () => {
+    const { app } = makeApp();
+    const ids = (ch: number) => (app as unknown as { liveCandidates(c: unknown): { id: string }[] }).liveCandidates(app.project.channels[ch]).map((x) => x.id);
+    expect(ids(0)).toEqual(expect.arrayContaining(['rolldiv', 'fx1:mod_vol', 'fx1:dly_vol', 'fx1:flt', 'fx2:vrb_vol', 'fx3:drv_vol']));
+    expect(ids(0)).not.toContain('fx1:cmp_ratio');
+    expect(ids(5)).toContain('track:chord');
+    expect(ids(7)).toEqual(expect.arrayContaining(['dtime', 'track:chord']));
+  });
+});
