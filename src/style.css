@@ -244,7 +244,10 @@ html, body {
   background: #4a5560;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
 }
-.led:nth-child(4n + 1):not(:first-child)::before { top: -1px; bottom: -1px; }
+/* The light row's dividers run up between the function keys' groups of four and down to the
+   strip's; a step's divider sits 2 px further left (it is placed inside the 2 px border). */
+.led:nth-child(4n + 1):not(:first-child)::before { top: -50px; bottom: -7px; }
+.step:nth-child(4n + 1):not(:first-child)::before { left: -14px; top: -12px; }
 .step { font-size: 13px; color: var(--ink-dim); justify-content: flex-end; padding-bottom: 8px; position: relative; }
 .panel:not(.keyboard) .step.beat { border-top-width: 4px; }
 .step.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
