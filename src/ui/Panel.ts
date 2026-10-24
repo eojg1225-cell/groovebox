@@ -5,7 +5,8 @@
  *
  *   [ pixel screen ] [ MODE: record / play / sound design ]
  *                    [ channels 1-8, mutes, pages | FX, save | A-D ]
- *   [ 6 track modules, each: knob / track number / knob     ]
+ *   [ 8 track modules, each: knob / M, channel button, S / knob ]
+ *   (the channel rows beside the screen are empty for now)
  *   [ function row                                 ] [      ]
  *   [ step LEDs                                    ] [ PLAY ]
  *   [ 16-button strip (steps or keyboard)          ] [      ]
@@ -63,7 +64,6 @@ export class Panel implements ControlSurface {
   private readonly buttons = new Map<string, HTMLElement>();
   private readonly disabled = new Set<string>();
   private readonly leds: HTMLElement[] = [];
-  private readonly badges: HTMLElement[] = [];
   private readonly masterKnobs = new Map<string, Knob>();
   private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
@@ -108,15 +108,6 @@ export class Panel implements ControlSurface {
     const q = (sel: string) => root.querySelector(sel) as HTMLElement;
 
     for (const m of MODES) q('.modes').appendChild(this.makeButton(`mode:${m.id}`, m.label, 'btn mode'));
-    for (let ch = 1; ch <= cfg.channels; ch++) {
-      q('.channels').appendChild(this.makeButton(`ch${ch}`, String(ch), 'btn ch'));
-      // MUTE and SOLO side by side under each channel.
-      const pair = document.createElement('div');
-      pair.className = 'mute-solo';
-      pair.appendChild(this.makeButton(`mute${ch}`, 'M', 'btn mute'));
-      pair.appendChild(this.makeButton(`solo${ch}`, 'S', 'btn solo'));
-      q('.mutes').appendChild(pair);
-    }
     q('.save-buttons').appendChild(this.makeButton('save', 'SAVE<small>PATTERN</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
@@ -124,7 +115,8 @@ export class Panel implements ControlSurface {
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
     for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
 
-    // Knob modules, one per track, separated by grooves like a hardware front panel.
+    // Knob modules, one per track, separated by grooves like a hardware front panel; the
+    // track's channel button sits between its two knobs, MUTE left of it, SOLO right.
     const grid = q('.knob-grid');
     for (let i = 1; i <= KNOB_COUNT; i++) {
       this.knobs.push(new Knob(`k${i}`, '', 0.5, this.knobEmit, this.encoderEmit));
@@ -132,11 +124,17 @@ export class Panel implements ControlSurface {
     for (let m = 0; m < KNOBS_PER_ROW; m++) {
       const module = document.createElement('div');
       module.className = 'knob-module';
-      const badge = document.createElement('div');
-      badge.className = 'track-badge';
-      badge.textContent = String(m + 1);
-      this.badges.push(badge);
-      module.append(this.knobs[m].el, badge, this.knobs[m + KNOBS_PER_ROW].el);
+      const track = document.createElement('div');
+      track.className = 'module-track';
+      if (m < cfg.channels) {
+        const ch = m + 1;
+        track.append(
+          this.makeButton(`mute${ch}`, 'M', 'btn mute'),
+          this.makeButton(`ch${ch}`, String(ch), 'btn ch'),
+          this.makeButton(`solo${ch}`, 'S', 'btn solo'),
+        );
+      }
+      module.append(this.knobs[m].el, track, this.knobs[m + KNOBS_PER_ROW].el);
       grid.appendChild(module);
     }
 
@@ -211,15 +209,6 @@ export class Panel implements ControlSurface {
     if (!k) return;
     k.defaultValue = defaultValue;
     k.set(value);
-  }
-
-  /** Printed track number between a module's knobs: lit = selected track, dim = not in use. */
-  setBadge(i: number, state: 'lit' | 'dim' | ''): void {
-    const b = this.badges[i];
-    if (b && b.dataset.state !== state) {
-      b.dataset.state = state;
-      b.className = state ? `track-badge ${state}` : 'track-badge';
-    }
   }
 
   /** LED states for the 16 lights above the strip. */
