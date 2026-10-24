@@ -100,9 +100,9 @@ html, body {
 .row > * { flex: 1; min-width: 0; }
 /* Mode select sits at the top, set apart so it isn't hit by accident. */
 .row.modes { padding-bottom: 10px; margin-bottom: 2px; border-bottom: 2px solid var(--panel-edge); }
-/* Where the channel buttons were: empty for now, so nothing else moves. */
-.row.channels { height: 56px; }
-.row.mutes { height: 30px; }
+/* FX 1-3 / LFO and PAT A-D, in the space the channel buttons and M / S took. */
+.row.buses { height: 94px; gap: 14px; }
+.side-gap { flex: 1.6; }
 
 /* ---------- Buttons ---------- */
 .btn, .step {
@@ -127,7 +127,7 @@ html, body {
 .btn.mute, .btn.solo { height: 56px; width: 30px; font-size: 13px; flex: none; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
-.btn.pat { height: 40px; flex: 1; font-size: 17px; border-radius: 8px; }
+.btn.pat { height: 100%; flex: 1; font-size: 22px; border-radius: 10px; }
 .btn.pat.playing { border-color: var(--accent); }
 .btn.save { height: 40px; font-size: 12px; line-height: 1; flex: 0.9; }
 .btn.save small { font-size: 9px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
@@ -135,16 +135,16 @@ html, body {
 .row.pages, .row.patterns { gap: 14px; }
 .save-buttons { display: flex; gap: 8px; flex: 3; }
 .save-buttons > * { flex: 1; }
-.pat-buttons { display: flex; gap: 6px; flex: 1.6; align-items: center; }
-.btn.pat.dirty::after { content: '*'; position: absolute; margin: -22px 0 0 26px; font-size: 13px; color: var(--hot); }
+.pat-buttons { display: flex; gap: 8px; flex: 1; align-items: center; }
+.btn.pat.dirty::after { content: '*'; position: absolute; top: 6px; right: 10px; font-size: 16px; color: var(--hot); }
 .btn.pat { position: relative; }
 .page-buttons { display: flex; gap: 8px; flex: 3; }
 .page-buttons > * { flex: 1; }
 .btn.page { height: 40px; font-size: 12px; }
 .btn.page.disabled { opacity: 0.12; }
-.fx-buttons { display: flex; gap: 6px; flex: 1.6; align-items: center; }
+.fx-buttons { display: flex; gap: 8px; flex: 1; align-items: center; }
 .fx-label { font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink-dim); }
-.btn.fxsend { height: 34px; flex: 1; font-size: 15px; border-radius: 8px; }
+.btn.fxsend { height: 100%; flex: 1; font-size: 20px; border-radius: 10px; }
 
 /* ---------- Knob section: six track modules, like a hardware front panel ---------- */
 .knob-grid {
@@ -212,10 +212,9 @@ html, body {
 .panel-bottom { display: flex; gap: 16px; flex: 1; min-height: 0; }
 .bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
-.function-row { display: flex; gap: 16.5px; height: 44px; flex: none; }
-.fn-group { display: flex; gap: 6px; }
-/* Each a strip step wide: 16 keys in five groups over the strip's width (12 gaps of 6 px +
-   4 group gaps take the room of the strip's 15 gaps and 3 group dividers). */
+.function-row { display: flex; gap: 6px; height: 44px; flex: none; }
+/* 16 keys, each straight above its strip step (the strip's gaps and group spacing). */
+.function-row > .btn.fn:nth-child(4n + 1):not(:first-child) { margin-left: 14px; }
 .btn.fn { flex: 1 1 0; font-size: 10px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
 .btn.fn small { font-size: 8px; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; }
 .btn.fn.blank { cursor: default; }

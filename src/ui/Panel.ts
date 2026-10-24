@@ -4,9 +4,10 @@
  * so the instrument is always landscape.
  *
  *   [ pixel screen ] [ MODE: record / play / sound design ]
- *                    [ channels 1-8, mutes, pages | FX, save | A-D ]
+ *                    [ FX 1-3, LFO | PAT A-D ]  (where the channel buttons were)
+ *                    [ pages | (empty)        ]
+ *                    [ save  | (empty)        ]
  *   [ 8 track modules, each: knob / M, channel button, S / knob ]
- *   (the channel rows beside the screen are empty for now)
  *   [ function row                                 ] [      ]
  *   [ step LEDs                                    ] [ PLAY ]
  *   [ 16-button strip (steps or keyboard)          ] [      ]
@@ -44,8 +45,8 @@ export const MODES = [
 ] as const;
 
 /**
- * Function row: groups of [id, label] (labels may contain <small> lines); every button is a
- * strip step wide. An empty id = a blank key (not wired up yet).
+ * Function row: groups of [id, label] (labels may contain <small> lines); 16 keys, each
+ * straight above a strip step. An empty id = a blank key (not wired up yet).
  */
 const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
@@ -91,10 +92,9 @@ export class Panel implements ControlSurface {
         <div class="screen-bezel"><canvas class="screen"></canvas></div>
         <div class="side">
           <div class="row modes"></div>
-          <div class="row channels"></div>
-          <div class="row mutes"></div>
-          <div class="row pages"><div class="page-buttons"></div><div class="fx-buttons"><span class="fx-label">FX</span></div></div>
-          <div class="row patterns"><div class="save-buttons"></div><div class="pat-buttons"><span class="fx-label">PAT</span></div></div>
+          <div class="row buses"><div class="fx-buttons"><span class="fx-label">FX</span></div><div class="pat-buttons"><span class="fx-label">PAT</span></div></div>
+          <div class="row pages"><div class="page-buttons"></div><div class="side-gap"></div></div>
+          <div class="row patterns"><div class="save-buttons"></div><div class="side-gap"></div></div>
         </div>
       </div>
       <div class="knob-grid"></div>
@@ -143,21 +143,14 @@ export class Panel implements ControlSurface {
     }
 
     const fnRow = q('.function-row');
-    for (const group of FUNCTION_ROW) {
-      const g = document.createElement('div');
-      g.className = 'fn-group';
-      // Grow by button count (basis = its inner gaps), so every button gets the same width.
-      g.style.flex = `${group.length} ${group.length} ${(group.length - 1) * 6}px`;
-      for (const [id, label] of group) {
-        if (id) {
-          g.appendChild(this.makeButton(id, label, 'btn fn'));
-        } else {
-          const blank = document.createElement('div');
-          blank.className = 'btn fn blank';
-          g.appendChild(blank);
-        }
+    for (const [id, label] of FUNCTION_ROW.flat()) {
+      if (id) {
+        fnRow.appendChild(this.makeButton(id, label, 'btn fn'));
+      } else {
+        const blank = document.createElement('div');
+        blank.className = 'btn fn blank';
+        fnRow.appendChild(blank);
       }
-      fnRow.appendChild(g);
     }
 
     const leds = q('.leds');
