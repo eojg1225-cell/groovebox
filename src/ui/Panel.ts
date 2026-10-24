@@ -5,15 +5,16 @@
  *
  *   [ pixel screen ] [ MODE: record / play / sound design ]
  *                    [ FX 1-3, LFO | PAT A-D ]  (where the channel buttons were)
- *                    [ pages | (empty)        ]
- *                    [ save  | (empty)        ]
+ *                    [ pages | TEMPO MASTER   ]
+ *                    [ save  |                ]
  *   [ 8 track modules, each: knob / M, channel button, S / knob ]
- *   [ function row                                 ] [      ]
- *   [ step LEDs                                    ] [ PLAY ]
- *   [ 16-button strip (steps or keyboard)          ] [      ]
+ *   [ function row                                 ] | [      ]
+ *   [ step LEDs                                    ] | [ FUNC PLAY ]
+ *   [ 16-button strip (steps or keyboard)          ] | [      ]
+ *   (the strip's right divider sits under the groove between modules 7 and 8)
  *
  * Control ids: mode:record|play|design, ch1..8, mute1..8, solo1..8, save, saveproject,
- * reset, patA..D (under the FX buttons), dpage0..2, fx1..fx3 + fx4 (LFO), play, clear
+ * reset, patA..D (beside the FX buttons), dpage0..2, fx1..fx3 + fx4 (LFO), play, clear
  * (held: CLEAR + step / channel), copy (held: COPY + channel = same pattern slot there,
  * COPY + A-D = that pattern of this track),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
@@ -95,8 +96,13 @@ export class Panel implements ControlSurface {
             <div class="key-group"><div class="key-row fx-buttons"></div><div class="group-label">FX</div></div>
             <div class="key-group"><div class="key-row pat-buttons"></div><div class="group-label">PATTERN</div></div>
           </div>
-          <div class="row pages"><div class="page-buttons"></div><div class="side-gap"></div></div>
-          <div class="row patterns"><div class="save-buttons"></div><div class="side-gap"></div></div>
+          <div class="lower">
+            <div class="lower-rows">
+              <div class="row pages"><div class="page-buttons"></div></div>
+              <div class="row patterns"><div class="save-buttons"></div></div>
+            </div>
+            <div class="master-knobs"></div>
+          </div>
         </div>
       </div>
       <div class="knob-grid"></div>
@@ -106,7 +112,7 @@ export class Panel implements ControlSurface {
           <div class="leds"></div>
           <div class="steps"></div>
         </div>
-        <div class="play-area"><div class="master-knobs"></div></div>
+        <div class="play-area"></div>
       </div>`;
     host.appendChild(root);
     this.root = root;

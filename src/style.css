@@ -102,7 +102,9 @@ html, body {
 .row.modes { padding-bottom: 10px; margin-bottom: 2px; border-bottom: 2px solid var(--panel-edge); }
 /* FX 1-3 / LFO and PAT A-D, in the space the channel buttons and M / S took. */
 .row.buses { height: 94px; gap: 14px; padding-bottom: 5px; border-bottom: 2px solid var(--panel-edge); }
-.side-gap { flex: 1.6; }
+.lower { display: flex; gap: 8px; }
+.lower-rows { flex: 3; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.lower .master-knobs { flex: 1.6; }
 
 /* ---------- Buttons ---------- */
 .btn, .step {
@@ -211,8 +213,17 @@ html, body {
 }
 
 /* ---------- Function row, LEDs, strip, play ---------- */
-.panel-bottom { display: flex; gap: 16px; flex: 1; min-height: 0; }
-.bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.panel-bottom { display: flex; gap: 20px; flex: 1; min-height: 0; }
+.bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; position: relative; }
+/* The strip's right-hand divider (as between its groups of four), under the groove
+   between knob modules 7 and 8. */
+.bottom-main::after {
+  content: '';
+  position: absolute; right: -12px; width: 4px; top: 0; bottom: 0;
+  border-radius: 2px;
+  background: #4a5560;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
 
 .function-row { display: flex; gap: 6px; height: 40px; flex: none; }
 /* 16 keys, each straight above its strip step (the strip's gaps and group spacing). */
@@ -282,10 +293,10 @@ html, body {
 .panel.keyboard .step.down { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .panel.keyboard .step.cursor { box-shadow: inset 0 0 0 3px var(--hot); }
 
-.play-area { width: 170px; flex: none; display: flex; flex-direction: column; gap: 6px; }
-.play-row { display: flex; gap: 6px; }
-.btn.play { height: 86px; font-size: 22px; flex: 1; }
-.btn.func { height: 86px; width: 56px; flex: none; font-size: 13px; }
+.play-area { width: calc(12.5% - 10px); flex: none; display: flex; flex-direction: column; gap: 6px; }
+.play-row { display: flex; gap: 6px; flex: 1; }
+.btn.play { height: 100%; font-size: 20px; flex: 1; min-width: 0; }
+.btn.func { height: 100%; width: 48px; flex: none; font-size: 12px; }
 .master-knobs {
   flex: 1; display: flex; justify-content: space-around; align-items: center;
   border-radius: 12px; background: #171b1f;
