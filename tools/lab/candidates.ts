@@ -12,14 +12,14 @@ const [BOOM, VINTAGE, PUNCH, TECHNO, DOOF] = MACROS.kick.anchors;
 
 const KICK_B: Candidate = {
   name: 'B: SWEEP, NOT DRIVE',
-  note: 'VINTAGE: project 1’s KICK built in (long noisy click, CRUSH, deeper sweep). TECHNO at INT 100: a hard house kick (a taller, longer sweep than PUNCH’s, far less DRIVE). PSY DOOF: the click fades out as INT rises, less DRIVE, and at INT 100 a lower (7-octave), longer laser.',
+  note: 'VINTAGE: project 1’s KICK built in (long noisy click, deeper sweep). TECHNO at INT 100: a hard house kick (a taller, longer sweep than PUNCH’s, far less DRIVE). PSY DOOF: the click fades out as INT rises, less DRIVE, and at INT 100 a lower (7-octave), longer laser.',
   anchors: [
     BOOM,
     {
       // Project 1 (MTHED)'s KICK built in: a long noisy click (the real kick's beater and
-      // skin), CRUSH, a deeper sweep; its INT 88 plays as that track did (DRIVE aside).
+      // skin), a deeper sweep; its INT 88 plays as that track did (DRIVE, CRUSH aside).
       ...VINTAGE,
-      values: { ...VINTAGE.values, ogain: 1.079, t_pitch: 46, t_sweep: 30, t_stime: 0.044, c_len: 0.146, c_noise: 0.72, crush: 0.38 },
+      values: { ...VINTAGE.values, ogain: 1.079, t_pitch: 46, t_sweep: 30, t_stime: 0.044, c_len: 0.146, c_noise: 0.72 },
       soft: { ...VINTAGE.soft, ogain: 1.098, t_sweep: 22, t_stime: 0.05 },
       hard: { ...VINTAGE.hard, ogain: 0.979, t_sweep: 44, t_stime: 0.038 },
     },
