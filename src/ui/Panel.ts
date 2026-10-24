@@ -9,8 +9,8 @@
  *                    [ save  |                ]
  *   [ 8 track modules, each: knob / M, channel button, S / knob ]
  *   [ function row                                 ] | [      ]
- *   [ step LEDs                                    ] | [ FUNC PLAY ]
- *   [ 16-button strip (steps or keyboard)          ] | [      ]
+ *   [ step LEDs                                    ] | [ FUNC ]
+ *   [ 16-button strip (steps or keyboard)          ] | [ PLAY ]
  *   (the strip's right divider sits under the groove between modules 7 and 8)
  *
  * Control ids: mode:record|play|design, ch1..8, mute1..8, solo1..8, save, saveproject,

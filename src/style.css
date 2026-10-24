@@ -102,8 +102,10 @@ html, body {
 .row.modes { padding-bottom: 10px; margin-bottom: 2px; border-bottom: 2px solid var(--panel-edge); }
 /* FX 1-3 / LFO and PAT A-D, in the space the channel buttons and M / S took. */
 .row.buses { height: 94px; gap: 14px; padding-bottom: 5px; border-bottom: 2px solid var(--panel-edge); }
-.lower { display: flex; gap: 8px; }
+.lower { display: flex; gap: 8px; flex: 1; min-height: 0; }
 .lower-rows { flex: 3; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* The page and SAVE rows share the height down to the screen's bottom edge. */
+.lower-rows > .row { flex: 1; min-height: 0; }
 .lower .master-knobs { flex: 1.6; }
 
 /* ---------- Buttons ---------- */
@@ -137,7 +139,7 @@ html, body {
 .key-row { display: flex; gap: 8px; }
 .group-label { text-align: center; font-size: 11px; letter-spacing: 0.12em; color: var(--ink-dim); line-height: 1; }
 .btn.pat.playing { border-color: var(--accent); }
-.btn.save { height: 40px; font-size: 12px; line-height: 1; flex: 0.9; }
+.btn.save { height: 100%; font-size: 12px; line-height: 1; flex: 0.9; }
 .btn.save small { font-size: 9px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
 .btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
 .row.pages, .row.patterns { gap: 14px; }
@@ -147,7 +149,7 @@ html, body {
 .btn.pat { position: relative; }
 .page-buttons { display: flex; gap: 8px; flex: 3; }
 .page-buttons > * { flex: 1; }
-.btn.page { height: 40px; font-size: 12px; }
+.btn.page { height: 100%; font-size: 12px; }
 .btn.page.disabled { opacity: 0.12; }
 
 /* ---------- Knob section: six track modules, like a hardware front panel ---------- */
@@ -294,9 +296,10 @@ html, body {
 .panel.keyboard .step.cursor { box-shadow: inset 0 0 0 3px var(--hot); }
 
 .play-area { width: calc(12.5% - 10px); flex: none; display: flex; flex-direction: column; gap: 6px; }
-.play-row { display: flex; gap: 6px; flex: 1; }
-.btn.play { height: 100%; font-size: 20px; flex: 1; min-width: 0; }
-.btn.func { height: 100%; width: 48px; flex: none; font-size: 12px; }
+.play-row { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+/* FUNC level with the function keys + lights, PLAY level with the strip. */
+.btn.func { height: 56px; flex: none; font-size: 13px; }
+.btn.play { flex: 1; min-height: 0; font-size: 22px; }
 .master-knobs {
   flex: 1; display: flex; justify-content: space-around; align-items: center;
   border-radius: 12px; background: #171b1f;
