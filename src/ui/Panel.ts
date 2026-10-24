@@ -43,10 +43,14 @@ export const MODES = [
   { id: 'song', label: 'SONG' },
 ] as const;
 
-/** Function row: groups of [id, label] (labels may contain <small> lines). */
+/**
+ * Function row: groups of [id, label] (labels may contain <small> lines); every button is a
+ * strip step wide. An empty id = a blank key (not wired up yet).
+ */
 const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['clear', 'CLEAR<small>HOLD</small>'], ['copy', 'COPY<small>HOLD</small>']],
+  [['', ''], ['', ''], ['', ''], ['', '']],
   [['oct-', 'OCT −'], ['oct+', 'OCT +']],
   [['cur-', '◀'], ['cur+', '▶'], ['rest', 'REST']],
 ];
@@ -142,7 +146,17 @@ export class Panel implements ControlSurface {
     for (const group of FUNCTION_ROW) {
       const g = document.createElement('div');
       g.className = 'fn-group';
-      for (const [id, label] of group) g.appendChild(this.makeButton(id, label, 'btn fn'));
+      // Grow by button count (basis = its inner gaps), so every button gets the same width.
+      g.style.flex = `${group.length} ${group.length} ${(group.length - 1) * 4}px`;
+      for (const [id, label] of group) {
+        if (id) {
+          g.appendChild(this.makeButton(id, label, 'btn fn'));
+        } else {
+          const blank = document.createElement('div');
+          blank.className = 'btn fn blank';
+          g.appendChild(blank);
+        }
+      }
       fnRow.appendChild(g);
     }
 
