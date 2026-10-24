@@ -1162,6 +1162,27 @@ describe('slides and rolls', () => {
     expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
   });
 
+  it('a rest under a SLIDE note\'s own tie does not cut it: it still glides into the next note', () => {
+    const p = kickProject([], { bpm: 120 });
+    const b = p.channels[4];
+    b.sounds.bass = { ...b.sounds.bass!, shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0.06, drive: 1 };
+    const pat = b.patterns[0];
+    Object.assign(pat.steps[0], { active: true, note: 45, gate: 3, slide: true }); // tied over steps 2-3
+    for (const i of [1, 2]) pat.steps[i].rest = true; // rests left under the tie
+    Object.assign(pat.steps[3], { active: true, note: 57, gate: 1 });
+    b.fxSend = 0;
+    const crossingsAfterBoundary = (slide: boolean) => {
+      pat.steps[0].slide = slide;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const l = render(e, 0.5).l.subarray(18000, 18960); // first 20 ms of step 4
+      let c = 0;
+      for (let i = 1; i < l.length; i++) if ((l[i - 1] < 0) !== (l[i] < 0)) c++;
+      return c;
+    };
+    expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
+  });
+
   it('on drum tracks the SLIDE flag is ROLL at the sound\'s ROLL RATE (hits per step)', () => {
     const p = kickProject([0, 4], { bpm: 120 });
     p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 2 }; // 1:3

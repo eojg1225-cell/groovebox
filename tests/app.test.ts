@@ -284,3 +284,24 @@ describe('RECORD strip: the same as PLAY', () => {
     expect(flags.get('step13')?.has('skip')).toBe(false);
   });
 });
+
+describe('PLAY flags carry into DESIGN', () => {
+  const lastForce = (sent: MainToWorklet[], ch: number) => [...sent].reverse().find((m) => m.type === 'setForce' && m.channel === ch);
+
+  it('SLIDE all notes stays on from PLAY into DESIGN, can be turned off there, and ends in RECORD', () => {
+    const { sent, tap } = makeApp();
+    tap('mode:play');
+    tap('ch7');
+    tap('slide');
+    expect(lastForce(sent, 6)).toMatchObject({ slide: true });
+    const before = sent.length;
+    tap('mode:design');
+    expect(sent.slice(before).some((m) => m.type === 'setForce')).toBe(false); // still on
+    tap('slide');
+    expect(lastForce(sent, 6)).toMatchObject({ slide: false });
+    tap('ring');
+    expect(lastForce(sent, 6)).toMatchObject({ ring: true });
+    tap('mode:record');
+    expect(lastForce(sent, 6)).toMatchObject({ ring: false, slide: false });
+  });
+});

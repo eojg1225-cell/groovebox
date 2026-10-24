@@ -54,3 +54,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Title card pixelated (2026-10-24): Sarpanch drawn hard-edged on a small canvas and shown in big pixels; the genre tagline removed.
 - Boot screen (2026-10-24): the title card is back in the pixel font, on the panel's own screen: the panel starts zoomed in on it (TAP TO START / LOADING / READY) and zooms out to the whole panel once the sound engine is running.
 - RECORD strip like PLAY (2026-10-24): placing a flag while playing now follows the playhead's bar; the SAVE / LOAD slots always show as slots (no key look, no dark / tied steps left over from the step view).
+- PLAY flags in DESIGN; rests under ties (2026-10-24): RING / SLIDE / ACCENT / GHOST work in DESIGN as in PLAY and stay on between the two. A REST under a RING / SLIDE note's own tie no longer cuts it (project 2's LEAD: the first bar didn't slide), and tying over a step now clears its REST marker.

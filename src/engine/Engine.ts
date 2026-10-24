@@ -211,6 +211,8 @@ export class Engine {
   private readonly gateGroup = new Int16Array(NUM_CHANNELS);
   /** The held note is a RING note: it ends at the next hit or rest, not by count. */
   private readonly ringing = new Uint8Array(NUM_CHANNELS);
+  /** A RING / SLIDE note's own tie: steps still under it, where a rest does not end it. */
+  private readonly tieLeft = new Int32Array(NUM_CHANNELS);
   /** Live recording: the held note per channel (-1 = none) and where it started. */
   private readonly recNote = new Int16Array(NUM_CHANNELS).fill(-1);
   /** When the note being recorded was played (engine frames): PAD / PLUCK chord keys near it join it. */
@@ -801,8 +803,10 @@ export class Engine {
       this.releaseGate(ch);
     } else if (this.gateSteps[ch] > 0) {
       if (this.ringing[ch]) {
-        // A RING note ends at the next hit or rest on this track.
-        if (this.stepActive[s] || this.stepRest[s]) this.releaseGate(ch);
+        // A RING note ends at the next hit or rest on this track (a rest under the note's own
+        // tie does not count: the tie says the note goes on over it).
+        if (this.stepActive[s] || (this.stepRest[s] && this.tieLeft[ch] === 0)) this.releaseGate(ch);
+        else if (this.tieLeft[ch] > 0) this.tieLeft[ch]--;
       } else if (--this.gateSteps[ch] === 0) {
         // A held note ends where its gate says: at the start of a later step, or (GATE
         // above 1) that far into it.
@@ -853,6 +857,7 @@ export class Engine {
         this.gateGroup[ch] = root;
         this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
         this.ringing[ch] = ring || slide ? 1 : 0;
+        this.tieLeft[ch] = ring || slide ? Math.max(0, this.stepGate[s] - 1) : 0;
         this.gateAt[ch] = -1;
         if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
         this.sliding[ch] = slide ? 1 : 0;
@@ -1113,6 +1118,7 @@ export class Engine {
     this.current[ch]?.noteOff(this.gateGroup[ch]);
     this.gateSteps[ch] = 0;
     this.ringing[ch] = 0;
+    this.tieLeft[ch] = 0;
   }
 
   /** Live note released. If it was being recorded, its length becomes the step's gate. */

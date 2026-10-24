@@ -941,9 +941,10 @@ export class App {
       this.mode = id.slice(5) as Mode;
       this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
       if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
-      // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY.
+      // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY and
+      // DESIGN (kept going between those two).
       if (this.mode !== 'record') { this.ring = false; this.slideArm = false; this.dynamic = 'normal'; }
-      if (this.mode !== 'play') {
+      if (!this.forcing) {
         for (let ch = 0; ch < NUM_CHANNELS; ch++) {
           if (this.forceRing[ch] || this.forceSlide[ch] || this.forceDyn[ch] !== 'normal') this.setForce(ch, false, false, 'normal');
         }
@@ -992,8 +993,8 @@ export class App {
       // SAVE PROJECT = name + slot; FUNC + SAVE PROJECT = load another (stopped only).
       if (this.funcHeld) this.funcUsed = true;
       this.openProjectMenu(this.func ? 'load' : 'save');
-    } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.mode === 'play') {
-      // PLAY: a live effect on the selected track's notes, tap on / tap off.
+    } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.forcing) {
+      // PLAY / DESIGN: a live effect on the selected track's notes, tap on / tap off.
       const ch = this.selected;
       const ring = id === 'ring' ? !this.forceRing[ch] : this.forceRing[ch];
       const slide = id === 'slide' ? !this.forceSlide[ch] : this.forceSlide[ch];
@@ -1353,7 +1354,7 @@ export class App {
   }
 
   private velocity(): number {
-    const d = this.mode === 'play' ? this.forceDyn[this.selected] : this.dynamic;
+    const d = this.forcing ? this.forceDyn[this.selected] : this.dynamic;
     return DYNAMIC_VELOCITY[d];
   }
 
@@ -1555,6 +1556,11 @@ export class App {
   }
 
   /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
+  /** PLAY and DESIGN: RING / SLIDE / ACCENT / GHOST make every note on the track play that way. */
+  private get forcing(): boolean {
+    return this.mode === 'play' || this.mode === 'design';
+  }
+
   private setForce(ch: number, ring: boolean, slide: boolean, dyn: Dynamic): void {
     this.forceRing[ch] = ring;
     this.forceSlide[ch] = slide;
@@ -1783,8 +1789,10 @@ export class App {
     if (delta > 0) {
       const at = (index + gate - 1) % len;
       const covered = this.pattern.steps[at];
-      if (covered.active || covered.locks) {
+      if (covered.active || covered.locks || covered.rest) {
+        // A rest left under the tie would cut a RING / SLIDE note short: it goes too.
         covered.active = false;
+        covered.rest = false;
         delete covered.locks;
         this.sendStep(at, covered);
       }
@@ -1849,7 +1857,7 @@ export class App {
       this.flash('ONE BAR PATTERN');
       return;
     }
-    if ((this.mode === 'play' || (this.recording && !this.placing)) && !this.stepsMode) {
+    if ((this.mode === 'play' || this.recording) && !this.stepsMode) {
       this.flash('THE STRIP FOLLOWS THE PLAYHEAD');
       return;
     }
@@ -2262,7 +2270,7 @@ export class App {
     const rec = this.mode === 'record';
     const kb = this.keyboard;
     this.panel.setButtonLit('func', this.func);
-    const play = this.mode === 'play';
+    const play = this.forcing;
     this.panel.setButtonLit('ring', play ? this.forceRing[this.selected] : this.ring);
     this.panel.setButtonLit('slide', play ? this.forceSlide[this.selected] : this.slideArm);
     // Synths: SLIDE; drums: ROLL (same button, same step flag).
