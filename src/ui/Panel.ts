@@ -74,6 +74,7 @@ export class Panel implements ControlSurface {
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
 
   private stripSlide = false;
+  private zoom = 0;
   private readonly stepIds = new Map<HTMLElement, string>();
   /** Pointer id -> the step it is pressing now (it may have slid on from where it went down). */
   private readonly stripPointers = new Map<number, string>();
@@ -266,24 +267,55 @@ export class Panel implements ControlSurface {
     if (b && b.innerHTML !== html) b.innerHTML = html;
   }
 
-  /** Scale (and on portrait screens rotate) the fixed design box to fit the viewport. */
+  /** 1 = zoomed in until the pixel screen fills the window (start-up), 0 = the whole panel. */
+  setZoom(t: number): void {
+    this.zoom = Math.min(1, Math.max(0, t));
+    this.fit();
+  }
+
+  /** The screen bezel's centre and size, in design pixels (layout only, no transforms). */
+  private screenBox(): { cx: number; cy: number; w: number; h: number } {
+    const el = this.root.querySelector('.screen-bezel') as HTMLElement;
+    let x = this.root.clientLeft;
+    let y = this.root.clientTop;
+    for (let e: HTMLElement | null = el; e && e !== this.root; e = e.offsetParent as HTMLElement | null) {
+      x += e.offsetLeft;
+      y += e.offsetTop;
+    }
+    return { cx: x + el.offsetWidth / 2, cy: y + el.offsetHeight / 2, w: el.offsetWidth, h: el.offsetHeight };
+  }
+
+  /**
+   * Scale (and on portrait screens rotate) the fixed design box to fit the viewport; with a
+   * zoom, scale up around the screen (its centre glides to the middle of the window).
+   */
   fit(): void {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const portrait = vh > vw;
     setRotated(portrait);
     document.documentElement.classList.toggle('rotated', portrait);
-    if (portrait) {
-      const scale = Math.min(vh / DESIGN_W, vw / DESIGN_H);
-      const x = (vw - DESIGN_H * scale) / 2 + DESIGN_H * scale;
-      const y = (vh - DESIGN_W * scale) / 2;
-      this.root.style.transform = `translate(${x}px, ${y}px) rotate(90deg) scale(${scale})`;
-    } else {
-      const scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
-      const x = (vw - DESIGN_W * scale) / 2;
-      const y = (vh - DESIGN_H * scale) / 2;
-      this.root.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    // The whole panel, centred.
+    const s0 = portrait ? Math.min(vh / DESIGN_W, vw / DESIGN_H) : Math.min(vw / DESIGN_W, vh / DESIGN_H);
+    const x0 = portrait ? (vw + DESIGN_H * s0) / 2 : (vw - DESIGN_W * s0) / 2;
+    const y0 = (vh - (portrait ? DESIGN_W : DESIGN_H) * s0) / 2;
+    const rotate = portrait ? ' rotate(90deg)' : '';
+    if (this.zoom <= 0) {
+      this.root.style.transform = `translate(${x0}px, ${y0}px)${rotate} scale(${s0})`;
+      return;
     }
+    // Where a design point lands: portrait rotates it a quarter turn clockwise.
+    const b = this.screenBox();
+    const at = (x: number, y: number, s: number): [number, number] => (portrait ? [x - s * b.cy, y + s * b.cx] : [x + s * b.cx, y + s * b.cy]);
+    const s1 = 0.94 * (portrait ? Math.min(vh / b.w, vw / b.h) : Math.min(vw / b.w, vh / b.h));
+    const t = this.zoom;
+    const s = Math.pow(s0, 1 - t) * Math.pow(s1, t);
+    const [fx, fy] = at(x0, y0, s0);
+    const cx = fx + (vw / 2 - fx) * t;
+    const cy = fy + (vh / 2 - fy) * t;
+    const x = portrait ? cx + s * b.cy : cx - s * b.cx;
+    const y = portrait ? cy - s * b.cx : cy - s * b.cy;
+    this.root.style.transform = `translate(${x}px, ${y}px)${rotate} scale(${s})`;
   }
 
   private press(id: string, pressed: boolean): void {

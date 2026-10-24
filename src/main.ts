@@ -1,19 +1,22 @@
 /**
- * Entry: title screen that fades into the panel. Audio cannot start without a user
- * gesture, so the first touch/click/key anywhere quietly unlocks it.
+ * Entry: the panel starts zoomed in on its pixel screen showing the title card, like hardware
+ * booting, and zooms out once the sound engine is running. Audio cannot start without a user
+ * gesture, so the screen asks for a tap; the first touch / click / key anywhere unlocks it.
  */
 import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
-import { INK, PixelScreen } from './ui/screen';
-import { drawDesignView, drawLiveView, drawProjectView, drawSongView } from './ui/views';
+import { PixelScreen } from './ui/screen';
+import { drawDesignView, drawLiveView, drawProjectView, drawSongView, drawTitleView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
 import { projectStore } from './storage/projects';
 import { startSlotSync } from './storage/slotSync';
 
-const TITLE_HOLD_MS = 1400;
+/** Start-up: how long the title stays once the engine is running, then the zoom out. */
+const TITLE_HOLD_MS = 700;
+const ZOOM_OUT_MS = 1200;
 
 // Block browser gestures that would scroll, zoom or open menus while playing.
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -87,6 +90,8 @@ function unlockAudio(): void {
       app.notify('ENGINE RESTARTED');
     };
     host.onStatus = (s) => {
+      // The engine's first status report: it is up and playing blocks.
+      if (engineReadyAt < 0) engineReadyAt = performance.now();
       app.setStatus(s);
       audio.peak = Math.max(Math.max(s.peakL, s.peakR), audio.peak * 0.85);
     };
@@ -110,44 +115,30 @@ for (const t of UNLOCK_EVENTS) window.addEventListener(t, unlockAudio, true);
 
 // ------------------------------------------------------------------ title screen
 
-const title = document.getElementById('title') as HTMLElement;
+// The overlay keeps the panel's controls out of reach until the title has zoomed away.
+const titleOverlay = document.getElementById('title') as HTMLElement;
+let engineReadyAt = -1;
+let zoomStart = -1;
+let titleDone = false;
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+panel.setZoom(1);
 
-/**
- * The title card: the panel's Sarpanch drawn small and hard-edged (every pixel fully on or
- * off) on a TITLE_W x TITLE_H canvas, then shown scaled up with pixelated rendering.
- */
-const TITLE_W = 180;
-const TITLE_H = 40;
-function drawTitle(canvas: HTMLCanvasElement): void {
-  canvas.width = TITLE_W;
-  canvas.height = TITLE_H;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = INK.hi;
-  ctx.font = "700 25px 'Sarpanch'";
-  ctx.fillText('GrooveAccess', TITLE_W / 2, 23);
-  ctx.fillStyle = INK.mid;
-  ctx.font = "600 10px 'Sarpanch'";
-  ctx.fillText('A Garibaldi Production', TITLE_W / 2, 36);
-  // No smoothing: an edge pixel is either the letter's colour or nothing.
-  const img = ctx.getImageData(0, 0, TITLE_W, TITLE_H);
-  for (let i = 3; i < img.data.length; i += 4) img.data[i] = img.data[i] >= 110 ? 255 : 0;
-  ctx.putImageData(img, 0, 0);
+/** The start-up title on the pixel screen; after the engine is ready, zoom out to the panel. */
+function titleFrame(now: number): void {
+  const status = audio.state === 'error' ? 'AUDIO FAILED - TAP TO RETRY'
+    : engineReadyAt >= 0 ? 'READY' : audio.state === 'off' ? 'TAP TO START' : 'LOADING ...';
+  const blink = audio.state !== 'off' || Math.floor(now / 500) % 2 === 0;
+  drawTitleView(screen, status, blink);
+  if (engineReadyAt < 0 || now - engineReadyAt < TITLE_HOLD_MS) return;
+  if (zoomStart < 0) zoomStart = now;
+  const p = reducedMotion ? 1 : Math.min(1, (now - zoomStart) / ZOOM_OUT_MS);
+  // Ease in and out.
+  panel.setZoom(1 - p * p * (3 - 2 * p));
+  if (p >= 1) {
+    titleDone = true;
+    titleOverlay.remove();
+  }
 }
-const titleCanvas = title.querySelector('canvas') as HTMLCanvasElement;
-void document.fonts.load("700 25px 'Sarpanch'").then(() => drawTitle(titleCanvas), () => drawTitle(titleCanvas));
-
-let titleGone = false;
-function dismissTitle(): void {
-  if (titleGone) return;
-  titleGone = true;
-  title.classList.add('fade');
-  window.setTimeout(() => title.remove(), 700);
-}
-window.setTimeout(dismissTitle, TITLE_HOLD_MS);
-title.addEventListener('pointerdown', dismissTitle);
 
 // ------------------------------------------------------------------ wake lock
 
@@ -188,7 +179,8 @@ const frame = (now: number) => {
   if (app.playing !== wasPlaying) { wasPlaying = app.playing; void updateWakeLock(); }
   app.updateFrame(now);
   screen.begin();
-  if (app.projMenu) drawProjectView(screen, app.projectView());
+  if (!titleDone) titleFrame(now);
+  else if (app.projMenu) drawProjectView(screen, app.projectView());
   else if (app.mode === 'song') drawSongView(screen, app.songView(now, audio));
   else if (app.sendOpen) drawDesignView(screen, app.sendView(now, audio));
   else if (app.mode === 'design' || app.playMix) drawDesignView(screen, app.designView(now, audio));

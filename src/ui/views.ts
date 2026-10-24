@@ -351,3 +351,16 @@ export function drawProjectView(s: PixelScreen, v: ProjectView): void {
   if (v.message) s.text(2, FOOTER_Y, v.message, INK.warn);
   else s.text(2, FOOTER_Y, hint, INK.mid);
 }
+
+/**
+ * The start-up title card, as the hardware would show it while it boots: the name, the
+ * credit and a status line (TAP TO START blinks until audio is allowed).
+ */
+export function drawTitleView(s: PixelScreen, status: string, blink: boolean): void {
+  s.clear(INK.bg);
+  const name = 'GrooveAccess';
+  const credit = 'A Garibaldi Production';
+  s.text(Math.round((SCREEN_W - textWidth(name, 3)) / 2), 34, name, INK.hi, 3, true);
+  s.text(Math.round((SCREEN_W - textWidth(credit)) / 2), 60, credit, INK.mid, 1, true);
+  if (blink) s.text(Math.round((SCREEN_W - textWidth(status)) / 2), 100, status, INK.mid);
+}

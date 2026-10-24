@@ -52,3 +52,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Sarpanch (2026-10-24): the panel lettering changed from Audiowide to Sarpanch (squared, straight-stroke numbers like a football shirt), every panel text size 1 px larger for legibility.
 - Title card in Sarpanch (2026-10-24): the start-up title (GrooveAccess / A Garibaldi Production / TECHNO - DNB - DUB - JUNGLE) is lettered in Sarpanch instead of the pixel font.
 - Title card pixelated (2026-10-24): Sarpanch drawn hard-edged on a small canvas and shown in big pixels; the genre tagline removed.
+- Boot screen (2026-10-24): the title card is back in the pixel font, on the panel's own screen: the panel starts zoomed in on it (TAP TO START / LOADING / READY) and zooms out to the whole panel once the sound engine is running.

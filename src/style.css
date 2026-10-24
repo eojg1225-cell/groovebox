@@ -44,24 +44,9 @@ html, body {
 #app { position: fixed; inset: 0; }
 
 /* ---------- Title screen ---------- */
-.title {
-  position: fixed; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--screen-bg);
-  z-index: 10;
-  transition: opacity 0.7s ease;
-}
-/* Sarpanch drawn hard-edged on a small canvas (main.ts drawTitle), scaled up in big pixels. */
-.title canvas {
-  width: min(720px, 90vw);
-  aspect-ratio: 180 / 40;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-}
-/* Portrait screens: the instrument is drawn landscape (rotated), the title too. */
-.rotated .title canvas { width: min(720px, 90vh); transform: rotate(90deg); }
-.title.fade { opacity: 0; pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .title { transition-duration: 0.2s; } }
+/* The title card is drawn on the panel's own pixel screen (zoomed in at start-up, main.ts);
+   this see-through overlay only keeps the controls out of reach until it has zoomed out. */
+.title { position: fixed; inset: 0; z-index: 10; }
 
 /* ---------- Panel (design size 1200x760, scaled by Panel.fit) ---------- */
 .panel {
