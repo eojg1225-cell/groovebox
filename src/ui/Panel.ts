@@ -4,9 +4,9 @@
  * so the instrument is always landscape.
  *
  *   [ pixel screen ] [ MODE: record / play / sound design ]
- *                    [ FX 1-3, LFO | PAT A-D ]  (where the channel buttons were)
- *                    [ pages | TEMPO MASTER   ]
- *                    [ save  |                ]
+ *                    [ save  | TEMPO MASTER   ]
+ *                    [ pages |                ]
+ *                    [ FX 1-3, LFO | PAT A-D ]
  *   [ 8 track modules, each: knob / M, channel button, S / knob ]
  *   [ function row                                 ] | [      ]
  *   [ step LEDs                                    ] | [ FUNC ]
@@ -92,16 +92,16 @@ export class Panel implements ControlSurface {
         <div class="screen-bezel"><canvas class="screen"></canvas></div>
         <div class="side">
           <div class="row modes"></div>
-          <div class="row buses">
-            <div class="key-group"><div class="key-row fx-buttons"></div><div class="group-label">FX</div></div>
-            <div class="key-group"><div class="key-row pat-buttons"></div><div class="group-label">PATTERN</div></div>
-          </div>
           <div class="lower">
             <div class="lower-rows">
-              <div class="row pages"><div class="page-buttons"></div></div>
               <div class="row patterns"><div class="save-buttons"></div></div>
+              <div class="row pages"><div class="page-buttons"></div></div>
             </div>
             <div class="master-knobs"></div>
+          </div>
+          <div class="row buses">
+            <div class="key-group"><div class="group-label">FX</div><div class="key-row fx-buttons"></div></div>
+            <div class="key-group"><div class="group-label">PATTERN</div><div class="key-row pat-buttons"></div></div>
           </div>
         </div>
       </div>
