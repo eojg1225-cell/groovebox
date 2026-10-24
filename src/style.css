@@ -151,7 +151,7 @@ html, body {
 /* ---------- Knob section: six track modules, like a hardware front panel ---------- */
 .knob-grid {
   display: flex;
-  height: 226px; flex: none;
+  height: 242px; flex: none;
   border-radius: 14px;
   background: #171b1f;
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
@@ -214,7 +214,7 @@ html, body {
 .panel-bottom { display: flex; gap: 16px; flex: 1; min-height: 0; }
 .bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
-.function-row { display: flex; gap: 6px; height: 44px; flex: none; }
+.function-row { display: flex; gap: 6px; height: 40px; flex: none; }
 /* 16 keys, each straight above its strip step (the strip's gaps and group spacing). */
 .function-row > .btn.fn:nth-child(4n + 1):not(:first-child) { margin-left: 14px; }
 .btn.fn { flex: 1 1 0; font-size: 10px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
@@ -246,7 +246,7 @@ html, body {
 }
 /* The light row's dividers run up between the function keys' groups of four and down to the
    strip's; a step's divider sits 2 px further left (it is placed inside the 2 px border). */
-.led:nth-child(4n + 1):not(:first-child)::before { top: -50px; bottom: -7px; }
+.led:nth-child(4n + 1):not(:first-child)::before { top: -46px; bottom: -7px; }
 .step:nth-child(4n + 1):not(:first-child)::before { left: -14px; top: -12px; }
 .step { font-size: 13px; color: var(--ink-dim); justify-content: flex-end; padding-bottom: 8px; position: relative; }
 .panel:not(.keyboard) .step.beat { border-top-width: 4px; }
