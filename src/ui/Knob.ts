@@ -1,15 +1,23 @@
 /**
  * On-screen knob: an absolute control with fixed limits, 0-127 (or finer, e.g. TEMPO),
  * drawn with a 270-degree sweep and value arc. Vertical drag (multi-touch safe via
- * pointer capture) sets it; double-tap / double-click resets to default.
+ * pointer capture) sets it, faster the quicker the finger moves (slow = fine, as before;
+ * a quick swipe covers the whole range); double-tap / double-click resets to default.
  *
  * The mouse wheel instead sends relative ENCODER steps (+1/-1), the same message a
  * physical rotary encoder will send on the hardware, so that path is exercised too.
  */
 import { localY } from './orientation';
 
-/** Pixels of vertical drag for the full range (larger = less sensitive). */
+/** Pixels of slow vertical drag for the full range (larger = less sensitive). */
 const DRAG_PIXELS_FULL_RANGE = 400;
+/** Drag speed (design px per ms) below which the knob moves 1:1; above it, it speeds up. */
+const ACCEL_FROM = 0.15;
+/** Extra gain per px/ms above ACCEL_FROM, and the most it can reach. */
+const ACCEL_GAIN = 4;
+const ACCEL_MAX = 6;
+/** Smoothing of the measured speed (ms), so one jumpy event doesn't fling the knob. */
+const SPEED_SMOOTH_MS = 40;
 const DOUBLE_TAP_MS = 300;
 const SWEEP_DEG = 270;
 
@@ -22,8 +30,11 @@ export class Knob {
   /** Current position in steps, 0..steps. */
   private pos: number;
   private dragPointer: number | null = null;
-  private dragStartY = 0;
-  private dragStartPos = 0;
+  private lastY = 0;
+  private lastT = 0;
+  private speed = 0;
+  /** Position while dragging, unrounded (so slow movement still adds up). */
+  private dragPos = 0;
   private lastTap = -Infinity;
 
   /**
@@ -108,8 +119,10 @@ export class Knob {
     }
     this.lastTap = now;
     this.dragPointer = e.pointerId;
-    this.dragStartY = localY(e);
-    this.dragStartPos = this.pos;
+    this.lastY = localY(e);
+    this.lastT = e.timeStamp;
+    this.speed = 0;
+    this.dragPos = this.pos;
     body.setPointerCapture(e.pointerId);
     this.el.classList.add('active');
   }
@@ -117,9 +130,16 @@ export class Knob {
   private onMove(e: PointerEvent): void {
     if (e.pointerId !== this.dragPointer) return;
     e.preventDefault();
-    const fine = e.shiftKey ? 0.25 : 1;
-    const travel = ((this.dragStartY - localY(e)) / DRAG_PIXELS_FULL_RANGE) * fine;
-    this.moveTo(this.dragStartPos + travel * this.steps);
+    const y = localY(e);
+    const dy = this.lastY - y;
+    const dt = Math.max(1, e.timeStamp - this.lastT);
+    this.lastY = y;
+    this.lastT = e.timeStamp;
+    const k = Math.min(1, dt / SPEED_SMOOTH_MS);
+    this.speed += (Math.abs(dy) / dt - this.speed) * k;
+    const gain = e.shiftKey ? 0.25 : Math.min(ACCEL_MAX, 1 + Math.max(0, this.speed - ACCEL_FROM) * ACCEL_GAIN);
+    this.dragPos = Math.min(this.steps, Math.max(0, this.dragPos + (dy / DRAG_PIXELS_FULL_RANGE) * gain * this.steps));
+    this.moveTo(this.dragPos);
   }
 
   private onUp(e: PointerEvent): void {
