@@ -257,7 +257,7 @@ describe('TEMPO', () => {
 });
 
 describe('RECORD strip: the same as PLAY', () => {
-  const status = (steps: number[]) => ({ peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0 });
+  const status = (steps: number[]) => ({ type: 'status' as const, peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0 });
 
   it('placing a flag while playing follows the playhead to the bar it is in', () => {
     const { app, tap, texts } = makeApp();
