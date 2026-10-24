@@ -25,7 +25,7 @@ import { setRotated } from './orientation';
 import { BPM_MAX, BPM_MIN } from '../engine/mixParams';
 
 const DESIGN_W = 1200;
-const DESIGN_H = 760;
+const DESIGN_H = 770;
 export const KNOB_COUNT = 16;
 export const KNOBS_PER_ROW = 8;
 export const STEP_BUTTONS = 16;

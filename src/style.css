@@ -1,4 +1,4 @@
-/* Panel design size is 1200x760 (see Panel.ts); everything below is in design pixels. */
+/* Panel design size is 1200x770 (see Panel.ts); everything below is in design pixels. */
 :root {
   --bg: #111417;
   --panel: #1c2126;
@@ -58,7 +58,7 @@ html, body {
 .title.fade { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .title { transition-duration: 0.2s; } }
 
-/* ---------- Panel (design size 1200x760, scaled by Panel.fit) ---------- */
+/* ---------- Panel (design size 1200x770, scaled by Panel.fit) ---------- */
 .panel {
   position: absolute; left: 0; top: 0;
   transform-origin: 0 0;
@@ -111,10 +111,10 @@ html, body {
 
 .btn.mode { height: 40px; font-size: 14px; }
 .btn.mode.lit { background: var(--ink); border-color: var(--ink); color: var(--bg); }
-.btn.ch { height: 56px; font-size: 22px; line-height: 1; }
+.btn.ch { height: 50px; font-size: 20px; line-height: 1; }
 .btn.ch small { font-size: 10px; letter-spacing: 0.06em; margin-top: 5px; opacity: 0.8; white-space: nowrap; }
 .mute-solo { display: flex; gap: 3px; }
-.btn.mute, .btn.solo { height: 30px; font-size: 13px; flex: 1; min-width: 0; padding: 0; }
+.btn.mute, .btn.solo { height: 27px; font-size: 13px; flex: 1; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
 .btn.pat { height: 100%; flex: 1; font-size: 24px; border-radius: 10px; }
@@ -139,7 +139,7 @@ html, body {
 /* ---------- Knob section: eight track modules, like a hardware front panel ---------- */
 .knob-grid {
   display: flex;
-  height: 292px; flex: none;
+  height: 285px; flex: none;
   border-radius: 14px;
   background: #171b1f;
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
