@@ -53,3 +53,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Title card in Sarpanch (2026-10-24): the start-up title (GrooveAccess / A Garibaldi Production / TECHNO - DNB - DUB - JUNGLE) is lettered in Sarpanch instead of the pixel font.
 - Title card pixelated (2026-10-24): Sarpanch drawn hard-edged on a small canvas and shown in big pixels; the genre tagline removed.
 - Boot screen (2026-10-24): the title card is back in the pixel font, on the panel's own screen: the panel starts zoomed in on it (TAP TO START / LOADING / READY) and zooms out to the whole panel once the sound engine is running.
+- RECORD strip like PLAY (2026-10-24): placing a flag while playing now follows the playhead's bar; the SAVE / LOAD slots always show as slots (no key look, no dark / tied steps left over from the step view).

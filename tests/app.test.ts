@@ -16,6 +16,8 @@ function makeApp() {
   const flags = new Map<string, Set<string>>();
   /** Step lights as last set. */
   const leds: string[] = [];
+  /** Button labels as last set. */
+  const texts = new Map<string, string>();
   const setButtonFlag = (id: string, f: string, on: boolean) => {
     const set = flags.get(id) ?? new Set<string>();
     if (on) set.add(f); else set.delete(f);
@@ -24,7 +26,8 @@ function makeApp() {
   const panel = new Proxy({}, {
     get: (_t, k) => (k === 'subscribe' ? (h: (e: ControlEvent) => void) => { handler = h; return noop; }
       : k === 'root' ? { classList: { toggle: noop } } : k === 'setButtonFlag' ? setButtonFlag
-      : k === 'setLed' ? (i: number, state: string) => { leds[i] = state; } : noop),
+      : k === 'setLed' ? (i: number, state: string) => { leds[i] = state; }
+      : k === 'setButtonText' ? (id: string, html: string) => { texts.set(id, html); } : noop),
   }) as unknown as Panel;
   const sent: MainToWorklet[] = [];
   const app = new App(createDefaultProject(), panel, (m) => sent.push(m));
@@ -32,7 +35,7 @@ function makeApp() {
   const release = (id: string) => handler({ type: 'button', id, pressed: false });
   const tap = (id: string) => { press(id); release(id); };
   const emit = (e: ControlEvent) => handler(e);
-  return { app, sent, press, release, tap, flags, leds, emit };
+  return { app, sent, press, release, tap, flags, leds, texts, emit };
 }
 
 beforeEach(() => {
@@ -250,5 +253,34 @@ describe('TEMPO', () => {
     const tempos = sent.filter((m) => m.type === 'setGlobal' && m.id === 'bpm').map((m) => (m as { value: number }).value);
     expect(tempos.length).toBeGreaterThan(1);
     expect(tempos.every(Number.isInteger)).toBe(true);
+  });
+});
+
+describe('RECORD strip: the same as PLAY', () => {
+  const status = (steps: number[]) => ({ peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0 });
+
+  it('placing a flag while playing follows the playhead to the bar it is in', () => {
+    const { app, tap, texts } = makeApp();
+    const kick = app.project.channels[0];
+    kick.patterns[kick.activePattern].length = 32;
+    tap('mode:record');
+    tap('ch1');
+    tap('play');
+    tap('ring');
+    app.setStatus(status([20, 0, 0, 0, 0, 0, 0, 0]));
+    app.updateFrame(0);
+    expect(texts.get('step1')).toBe('17');
+  });
+
+  it('SAVE / LOAD shows the slots on the strip, with nothing left over from the step view', () => {
+    const { app, tap, flags } = makeApp();
+    app.project.meter = 1; // 3/4: steps 13-16 dark in the step view
+    tap('mode:record');
+    tap('ch1');
+    app.updateFrame(0);
+    expect(flags.get('step13')?.has('skip')).toBe(true);
+    tap('saveproject');
+    app.updateFrame(0);
+    expect(flags.get('step13')?.has('skip')).toBe(false);
   });
 });
