@@ -91,7 +91,10 @@ export class Panel implements ControlSurface {
         <div class="screen-bezel"><canvas class="screen"></canvas></div>
         <div class="side">
           <div class="row modes"></div>
-          <div class="row buses"><div class="fx-buttons"><span class="fx-label">FX</span></div><div class="pat-buttons"><span class="fx-label">PAT</span></div></div>
+          <div class="row buses">
+            <div class="key-group"><div class="key-row fx-buttons"></div><div class="group-label">FX</div></div>
+            <div class="key-group"><div class="key-row pat-buttons"></div><div class="group-label">PATTERN</div></div>
+          </div>
           <div class="row pages"><div class="page-buttons"></div><div class="side-gap"></div></div>
           <div class="row patterns"><div class="save-buttons"></div><div class="side-gap"></div></div>
         </div>
@@ -114,9 +117,9 @@ export class Panel implements ControlSurface {
     q('.save-buttons').appendChild(this.makeButton('save', 'SAVE<small>PATTERN</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
-    for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.squareKey(`pat${p}`, p, 'btn pat'));
+    for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
-    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.squareKey(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
+    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel; the
     // track's channel button sits between its two knobs, MUTE left of it, SOLO right.
@@ -335,17 +338,6 @@ export class Panel implements ControlSurface {
     b.addEventListener('lostpointercapture', release);
     this.buttons.set(id, b);
     return b;
-  }
-
-  /** A square key with its name printed underneath (FX 1-3 / LFO, PAT A-D). */
-  private squareKey(id: string, label: string, cls: string): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.className = 'square-key';
-    const name = document.createElement('div');
-    name.className = 'square-key-label';
-    name.textContent = label;
-    wrap.append(this.makeButton(id, '', cls), name);
-    return wrap;
   }
 
   private makeButton(id: string, label: string, cls: string): HTMLElement {
