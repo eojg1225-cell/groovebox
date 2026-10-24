@@ -106,32 +106,32 @@ html, body {
 .btn.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.disabled { opacity: 0.3; cursor: default; }
 
-.btn.mode { height: 40px; font-size: 15px; }
+.btn.mode { height: 40px; font-size: 16px; }
 .btn.mode.lit { background: var(--ink); border-color: var(--ink); color: var(--bg); }
-.btn.ch { height: 56px; font-size: 23px; line-height: 1; }
-.btn.ch small { font-size: 11px; letter-spacing: 0.06em; margin-top: 5px; opacity: 0.8; white-space: nowrap; }
-.btn.mute, .btn.solo { height: 56px; width: 30px; font-size: 14px; flex: none; min-width: 0; padding: 0; }
+.btn.ch { height: 56px; font-size: 24px; line-height: 1; }
+.btn.ch small { font-size: 12px; letter-spacing: 0.06em; margin-top: 5px; opacity: 0.8; white-space: nowrap; }
+.btn.mute, .btn.solo { height: 56px; width: 30px; font-size: 15px; flex: none; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
 .btn.pat, .btn.fxsend { flex: 1; min-width: 0; aspect-ratio: 1; border-radius: 10px; }
-.btn.pat { font-size: 23px; }
-.btn.fxsend { font-size: 19px; }
+.btn.pat { font-size: 24px; }
+.btn.fxsend { font-size: 20px; }
 /* FX 1-3 / LFO and PAT A-D: square keys, the group's name printed underneath. */
 .key-group { flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .key-row { display: flex; gap: 8px; }
-.group-label { text-align: center; font-size: 12px; letter-spacing: 0.12em; color: var(--ink-dim); line-height: 1; }
+.group-label { text-align: center; font-size: 13px; letter-spacing: 0.12em; color: var(--ink-dim); line-height: 1; }
 .btn.pat.playing { border-color: var(--accent); }
-.btn.save { height: 100%; font-size: 13px; line-height: 1; flex: 0.9; }
-.btn.save small { font-size: 10px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
+.btn.save { height: 100%; font-size: 14px; line-height: 1; flex: 0.9; }
+.btn.save small { font-size: 11px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
 .btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
 .row.pages, .row.patterns { gap: 14px; }
 .save-buttons { display: flex; gap: 8px; flex: 3; }
 .save-buttons > * { flex: 1; }
-.btn.pat.dirty::after { content: '*'; position: absolute; top: 6px; right: 10px; font-size: 17px; color: var(--hot); }
+.btn.pat.dirty::after { content: '*'; position: absolute; top: 6px; right: 10px; font-size: 18px; color: var(--hot); }
 .btn.pat { position: relative; }
 .page-buttons { display: flex; gap: 8px; flex: 3; }
 .page-buttons > * { flex: 1; }
-.btn.page { height: 100%; font-size: 13px; }
+.btn.page { height: 100%; font-size: 14px; }
 .btn.page.disabled { opacity: 0.12; }
 
 /* ---------- Knob section: six track modules, like a hardware front panel ---------- */
@@ -183,7 +183,7 @@ html, body {
 }
 .knob.active .knob-cap { box-shadow: 0 0 0 3px var(--accent); }
 .knob-label {
-  font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink-dim);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: var(--ink-dim);
   min-height: 1.2em; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .knob.disabled .knob-body { opacity: 0.2; cursor: default; }
@@ -193,7 +193,7 @@ html, body {
 .knob-module .knob-label {
   position: absolute; left: calc((100% - 72px) / 4); top: 50%;
   writing-mode: vertical-rl; transform: translate(-50%, -50%) rotate(180deg);
-  font-size: 11px; line-height: 1; min-height: 0; max-width: none; max-height: 76px;
+  font-size: 12px; line-height: 1; min-height: 0; max-width: none; max-height: 76px;
 }
 
 /* ---------- Function row, LEDs, strip, play ---------- */
@@ -212,8 +212,8 @@ html, body {
 .function-row { display: flex; gap: 6px; height: 40px; flex: none; }
 /* 16 keys, each straight above its strip step (the strip's gaps and group spacing). */
 .function-row > .btn.fn:nth-child(4n + 1):not(:first-child) { margin-left: 14px; }
-.btn.fn { flex: 1 1 0; font-size: 11px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
-.btn.fn small { font-size: 9px; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; }
+.btn.fn { flex: 1 1 0; font-size: 12px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
+.btn.fn small { font-size: 10px; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; }
 .btn.fn.blank { cursor: default; }
 .btn.fn.armed { background: var(--rec); border-color: var(--rec); color: #fff; }
 
@@ -230,7 +230,7 @@ html, body {
    and the LEDs, so step positions are easy to count. */
 .step:nth-child(4n + 1):not(:first-child),
 .led:nth-child(4n + 1):not(:first-child) { margin-left: 14px; }
-.step { font-size: 14px; color: var(--ink-dim); justify-content: flex-end; padding-bottom: 8px; position: relative; }
+.step { font-size: 15px; color: var(--ink-dim); justify-content: flex-end; padding-bottom: 8px; position: relative; }
 .panel:not(.keyboard) .step.beat { border-top-width: 4px; }
 .step.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .step.lit.ghost { background: #22625a; border-color: #22625a; color: var(--ink); }
@@ -267,8 +267,8 @@ html, body {
 .play-area { width: calc(12.5% - 10px); flex: none; display: flex; flex-direction: column; gap: 6px; }
 .play-row { display: flex; flex-direction: column; gap: 6px; flex: 1; }
 /* FUNC level with the function keys + lights, PLAY level with the strip. */
-.btn.func { height: 56px; flex: none; font-size: 14px; }
-.btn.play { flex: 1; min-height: 0; font-size: 23px; }
+.btn.func { height: 56px; flex: none; font-size: 15px; }
+.btn.play { flex: 1; min-height: 0; font-size: 24px; }
 .master-knobs {
   flex: 1; display: flex; justify-content: space-around; align-items: center;
   border-radius: 12px; background: #171b1f;
@@ -278,4 +278,4 @@ html, body {
 .knob.master .knob-body { width: 54px; height: 54px; }
 .knob.master .knob-cap { inset: 8px; }
 .knob.master .knob-indicator { height: 12px; top: 3px; }
-.knob.master .knob-label { font-size: 11px; }
+.knob.master .knob-label { font-size: 12px; }

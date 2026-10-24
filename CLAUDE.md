@@ -49,7 +49,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 | anything named `...V<n>` | a load migration for saves older than v<n>; never use for new behaviour |
 
 ### Panel
-- Lettering: Sarpanch Medium / Bold (`src/fonts`, SIL OFL, inlined into the build by `vite.config.ts` `assetsInlineLimit`), never faked bold. The pixel screen keeps its own pixel font.
+- Lettering: Sarpanch Medium / Bold, sizes 2 px up from the first Sarpanch layout (`src/fonts`, SIL OFL, inlined into the build by `vite.config.ts` `assetsInlineLimit`), never faked bold. The pixel screen keeps its own pixel font.
 - Start-up: the panel opens zoomed in on its pixel screen (`Panel.setZoom`), showing the title card in the pixel font (`views.drawTitleView`: GrooveAccess / A Garibaldi Production / TAP TO START, LOADING, READY); a see-through overlay (`#title`) keeps the controls out of reach. Once the engine's first status report arrives (audio needs the first tap), it holds 0.7 s and zooms out to the whole panel over 1.2 s (`main.ts` `titleFrame`; at once with reduced motion).
 - Beside the screen: modes RECORD / PLAY / DESIGN / SONG; SAVE (pattern), SAVE/LOAD PROJECT, RESET over the page buttons (3), TEMPO / MASTER beside them; at the bottom FX 1 / 2 / 3 / LFO and PAT A-D as square keys, FX / PATTERN printed above.
 - 16 knobs in 8 track modules (k1-k8 top row, k9-k16 bottom; module n = k(n) over k(n+8)); between a module's knobs its track's M (mute), channel button (select on release) and S (solo, not saved; Alt+1-8); knob names run up the left side (rotated). Absolute 0-127 over 270°; a drag moves faster the quicker it goes (slow = 400 px for the full range, up to 6x, `Knob.ts` ACCEL_*; Shift = fine); `encoder` events (mouse wheel, hardware) are relative.
