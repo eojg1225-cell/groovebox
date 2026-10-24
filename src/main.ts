@@ -5,14 +5,13 @@
 import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
-import { INK, PixelScreen } from './ui/screen';
+import { PixelScreen } from './ui/screen';
 import { drawDesignView, drawLiveView, drawProjectView, drawSongView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
 import { projectStore } from './storage/projects';
 import { startSlotSync } from './storage/slotSync';
-import { textWidth } from './ui/font';
 
 const TITLE_HOLD_MS = 1400;
 
@@ -111,15 +110,8 @@ for (const t of UNLOCK_EVENTS) window.addEventListener(t, unlockAudio, true);
 
 // ------------------------------------------------------------------ title screen
 
+// The title card itself is in index.html (lettered in the panel's Sarpanch, style.css).
 const title = document.getElementById('title') as HTMLElement;
-const titleScreen = new PixelScreen(title.querySelector('canvas') as HTMLCanvasElement, 160, 48);
-titleScreen.clear(INK.bg);
-const NAME = 'GrooveAccess';
-const CREDIT = 'A Garibaldi Production';
-titleScreen.text(Math.round((160 - textWidth(NAME, 3)) / 2), 4, NAME, INK.hi, 3, true);
-titleScreen.text(Math.round((160 - textWidth(CREDIT)) / 2), 25, CREDIT, INK.mid, 1, true);
-const tagline = 'TECHNO - DNB - DUB - JUNGLE';
-titleScreen.text((160 - textWidth(tagline)) / 2, 37, tagline, INK.dim);
 
 let titleGone = false;
 function dismissTitle(): void {

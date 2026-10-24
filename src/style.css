@@ -51,14 +51,17 @@ html, body {
   z-index: 10;
   transition: opacity 0.7s ease;
 }
-.title canvas {
-  width: min(640px, 90vw);
-  aspect-ratio: 160 / 48;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+/* Lettered in Sarpanch, in the screen's colours; --u scales the card to the window. */
+.title-card {
+  --u: min(6.4px, 0.9vw);
+  display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * 1.6);
+  font-family: 'Sarpanch', system-ui, sans-serif; text-align: center; line-height: 1;
 }
+.title-name { font-size: calc(var(--u) * 13); font-weight: 700; color: #a0f5ea; letter-spacing: 0.02em; }
+.title-credit { font-size: calc(var(--u) * 4); font-weight: 500; color: #34a596; letter-spacing: 0.08em; }
+.title-tag { font-size: calc(var(--u) * 3); font-weight: 500; color: #2a6b62; letter-spacing: 0.18em; margin-top: calc(var(--u) * 1.4); }
 /* Portrait screens: the instrument is drawn landscape (rotated), the title too. */
-.rotated .title canvas { width: min(640px, 90vh); transform: rotate(90deg); }
+.rotated .title-card { --u: min(6.4px, 0.9vh); transform: rotate(90deg); }
 .title.fade { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .title { transition-duration: 0.2s; } }
 
