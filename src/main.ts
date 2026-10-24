@@ -46,7 +46,7 @@ const panel = new Panel(document.getElementById('app') as HTMLElement, {
 const screen = new PixelScreen(panel.screenCanvas);
 
 let host: AudioHost | null = null;
-const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0 };
+const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
 // On claude.ai the 64 project slots are kept in the artifact's db too: the same on every device.
 startSlotSync(() => app.notify('PROJECTS SYNCED'));
@@ -164,7 +164,31 @@ let wasPlaying = false;
  */
 const TOUCH_MS = 15;
 let sentListenMs = -1;
+
+/**
+ * Frame rate: the panel redraws at the display's rate while it is touched (knob drags stay
+ * smooth), at 30 fps while playing (the playhead moves a 16th in ~110 ms at 133 BPM) and at
+ * 15 fps when idle (blinks are 4 per second at most). Input is still handled at once; only
+ * the redraw waits. Less drawing leaves the CPU to the audio thread (the Fire).
+ */
+const ACTIVE_MS = 1500;
+const PLAYING_FRAME_MS = 1000 / 30;
+const IDLE_FRAME_MS = 1000 / 15;
+let lastInput = 0;
+for (const t of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) {
+  window.addEventListener(t, () => { lastInput = performance.now(); }, { capture: true, passive: true });
+}
+let lastDraw = -Infinity;
+/** Measured drawing cost (ms per frame, smoothed) and frames drawn per second: the footer shows them. */
+const perf = { frameMs: 0, fps: 0, frames: 0, since: 0 };
+
 const frame = (now: number) => {
+  requestAnimationFrame(frame);
+  const interval = !titleDone || now - lastInput < ACTIVE_MS ? 0 : app.playing ? PLAYING_FRAME_MS : IDLE_FRAME_MS;
+  // A little slack, so a 60 Hz display lands on every 2nd / 4th refresh, not one later.
+  if (now - lastDraw < interval - 4) return;
+  lastDraw = now;
+  const t0 = performance.now();
   if (host) {
     const lat = host.latency();
     audio.latencyMs = (Number.isFinite(lat.baseMs) ? lat.baseMs : 0) + (Number.isFinite(lat.outputMs) ? lat.outputMs : 0);
@@ -186,6 +210,14 @@ const frame = (now: number) => {
   else if (app.mode === 'design' || app.playMix) drawDesignView(screen, app.designView(now, audio));
   else drawLiveView(screen, app.liveView(now, audio));
   screen.end();
-  requestAnimationFrame(frame);
+  perf.frameMs += (performance.now() - t0 - perf.frameMs) * 0.05;
+  perf.frames++;
+  if (now - perf.since >= 1000) {
+    perf.fps = (perf.frames * 1000) / (now - perf.since);
+    perf.frames = 0;
+    perf.since = now;
+    audio.uiMs = perf.frameMs;
+    audio.fps = perf.fps;
+  }
 };
 requestAnimationFrame(frame);

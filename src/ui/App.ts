@@ -179,6 +179,9 @@ export interface AudioInfo {
   state: 'off' | 'starting' | 'on' | 'error';
   latencyMs: number;
   peak: number;
+  /** The panel's drawing: ms per frame (smoothed) and frames drawn per second. */
+  uiMs: number;
+  fps: number;
 }
 
 /** What one knob controls right now. */
@@ -2481,6 +2484,11 @@ export class App {
     if (audio.state === 'off') return { text: 'TOUCH FOR SOUND', alert: true };
     if (audio.state === 'starting') return { text: 'STARTING AUDIO', alert: false };
     if (audio.state === 'error') return { text: 'AUDIO ERROR', alert: true };
+    // Room for ~10 characters: output latency, then the panel's drawing cost per frame and its
+    // frame rate, 3 s each.
+    const phase = audio.fps > 0 ? Math.floor(performance.now() / 3000) % 3 : 0;
+    if (phase === 1) return { text: `UI ${audio.uiMs.toFixed(1)}MS`, alert: false };
+    if (phase === 2) return { text: `UI ${Math.round(audio.fps)}FPS`, alert: false };
     return { text: Number.isFinite(audio.latencyMs) ? `OUT ${audio.latencyMs.toFixed(0)}MS` : 'AUDIO ON', alert: false };
   }
 

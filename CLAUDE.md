@@ -110,7 +110,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 ### Engine safety and performance
 - A non-finite engine output mutes the block and starts a fresh engine (ENGINE RESTARTED; main resends the project). The worklet file is re-fetched with `cache: 'reload'`.
 - Clicks avoided: hit tone glides 3 ms, held-voice velocity follows over 4 ms, drum retrigger fade 3 ms.
-- CPU: FxBus skips units at VOLUME 0 and a send goes idle after 5 s of silence; the reverbs use whole-sample comb delays while SIZE is at rest; PixelScreen redraws only changed frames.
+- CPU: FxBus skips units at VOLUME 0 and a send goes idle after 5 s of silence; the reverbs use whole-sample comb delays while SIZE is at rest; PixelScreen redraws only changed frames. The panel redraws at the display rate for 1.5 s after any touch, else 30 fps while playing and 15 fps when idle (`main.ts` frame loop; input is handled at once). The screen footer cycles OUT (latency), UI ms per frame and UI fps every 3 s. Measured with the CPU slowed 4x: drawing costs 0.2-0.8 ms per frame; main thread busy stopped 5 % -> 2.5 % idle, playing ~13 % -> ~12 %.
 
 ### Tests and tools
 - `tests/engine.test.ts` (engine offline in Node), `tests/projects.test.ts` (slots, sync), `tests/app.test.ts` (the App driven by button events through a stand-in panel; `makeApp()`: add UI tests there).
