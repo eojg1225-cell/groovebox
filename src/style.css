@@ -171,7 +171,8 @@ html, body {
 }
 /* The track's buttons between the module's two knobs: M, channel, S. */
 .module-track { display: flex; gap: 3px; }
-.module-track .btn.ch { width: 68px; }
+.module-track .btn.ch { width: 54px; padding: 0; }
+.module-track .btn.ch small { letter-spacing: 0.02em; }
 .knob { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; }
 .knob.highlight .knob-label { color: var(--ink); }
 .knob-body { position: relative; width: 72px; height: 72px; touch-action: none; cursor: ns-resize; }
