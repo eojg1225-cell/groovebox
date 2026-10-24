@@ -1,4 +1,4 @@
-/* Panel design size is 1200x770 (see Panel.ts); everything below is in design pixels. */
+/* Panel design size is 1200x750 (see Panel.ts); everything below is in design pixels. */
 :root {
   --bg: #111417;
   --panel: #1c2126;
@@ -58,7 +58,7 @@ html, body {
 .title.fade { opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .title { transition-duration: 0.2s; } }
 
-/* ---------- Panel (design size 1200x770, scaled by Panel.fit) ---------- */
+/* ---------- Panel (design size 1200x760, scaled by Panel.fit) ---------- */
 .panel {
   position: absolute; left: 0; top: 0;
   transform-origin: 0 0;
@@ -69,8 +69,6 @@ html, body {
   display: flex; flex-direction: column; gap: 14px;
 }
 .panel-top { display: flex; gap: 20px; height: 284px; flex: none; }
-.side > .row.buses { flex: 2; min-height: 0; }
-.side > .row.pages, .side > .row.patterns { flex: 1; min-height: 0; }
 .panel { gap: 12px; }
 
 .screen-bezel {
@@ -111,35 +109,35 @@ html, body {
 
 .btn.mode { height: 40px; font-size: 14px; }
 .btn.mode.lit { background: var(--ink); border-color: var(--ink); color: var(--bg); }
-.btn.ch { height: 50px; font-size: 20px; line-height: 1; }
+.btn.ch { height: 56px; font-size: 22px; line-height: 1; }
 .btn.ch small { font-size: 10px; letter-spacing: 0.06em; margin-top: 5px; opacity: 0.8; white-space: nowrap; }
 .mute-solo { display: flex; gap: 3px; }
-.btn.mute, .btn.solo { height: 27px; font-size: 13px; flex: 1; min-width: 0; padding: 0; }
+.btn.mute, .btn.solo { height: 30px; font-size: 13px; flex: 1; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
-.btn.pat { height: 100%; flex: 1; font-size: 24px; border-radius: 10px; }
+.btn.pat { height: 40px; flex: 1; font-size: 17px; border-radius: 8px; }
 .btn.pat.playing { border-color: var(--accent); }
-.btn.save { height: 100%; font-size: 13px; line-height: 1; flex: 0.9; }
-.btn.save small { font-size: 10px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
+.btn.save { height: 40px; font-size: 12px; line-height: 1; flex: 0.9; }
+.btn.save small { font-size: 9px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
 .btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
-.row.buses { gap: 18px; }
+.row.pages, .row.patterns { gap: 14px; }
 .save-buttons { display: flex; gap: 8px; flex: 3; }
 .save-buttons > * { flex: 1; }
-.pat-buttons { display: flex; gap: 8px; flex: 1; align-items: center; }
-.btn.pat.dirty::after { content: '*'; position: absolute; top: 6px; right: 10px; font-size: 18px; color: var(--hot); }
+.pat-buttons { display: flex; gap: 6px; flex: 1.6; align-items: center; }
+.btn.pat.dirty::after { content: '*'; position: absolute; margin: -22px 0 0 26px; font-size: 13px; color: var(--hot); }
 .btn.pat { position: relative; }
 .page-buttons { display: flex; gap: 8px; flex: 3; }
 .page-buttons > * { flex: 1; }
-.btn.page { height: 100%; font-size: 14px; }
+.btn.page { height: 40px; font-size: 12px; }
 .btn.page.disabled { opacity: 0.12; }
-.fx-buttons { display: flex; gap: 8px; flex: 1; align-items: center; }
+.fx-buttons { display: flex; gap: 6px; flex: 1.6; align-items: center; }
 .fx-label { font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink-dim); }
-.btn.fxsend { height: 100%; flex: 1; font-size: 20px; border-radius: 10px; }
+.btn.fxsend { height: 34px; flex: 1; font-size: 15px; border-radius: 8px; }
 
-/* ---------- Knob section: eight track modules, like a hardware front panel ---------- */
+/* ---------- Knob section: six track modules, like a hardware front panel ---------- */
 .knob-grid {
   display: flex;
-  height: 285px; flex: none;
+  height: 226px; flex: none;
   border-radius: 14px;
   background: #171b1f;
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
@@ -159,8 +157,18 @@ html, body {
   background: #0b0e10;
   box-shadow: 1px 0 0 rgba(255, 255, 255, 0.06), inset 1px 0 2px rgba(0, 0, 0, 0.8);
 }
-/* The track's channel button with MUTE / SOLO, between the module's two knobs. */
-.module-track { width: 68px; display: flex; flex-direction: column; gap: 3px; }
+/* Printed track number between the two knobs. */
+.track-badge {
+  min-width: 34px; height: 22px; padding: 0 8px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  border: 2px solid #3a444e;
+  color: var(--ink-dim);
+  font-size: 13px; font-weight: 800; letter-spacing: 0.05em;
+  transition: background-color 80ms, color 80ms, opacity 80ms;
+}
+.track-badge.lit { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.track-badge.dim { opacity: 0.3; }
 .knob { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; }
 .knob.highlight .knob-label { color: var(--ink); }
 .knob-body { position: relative; width: 72px; height: 72px; touch-action: none; cursor: ns-resize; }
@@ -192,7 +200,7 @@ html, body {
 .panel-bottom { display: flex; gap: 16px; flex: 1; min-height: 0; }
 .bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
-.function-row { display: flex; gap: 12px; height: 42px; flex: none; }
+.function-row { display: flex; gap: 12px; height: 44px; flex: none; }
 .fn-group { display: flex; gap: 6px; flex: 1; }
 .fn-group:first-child { flex: 2; }
 .fn-group:last-child { flex: 1.5; }
@@ -259,16 +267,15 @@ html, body {
 
 .play-area { width: 170px; flex: none; display: flex; flex-direction: column; gap: 6px; }
 .play-row { display: flex; gap: 6px; }
-.btn.play { height: 48px; font-size: 20px; flex: 1; }
-.btn.func { height: 48px; width: 56px; flex: none; font-size: 13px; }
+.btn.play { height: 86px; font-size: 22px; flex: 1; }
+.btn.func { height: 86px; width: 56px; flex: none; font-size: 13px; }
 .master-knobs {
   flex: 1; display: flex; justify-content: space-around; align-items: center;
   border-radius: 12px; background: #171b1f;
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5);
 }
 .knob.master { width: auto; }
-.knob.master { gap: 1px; }
-.knob.master .knob-body { width: 46px; height: 46px; }
-.knob.master .knob-cap { inset: 7px; }
-.knob.master .knob-indicator { height: 10px; top: 3px; }
+.knob.master .knob-body { width: 54px; height: 54px; }
+.knob.master .knob-cap { inset: 8px; }
+.knob.master .knob-indicator { height: 12px; top: 3px; }
 .knob.master .knob-label { font-size: 10px; }

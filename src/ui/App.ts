@@ -2228,6 +2228,7 @@ export class App {
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonLit(`solo${ch + 1}`, this.soloed[ch]);
       this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
+      this.panel.setBadge(ch, this.mode === 'design' || sendView ? 'dim' : ch === this.selected ? 'lit' : '');
     }
     for (const [id, gid] of Object.entries(MASTER_GLOBAL)) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;

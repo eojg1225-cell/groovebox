@@ -3,14 +3,12 @@
  * Fixed design-size box scaled to fit the window; on a portrait screen it is rotated
  * so the instrument is always landscape.
  *
- *   [ pixel screen ] [ MODE: record / play / design / song ]
- *                    [ FX 1-3, LFO | PAT A-D ]
- *                    [ pages                 ]
- *                    [ save                  ]
- *   [ 8 track modules, each: knob / channel button + M S / knob ]
- *   [ function row                                 ] [ FUNC PLAY ]
- *   [ step LEDs                                    ] [ TEMPO     ]
- *   [ 16-button strip (steps or keyboard)          ] [ MASTER    ]
+ *   [ pixel screen ] [ MODE: record / play / sound design ]
+ *                    [ channels 1-8, mutes, pages | FX, save | A-D ]
+ *   [ 6 track modules, each: knob / track number / knob     ]
+ *   [ function row                                 ] [      ]
+ *   [ step LEDs                                    ] [ PLAY ]
+ *   [ 16-button strip (steps or keyboard)          ] [      ]
  *
  * Control ids: mode:record|play|design, ch1..8, mute1..8, solo1..8, save, saveproject,
  * reset, patA..D (under the FX buttons), dpage0..2, fx1..fx3 + fx4 (LFO), play, clear
@@ -25,7 +23,7 @@ import { setRotated } from './orientation';
 import { BPM_MAX, BPM_MIN } from '../engine/mixParams';
 
 const DESIGN_W = 1200;
-const DESIGN_H = 770;
+const DESIGN_H = 760;
 export const KNOB_COUNT = 16;
 export const KNOBS_PER_ROW = 8;
 export const STEP_BUTTONS = 16;
@@ -65,6 +63,7 @@ export class Panel implements ControlSurface {
   private readonly buttons = new Map<string, HTMLElement>();
   private readonly disabled = new Set<string>();
   private readonly leds: HTMLElement[] = [];
+  private readonly badges: HTMLElement[] = [];
   private readonly masterKnobs = new Map<string, Knob>();
   private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
@@ -88,9 +87,10 @@ export class Panel implements ControlSurface {
         <div class="screen-bezel"><canvas class="screen"></canvas></div>
         <div class="side">
           <div class="row modes"></div>
-          <div class="row buses"><div class="fx-buttons"><span class="fx-label">FX</span></div><div class="pat-buttons"><span class="fx-label">PAT</span></div></div>
-          <div class="row pages"><div class="page-buttons"></div></div>
-          <div class="row patterns"><div class="save-buttons"></div></div>
+          <div class="row channels"></div>
+          <div class="row mutes"></div>
+          <div class="row pages"><div class="page-buttons"></div><div class="fx-buttons"><span class="fx-label">FX</span></div></div>
+          <div class="row patterns"><div class="save-buttons"></div><div class="pat-buttons"><span class="fx-label">PAT</span></div></div>
         </div>
       </div>
       <div class="knob-grid"></div>
@@ -108,6 +108,15 @@ export class Panel implements ControlSurface {
     const q = (sel: string) => root.querySelector(sel) as HTMLElement;
 
     for (const m of MODES) q('.modes').appendChild(this.makeButton(`mode:${m.id}`, m.label, 'btn mode'));
+    for (let ch = 1; ch <= cfg.channels; ch++) {
+      q('.channels').appendChild(this.makeButton(`ch${ch}`, String(ch), 'btn ch'));
+      // MUTE and SOLO side by side under each channel.
+      const pair = document.createElement('div');
+      pair.className = 'mute-solo';
+      pair.appendChild(this.makeButton(`mute${ch}`, 'M', 'btn mute'));
+      pair.appendChild(this.makeButton(`solo${ch}`, 'S', 'btn solo'));
+      q('.mutes').appendChild(pair);
+    }
     q('.save-buttons').appendChild(this.makeButton('save', 'SAVE<small>PATTERN</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
@@ -115,8 +124,7 @@ export class Panel implements ControlSurface {
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
     for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
 
-    // Knob modules, one per track, separated by grooves like a hardware front panel; the
-    // track's channel button with MUTE / SOLO sits between its two knobs.
+    // Knob modules, one per track, separated by grooves like a hardware front panel.
     const grid = q('.knob-grid');
     for (let i = 1; i <= KNOB_COUNT; i++) {
       this.knobs.push(new Knob(`k${i}`, '', 0.5, this.knobEmit, this.encoderEmit));
@@ -124,17 +132,11 @@ export class Panel implements ControlSurface {
     for (let m = 0; m < KNOBS_PER_ROW; m++) {
       const module = document.createElement('div');
       module.className = 'knob-module';
-      const track = document.createElement('div');
-      track.className = 'module-track';
-      if (m < cfg.channels) {
-        const ch = m + 1;
-        const pair = document.createElement('div');
-        pair.className = 'mute-solo';
-        pair.appendChild(this.makeButton(`mute${ch}`, 'M', 'btn mute'));
-        pair.appendChild(this.makeButton(`solo${ch}`, 'S', 'btn solo'));
-        track.append(this.makeButton(`ch${ch}`, String(ch), 'btn ch'), pair);
-      }
-      module.append(this.knobs[m].el, track, this.knobs[m + KNOBS_PER_ROW].el);
+      const badge = document.createElement('div');
+      badge.className = 'track-badge';
+      badge.textContent = String(m + 1);
+      this.badges.push(badge);
+      module.append(this.knobs[m].el, badge, this.knobs[m + KNOBS_PER_ROW].el);
       grid.appendChild(module);
     }
 
@@ -209,6 +211,15 @@ export class Panel implements ControlSurface {
     if (!k) return;
     k.defaultValue = defaultValue;
     k.set(value);
+  }
+
+  /** Printed track number between a module's knobs: lit = selected track, dim = not in use. */
+  setBadge(i: number, state: 'lit' | 'dim' | ''): void {
+    const b = this.badges[i];
+    if (b && b.dataset.state !== state) {
+      b.dataset.state = state;
+      b.className = state ? `track-badge ${state}` : 'track-badge';
+    }
   }
 
   /** LED states for the 16 lights above the strip. */
