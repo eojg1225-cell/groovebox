@@ -272,6 +272,18 @@ describe('RECORD strip: the same as PLAY', () => {
     expect(texts.get('step1')).toBe('17');
   });
 
+  it('DESIGN follows the playhead to the bar playing too', () => {
+    const { app, tap, texts } = makeApp();
+    const bass = app.project.channels[4];
+    bass.patterns[bass.activePattern].length = 32;
+    tap('mode:design');
+    tap('ch5');
+    tap('play');
+    app.setStatus(status([0, 0, 0, 0, 20, 0, 0, 0]));
+    app.updateFrame(0);
+    expect(texts.get('steppage')).toBe('BAR<small>2/2</small>');
+  });
+
   it('SAVE / LOAD shows the slots on the strip, with nothing left over from the step view', () => {
     const { app, tap, flags } = makeApp();
     app.project.meter = 1; // 3/4: steps 13-16 dark in the step view

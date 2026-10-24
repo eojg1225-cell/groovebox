@@ -60,3 +60,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Panel text +1 px again (2026-10-24): every panel text size (not the pixel screen) one more px larger.
 - Button corners (2026-10-24): radius 10 -> 7 px on every key and button, 6 -> 4 px on the strip keyboard keys.
 - Pixel grid (2026-10-24): every panel box on a whole pixel at 1:1 (was 121 of 130 fractional): 22 px side padding (1152 px content), 144 px modules, 55 px steps with 16 px group gaps, 66 px FX / PATTERN keys with the modes and SAVE / TEMPO blocks aligned over them; all button corners 4 px.
+- DESIGN follows the playhead (2026-10-24): the strip / screen show the bar playing in DESIGN too, as in PLAY.

@@ -494,9 +494,9 @@ export class App {
     const c = this.project.channels[ch];
     const heard = this.status?.patterns[ch] ?? c.activePattern;
     const head = this.status?.steps[ch] ?? -1;
-    // Other lanes, PLAY mode and live recording (placing a flag too) follow the playhead's
-    // 16-step block, the same in RECORD as in PLAY.
-    const following = ch !== this.selected || ((this.mode === 'play' || this.recording) && !this.stepsMode);
+    // Other lanes, PLAY, DESIGN and live recording (placing a flag too) follow the playhead's
+    // 16-step block.
+    const following = ch !== this.selected || (this.followsPlayhead && !this.stepsMode);
     let page: number;
     if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
     else if (!stepsOnStrip(c.instrument) && this.mode === 'record' && !this.stepsMode) {
@@ -1565,6 +1565,11 @@ export class App {
   }
 
   /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
+  /** The strip shows the bar playing: PLAY, DESIGN and live recording (RECORD while playing). */
+  private get followsPlayhead(): boolean {
+    return this.mode === 'play' || this.mode === 'design' || this.recording;
+  }
+
   /** PLAY and DESIGN: RING / SLIDE / ACCENT / GHOST make every note on the track play that way. */
   private get forcing(): boolean {
     return this.mode === 'play' || this.mode === 'design';
@@ -1871,7 +1876,7 @@ export class App {
       this.flash('ONE BAR PATTERN');
       return;
     }
-    if ((this.mode === 'play' || this.recording) && !this.stepsMode) {
+    if (this.followsPlayhead && !this.stepsMode) {
       this.flash('THE STRIP FOLLOWS THE PLAYHEAD');
       return;
     }
@@ -2297,9 +2302,9 @@ export class App {
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
     this.panel.setButtonLit('len', this.stepsMode);
-    // BAR: not where the strip follows the playhead (PLAY, live recording). TIME (the
+    // BAR: not where the strip follows the playhead (PLAY, DESIGN, live recording). TIME (the
     // pattern's speed) works in every mode but SONG.
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || ((this.stepsMode || (this.mode !== 'play' && !this.recording)) && this.pageCount() > 1));
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || ((this.stepsMode || !this.followsPlayhead) && this.pageCount() > 1));
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design')));

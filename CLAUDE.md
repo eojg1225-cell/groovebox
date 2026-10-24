@@ -69,7 +69,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 - **In every mode but SONG:** FX 1-3 / LFO tap = that bus's knobs on screen (again, or a page button, = back); FUNC + FX = selected track on / off that bus; with a bus open, FUNC + channel = that track on / off it.
 
 ### Patterns and steps
-- 8 tracks x 4 patterns A-D, 1-64 steps (STEPS held + ◀ / ▶ = a bar shorter / longer). BAR tap = next bar on the strip, BAR + ◀ / ▶ = previous / next. PLAY and live recording (placing RING / SLIDE / ACCENT / GHOST included) follow the playhead.
+- 8 tracks x 4 patterns A-D, 1-64 steps (STEPS held + ◀ / ▶ = a bar shorter / longer). BAR tap = next bar on the strip, BAR + ◀ / ▶ = previous / next. PLAY, DESIGN and live recording (placing RING / SLIDE / ACCENT / GHOST included) follow the playhead (`App.followsPlayhead`; BAR is off there).
 - A-D = every track's pattern; hold channels + A-D = only those (several at once); FUNC + A-D = the selected track. Playing, a switch always waits for the track's loop end (any mode); stopped = at once.
 - Speed per pattern: normal / double / half / triplet (the TIME key cycles them, its label shows the speed; screen X2 / /2 / T). One master 16th clock; `Engine.stepChannel` runs each track's own steps.
 - TIME SIG (`project.meter`, `METERS`): each 16-step bar has four groups and plays the first n of each; dark steps take no time; changes at the next bar line. STEPS tap = STEPS mode: strip taps flip a step on / off (`Step.flip`).
