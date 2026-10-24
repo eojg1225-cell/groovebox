@@ -71,11 +71,12 @@ export const MACROS: Record<SoundKind, MacroDef> = {
         hard: { ogain: 0.984, t_sweep: 24, t_stime: 0.1, c_level: 0.12, c_tone: 1800, drive: 3 },
       },
       {
+        // Project 1 (MTHED)'s kick: a long noisy click (the beater and skin of a real kick).
         name: 'VINTAGE',
-        values: { ogain: 1.157, t_level: 0.95, t_pitch: 44, t_decay: 0.5, t_sweep: 14, t_stime: 0.07, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.006, c_noise: 0.3, drive: 1.3, crush: 0 },
-        soft: { ogain: 1.244, t_sweep: 6, t_stime: 0.08, c_level: 0.02, drive: 1 },
+        values: { ogain: 1.079, t_level: 0.95, t_pitch: 46, t_decay: 0.5, t_sweep: 30, t_stime: 0.044, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.146, c_noise: 0.72, drive: 1.3, crush: 0 },
+        soft: { ogain: 1.098, t_sweep: 22, t_stime: 0.05, c_level: 0.02, drive: 1 },
         // A pushed tape-machine kick: more drop, more knock.
-        hard: { ogain: 0.995, t_sweep: 28, t_stime: 0.06, c_level: 0.3, c_tone: 2600, c_reso: 0.35, drive: 3.5 },
+        hard: { ogain: 0.979, t_sweep: 44, t_stime: 0.038, c_level: 0.3, c_tone: 2600, c_reso: 0.35, drive: 3.5 },
       },
       {
         name: 'PUNCH',
@@ -87,18 +88,18 @@ export const MACROS: Record<SoundKind, MacroDef> = {
         name: 'TECHNO',
         values: { ogain: 0.955, t_level: 0.95, t_pitch: 49, t_decay: 0.5, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 },
         soft: { ogain: 1.129, t_sweep: 12, t_stime: 0.04, c_level: 0.08, c_tone: 2500, c_reso: 0.15, drive: 1.3 },
-        // Hardstyle / gabber: a tight drop through the mids, released just after it (so it
-        // reads higher but keeps its low end), clipped into a square.
-        hard: { ogain: 1.16, t_pitch: 58, t_decay: 0.2, t_sweep: 30, t_stime: 0.008, c_level: 0.55, c_tone: 3200, c_reso: 0.6, c_len: 0.004, drive: 140 },
+        // Hard house: a tall drop you hear fall (longer than PUNCH's, shorter than PSY DOOF's),
+        // a punchy tail, only lightly clipped.
+        hard: { ogain: 0.882, t_pitch: 55, t_decay: 0.35, t_sweep: 72, t_stime: 0.07, c_level: 0.4, c_tone: 3200, c_reso: 0.5, c_len: 0.004, drive: 10 },
       },
       {
-        // Over the top on purpose: a 6-7 octave laser zap down into a square-driven doof.
+        // A laser zap down into a doof; the click fades out as INT rises (psy kicks have none).
         name: 'PSY DOOF',
-        values: { ogain: 0.743, t_level: 1, t_pitch: 58, t_decay: 0.5, t_sweep: 80, t_stime: 0.028, c_level: 1, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 45, crush: 0 },
-        soft: { ogain: 0.924, t_sweep: 10, t_stime: 0.06, c_level: 0.1, c_tone: 3000, c_reso: 0.3, drive: 2 },
-        // Goa laser: a 10-octave zap (held at the top of the hearing range), slow enough to
-        // hear it fall.
-        hard: { ogain: 0.668, t_sweep: 120, t_stime: 0.16, c_level: 1, c_tone: 12000, c_reso: 0.95, drive: 60 },
+        values: { ogain: 0.768, t_level: 1, t_pitch: 58, t_decay: 0.5, t_sweep: 80, t_stime: 0.028, c_level: 0.12, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 16, crush: 0 },
+        soft: { ogain: 0.924, t_sweep: 10, t_stime: 0.06, c_level: 0.2, c_tone: 3000, c_reso: 0.3, drive: 2 },
+        // Goa laser: a 7-octave zap from about 7 kHz, slow enough to hear it fall; no click,
+        // little drive.
+        hard: { ogain: 0.602, t_sweep: 84, t_stime: 0.26, c_level: 0, drive: 8 },
       },
     ],
     excite: [],

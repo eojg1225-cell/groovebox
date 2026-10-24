@@ -41,7 +41,7 @@ export function synthPage(amp: readonly [string, string], perform: readonly [str
  * colour; KICK 5 CLK RESO / CLK NOISE, SNARE 5 MTL TONE / MTL NOISE, both 6 AIR LVL / AIR SIZE),
  * 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body + click, SNARE
  * body + metal (wires), HAT click + metal, PERC body + click (+ metal halfway between them).
- * No filter per drum (FX 1's FILTER is the kit's).
+ * No filter per drum.
  */
 export function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string, string]): string[] {
   const [a1, d1, a2, d2] = elements;

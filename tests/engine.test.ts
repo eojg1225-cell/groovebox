@@ -3251,12 +3251,16 @@ describe('v43: KICK TIMBRE sounds run soft -> extreme', () => {
       expect(at(t, 1).t_sweep, a.name).toBeGreaterThanOrEqual(at(t, 0.5).t_sweep - 6);
       expect(at(t, 0).drive, a.name).toBeLessThanOrEqual(at(t, 0.5).drive);
     });
-    // TECHNO's extreme: a tighter drop, released soon after; PSY's: a longer, higher zap.
-    const techno = anchorPosition('kick', 3), psy = anchorPosition('kick', 4);
-    expect(at(techno, 1).t_stime).toBeLessThan(at(techno, 0.5).t_stime);
-    expect(at(techno, 1).t_decay).toBeCloseTo(0.2, 6);
-    expect(at(psy, 1).t_sweep).toBe(120);
+    // TECHNO's extreme: hard house, a taller and longer drop than PUNCH's, shorter than PSY
+    // DOOF's, on sweep rather than DRIVE; PSY's: a longer zap, its click gone.
+    const punch = anchorPosition('kick', 2), techno = anchorPosition('kick', 3), psy = anchorPosition('kick', 4);
+    expect(at(techno, 1).t_sweep).toBeGreaterThan(at(punch, 1).t_sweep);
+    expect(at(techno, 1).t_stime).toBeGreaterThan(at(punch, 1).t_stime);
+    expect(at(techno, 1).t_stime).toBeLessThan(at(psy, 1).t_stime);
+    expect(at(techno, 1).drive).toBeLessThan(20);
     expect(at(psy, 1).t_stime).toBeGreaterThan(at(psy, 0.5).t_stime);
+    expect(at(psy, 0).c_level).toBeGreaterThan(at(psy, 0.5).c_level);
+    expect(at(psy, 1).c_level).toBe(0);
   });
 
   it('every sound plays as loud at INT 0 and 100 as at 50 (within 1 dB)', () => {
@@ -3462,5 +3466,22 @@ describe('v46: PERC TIMBALE and its order', () => {
     expect(back.sounds.perc!.c_tone).toBeCloseTo(applyTrim(paramSpec('perc', 'c_tone')!, hidden.c_tone, 0.05), 9);
     // Between two sounds still neighbours (CONGA -> COWBELL) the position moves with them.
     expect(v45({ timbre: 0.625 }, {}).sounds.perc!.timbre).toBeCloseTo(0.375, 9);
+  });
+});
+
+describe('v47: KICK VINTAGE, TECHNO, PSY DOOF redone', () => {
+  it('a saved KICK plays as it was saved, its trims taken again over the new sounds', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 46;
+    const kick = stored.channels[0];
+    // Project 1's kick: VINTAGE at INT 88 with a long noisy click (old VINTAGE + trims).
+    const sound = { timbre: 0.25, intensity: 0.88, c_len: 0.146, c_noise: 0.72, t_sweep: 41, t_stime: 0.039, drive: 2.4 };
+    Object.assign(kick.sounds.kick, sound);
+    kick.trims = { kick: { c_len: 0.408, c_noise: 0.417, t_sweep: 0.136, t_stime: -0.061 } };
+    const back = fromStored(stored)!.channels[0];
+    for (const [id, v] of Object.entries(sound)) expect(back.sounds.kick![id]).toBeCloseTo(v, 6);
+    // The new VINTAGE is that kick, so its click trims all but vanish.
+    expect(Math.abs(back.trims.kick!.c_len ?? 0)).toBeLessThan(0.01);
+    expect(Math.abs(back.trims.kick!.c_noise ?? 0)).toBeLessThan(0.01);
   });
 });

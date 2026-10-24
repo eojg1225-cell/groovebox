@@ -13,6 +13,7 @@ import {
   type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
+import { macroIds } from '../instruments/macros';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
@@ -285,6 +286,18 @@ export function percV46(kind: SoundKind, sound: Record<string, number>, trims: R
   rebuildMacros(kind, sound, trims);
 }
 
+/**
+ * v47: the KICK's VINTAGE, TECHNO (INT 100) and PSY DOOF were redone, so a saved KICK's trims
+ * are taken again from its stored values over the new sounds: it plays as it was saved (the
+ * project that VINTAGE was built from ends up with almost no trims). In place.
+ */
+export function kickV47(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (kind !== 'kick') return;
+  const specs = INSTRUMENTS.kick.params;
+  for (const id of macroIds(kind, specs)) delete trims[id];
+  Object.assign(trims, deriveTrims(kind, sound, specs));
+}
+
 /** Stored data in a format older than the reader reads exactly: its sounds may differ. */
 export function isOldFormat(data: unknown): boolean {
   return isObj(data) && num(data.version, 0) < OLDEST_EXACT;
@@ -372,6 +385,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 43 && isObj(x)) drumsV43(kind, sound, trims);
   if (version < 44) hatV44(kind, sound, trims);
   if (version < 46) percV46(kind, sound, trims);
+  if (version < 47) kickV47(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
