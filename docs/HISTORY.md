@@ -58,3 +58,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - CLEAR + A-D, TIME key (2026-10-24): CLEAR held + A-D clears that pattern of the selected track (the one being edited too; chord notes included); half / double / triplet time moved from FUNC + BAR to the TIME key (the first blank key in the function row).
 - Frame rate (2026-10-24): full rate for 1.5 s after a touch, else 30 fps playing / 15 fps idle; the footer shows the drawing cost and fps. Measured (CPU slowed 4x): drawing is cheap (under 1 ms a frame), so the saving is small: idle main thread 5 % -> 2.5 %, playing ~1 % less.
 - Panel text +1 px again (2026-10-24): every panel text size (not the pixel screen) one more px larger.
+- Button corners (2026-10-24): radius 10 -> 7 px on every key and button, 6 -> 4 px on the strip keyboard keys.
