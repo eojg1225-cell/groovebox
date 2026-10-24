@@ -217,11 +217,11 @@ html, body {
 /* ---------- Function row, LEDs, strip, play ---------- */
 .panel-bottom { display: flex; gap: 20px; flex: 1; min-height: 0; }
 .bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; position: relative; }
-/* The strip's right-hand divider (as between its groups of four), under the groove
-   between knob modules 7 and 8. */
-.bottom-main::after {
-  content: '';
-  position: absolute; right: -12px; width: 4px; top: 0; bottom: 0;
+/* Dividers after every four steps: one line each from the top of the function row to the
+   bottom of the strip, centred in the 20 px gap between groups (left set in Panel.ts); the
+   last one is the strip's right edge, under the groove between knob modules 7 and 8. */
+.strip-divider {
+  position: absolute; width: 4px; top: 0; bottom: 0;
   border-radius: 2px;
   background: #4a5560;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
@@ -244,23 +244,10 @@ html, body {
 
 .steps { flex: 1; display: flex; gap: 6px; min-height: 0; }
 .steps > .step { flex: 1 1 0; min-width: 0; }
-/* Groups of four: a wider gap with a divider line, on the strip (steps and keyboard)
+/* Groups of four: a wider gap (with a .strip-divider in it) on the strip (steps and keyboard)
    and the LEDs, so step positions are easy to count. */
 .step:nth-child(4n + 1):not(:first-child),
-.led:nth-child(4n + 1):not(:first-child) { margin-left: 14px; position: relative; }
-.step:nth-child(4n + 1):not(:first-child)::before,
-.led:nth-child(4n + 1):not(:first-child)::before {
-  content: '';
-  position: absolute; left: -12px; width: 4px;
-  top: -2px; bottom: -2px;
-  border-radius: 2px;
-  background: #4a5560;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
-}
-/* The light row's dividers run up between the function keys' groups of four and down to the
-   strip's; a step's divider sits 2 px further left (it is placed inside the 2 px border). */
-.led:nth-child(4n + 1):not(:first-child)::before { top: -46px; bottom: -7px; }
-.step:nth-child(4n + 1):not(:first-child)::before { left: -14px; top: -12px; }
+.led:nth-child(4n + 1):not(:first-child) { margin-left: 14px; }
 .step { font-size: 13px; color: var(--ink-dim); justify-content: flex-end; padding-bottom: 8px; position: relative; }
 .panel:not(.keyboard) .step.beat { border-top-width: 4px; }
 .step.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

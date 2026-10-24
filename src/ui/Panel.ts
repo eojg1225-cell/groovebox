@@ -172,6 +172,16 @@ export class Panel implements ControlSurface {
       if ((i - 1) % 4 === 0) b.classList.add('beat');
       steps.appendChild(b);
     }
+    // A divider after every four steps, from the function row down through the strip. With
+    // 16 steps, gaps of 6 px and 14 px more between groups, the gap after step 4k is
+    // centred k/4 of the way across plus 5k - 10 px; the line is 4 px wide.
+    const bottom = q('.bottom-main');
+    for (let k = 1; k <= 4; k++) {
+      const line = document.createElement('div');
+      line.className = 'strip-divider';
+      line.style.left = `calc(${k * 25}% + ${5 * k - 12}px)`;
+      bottom.appendChild(line);
+    }
     // FUNC (hold: the knobs' second layer; tap: latch) beside PLAY.
     const playRow = document.createElement('div');
     playRow.className = 'play-row';
