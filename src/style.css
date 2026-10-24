@@ -127,7 +127,10 @@ html, body {
 .btn.mute, .btn.solo { height: 56px; width: 30px; font-size: 13px; flex: none; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
-.btn.pat { height: 100%; flex: 1; font-size: 22px; border-radius: 10px; }
+.btn.pat, .btn.fxsend { width: 100%; aspect-ratio: 1; flex: none; border-radius: 10px; }
+/* A square key with its name underneath. */
+.square-key { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.square-key-label { font-size: 13px; letter-spacing: 0.06em; color: var(--ink-dim); line-height: 1; }
 .btn.pat.playing { border-color: var(--accent); }
 .btn.save { height: 40px; font-size: 12px; line-height: 1; flex: 0.9; }
 .btn.save small { font-size: 9px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
@@ -143,8 +146,7 @@ html, body {
 .btn.page { height: 40px; font-size: 12px; }
 .btn.page.disabled { opacity: 0.12; }
 .fx-buttons { display: flex; gap: 8px; flex: 1; align-items: center; }
-.fx-label { font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink-dim); }
-.btn.fxsend { height: 100%; flex: 1; font-size: 20px; border-radius: 10px; }
+.fx-label { width: 30px; flex: none; text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink-dim); }
 
 /* ---------- Knob section: six track modules, like a hardware front panel ---------- */
 .knob-grid {
