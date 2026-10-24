@@ -234,6 +234,7 @@ export class Engine {
   private readonly sliding = new Uint8Array(NUM_CHANNELS);
   /** Drum tracks: hits per step of a ROLL step (ROLL DIV; the SLIDE flag). 0 = not a drum. */
   private readonly rollDiv = new Uint8Array(NUM_CHANNELS);
+  /** MUTE: the sequencer starts no new notes on the track (sounding ones play out). */
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
   private readonly songBars = new Uint8Array(SONG_MAX_ROWS);
@@ -478,7 +479,7 @@ export class Engine {
       this.inDrumBus[ch] = c.fx1 ? 1 : 0;
       this.sendLevel[ch].setImmediate(c.sendLevel);
       // A loaded project starts at its values instead of gliding to them.
-      this.volume[ch].setImmediate(c.mute ? 0 : c.volume);
+      this.volume[ch].setImmediate(c.volume);
       this.pan[ch].setImmediate(c.pan);
       this.cuts[ch].settle();
       for (let pat = 0; pat < NUM_PATTERNS; pat++) {
@@ -787,7 +788,9 @@ export class Engine {
       return;
     }
     const s = base + idx;
-    const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0;
+    // MUTE stops new notes only: what is sounding plays out, and an unmuted track comes back
+    // on its next note (a held RING / SLIDE note still ends at a muted note's step).
+    const hit = this.stepActive[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0 && this.muted[ch] === 0;
     // SLIDE: the held note was marked to slide, so it glides into this one (no release).
     const slideFrom = hit && this.sliding[ch] && this.gateSteps[ch] > 0 ? this.gateGroup[ch] : -1;
     // Inside a roll run its hits are already scheduled; otherwise a roll ends here.
@@ -1472,7 +1475,7 @@ export class Engine {
         const r = sr[i] * v * Math.sin(a);
         dL[dOff + i] += l;
         dR[dOff + i] += r;
-        // Post-fader send, taken before the drum bus (a muted track sends nothing).
+        // Post-fader send, taken before the drum bus.
         let g = level.next();
         if (sendDepth > 0) {
           // SEND MOD: the LFO pushes the send level up and down (dub throws).
@@ -1844,7 +1847,7 @@ export class Engine {
     if (id === 'cut') { this.cuts[ch].setAmount(value); return; }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);
-    else this.muted[ch] = value > 0 ? 1 : 0;
-    this.volume[ch].setTarget(this.muted[ch] ? 0 : this.volumeValue[ch]);
+    else this.muted[ch] = value > 0 ? 1 : 0; // the sequencer skips a muted track's notes
+    this.volume[ch].setTarget(this.volumeValue[ch]);
   }
 }

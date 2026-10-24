@@ -58,7 +58,7 @@ Main -> worklet:
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setSound` | `channel`, `id`, `value`, `pattern?` | Instrument parameter (real units) in that pattern's patch |
 | `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred); the engine sums each knob's push per param (`liveTargets` / `liveContribution` in the registry) on top of the base or locked value |
-| `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut`), `value` | Track mixer (`gate` = TRIM, `cut` = MID CUT, `dyn` = ACC/GHOST) |
+| `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut`), `value` | Track mixer (`gate` = TRIM, `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
 | `setGlobal` | `id` (`bpm` `swing` `master` `meter`), `value` | Project-wide settings; `meter` changes at the next bar line |
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
 | `setRouting` | `channel`, `send` | Send FX 2 / FX 3 (0 = none) |

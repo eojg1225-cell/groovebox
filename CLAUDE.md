@@ -92,7 +92,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 - PRESET loads factory sounds and USER patches saved by older versions (new USER patches can't be saved).
 
 ### Mixer, FX, LFO, master
-- Per track: VOLUME, PAN, SEND LVL, MID CUT (`fx/TrackCut.ts`, centre = the sound's MID FREQ), ACC/GHOST, TRIM, mute / solo.
+- Per track: VOLUME, PAN, SEND LVL, MID CUT (`fx/TrackCut.ts`, centre = the sound's MID FREQ), ACC/GHOST, TRIM, mute / solo. MUTE stops the sequencer starting new notes on the track (`Engine.muted`): what is sounding plays out (tails into the FX too), an unmuted track comes back on its next note, never mid-tie; keys played live still sound. SOLO mutes the others the same way.
 - Three FX buses (`fx/buses.ts` defines them, `fx/FxBus.ts` runs one, `fx/units.ts` holds the effects): four units of two knob modules each, no FUNC layer. An effect unit (not COMP / TONE / FILTER) = VOLUME (return level) over TYPE, then its two controls (MOD RATE / DEPTH, DELAY RATE (tempo-synced) / FDBK, VERB SIZE / LENGTH, DIST DRIVE / TONE). A TYPE change fades over 15 ms; a unit at VOLUME 0 is skipped.
 - FX 1 = drums (an insert: the drums stay in the mix through COMP (RATIO / THRESH, ATTACK / RELEASE, 1:1 = off), plus MOD (FLANGER, PHASER), DELAY (TAPE, SWEEP, REVERSE) returning alongside; then FILTER on the drums and both returns: module 7 FILTER (one knob, `djCutoff`: low-pass left, high-pass right, OFF in the centre, skipped) / RESO, module 8 ENV (each hit lifts / lowers the cutoff, up to 8 octaves) / ENV REL). Transparent by default.
 - FX 2 = PAD send: MOD (CHORUS, ENSEMBLE, PHASER), DELAY (STEREO, PING-PONG, TAPE), VERB (HALL, PLATE, SHIMMER), TONE (LOW CUT / HI CUT on the returns, PUMP / PUMP REL: KICK hits duck the returns).

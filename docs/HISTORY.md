@@ -61,3 +61,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Button corners (2026-10-24): radius 10 -> 7 px on every key and button, 6 -> 4 px on the strip keyboard keys.
 - Pixel grid (2026-10-24): every panel box on a whole pixel at 1:1 (was 121 of 130 fractional): 22 px side padding (1152 px content), 144 px modules, 55 px steps with 16 px group gaps, 66 px FX / PATTERN keys with the modes and SAVE / TEMPO blocks aligned over them; all button corners 4 px.
 - DESIGN follows the playhead (2026-10-24): the strip / screen show the bar playing in DESIGN too, as in PLAY.
+- Mute plays out (2026-10-24): MUTE no longer fades the track's volume to 0; the sequencer just starts no new notes, so sounding notes play out and an unmuted track comes back on its next note (not in the middle of a tie). Live keys on a muted track now sound.

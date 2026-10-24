@@ -1183,6 +1183,38 @@ describe('slides and rolls', () => {
     expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
   });
 
+  it('MUTE stops new notes only: a sounding note plays out, an unmuted track comes back on its next note', () => {
+    const rms = (l: Float32Array, a: number, b: number) => Math.sqrt(l.subarray(Math.round(a * SR), Math.round(b * SR)).reduce((t, v) => t + v * v, 0) / ((b - a) * SR));
+    const setup = () => {
+      const p = kickProject([], { bpm: 120 }); // a 16th = 0.125 s
+      const b = p.channels[4];
+      b.sounds.bass = { ...b.sounds.bass!, sustain: 1, release: 0.01 };
+      b.fxSend = 0;
+      Object.assign(b.patterns[0].steps[0], { active: true, note: 45, gate: 8 }); // 0-1 s
+      Object.assign(b.patterns[0].steps[8], { active: true, note: 45, gate: 4 }); // 1-1.5 s
+      return p;
+    };
+    // Muted 0.1 s in: the held note plays on to its end, the next one does not start.
+    const e = engineWith(setup());
+    e.handleMessage({ type: 'transport', playing: true });
+    const a = render(e, 0.1).l;
+    e.handleMessage({ type: 'setMix', channel: 4, id: 'mute', value: 1 });
+    const l = render(e, 1.4).l;
+    expect(rms(a, 0.02, 0.1)).toBeGreaterThan(0.01);
+    expect(rms(l, 0.1, 0.8)).toBeGreaterThan(rms(a, 0.02, 0.1) * 0.5); // still sounding
+    expect(rms(l, 1.05, 1.3)).toBeLessThan(0.001); // step 9's note never started
+    // Unmuted in the middle of the first note (muted from the start): silence until step 9.
+    const p2 = setup();
+    p2.channels[4].mute = true;
+    const e2 = engineWith(p2);
+    e2.handleMessage({ type: 'transport', playing: true });
+    render(e2, 0.3);
+    e2.handleMessage({ type: 'setMix', channel: 4, id: 'mute', value: 0 });
+    const l2 = render(e2, 1.0).l; // 0.3 - 1.3 s
+    expect(rms(l2, 0.05, 0.6)).toBeLessThan(0.001); // no tied note fading back in
+    expect(rms(l2, 0.75, 0.95)).toBeGreaterThan(0.01); // back on the next note (1.0 s)
+  });
+
   it('on drum tracks the SLIDE flag is ROLL at the sound\'s ROLL RATE (hits per step)', () => {
     const p = kickProject([0, 4], { bpm: 120 });
     p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 2 }; // 1:3
