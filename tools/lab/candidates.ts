@@ -12,10 +12,17 @@ const [BOOM, VINTAGE, PUNCH, TECHNO, DOOF] = MACROS.kick.anchors;
 
 const KICK_B: Candidate = {
   name: 'B: SWEEP, NOT DRIVE',
-  note: 'VINTAGE: more noise in the click. TECHNO at INT 100: a hard house kick (a taller, longer sweep than PUNCH’s, far less DRIVE). PSY DOOF: the click fades out as INT rises, less DRIVE, and at INT 100 the full 10-octave laser held longer.',
+  note: 'VINTAGE: project 1’s KICK built in (long noisy click, CRUSH, deeper sweep). TECHNO at INT 100: a hard house kick (a taller, longer sweep than PUNCH’s, far less DRIVE). PSY DOOF: the click fades out as INT rises, less DRIVE, and at INT 100 a lower (7-octave), longer laser.',
   anchors: [
     BOOM,
-    { ...VINTAGE, values: { ...VINTAGE.values, c_noise: 0.8 } },
+    {
+      // Project 1 (MTHED)'s KICK built in: a long noisy click (the real kick's beater and
+      // skin), CRUSH, a deeper sweep; its INT 88 plays as that track did (DRIVE aside).
+      ...VINTAGE,
+      values: { ...VINTAGE.values, ogain: 1.079, t_pitch: 46, t_sweep: 30, t_stime: 0.044, c_len: 0.146, c_noise: 0.72, crush: 0.38 },
+      soft: { ...VINTAGE.soft, ogain: 1.098, t_sweep: 22, t_stime: 0.05 },
+      hard: { ...VINTAGE.hard, ogain: 0.979, t_sweep: 44, t_stime: 0.038 },
+    },
     PUNCH,
     {
       ...TECHNO,
@@ -26,9 +33,9 @@ const KICK_B: Candidate = {
       ...DOOF,
       values: { ...DOOF.values, ogain: 0.768, c_level: 0.12, drive: 16 },
       soft: { ...DOOF.soft, c_level: 0.2 },
-      // Goa laser: the full 10-octave zap (held at the top of the hearing range), slow
-      // enough to hear it fall; no click, little drive.
-      hard: { ogain: 0.613, t_sweep: 120, t_stime: 0.26, c_level: 0, drive: 8 },
+      // Goa laser: a 7-octave zap from about 7 kHz, slow enough to hear it fall; no click,
+      // little drive.
+      hard: { ogain: 0.602, t_sweep: 84, t_stime: 0.26, c_level: 0, drive: 8 },
     },
   ],
   excite: [],
