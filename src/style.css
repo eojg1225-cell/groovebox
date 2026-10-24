@@ -69,7 +69,8 @@ html, body {
   display: flex; flex-direction: column; gap: 14px;
 }
 .panel-top { display: flex; gap: 20px; height: 284px; flex: none; }
-.side > .row:not(.modes) { flex: 1; min-height: 0; }
+.side > .row.buses { flex: 2; min-height: 0; }
+.side > .row.pages, .side > .row.patterns { flex: 1; min-height: 0; }
 .panel { gap: 12px; }
 
 .screen-bezel {
@@ -121,17 +122,17 @@ html, body {
 .btn.save { height: 100%; font-size: 13px; line-height: 1; flex: 0.9; }
 .btn.save small { font-size: 10px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
 .btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
-.row.pages, .row.patterns { gap: 14px; }
+.row.buses { gap: 18px; }
 .save-buttons { display: flex; gap: 8px; flex: 3; }
 .save-buttons > * { flex: 1; }
-.pat-buttons { display: flex; gap: 8px; flex: 2.2; align-items: center; }
+.pat-buttons { display: flex; gap: 8px; flex: 1; align-items: center; }
 .btn.pat.dirty::after { content: '*'; position: absolute; top: 6px; right: 10px; font-size: 18px; color: var(--hot); }
 .btn.pat { position: relative; }
 .page-buttons { display: flex; gap: 8px; flex: 3; }
 .page-buttons > * { flex: 1; }
 .btn.page { height: 100%; font-size: 14px; }
 .btn.page.disabled { opacity: 0.12; }
-.fx-buttons { display: flex; gap: 8px; flex: 2.2; align-items: center; }
+.fx-buttons { display: flex; gap: 8px; flex: 1; align-items: center; }
 .fx-label { font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: var(--ink-dim); }
 .btn.fxsend { height: 100%; flex: 1; font-size: 20px; border-radius: 10px; }
 

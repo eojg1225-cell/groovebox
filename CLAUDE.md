@@ -49,7 +49,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 | anything named `...V<n>` | a load migration for saves older than v<n>; never use for new behaviour |
 
 ### Panel
-- Top (beside the screen): modes RECORD / PLAY / DESIGN / SONG; page buttons (3) | FX 1 / 2 / 3 / LFO; SAVE (pattern), SAVE/LOAD PROJECT, RESET | PAT A-D (both rows large).
+- Top (beside the screen): modes RECORD / PLAY / DESIGN / SONG; one row of large buttons FX 1 / 2 / 3 / LFO | PAT A-D (where the channel buttons were); page buttons (3); SAVE (pattern), SAVE/LOAD PROJECT, RESET.
 - 16 knobs in 8 track modules (k1-k8 top row, k9-k16 bottom; module n = k(n) over k(n+8)), with track n's channel button (select on release) and M (mute) / S (solo, not saved; Alt+1-8) between its two knobs. Absolute 0-127 over 270°; a drag moves faster the quicker it goes (slow = 400 px for the full range, up to 6x, `Knob.ts` ACCEL_*; Shift = fine); `encoder` events (mouse wheel, hardware) are relative.
 - Function row: RING, SLIDE, ACCENT, GHOST | STEPS, BAR, CLEAR (hold), COPY (hold) | OCT -, OCT + | ◀, ▶, REST. Then the 16-step strip with LEDs (short buttons); FUNC (Z; hold = second knob layer, tap = latch) and PLAY (Space) over the master knobs TEMPO (whole BPM only: knob and encoder steps of 1, saves load rounded, so a DAW gets the same tempo) and MASTER.
 - Keyboard: 1-8 channels (Shift = mute, Alt = solo), QWERTYUI / ASDFGHJK = strip.
