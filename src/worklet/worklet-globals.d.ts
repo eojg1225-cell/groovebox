@@ -12,3 +12,11 @@ declare function registerProcessor(
   name: string,
   ctor: new (options?: unknown) => AudioWorkletProcessor,
 ): void;
+
+interface AudioParamDescriptor {
+  name: string;
+  defaultValue?: number;
+  minValue?: number;
+  maxValue?: number;
+  automationRate?: 'a-rate' | 'k-rate';
+}

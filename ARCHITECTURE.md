@@ -66,7 +66,7 @@ Main -> worklet:
 | `setBus` | `bus` (0-2 = FX 1-3), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
-| `transport` | `playing`, `song?`, `fromRow?` | Start (from step 1) / stop; `song` = play the song from row `fromRow` |
+| `transport` | `playing`, `song?`, `fromRow?`, `gen?` | Start (from step 1) / stop; `song` = play the song from row `fromRow`. `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
 | `setSong` | `song` | Replace the song rows |
 | `songJump` | `row` | While the song plays: go to this row at the next bar line |
 | `trigger` | `channel`, `note`, `velocity`, `slideFrom?` | Play a note now (`slideFrom` = legato from a held note) |
@@ -78,7 +78,7 @@ Worklet -> main:
 | type | fields | meaning |
 |---|---|---|
 | `ready` | `sampleRate` | Processor constructed |
-| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase`, `barSteps`, `songRow`, `songBar` | ~30 Hz: meters, playhead and playing pattern per track, position in the bar (`barSteps` = the time signature's bar in 16ths) |
+| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load` | ~30 Hz: meters, playhead and playing pattern per track, position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
 | `pong` | `id` | Answer to `ping` |
 | `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate`, `slide`, `start?` | A live-recorded note was written (sent again with its length on release; `start` = it replaced the step's notes) |

@@ -182,6 +182,8 @@ export interface AudioInfo {
   /** The panel's drawing: ms per frame (smoothed) and frames drawn per second. */
   uiMs: number;
   fps: number;
+  /** The audio thread's load (process() time / audio time, smoothed; 1 = out of time). */
+  dspLoad: number;
 }
 
 /** What one knob controls right now. */
@@ -206,6 +208,8 @@ interface Glide {
 }
 
 const MIX_PREFIX = 'mix:';
+/** DSP load from which the footer shows it in alert (the audio is about to break up). */
+const DSP_ALERT = 0.8;
 type GlobalId = 'bpm' | 'swing' | 'master';
 /** The master knobs beside PLAY. */
 const MASTER_GLOBAL: Readonly<Record<string, GlobalId>> = { mtempo: 'bpm', mmaster: 'master' };
@@ -227,6 +231,8 @@ export class App {
   private readonly forceSlide: boolean[] = new Array(NUM_CHANNELS).fill(false);
   /** PLAY: ACCENT / GHOST per track = every note at that dynamic ('normal' = its own). */
   private readonly forceDyn: Dynamic[] = new Array(NUM_CHANNELS).fill('normal');
+  /** Counts PLAY / STOP presses: the engine drops transport messages a STOP has overtaken. */
+  private transportGen = 0;
   /** REST armed (drum tracks): tapping a step places / removes a rest marker. */
   restArm = false;
   /**
@@ -334,7 +340,7 @@ export class App {
     return [
       { type: 'loadProject', project: this.project },
       ...this.muteMessages(),
-      { type: 'transport', playing: this.playing },
+      { type: 'transport', playing: this.playing, gen: this.transportGen },
     ];
   }
 
@@ -955,7 +961,7 @@ export class App {
       this.playing = !this.playing;
       // PLAY in SONG mode plays the song from the cursor row; elsewhere the patterns.
       this.songPlaying = this.playing && this.mode === 'song' && this.project.song.rows.length > 0;
-      this.send({ type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: this.songRow });
+      this.send({ type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: this.songRow, gen: ++this.transportGen });
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
       this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
@@ -2499,11 +2505,14 @@ export class App {
     if (audio.state === 'off') return { text: 'TOUCH FOR SOUND', alert: true };
     if (audio.state === 'starting') return { text: 'STARTING AUDIO', alert: false };
     if (audio.state === 'error') return { text: 'AUDIO ERROR', alert: true };
-    // Room for ~10 characters: output latency, then the panel's drawing cost per frame and its
-    // frame rate, 3 s each.
-    const phase = audio.fps > 0 ? Math.floor(performance.now() / 3000) % 3 : 0;
-    if (phase === 1) return { text: `UI ${audio.uiMs.toFixed(1)}MS`, alert: false };
-    if (phase === 2) return { text: `UI ${Math.round(audio.fps)}FPS`, alert: false };
+    // Room for ~10 characters: output latency, the audio thread's load, then the panel's drawing
+    // cost per frame and its frame rate, 3 s each; a load near the limit stays up, flagged.
+    const dsp = `DSP ${Math.round(audio.dspLoad * 100)}%`;
+    if (audio.dspLoad >= DSP_ALERT) return { text: dsp, alert: true };
+    const phase = audio.fps > 0 ? Math.floor(performance.now() / 3000) % 4 : 0;
+    if (phase === 1) return { text: dsp, alert: false };
+    if (phase === 2) return { text: `UI ${audio.uiMs.toFixed(1)}MS`, alert: false };
+    if (phase === 3) return { text: `UI ${Math.round(audio.fps)}FPS`, alert: false };
     return { text: Number.isFinite(audio.latencyMs) ? `OUT ${audio.latencyMs.toFixed(0)}MS` : 'AUDIO ON', alert: false };
   }
 

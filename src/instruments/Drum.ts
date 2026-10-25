@@ -1,6 +1,6 @@
 import type { Instrument, Preset } from './Instrument';
 import { choice, type ParamSpec } from '../engine/params';
-import { decayMul, Noise, polyBlep, Svf } from './dsp';
+import { decayMul, IdleGate, Noise, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
@@ -229,6 +229,8 @@ const AIR_SIZE_MAX = 0.75;
 const AIR_EQ_RESO = 0.3;
 /** AIR LVL glides over this long (s); the room runs in chunks of AIR_CHUNK samples. */
 const AIR_SMOOTH = 0.02;
+/** AIR is skipped after this long of silence in and (nearly) out: longer than its longest tail. */
+const AIR_IDLE_SECONDS = 4;
 const AIR_CHUNK = 128;
 
 export class Drum implements Instrument {
@@ -278,6 +280,8 @@ export class Drum implements Instrument {
   private readonly airL = new Float32Array(AIR_CHUNK);
   private readonly airR = new Float32Array(AIR_CHUNK);
   private airTarget = 0; private airGain = 0; private airIdle = true;
+  /** AIR on but died away: skipped until the drum sounds again. */
+  private readonly airGate: IdleGate;
   private readonly airK: number;
   /** Decay multipliers in use for the current hit (normal, ring or choke). */
   private tMul = 0; private mMul = 0; private cMul = 0;
@@ -305,6 +309,7 @@ export class Drum implements Instrument {
     this.rPulseMul = Math.exp(-1 / (RATTLE_PULSE * sampleRate));
     this.rRelease = Math.exp(-1 / (RATTLE_RELEASE * sampleRate));
     this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
+    this.airGate = new IdleGate(AIR_IDLE_SECONDS, sampleRate);
     if (voice.air) {
       this.room = new Reverb(sampleRate);
       for (const id in AIR_ROOM) this.room.setParam(id, AIR_ROOM[id as keyof typeof AIR_ROOM]);
@@ -487,7 +492,9 @@ export class Drum implements Instrument {
       return;
     }
     this.airIdle = false;
-    const [hpL, hpR, hp2L, hp2R, lpL, lpR] = this.airEq;
+    if (this.airGate.skip(l, r, n)) return;
+    const eq = this.airEq;
+    const hpL = eq[0], hpR = eq[1], hp2L = eq[2], hp2R = eq[3], lpL = eq[4], lpR = eq[5];
     for (let off = 0; off < n; off += AIR_CHUNK) {
       const m = Math.min(AIR_CHUNK, n - off);
       for (let i = 0; i < m; i++) { this.airInL[i] = l[off + i]; this.airInR[i] = r[off + i]; }
@@ -502,6 +509,7 @@ export class Drum implements Instrument {
         r[off + i] += lpR.low * this.airGain;
       }
     }
+    this.airGate.done(l, r, n);
   }
 
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {

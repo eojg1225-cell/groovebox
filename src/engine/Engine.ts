@@ -11,7 +11,7 @@ import { INSTRUMENTS, SOUND_KINDS, liveContribution, liveTargets, playsChords } 
 import { toNorm, toValue } from './params';
 import { ARP_RATES } from '../instruments/Synth';
 import { ROLL_DIVS } from '../instruments/Drum';
-import { Noise, Svf } from '../instruments/dsp';
+import { Noise, Svf, silent } from '../instruments/dsp';
 import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { FxBus } from '../fx/FxBus';
 import { Limiter } from '../fx/Limiter';
@@ -1435,12 +1435,15 @@ export class Engine {
       inst.render(sl, sr, 0, n);
       const tl = this.toneL[ch];
       const tr = this.toneR[ch];
-      // The hit tone (velocity colour), then the track's onboard effects.
-      for (let i = 0; i < n; i++) {
-        tl.process(sl[i]);
-        tr.process(sr[i]);
-        sl[i] = tl.low;
-        sr[i] = tr.low;
+      // The hit tone (velocity colour; skipped while nothing comes in and it has died away),
+      // then the track's onboard effects.
+      if (!(tl.quiet && tr.quiet && silent(sl, sr, n))) {
+        for (let i = 0; i < n; i++) {
+          tl.process(sl[i]);
+          tr.process(sr[i]);
+          sl[i] = tl.low;
+          sr[i] = tr.low;
+        }
       }
       inst.post?.(sl, sr, n);
       this.cuts[ch].process(sl, sr, n);
@@ -1458,6 +1461,32 @@ export class Engine {
       const dL = this.inDrumBus[ch] ? this.busL[0] : outL;
       const dR = this.inDrumBus[ch] ? this.busR[0] : outR;
       const dOff = this.inDrumBus[ch] ? 0 : off;
+      if (silent(sl, sr, n)) {
+        // Nothing to mix: the levels move on as if it had been.
+        vol.advance(n);
+        pan.advance(n);
+        level.advance(n);
+        continue;
+      }
+      if (volDepth === 0 && panDepth === 0 && sendDepth === 0 && vol.settled && pan.settled && level.settled) {
+        // Levels at rest: the gains once for the block (the same as the per-sample path below).
+        const v = vol.value * tg;
+        const a = (pan.value + 1) * 0.25 * Math.PI;
+        const cl = Math.cos(a);
+        const cr = Math.sin(a);
+        const g = level.value;
+        for (let i = 0; i < n; i++) {
+          const l = sl[i] * v * cl;
+          const r = sr[i] * v * cr;
+          dL[dOff + i] += l;
+          dR[dOff + i] += r;
+          if (bL && bR) {
+            bL[i] += l * g;
+            bR[i] += r * g;
+          }
+        }
+        continue;
+      }
       for (let i = 0; i < n; i++) {
         let v = vol.next() * tg;
         if (volDepth > 0) {

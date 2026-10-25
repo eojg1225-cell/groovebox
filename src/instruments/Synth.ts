@@ -1,6 +1,6 @@
 import type { Instrument, Preset } from './Instrument';
 import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
-import { decayMul, midiToHz, polyBlep, Svf } from './dsp';
+import { decayMul, IdleGate, midiToHz, polyBlep, Svf } from './dsp';
 import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { driveCompGain } from './driveComp';
@@ -305,6 +305,8 @@ export class Synth implements Instrument {
   private readonly duckAttackInc: number;
   private readonly delay: Delay | null = null;
   private readonly room: Reverb | null = null;
+  /** The onboard delay + room are skipped once they have died away (longer than the longest echo). */
+  private readonly postIdle: IdleGate;
 
   /** driveRise: the type's DRIVE level compensation curve (driveComp.ts). */
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>, private readonly driveRise?: readonly number[]) {
@@ -312,6 +314,7 @@ export class Synth implements Instrument {
     this.dcR = 1 - (2 * Math.PI * DC_HZ) / sampleRate;
     this.velK = 1 - Math.exp(-1 / (VEL_SMOOTH * sampleRate));
     this.duckAttackInc = 1 / (DUCK_ATTACK * sampleRate);
+    this.postIdle = new IdleGate(ONBOARD_DELAY_SECONDS * 2, sampleRate);
     if (fixed.onboard) {
       this.delay = new Delay(sampleRate, ONBOARD_DELAY_SECONDS);
       this.delay.setParam('dly_tone', ONBOARD_DLY_TONE);
@@ -491,9 +494,10 @@ export class Synth implements Instrument {
 
   /** PLUCK's delay, then its room (on the track's output, in place). */
   post(l: Float32Array, r: Float32Array, n: number): void {
-    if (!this.delay || !this.room) return;
+    if (!this.delay || !this.room || this.postIdle.skip(l, r, n)) return;
     this.delay.process(l, r, l, r, 0, n);
     this.room.process(l, r, l, r, 0, n);
+    this.postIdle.done(l, r, n);
   }
 
   /**

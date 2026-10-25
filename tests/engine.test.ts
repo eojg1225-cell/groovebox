@@ -12,7 +12,8 @@ import { CHORDS } from '../src/engine/chords';
 import { INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
-import { midiToHz } from '../src/instruments/dsp';
+import { IdleGate, midiToHz } from '../src/instruments/dsp';
+import { Smoother } from '../src/engine/smoother';
 import { Delay } from '../src/fx/Delay';
 
 import { Reverb } from '../src/fx/Reverb';
@@ -3553,5 +3554,40 @@ describe('v47: KICK VINTAGE, TECHNO, PSY DOOF redone', () => {
     // The new VINTAGE is that kick, so its click trims all but vanish.
     expect(Math.abs(back.trims.kick!.c_len ?? 0)).toBeLessThan(0.01);
     expect(Math.abs(back.trims.kick!.c_noise ?? 0)).toBeLessThan(0.01);
+  });
+});
+
+describe('skipping silent work', () => {
+  it('Smoother.advance(n) lands where n next() calls do', () => {
+    const a = new Smoother(0, 0.02, SR);
+    const b = new Smoother(0, 0.02, SR);
+    a.setTarget(1); b.setTarget(1);
+    for (let i = 0; i < 300; i++) a.next();
+    b.advance(300);
+    expect(b.value).toBeCloseTo(a.value, 9);
+  });
+
+  it('an idle onboard effect is skipped after its tail, and wakes with the next sound', () => {
+    const gate = new IdleGate(1, SR);
+    const l = new Float32Array(128), r = new Float32Array(128);
+    let skipped = 0;
+    for (let b = 0; b < 500; b++) { if (gate.skip(l, r, 128)) skipped++; else gate.done(l, r, 128); }
+    expect(skipped).toBeGreaterThan(100); // silent for > 1 s: skipped
+    l[5] = 0.5;
+    expect(gate.skip(l, r, 128)).toBe(false); // a sound comes in: runs again
+  });
+
+  it('PLUCK echoes still come after a long silence', () => {
+    const e = new Engine(SR);
+    const p = createDefaultProject();
+    e.handleMessage({ type: 'loadProject', project: p });
+    const pluck = p.channels.findIndex((c) => c.instrument === 'pluck');
+    render(e, 12); // long silence: its delay + room go idle
+    e.handleMessage({ type: 'setSound', channel: pluck, id: 'dmix', value: 1 });
+    e.handleMessage({ type: 'trigger', channel: pluck, note: 60, velocity: 1 });
+    render(e, 0.05);
+    e.handleMessage({ type: 'release', channel: pluck, note: 60 });
+    const { l } = render(e, 1.5);
+    expect(stats(l.subarray(Math.round(SR * 0.9), Math.round(SR * 1.5))).peak).toBeGreaterThan(1e-4);
   });
 });

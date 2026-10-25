@@ -64,6 +64,47 @@ export class Svf {
   reset(): void {
     this.ic1 = this.ic2 = 0;
   }
+
+  /** Died away (its state flushed to zero): silence in = silence out. */
+  get quiet(): boolean {
+    return this.ic1 === 0 && this.ic2 === 0;
+  }
+}
+
+/**
+ * An onboard effect's idle switch (PLUCK's delay + room, the drums' AIR): once silence has
+ * gone in and (nearly) silence come out for longer than its longest echo, it is skipped until
+ * sound comes in again. Call skip() before processing a block and done() after.
+ */
+export class IdleGate {
+  private quiet = 0;
+  private silentIn = false;
+  private readonly frames: number;
+
+  constructor(seconds: number, sampleRate: number) {
+    this.frames = Math.round(seconds * sampleRate);
+  }
+
+  skip(l: Float32Array, r: Float32Array, n: number): boolean {
+    this.silentIn = silent(l, r, n);
+    if (!this.silentIn) this.quiet = 0;
+    return this.silentIn && this.quiet >= this.frames;
+  }
+
+  done(l: Float32Array, r: Float32Array, n: number): void {
+    if (!this.silentIn) return;
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(l[i]) > IDLE_LEVEL || Math.abs(r[i]) > IDLE_LEVEL) { this.quiet = 0; return; }
+    }
+    this.quiet += n;
+  }
+}
+const IDLE_LEVEL = 1e-6;
+
+/** Nothing but zeros in l / r [0, n). */
+export function silent(l: Float32Array, r: Float32Array, n: number): boolean {
+  for (let i = 0; i < n; i++) if (l[i] !== 0 || r[i] !== 0) return false;
+  return true;
 }
 
 /** PolyBLEP correction for a discontinuity at phase 0 (phase, inc in cycles). */

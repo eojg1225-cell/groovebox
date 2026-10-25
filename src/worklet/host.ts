@@ -23,6 +23,8 @@ type StatusMsg = Extract<WorkletToMain, { type: 'status' }>;
 export class AudioHost {
   readonly ctx: AudioContext;
   private node: AudioWorkletNode | null = null;
+  /** The processor's `stop` parameter: STOP that gets through an overloaded audio thread. */
+  private stopParam: AudioParam | null = null;
   private pingId = 0;
   private pingSentAt = new Map<number, number>();
   /** Messages sent before the worklet exists; flushed in order once it does. */
@@ -56,6 +58,7 @@ export class AudioHost {
     node.port.onmessage = (e: MessageEvent<WorkletToMain>) => this.onMessage(e.data);
     node.connect(this.ctx.destination);
     this.node = node;
+    this.stopParam = node.parameters.get('stop') ?? null;
     for (const msg of this.pending) node.port.postMessage(msg);
     this.pending = [];
     await this.ctx.resume();
@@ -93,6 +96,8 @@ export class AudioHost {
   send(msg: MainToWorklet): void {
     if (this.node) this.node.port.postMessage(msg);
     else this.pending.push(msg);
+    // STOP also as the parameter (the message may wait behind an overloaded audio thread).
+    if (msg.type === 'transport' && !msg.playing && msg.gen && this.stopParam) this.stopParam.value = msg.gen;
   }
 
   get running(): boolean {

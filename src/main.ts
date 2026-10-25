@@ -46,7 +46,7 @@ const panel = new Panel(document.getElementById('app') as HTMLElement, {
 const screen = new PixelScreen(panel.screenCanvas);
 
 let host: AudioHost | null = null;
-const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 0 };
+const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 0, dspLoad: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
 // On claude.ai the 64 project slots are kept in the artifact's db too: the same on every device.
 startSlotSync(() => app.notify('PROJECTS SYNCED'));
@@ -94,6 +94,8 @@ function unlockAudio(): void {
       if (engineReadyAt < 0) engineReadyAt = performance.now();
       app.setStatus(s);
       audio.peak = Math.max(Math.max(s.peakL, s.peakR), audio.peak * 0.85);
+      // Smoothed over ~1 s (30 reports a second): the per-report figure is coarse (whole ms).
+      audio.dspLoad += (s.load - audio.dspLoad) * 0.1;
     };
     audio.state = 'starting';
     host.start().then(

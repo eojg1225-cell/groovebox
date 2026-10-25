@@ -29,6 +29,18 @@ export class Smoother {
     return this.current;
   }
 
+  /** At its target (next() returns the same value until a new one is set). */
+  get settled(): boolean {
+    return this.current === this.target;
+  }
+
+  /** n steps of next() at once (a block that was skipped). */
+  advance(n: number): void {
+    if (this.current === this.target) return;
+    this.current = this.target + (this.current - this.target) * Math.pow(1 - this.coeff, n);
+    if (Math.abs(this.target - this.current) < 1e-9) this.current = this.target;
+  }
+
   next(): number {
     this.current += (this.target - this.current) * this.coeff;
     // Snap when close, which also keeps denormals out of the state.
