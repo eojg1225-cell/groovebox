@@ -32,7 +32,7 @@ const state = {
   match: true,
   sweep: 'off' as Sweep,
   bars: 8,
-  /** Engine maths heard: 0 = A exact, 1 = B fast, 2 = A - B. */
+  /** Engine maths heard: 0 = A fast (the app), 1 = B exact, 2 = A - B. */
   maths: 0,
   diffDb: 60,
 };
@@ -105,7 +105,7 @@ function measure(): void {
   bench.onmessage = (e: MessageEvent<{ a: number; b: number }>) => {
     const { a, b } = e.data;
     const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-    $('loads').textContent = `This device, what plays now: A ${pct(a)} · B ${pct(b)} of one core in real time · B ${Math.round((1 - b / a) * 100)}% cheaper`;
+    $('loads').textContent = `This device, what plays now: A ${pct(a)} · B ${pct(b)} of one core in real time · A ${Math.round((1 - a / b) * 100)}% cheaper`;
     $<HTMLButtonElement>('measure').disabled = false;
   };
   $('loads').textContent = 'Measuring (about 15 s) …';
@@ -113,7 +113,7 @@ function measure(): void {
   bench.postMessage(project);
 }
 $('measure').addEventListener('click', measure);
-$('mnote').textContent = 'Fast against exact, measured offline: the difference is about -116 to -128 dB below the sound (median over every drum, synth and FX test), -102 dB on the stress test. The largest are CRUSH (a value can tip into the next step, -72 dB) and strong FM FEEDBACK (small differences grow, -77 dB): the same sound, not the same samples. Measure times both engines on this device.';
+$('mnote').textContent = 'The app uses the fast maths. Against exact, measured offline: the difference is about -116 to -128 dB below the sound (median over every drum, synth and FX test), -102 dB on the stress test. The largest are CRUSH (a value can tip into the next step, -72 dB) and strong FM FEEDBACK (small differences grow, -77 dB): the same sound, not the same samples. The lab runs both engines at once (twice the app\'s load). Measure times both on this device.';
 
 function setMaths(m: number): void {
   state.maths = m;

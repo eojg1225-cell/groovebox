@@ -4,18 +4,18 @@ import { defineConfig, type Plugin } from 'vitest/config';
 const here = (p: string) => new URL(p, import.meta.url).pathname;
 const SRC = here('../../src/');
 const MATH = here('../../src/instruments/math.ts');
-const FAST = here('../../src/instruments/mathFast.ts');
-const SHIM = here('./fastEngine.ts');
-const SUFFIX = '.fastmath.ts';
+const EXACT = here('../../src/instruments/mathExact.ts');
+const SHIM = here('./exactEngine.ts');
+const SUFFIX = '.exactmath.ts';
 
 /**
- * The maths A / B: fastEngine.ts and everything it imports from src/ are built a second
- * time (ids with SUFFIX), with math.ts swapped for mathFast.ts, so the worklet runs the exact
- * engine and the fast one side by side.
+ * The maths A / B: exactEngine.ts and everything it imports from src/ are built a second
+ * time (ids with SUFFIX), with math.ts (the app's fast tables) swapped for mathExact.ts, so
+ * the worklet runs the app's engine and the exact one side by side.
  */
-function fastMath(): Plugin {
+function exactMath(): Plugin {
   return {
-    name: 'lab-fast-math',
+    name: 'lab-exact-math',
     enforce: 'pre',
     async resolveId(source, importer, options) {
       const fast = importer?.endsWith(SUFFIX) ?? false;
@@ -24,7 +24,7 @@ function fastMath(): Plugin {
       if (!r) return null;
       if (r.id === SHIM) return SHIM + SUFFIX;
       if (!fast) return null;
-      if (r.id === MATH) return FAST;
+      if (r.id === MATH) return EXACT;
       return r.id.startsWith(SRC) && r.id.endsWith('.ts') ? r.id + SUFFIX : null;
     },
     load(id) {
@@ -40,6 +40,6 @@ export default defineConfig({
   root: here('.'),
   base: './',
   build: { target: 'es2020', outDir: '../../dist-lab', emptyOutDir: true },
-  worker: { format: 'iife', plugins: () => [fastMath()] },
+  worker: { format: 'iife', plugins: () => [exactMath()] },
   test: { include: ['level.test.ts'], environment: 'node' },
 });

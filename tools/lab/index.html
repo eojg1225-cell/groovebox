@@ -10,7 +10,7 @@
 <main class="wrap">
   <header>
     <h1>GrooveAccess Sound Lab</h1>
-    <p>One track's sound driven only by TIMBRE and INT, on the real engine. <b>A</b> is the app as it is; <b>B</b>, <b>C</b> … are candidates. Switch between them at the same knob positions (keys A–E), or let a knob sweep on its own. <b>Engine maths</b> plays the same notes through the exact engine (the app) or the one with fast maths, or the difference between them made audible (M switches).</p>
+    <p>One track's sound driven only by TIMBRE and INT, on the real engine. <b>A</b> is the app as it is; <b>B</b>, <b>C</b> … are candidates. Switch between them at the same knob positions (keys A–E), or let a knob sweep on its own. <b>Engine maths</b> plays the same notes through the app's engine (fast maths) or the one with exact maths, or the difference between them made audible (M switches).</p>
   </header>
 
   <section class="deck" aria-label="Lab">
@@ -29,8 +29,8 @@
     <div class="maths" aria-label="Maths A / B">
       <span class="slabel">Engine maths</span>
       <div class="seg" role="radiogroup" aria-label="Engine maths">
-        <label for="mx-a"><input type="radio" name="maths" id="mx-a" value="0" checked> A exact</label>
-        <label for="mx-b"><input type="radio" name="maths" id="mx-b" value="1"> B fast</label>
+        <label for="mx-a"><input type="radio" name="maths" id="mx-a" value="0" checked> A fast (app)</label>
+        <label for="mx-b"><input type="radio" name="maths" id="mx-b" value="1"> B exact</label>
         <label for="mx-d"><input type="radio" name="maths" id="mx-d" value="2"> A − B</label>
       </div>
       <label class="check" for="diffdb">difference

@@ -3634,10 +3634,10 @@ describe('skipping silent work', () => {
   });
 });
 
-describe('fast maths (the sound lab B engine)', () => {
-  it('stays within its stated error of the exact maths', async () => {
-    const exact = await import('../src/instruments/math');
-    const fast = await import('../src/instruments/mathFast');
+describe('fast maths (math.ts, the app) against exact (mathExact.ts)', () => {
+  it('stays within its stated error', async () => {
+    const exact = await import('../src/instruments/mathExact');
+    const fast = await import('../src/instruments/math');
     let sin = 0, tanhErr = 0, exp = 0;
     for (let i = 0; i <= 200000; i++) {
       const t = -3 + (i / 200000) * 7.37;

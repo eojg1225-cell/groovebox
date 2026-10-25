@@ -1,11 +1,11 @@
 /**
  * The maths A / B benchmark (a Web Worker: the same JavaScript engine and CPU as the audio
- * thread, with a precise clock): renders a project offline through the exact engine (A) and
- * the fast one (B) in turn, 2 s of audio each, best of three rounds after a warm-up, and
+ * thread, with a precise clock): renders a project offline through the app's engine (A, fast
+ * maths) and the exact one (B) in turn, 2 s of audio each, best of three rounds after a warm-up, and
  * reports each as a share of real time (one core).
  */
 import { Engine } from '../../src/engine/Engine';
-import { Engine as FastEngine } from './fastEngine';
+import { Engine as ExactEngine } from './exactEngine';
 import type { Project } from '../../src/engine/project';
 
 const SR = 48000;
@@ -26,7 +26,7 @@ self.onmessage = (e: MessageEvent<Project>) => {
     engine.handleMessage({ type: 'transport', playing: true });
     return engine;
   };
-  const a = start(Engine), b = start(FastEngine);
+  const a = start(Engine), b = start(ExactEngine);
   time(a, 2); time(b, 2); // warm-up (the JIT)
   let bestA = Infinity, bestB = Infinity;
   for (let round = 0; round < 3; round++) {
