@@ -19,6 +19,8 @@ export interface FxUnit {
 
 const TAU = 2 * Math.PI;
 const flush = (x: number) => (x > 1e-15 || x < -1e-15 ? x : 0);
+/** The most samples a unit renders at once (FxBus's largest block). */
+export const FX_BLOCK = 256;
 
 /** Linear-interpolated read `delay` samples behind `write` in a circular buffer. */
 function tap(buf: Float32Array, write: number, delay: number): number {
@@ -172,6 +174,20 @@ class Allpass {
     this.buf[this.i] = flush(x + g * y);
     if (++this.i >= this.buf.length) this.i = 0;
     return y;
+  }
+
+  /** process() over a block, in place (state in locals, the same arithmetic). */
+  block(v: Float64Array, n: number, g: number): void {
+    const buf = this.buf, len = buf.length;
+    let i = this.i;
+    for (let j = 0; j < n; j++) {
+      const x = v[j];
+      const y = buf[i] - g * x;
+      buf[i] = flush(x + g * y);
+      if (++i >= len) i = 0;
+      v[j] = y;
+    }
+    this.i = i;
   }
 }
 
@@ -385,6 +401,23 @@ class Comb {
     if (++this.i === this.buf.length) this.i = 0;
     return y;
   }
+
+  /** processInt() over a block: adds each output to acc[j] (state in locals). */
+  blockInt(x: Float64Array, acc: Float64Array, n: number, delay: number, feedback: number, damp: number): void {
+    const buf = this.buf, len = buf.length;
+    let i = this.i, store = this.store;
+    for (let j = 0; j < n; j++) {
+      let rp = i - delay;
+      if (rp < 0) rp += len;
+      const y = buf[rp];
+      store = flush(y * (1 - damp) + store * damp);
+      buf[i] = x[j] + store * feedback;
+      if (++i === len) i = 0;
+      acc[j] += y;
+    }
+    this.i = i;
+    this.store = store;
+  }
 }
 
 // Freeverb tunings (samples at 44.1 kHz), and the most SIZE can stretch them.
@@ -422,6 +455,11 @@ export class VerbFx implements FxUnit {
   private readonly pre: Float32Array;
   private preWrite = 0;
   private readonly stretch: Smoother;
+  /** renderBlock()'s block: the diffused inputs and the left / right sums. */
+  private readonly bxL = new Float64Array(FX_BLOCK);
+  private readonly bxR = new Float64Array(FX_BLOCK);
+  private readonly bl = new Float64Array(FX_BLOCK);
+  private readonly br = new Float64Array(FX_BLOCK);
   private mode = 0;
   private size = 0.5;
   private length = 0.5;
@@ -526,6 +564,10 @@ export class VerbFx implements FxUnit {
       this.intL[k] = Math.round(COMBS[k] * scale * stEnd);
       this.intR[k] = Math.round((COMBS[k] + SPREAD) * scale * stEnd);
     }
+    if (shimmer === 0 && this.stretch.settled && this.stretch.value === stEnd) {
+      this.renderBlock(inL, inR, wetL, wetR, n, feedback, damp, preDelay);
+      return;
+    }
     for (let i = 0; i < n; i++) {
       const st = this.stretch.next();
       this.pre[this.preWrite] = (inL[i] + inR[i]) * 0.015;
@@ -562,6 +604,44 @@ export class VerbFx implements FxUnit {
       if (shimmer > 0) this.shimmerStep(l, r);
       wetL[i] = l * 3;
       wetR[i] = r * 3;
+    }
+  }
+
+  /**
+   * SIZE at rest, no SHIMMER (which feeds each sample's output back): the same as the loop
+   * above, but each diffuser, comb and allpass runs over the whole block in turn (the same
+   * sums in the same order).
+   */
+  private renderBlock(inL: Float32Array, inR: Float32Array, wetL: Float32Array, wetR: Float32Array, n: number, feedback: number, damp: number, preDelay: number): void {
+    const preLen = this.pre.length;
+    const xl = this.bxL, xr = this.bxR, l = this.bl, r = this.br;
+    for (let i = 0; i < n; i++) {
+      this.pre[this.preWrite] = (inL[i] + inR[i]) * 0.015;
+      let rp = this.preWrite - Math.min(preDelay, preLen - 1);
+      if (rp < 0) rp += preLen;
+      xl[i] = this.pre[rp];
+      xr[i] = xl[i];
+      if (++this.preWrite === preLen) this.preWrite = 0;
+      l[i] = 0;
+      r[i] = 0;
+    }
+    if (this.mode === 2) {
+      for (let k = 0; k < this.diffL.length; k++) {
+        this.diffL[k].block(xl, n, k < 2 ? 0.75 : 0.625);
+        this.diffR[k].block(xr, n, k < 2 ? 0.75 : 0.625);
+      }
+    }
+    for (let k = 0; k < 8; k++) {
+      this.combsL[k].blockInt(xl, l, n, this.intL[k], feedback, damp);
+      this.combsR[k].blockInt(xr, r, n, this.intR[k], feedback, damp);
+    }
+    for (let k = 0; k < 4; k++) {
+      this.apL[k].block(l, n, 0.5);
+      this.apR[k].block(r, n, 0.5);
+    }
+    for (let i = 0; i < n; i++) {
+      wetL[i] = l[i] * 3;
+      wetR[i] = r[i] * 3;
     }
   }
 

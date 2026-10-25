@@ -14,10 +14,10 @@ import { Smoother } from '../engine/smoother';
 import { Svf } from '../instruments/dsp';
 import { BUSES, BUS_PARAMS, typeName, type UnitDef } from './buses';
 import { Compressor } from './Compressor';
-import { DelayFx, DriveFx, ModFx, VerbFx, type FxUnit } from './units';
+import { DelayFx, DriveFx, FX_BLOCK, ModFx, VerbFx, type FxUnit } from './units';
 
-/** Largest block the engine hands a bus (it renders in 64-frame chunks). */
-const MAX_BLOCK = 256;
+/** Largest block the engine hands a bus (it renders in 64-frame chunks); the units' too. */
+const MAX_BLOCK = FX_BLOCK;
 const FADE_SECONDS = 0.15;
 const SWITCH_SECONDS = 0.015;
 const QUIET_SECONDS = 5;

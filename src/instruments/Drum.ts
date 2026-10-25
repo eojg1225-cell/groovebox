@@ -291,6 +291,8 @@ export class Drum implements Instrument {
   private tune = 1;
   private pitchMod = 1;
   private tPhase = 0; private sweepEnv = 0;
+  /** The sweep has died away to nothing (its 2^x is exactly 1) until the next hit or SWEEP change. */
+  private sweepFlat = false;
   private readonly mPhase = new Float64Array(6);
   private tEnv = 0; private tStage = OFF;
   private mEnv = 0; private mStage = OFF;
@@ -348,6 +350,7 @@ export class Drum implements Instrument {
     this.velocity = velocity;
     this.tPhase = 0;
     this.sweepEnv = 1;
+    this.sweepFlat = false;
     this.impulse = true;
     // Each layer starts its attack (or at full level when the attack is instant).
     this.tEnv = this.tAtk > 0 ? 0 : 1; this.tStage = this.tAtk > 0 ? ATTACKING : DECAYING;
@@ -400,7 +403,7 @@ export class Drum implements Instrument {
     switch (id) {
       case 't_level': this.tLevel = v; break;
       case 't_pitch': this.tPitch = v; this.updateMetal(); break;
-      case 't_sweep': this.tSweep = v; break;
+      case 't_sweep': this.tSweep = v; this.sweepFlat = false; break;
       case 't_stime': this.sweepMul = decayMul(v, sr); break;
       case 't_attack': this.tAtkS = v; this.tAtk = attackInc(v, sr); this.updateMetalEnv(); break;
       case 't_decay': this.tDecay = v; this.updateMetalEnv(); this.updateDecays(); break;
@@ -537,8 +540,14 @@ export class Drum implements Instrument {
 
       // TONE
       if (this.tStage !== OFF) {
-        // Held below the top of the hearing range (a long sweep from a high start).
-        const f = Math.min(tPitch * Math.pow(2, (this.tSweep * this.sweepEnv) / 12), this.sweepTop);
+        // Held below the top of the hearing range (a long sweep from a high start). The sweep
+        // only falls, so once 2^x is exactly 1 it stays 1: skip the pow from then on.
+        let sweep = 1;
+        if (!this.sweepFlat) {
+          sweep = Math.pow(2, (this.tSweep * this.sweepEnv) / 12);
+          if (sweep === 1) this.sweepFlat = true;
+        }
+        const f = Math.min(tPitch * sweep, this.sweepTop);
         const dt = f * dtBase;
         this.tPhase += dt;
         if (this.tPhase >= 1) this.tPhase -= 1;

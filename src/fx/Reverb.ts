@@ -22,13 +22,20 @@ class Comb {
   private store = 0;
   constructor(len: number) { this.buf = new Float32Array(len); }
   reset(): void { this.buf.fill(0); this.store = 0; }
-  process(x: number, feedback: number, damp: number): number {
-    const y = this.buf[this.i];
-    this.store = y * (1 - damp) + this.store * damp;
-    if (Math.abs(this.store) < 1e-15) this.store = 0;
-    this.buf[this.i] = x + this.store * feedback;
-    if (++this.i === this.buf.length) this.i = 0;
-    return y;
+  /** Freeverb's damped comb over a block: adds each output to acc[j] (state in locals). */
+  block(x: Float64Array, acc: Float64Array, n: number, feedback: number, damp: number): void {
+    const buf = this.buf, len = buf.length;
+    let i = this.i, store = this.store;
+    for (let j = 0; j < n; j++) {
+      const y = buf[i];
+      store = y * (1 - damp) + store * damp;
+      if (Math.abs(store) < 1e-15) store = 0;
+      buf[i] = x[j] + store * feedback;
+      if (++i === len) i = 0;
+      acc[j] += y;
+    }
+    this.i = i;
+    this.store = store;
   }
 }
 
@@ -37,13 +44,22 @@ class Allpass {
   private i = 0;
   constructor(len: number) { this.buf = new Float32Array(len); }
   reset(): void { this.buf.fill(0); }
-  process(x: number): number {
-    const b = this.buf[this.i];
-    this.buf[this.i] = x + b * 0.5;
-    if (++this.i === this.buf.length) this.i = 0;
-    return b - x;
+  /** The allpass (g = 0.5) over a block, in place. */
+  block(v: Float64Array, n: number): void {
+    const buf = this.buf, len = buf.length;
+    let i = this.i;
+    for (let j = 0; j < n; j++) {
+      const b = buf[i];
+      buf[i] = v[j] + b * 0.5;
+      if (++i === len) i = 0;
+      v[j] = b - v[j];
+    }
+    this.i = i;
   }
 }
+
+/** The reverb runs in blocks of up to this many samples (each comb / allpass over a block at a time). */
+const BLOCK = 128;
 
 /** Freeverb-style stereo reverb with pre-delay. */
 export class Reverb implements Effect {
@@ -60,6 +76,10 @@ export class Reverb implements Effect {
   private damp = 0.5;
   private width = 1;
   private readonly ret: Smoother;
+  /** A block's pre-delayed input and its left / right sums. */
+  private readonly bx = new Float64Array(BLOCK);
+  private readonly bl = new Float64Array(BLOCK);
+  private readonly br = new Float64Array(BLOCK);
 
   constructor(sampleRate: number) {
     this.sr = sampleRate;
@@ -95,29 +115,41 @@ export class Reverb implements Effect {
     this.pre.fill(0);
   }
 
+  /**
+   * Reads every input of a block before writing its outputs, so in and out may be the same
+   * arrays (at the same offset). Each comb and allpass runs over the block in turn: the same
+   * sums in the same order as sample by sample.
+   */
   process(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, off: number, n: number): void {
+    for (let from = 0; from < n; from += BLOCK) this.processBlock(inL, inR, outL, outR, off, from, Math.min(BLOCK, n - from));
+  }
+
+  private processBlock(inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array, off: number, from: number, n: number): void {
     const len = this.pre.length;
     const wet1 = (this.width / 2 + 0.5) * 3;
     const wet2 = ((1 - this.width) / 2) * 3;
-    for (let i = 0; i < n; i++) {
-      this.pre[this.preWrite] = (inL[i] + inR[i]) * INPUT_GAIN;
+    const x = this.bx, l = this.bl, r = this.br;
+    for (let j = 0; j < n; j++) {
+      this.pre[this.preWrite] = (inL[from + j] + inR[from + j]) * INPUT_GAIN;
       let rp = this.preWrite - this.preDelay;
       if (rp < 0) rp += len;
-      const x = this.pre[rp];
+      x[j] = this.pre[rp];
       if (++this.preWrite === len) this.preWrite = 0;
-      let l = 0;
-      let r = 0;
-      for (let k = 0; k < 8; k++) {
-        l += this.combsL[k].process(x, this.feedback, this.damp);
-        r += this.combsR[k].process(x, this.feedback, this.damp);
-      }
-      for (let k = 0; k < 4; k++) {
-        l = this.apL[k].process(l);
-        r = this.apR[k].process(r);
-      }
+      l[j] = 0;
+      r[j] = 0;
+    }
+    for (let k = 0; k < 8; k++) {
+      this.combsL[k].block(x, l, n, this.feedback, this.damp);
+      this.combsR[k].block(x, r, n, this.feedback, this.damp);
+    }
+    for (let k = 0; k < 4; k++) {
+      this.apL[k].block(l, n);
+      this.apR[k].block(r, n);
+    }
+    for (let j = 0; j < n; j++) {
       const g = this.ret.next();
-      outL[off + i] += (l * wet1 + r * wet2) * g;
-      outR[off + i] += (r * wet1 + l * wet2) * g;
+      outL[off + from + j] += (l[j] * wet1 + r[j] * wet2) * g;
+      outR[off + from + j] += (r[j] * wet1 + l[j] * wet2) * g;
     }
   }
 }

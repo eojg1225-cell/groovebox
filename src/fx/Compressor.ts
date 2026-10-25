@@ -22,6 +22,9 @@ export class Compressor {
   private release = 0;
   private makeupDb = 0;
   private grDb = 0;
+  /** The last gain() exponent and its gain. */
+  private lastExp = NaN;
+  private lastGain = 1;
   /** Deepest gain reduction (dB, positive) since the last read (for metering). */
   reduction = 0;
 
@@ -56,7 +59,13 @@ export class Compressor {
     }
     this.grDb += (target - this.grDb) * (target > this.grDb ? this.attack : this.release);
     if (this.grDb > this.reduction) this.reduction = this.grDb;
-    return Math.pow(10, (this.makeupDb - this.grDb) / 20);
+    // dB -> gain only when it changed (at rest, e.g. under the threshold, it doesn't).
+    const e = (this.makeupDb - this.grDb) / 20;
+    if (e !== this.lastExp) {
+      this.lastExp = e;
+      this.lastGain = Math.pow(10, e);
+    }
+    return this.lastGain;
   }
 
   /** In place over [off, off + n). */
