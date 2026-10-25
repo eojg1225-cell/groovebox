@@ -80,10 +80,44 @@ function wrap(p: number): number {
   return p - Math.floor(p);
 }
 
+/** 0 sine, 1 triangle, 2 saw, 3 square (band-limited saw / square). */
+function wave(w: number, phase: number, dt: number): number {
+  switch (w) {
+    case 0: return Math.sin(2 * Math.PI * phase);
+    case 1: return 4 * Math.abs(phase - 0.5) - 1;
+    case 2: return 2 * phase - 1 - polyBlep(phase, dt);
+    default: {
+      let p2 = phase + 0.5; if (p2 >= 1) p2 -= 1;
+      return (phase < 0.5 ? 1 : -1) + polyBlep(phase, dt) - polyBlep(p2, dt);
+    }
+  }
+}
+
+/** A block of SHAPE's wave: out[j] = shaped(phase[j], dt[j] x scale). */
+function waves(w: number, f: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
+  if (f > 0) {
+    for (let j = 0; j < n; j++) {
+      const d = dt[j] * scale;
+      const a = wave(w, phase[j], d);
+      out[j] = a + (wave(w + 1, phase[j], d) - a) * f;
+    }
+  } else {
+    for (let j = 0; j < n; j++) out[j] = wave(w, phase[j], dt[j] * scale);
+  }
+}
+
+/** SHAPE's continuous wave: wave w crossfaded by f (0..1) towards wave w + 1. */
+function shaped(w: number, f: number, phase: number, dt: number): number {
+  const a = wave(w, phase, dt);
+  return f > 0 ? a + (wave(w + 1, phase, dt) - a) * f : a;
+}
+
 /** UNISON copies relative to OSC 1 (x the spread), and their start phases. */
 const UNISON_SPREAD = [-1, -0.4, 0.4, 1];
 const UNISON_PHASE = [0.13, 0.61, 0.37, 0.89];
 const FILTER_UPDATE = 16;
+/** Voices render in blocks of up to this many samples (the engine's chunk). */
+const BLOCK = 64;
 
 const SYNTH_PARAMS: readonly ParamSpec[] = [
   TIMBRE,
@@ -283,6 +317,24 @@ export class Synth implements Instrument {
   private cFeedback = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
+  /**
+   * A voice's block between the stages: OSC 1's phase step, the phases of OSC 1 / 2, the SUB,
+   * the FM envelope; carrier phases / steps and carrier 1 (algos 1 / 2), the UNISON copies;
+   * OSC 1 / OSC 2 out.
+   */
+  private readonly bDt = new Float64Array(BLOCK);
+  private readonly bP1 = new Float64Array(BLOCK);
+  private readonly bP2 = new Float64Array(BLOCK);
+  private readonly bSub = new Float64Array(BLOCK);
+  private readonly bEnv = new Float64Array(BLOCK);
+  private readonly bPa = new Float64Array(BLOCK);
+  private readonly bDa = new Float64Array(BLOCK);
+  private readonly bPb = new Float64Array(BLOCK);
+  private readonly bDb = new Float64Array(BLOCK);
+  private readonly bC1 = new Float64Array(BLOCK);
+  private readonly bU = [new Float64Array(BLOCK), new Float64Array(BLOCK), new Float64Array(BLOCK), new Float64Array(BLOCK)];
+  private readonly bO1 = new Float64Array(BLOCK);
+  private readonly bO2 = new Float64Array(BLOCK);
   private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
   private fmDecayMul = 0; private fmAttackInc = 0;
@@ -566,9 +618,14 @@ export class Synth implements Instrument {
     }
   }
 
+  /**
+   * The voices, in blocks of up to BLOCK samples, in two stages per voice: its oscillators (one
+   * loop per algorithm, then UNISON) into the block buffers, then its envelopes, filter and
+   * level into the output. Small loops let V8 inline the wave code (one call per sample through
+   * a big loop cost a call and boxed numbers each time). Parameters only change between
+   * render() calls (the engine's chunks), so SHAPE's wave pair is chosen once per call.
+   */
   private renderVoices(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
-    const sr = this.sr;
-    const velK = this.velK;
     const det = Math.pow(2, (this.detune * 0.35) / 12); // up to ~35 cents apart
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const count = this.voiceCount;
@@ -579,185 +636,239 @@ export class Synth implements Instrument {
       const cents = 12 + 20 * this.detune;
       for (let k = 0; k < 4; k++) this.uRatio[k] = Math.pow(2, (UNISON_SPREAD[k] * cents) / 1200);
     }
-    const uniGain = 1 / (1 + uni);
     const cfbAmt = (this.cFeedback * MAX_CARRIER_FEEDBACK * (1 - 0.8 * Math.min(1, Math.max(0, this.shape - 1)))) / (2 * Math.PI);
-    for (let vi = 0; vi < count; vi++) {
-      const v = this.voices[vi];
-      if (!sounding(v)) continue;
-      for (let i = start; i < end; i++) {
-        if (v.freq !== v.targetFreq) {
-          v.freq += (v.targetFreq - v.freq) * v.glide;
-          if (Math.abs(v.targetFreq - v.freq) < 1e-3) v.freq = v.targetFreq;
+    // SHAPE: the two neighbouring waves and the blend between them.
+    const w = Math.min(2, Math.floor(this.shape));
+    const wf = this.shape - w;
+    for (let from = start; from < end; from += BLOCK) {
+      const to = Math.min(end, from + BLOCK);
+      for (let vi = 0; vi < count; vi++) {
+        const v = this.voices[vi];
+        if (!sounding(v)) continue;
+        const n = to - from;
+        this.phases(v, n, det);
+        if (this.algo === 1) this.oscCarriers(v, n, det, cfbAmt, w, wf);
+        else if (this.algo === 2) this.oscStacks(v, n, det, cfbAmt, w, wf);
+        else this.oscPair(v, n, det, w, wf);
+        if (uni > 0) this.oscUnison(v, n, w, wf);
+        this.voiceOut(v, outL, outR, from, to, fmod, driveNorm);
+        if (!sounding(v)) {
+          v.amp.fill(0);
+          v.filter.reset();
         }
-        const dt1 = (v.freq * this.pitchMod) / sr;
-        const dt2 = dt1 * det;
-        v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;
-        v.p2 += dt2; if (v.p2 >= 1) v.p2 -= 1;
-        v.p3 += dt1 * 0.5; if (v.p3 >= 1) v.p3 -= 1;
-        let o1: number;
-        let o2: number;
-        if (this.algo === 1) {
-          // 3 CARRIER: one sine modulator with self-feedback (its last two outputs averaged,
-          // as on the DX7) phase-modulates three carriers at their own ratios; the carriers
-          // play SHAPE's wave, so with no modulation this is a plain lead. Carrier 2 is
-          // detuned by DETUNE. CARRIERS sets carriers 2 / 3 against carrier 1 (at 0 one clear
-          // note through both envelopes). OSC 1 = carriers 1 + 3, OSC 2 = carrier 2.
-          v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
-          const fbIn = (v.fb1 + v.fb2) * 0.5 * this.feedback * MAX_FEEDBACK;
-          const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
-          v.fb2 = v.fb1;
-          v.fb1 = m;
-          const env = fmEnvGain(v.fmenv) / (2 * Math.PI);
-          const pm = m * this.fmIndex * env;
-          // Carriers 2 / 3 at FM LVL2.
-          const pm2 = m * this.fm2Index * env;
-          const d5 = dt1 * this.ratio2 * det;
-          const d6 = dt1 * this.ratio3;
-          v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
-          v.p6 += d6; if (v.p6 >= 1) v.p6 -= 1;
-          const c = this.carriers;
-          // Carrier 1 into itself (its last two outputs averaged), scaled down on bright waves.
-          const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
-          const c1 = this.osc(wrap(v.p1 + pm + cfb), dt1);
-          v.cf2 = v.cf1;
-          v.cf1 = c1;
-          o1 = c1 * (1 - 0.4 * c) + this.osc(wrap(v.p6 + pm2), d6) * 0.6 * c;
-          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + pm2), d5) * c;
-        } else if (this.algo === 2) {
-          // 2 STACKS: two modulator -> carrier pairs. Stack 1 = carrier 1 (SHAPE's wave, its
-          // own CAR FB) under a sine at FM RATIO with self-feedback; stack 2 = a carrier at
-          // RATIO 2 (detuned by DETUNE) under a plain sine at RATIO 3. CARRIERS = stack 2
-          // against stack 1. OSC 1 = stack 1, OSC 2 = the blend.
-          v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
-          const fbIn = (v.fb1 + v.fb2) * 0.5 * this.feedback * MAX_FEEDBACK;
-          const m1 = Math.sin(2 * Math.PI * v.p4 + fbIn);
-          v.fb2 = v.fb1;
-          v.fb1 = m1;
-          const d5 = dt1 * this.ratio2 * det;
-          v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
-          v.p6 += dt1 * this.ratio3; if (v.p6 >= 1) v.p6 -= 1;
-          const m2 = Math.sin(2 * Math.PI * v.p6);
-          const env = fmEnvGain(v.fmenv) / (2 * Math.PI);
-          const idx = this.fmIndex * env;
-          const idx2 = this.fm2Index * env; // stack 2 at FM LVL2
-          const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
-          const c1 = this.osc(wrap(v.p1 + m1 * idx + cfb), dt1);
-          v.cf2 = v.cf1;
-          v.cf1 = c1;
-          const c = this.carriers;
-          o1 = c1;
-          o2 = c1 * (1 - c) + this.osc(wrap(v.p5 + m2 * idx2), d5) * c;
-        } else {
-          o1 = this.osc(v.p1, dt1);
-          o2 = this.osc(v.p2, dt2);
-        }
-        if (this.fmEff > 0 && this.algo === 0) {
-          // FM pair: the index rises with FM and with the FM envelope (a struck clang).
-          v.p4 += dt1 * this.fmRatio; if (v.p4 >= 1) v.p4 -= 1;
-          const fm = this.fmEff;
-          const index = fm * (0.5 + 4.5 * v.fmenv);
-          let carrier = v.p1;
-          if (this.cRatio !== 1) {
-            v.p5 += dt1 * this.cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);
-            carrier = v.p5;
-          }
-          const fmOut = Math.sin(2 * Math.PI * carrier + index * Math.sin(2 * Math.PI * v.p4));
-          o1 = o1 * (1 - fm) + fmOut * fm;
-          o2 = o2 * (1 - fm) + fmOut * fm;
-        }
-        if (uni > 0) {
-          // UNISON: two detuned copies join each element.
-          const u = v.u;
-          let c1 = 0, c2 = 0;
-          for (let k = 0; k < 4; k++) {
-            const d = dt1 * this.uRatio[k];
-            u[k] += d; if (u[k] >= 1) u[k] -= 1;
-            if (k & 1) c2 += this.osc(u[k], d); else c1 += this.osc(u[k], d);
-          }
-          o1 = (o1 + c1 * uni * 0.5) * uniGain * 1.4;
-          o2 = (o2 + c2 * uni * 0.5) * uniGain * 1.4;
-        }
-        o1 += Math.sin(2 * Math.PI * v.p3) * this.sub * 2; // x2: the element mix halves it
-
-        // Each element through its own envelope (its own ADSR).
-        let mix = 0;
-        for (let k = 0; k < 2; k++) {
-          let a = v.amp[k];
-          const sus = v.hold ? Math.max(this.sustain[k], SLIDE_SUSTAIN) : this.sustain[k];
-          switch (v.stage[k]) {
-            case STAGE_ATTACK:
-              a += this.attackInc[k];
-              if (a >= 1) { a = 1; v.stage[k] = STAGE_DECAY; }
-              break;
-            case STAGE_DECAY:
-              a = sus + (a - sus) * this.decayMul[k];
-              if (a - sus < 1e-4) v.stage[k] = STAGE_SUSTAIN;
-              break;
-            case STAGE_SUSTAIN:
-              a = sus;
-              break;
-            case STAGE_RELEASE:
-              a *= this.releaseMul[k];
-              if (a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
-              break;
-          }
-          if (v.stage[k] === STAGE_SUSTAIN && sus < 1e-5 && a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
-          v.amp[k] = a;
-          mix += (k === 0 ? o1 : o2) * a;
-        }
-
-        // Filter envelope: attack up, then decay.
-        if (v.fattacking) {
-          v.fenv += this.fattackInc;
-          if (v.fenv >= 1) { v.fenv = 1; v.fattacking = false; }
-        } else {
-          v.fenv *= this.fdecayMul;
-        }
-        // FM envelope: the same shape, its own times.
-        if (v.fmattacking) {
-          v.fmenv += this.fmAttackInc;
-          if (v.fmenv >= 1) { v.fmenv = 1; v.fmattacking = false; }
-        } else {
-          v.fmenv *= this.fmDecayMul;
-        }
-        if (v.counter-- <= 0) {
-          v.counter = FILTER_UPDATE;
-          v.filter.setup(this.cutoff * fmod * Math.pow(2, this.fenvAmt * 6 * v.fenv), this.reso, sr);
-        }
-        v.filter.process(mix * 0.5);
-
-        v.vel += (v.velocity - v.vel) * velK;
-        let out = v.filter.low * v.vel * this.level;
-        if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * this.driveComp;
-        outL[i] += out;
-        outR[i] += out;
-      }
-      if (!sounding(v)) {
-        v.amp.fill(0);
-        v.filter.reset();
       }
     }
   }
 
-  /** Continuous shape: crossfade between the two neighbouring waves. */
-  private osc(phase: number, dt: number): number {
-    const s = this.shape;
-    const i = Math.min(2, Math.floor(s));
-    const f = s - i;
-    const a = this.wave(i, phase, dt);
-    return f > 0 ? a + (this.wave(i + 1, phase, dt) - a) * f : a;
+  /**
+   * A block's pitch glide and the phases every algorithm uses (OSC 1, OSC 2 detuned, the SUB an
+   * octave down, its wave), and the FM envelope as each sample reads it (then its step).
+   */
+  private phases(v: Voice, n: number, det: number): void {
+    const sr = this.sr, pitchMod = this.pitchMod, sub = this.sub;
+    const fmAttackInc = this.fmAttackInc, fmDecayMul = this.fmDecayMul;
+    for (let j = 0; j < n; j++) {
+      if (v.freq !== v.targetFreq) {
+        v.freq += (v.targetFreq - v.freq) * v.glide;
+        if (Math.abs(v.targetFreq - v.freq) < 1e-3) v.freq = v.targetFreq;
+      }
+      const dt1 = (v.freq * pitchMod) / sr;
+      v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;
+      v.p2 += dt1 * det; if (v.p2 >= 1) v.p2 -= 1;
+      v.p3 += dt1 * 0.5; if (v.p3 >= 1) v.p3 -= 1;
+      this.bDt[j] = dt1;
+      this.bP1[j] = v.p1;
+      this.bP2[j] = v.p2;
+      this.bSub[j] = Math.sin(2 * Math.PI * v.p3) * sub * 2; // x2: the element mix halves it
+      this.bEnv[j] = v.fmenv;
+      // FM envelope: the filter envelope's shape, its own times.
+      if (v.fmattacking) {
+        v.fmenv += fmAttackInc;
+        if (v.fmenv >= 1) { v.fmenv = 1; v.fmattacking = false; }
+      } else {
+        v.fmenv *= fmDecayMul;
+      }
+    }
   }
 
-  /** 0 sine, 1 triangle, 2 saw, 3 square (band-limited saw/square). */
-  private wave(w: number, phase: number, dt: number): number {
-    switch (w) {
-      case 0: return Math.sin(2 * Math.PI * phase);
-      case 1: return 4 * Math.abs(phase - 0.5) - 1;
-      case 2: return 2 * phase - 1 - polyBlep(phase, dt);
-      default: {
-        let p2 = phase + 0.5; if (p2 >= 1) p2 -= 1;
-        return (phase < 0.5 ? 1 : -1) + polyBlep(phase, dt) - polyBlep(p2, dt);
+  /** FM PAIR (algo 0): SHAPE's waves, crossfaded into a sine pair by FM (BASS, PLUCK). */
+  private oscPair(v: Voice, n: number, det: number, w: number, wf: number): void {
+    const o1 = this.bO1, o2 = this.bO2;
+    waves(w, wf, this.bP1, this.bDt, 1, o1, n);
+    waves(w, wf, this.bP2, this.bDt, det, o2, n);
+    const fm = this.fmEff;
+    if (fm <= 0) return;
+    // The index rises with FM and with the FM envelope (a struck clang).
+    const fmRatio = this.fmRatio, cRatio = this.cRatio;
+    for (let j = 0; j < n; j++) {
+      const dt1 = this.bDt[j];
+      v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
+      const index = fm * (0.5 + 4.5 * this.bEnv[j]);
+      let carrier = this.bP1[j];
+      if (cRatio !== 1) {
+        v.p5 += dt1 * cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);
+        carrier = v.p5;
       }
+      const fmOut = Math.sin(2 * Math.PI * carrier + index * Math.sin(2 * Math.PI * v.p4));
+      o1[j] = o1[j] * (1 - fm) + fmOut * fm;
+      o2[j] = o2[j] * (1 - fm) + fmOut * fm;
+    }
+  }
+
+  /**
+   * 3 CARRIER (algo 1, LEAD): one sine modulator with self-feedback (its last two outputs
+   * averaged, as on the DX7) phase-modulates three carriers at their own ratios; the carriers
+   * play SHAPE's wave, so with no modulation this is a plain lead. Carrier 2 is detuned by
+   * DETUNE. CARRIERS sets carriers 2 / 3 against carrier 1 (at 0 one clear note through both
+   * envelopes). OSC 1 = carriers 1 + 3, OSC 2 = carrier 2. Carrier 1 feeds back into itself,
+   * so it goes sample by sample; carriers 2 / 3 as a block once their phases are known.
+   */
+  private oscCarriers(v: Voice, n: number, det: number, cfbAmt: number, w: number, wf: number): void {
+    const fmRatio = this.fmRatio, feedback = this.feedback;
+    const fmIndex = this.fmIndex, fm2Index = this.fm2Index, ratio2 = this.ratio2, ratio3 = this.ratio3, c = this.carriers;
+    for (let j = 0; j < n; j++) {
+      const dt1 = this.bDt[j];
+      v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
+      const fbIn = (v.fb1 + v.fb2) * 0.5 * feedback * MAX_FEEDBACK;
+      const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
+      v.fb2 = v.fb1;
+      v.fb1 = m;
+      const env = fmEnvGain(this.bEnv[j]) / (2 * Math.PI);
+      const pm = m * fmIndex * env;
+      // Carriers 2 / 3 at FM LVL2.
+      const pm2 = m * fm2Index * env;
+      const d5 = dt1 * ratio2 * det;
+      const d6 = dt1 * ratio3;
+      v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
+      v.p6 += d6; if (v.p6 >= 1) v.p6 -= 1;
+      this.bPa[j] = wrap(v.p6 + pm2); this.bDa[j] = d6;
+      this.bPb[j] = wrap(v.p5 + pm2); this.bDb[j] = d5;
+      // Carrier 1 into itself (its last two outputs averaged), scaled down on bright waves.
+      const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
+      const c1 = shaped(w, wf, wrap(this.bP1[j] + pm + cfb), dt1);
+      v.cf2 = v.cf1;
+      v.cf1 = c1;
+      this.bC1[j] = c1;
+    }
+    const c3 = this.bO1, c2 = this.bO2;
+    waves(w, wf, this.bPa, this.bDa, 1, c3, n);
+    waves(w, wf, this.bPb, this.bDb, 1, c2, n);
+    for (let j = 0; j < n; j++) {
+      const c1 = this.bC1[j];
+      c3[j] = c1 * (1 - 0.4 * c) + c3[j] * 0.6 * c;
+      c2[j] = c1 * (1 - c) + c2[j] * c;
+    }
+  }
+
+  /**
+   * 2 STACKS (algo 2, PAD): two modulator -> carrier pairs. Stack 1 = carrier 1 (SHAPE's wave,
+   * its own CAR FB) under a sine at FM RATIO with self-feedback; stack 2 = a carrier at RATIO 2
+   * (detuned by DETUNE) under a plain sine at RATIO 3. CARRIERS = stack 2 against stack 1.
+   * OSC 1 = stack 1, OSC 2 = the blend. Carrier 1 sample by sample (it feeds back), carrier 2 as a block.
+   */
+  private oscStacks(v: Voice, n: number, det: number, cfbAmt: number, w: number, wf: number): void {
+    const fmRatio = this.fmRatio, feedback = this.feedback;
+    const fmIndex = this.fmIndex, fm2Index = this.fm2Index, ratio2 = this.ratio2, ratio3 = this.ratio3, c = this.carriers;
+    for (let j = 0; j < n; j++) {
+      const dt1 = this.bDt[j];
+      v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
+      const fbIn = (v.fb1 + v.fb2) * 0.5 * feedback * MAX_FEEDBACK;
+      const m1 = Math.sin(2 * Math.PI * v.p4 + fbIn);
+      v.fb2 = v.fb1;
+      v.fb1 = m1;
+      const d5 = dt1 * ratio2 * det;
+      v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
+      v.p6 += dt1 * ratio3; if (v.p6 >= 1) v.p6 -= 1;
+      const m2 = Math.sin(2 * Math.PI * v.p6);
+      const env = fmEnvGain(this.bEnv[j]) / (2 * Math.PI);
+      const idx = fmIndex * env;
+      const idx2 = fm2Index * env; // stack 2 at FM LVL2
+      this.bPb[j] = wrap(v.p5 + m2 * idx2); this.bDb[j] = d5;
+      const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
+      const c1 = shaped(w, wf, wrap(this.bP1[j] + m1 * idx + cfb), dt1);
+      v.cf2 = v.cf1;
+      v.cf1 = c1;
+      this.bO1[j] = c1;
+    }
+    const o1 = this.bO1, o2 = this.bO2;
+    waves(w, wf, this.bPb, this.bDb, 1, o2, n);
+    for (let j = 0; j < n; j++) o2[j] = o1[j] * (1 - c) + o2[j] * c;
+  }
+
+  /** UNISON: two detuned copies join each element (copies 1 / 3 on OSC 1, 2 / 4 on OSC 2). */
+  private oscUnison(v: Voice, n: number, w: number, wf: number): void {
+    const uni = this.unison;
+    const uniGain = 1 / (1 + uni);
+    const u = v.u, ratio = this.uRatio, ph = this.bPa;
+    const copies = this.bU;
+    for (let k = 0; k < 4; k++) {
+      const r = ratio[k];
+      let p = u[k];
+      for (let j = 0; j < n; j++) {
+        p += this.bDt[j] * r; if (p >= 1) p -= 1;
+        ph[j] = p;
+      }
+      u[k] = p;
+      waves(w, wf, ph, this.bDt, r, copies[k], n);
+    }
+    for (let j = 0; j < n; j++) {
+      const c1 = copies[0][j] + copies[2][j], c2 = copies[1][j] + copies[3][j];
+      this.bO1[j] = (this.bO1[j] + c1 * uni * 0.5) * uniGain * 1.4;
+      this.bO2[j] = (this.bO2[j] + c2 * uni * 0.5) * uniGain * 1.4;
+    }
+  }
+
+  /** A voice's block through its envelopes, filter, velocity, level and DRIVE into the output. */
+  private voiceOut(v: Voice, outL: Float32Array, outR: Float32Array, from: number, to: number, fmod: number, driveNorm: number): void {
+    const sr = this.sr, velK = this.velK, level = this.level, drive = this.drive, driveComp = this.driveComp;
+    for (let i = from, j = 0; i < to; i++, j++) {
+      const o1 = this.bO1[j] + this.bSub[j];
+      const o2 = this.bO2[j];
+      // Each element through its own envelope (its own ADSR).
+      let mix = 0;
+      for (let k = 0; k < 2; k++) {
+        let a = v.amp[k];
+        const sus = v.hold ? Math.max(this.sustain[k], SLIDE_SUSTAIN) : this.sustain[k];
+        switch (v.stage[k]) {
+          case STAGE_ATTACK:
+            a += this.attackInc[k];
+            if (a >= 1) { a = 1; v.stage[k] = STAGE_DECAY; }
+            break;
+          case STAGE_DECAY:
+            a = sus + (a - sus) * this.decayMul[k];
+            if (a - sus < 1e-4) v.stage[k] = STAGE_SUSTAIN;
+            break;
+          case STAGE_SUSTAIN:
+            a = sus;
+            break;
+          case STAGE_RELEASE:
+            a *= this.releaseMul[k];
+            if (a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
+            break;
+        }
+        if (v.stage[k] === STAGE_SUSTAIN && sus < 1e-5 && a < 1e-5) { a = 0; v.stage[k] = STAGE_OFF; }
+        v.amp[k] = a;
+        mix += (k === 0 ? o1 : o2) * a;
+      }
+
+      // Filter envelope: attack up, then decay.
+      if (v.fattacking) {
+        v.fenv += this.fattackInc;
+        if (v.fenv >= 1) { v.fenv = 1; v.fattacking = false; }
+      } else {
+        v.fenv *= this.fdecayMul;
+      }
+      if (v.counter-- <= 0) {
+        v.counter = FILTER_UPDATE;
+        v.filter.setup(this.cutoff * fmod * Math.pow(2, this.fenvAmt * 6 * v.fenv), this.reso, sr);
+      }
+      v.filter.process(mix * 0.5);
+
+      v.vel += (v.velocity - v.vel) * velK;
+      let out = v.filter.low * v.vel * level;
+      if (drive > 1) out = Math.tanh(out * drive) * driveNorm * driveComp;
+      outL[i] += out;
+      outR[i] += out;
     }
   }
 
