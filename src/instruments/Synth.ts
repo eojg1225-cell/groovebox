@@ -1,6 +1,7 @@
 import type { Instrument, Preset } from './Instrument';
 import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
 import { decayMul, IdleGate, midiToHz, polyBlep, Svf } from './dsp';
+import { exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { driveCompGain } from './driveComp';
@@ -83,7 +84,7 @@ function wrap(p: number): number {
 /** 0 sine, 1 triangle, 2 saw, 3 square (band-limited saw / square). */
 function wave(w: number, phase: number, dt: number): number {
   switch (w) {
-    case 0: return Math.sin(2 * Math.PI * phase);
+    case 0: return sinTurn(phase);
     case 1: return 4 * Math.abs(phase - 0.5) - 1;
     case 2: return 2 * phase - 1 - polyBlep(phase, dt);
     default: {
@@ -679,7 +680,7 @@ export class Synth implements Instrument {
       this.bDt[j] = dt1;
       this.bP1[j] = v.p1;
       this.bP2[j] = v.p2;
-      this.bSub[j] = Math.sin(2 * Math.PI * v.p3) * sub * 2; // x2: the element mix halves it
+      this.bSub[j] = sinTurn(v.p3) * sub * 2; // x2: the element mix halves it
       this.bEnv[j] = v.fmenv;
       // FM envelope: the filter envelope's shape, its own times.
       if (v.fmattacking) {
@@ -709,7 +710,7 @@ export class Synth implements Instrument {
         v.p5 += dt1 * cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);
         carrier = v.p5;
       }
-      const fmOut = Math.sin(2 * Math.PI * carrier + index * Math.sin(2 * Math.PI * v.p4));
+      const fmOut = sinRad(2 * Math.PI * carrier + index * sinTurn(v.p4));
       o1[j] = o1[j] * (1 - fm) + fmOut * fm;
       o2[j] = o2[j] * (1 - fm) + fmOut * fm;
     }
@@ -730,7 +731,7 @@ export class Synth implements Instrument {
       const dt1 = this.bDt[j];
       v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
       const fbIn = (v.fb1 + v.fb2) * 0.5 * feedback * MAX_FEEDBACK;
-      const m = Math.sin(2 * Math.PI * v.p4 + fbIn);
+      const m = sinRad(2 * Math.PI * v.p4 + fbIn);
       v.fb2 = v.fb1;
       v.fb1 = m;
       const env = fmEnvGain(this.bEnv[j]) / (2 * Math.PI);
@@ -773,13 +774,13 @@ export class Synth implements Instrument {
       const dt1 = this.bDt[j];
       v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
       const fbIn = (v.fb1 + v.fb2) * 0.5 * feedback * MAX_FEEDBACK;
-      const m1 = Math.sin(2 * Math.PI * v.p4 + fbIn);
+      const m1 = sinRad(2 * Math.PI * v.p4 + fbIn);
       v.fb2 = v.fb1;
       v.fb1 = m1;
       const d5 = dt1 * ratio2 * det;
       v.p5 += d5; if (v.p5 >= 1) v.p5 -= 1;
       v.p6 += dt1 * ratio3; if (v.p6 >= 1) v.p6 -= 1;
-      const m2 = Math.sin(2 * Math.PI * v.p6);
+      const m2 = sinTurn(v.p6);
       const env = fmEnvGain(this.bEnv[j]) / (2 * Math.PI);
       const idx = fmIndex * env;
       const idx2 = fm2Index * env; // stack 2 at FM LVL2
@@ -860,13 +861,13 @@ export class Synth implements Instrument {
       }
       if (v.counter-- <= 0) {
         v.counter = FILTER_UPDATE;
-        v.filter.setup(this.cutoff * fmod * Math.pow(2, this.fenvAmt * 6 * v.fenv), this.reso, sr);
+        v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv), this.reso, sr);
       }
       v.filter.process(mix * 0.5);
 
       v.vel += (v.velocity - v.vel) * velK;
       let out = v.filter.low * v.vel * level;
-      if (drive > 1) out = Math.tanh(out * drive) * driveNorm * driveComp;
+      if (drive > 1) out = tanh(out * drive) * driveNorm * driveComp;
       outL[i] += out;
       outR[i] += out;
     }

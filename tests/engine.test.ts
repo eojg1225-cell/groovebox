@@ -3633,3 +3633,22 @@ describe('skipping silent work', () => {
     expect(stats(l.subarray(Math.round(SR * 0.9), Math.round(SR * 1.5))).peak).toBeGreaterThan(1e-4);
   });
 });
+
+describe('fast maths (the sound lab B engine)', () => {
+  it('stays within its stated error of the exact maths', async () => {
+    const exact = await import('../src/instruments/math');
+    const fast = await import('../src/instruments/mathFast');
+    let sin = 0, tanhErr = 0, exp = 0;
+    for (let i = 0; i <= 200000; i++) {
+      const t = -3 + (i / 200000) * 7.37;
+      sin = Math.max(sin, Math.abs(fast.sinTurn(t) - exact.sinTurn(t)), Math.abs(fast.sinRad(t * 5) - exact.sinRad(t * 5)), Math.abs(fast.cosTurn(t) - exact.cosTurn(t)));
+      const x = -12 + (i / 200000) * 24;
+      tanhErr = Math.max(tanhErr, Math.abs(fast.tanh(x) - exact.tanh(x)));
+      const e = -20 + (i / 200000) * 40;
+      exp = Math.max(exp, Math.abs(fast.exp2(e) / exact.exp2(e) - 1), Math.abs(fast.pow10(e / 4) / exact.pow10(e / 4) - 1));
+    }
+    expect(sin).toBeLessThan(3.1e-7);
+    expect(tanhErr).toBeLessThan(6e-7);
+    expect(exp).toBeLessThan(2e-7);
+  });
+});

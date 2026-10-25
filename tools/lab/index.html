@@ -10,7 +10,7 @@
 <main class="wrap">
   <header>
     <h1>GrooveAccess Sound Lab</h1>
-    <p>One track's sound driven only by TIMBRE and INT, on the real engine. <b>A</b> is the app as it is; <b>B</b>, <b>C</b> … are candidates. Switch between them at the same knob positions (keys A–E), or let a knob sweep on its own.</p>
+    <p>One track's sound driven only by TIMBRE and INT, on the real engine. <b>A</b> is the app as it is; <b>B</b>, <b>C</b> … are candidates. Switch between them at the same knob positions (keys A–E), or let a knob sweep on its own. <b>Engine maths</b> plays the same notes through the exact engine (the app) or the one with fast maths, or the difference between them made audible (M switches).</p>
   </header>
 
   <section class="deck" aria-label="Lab">
@@ -20,9 +20,26 @@
       <div class="seg" role="radiogroup" aria-label="What plays">
         <label for="src-project"><input type="radio" name="src" id="src-project" value="project" checked> Your project</label>
         <label for="src-groove"><input type="radio" name="src" id="src-groove" value="groove"> Built-in groove</label>
+        <label for="src-stress"><input type="radio" name="src" id="src-stress" value="stress"> Maths stress test</label>
       </div>
       <label class="check" for="solo"><input type="checkbox" id="solo"> Solo</label>
       <span class="meta" id="meta"></span>
+    </div>
+
+    <div class="maths" aria-label="Maths A / B">
+      <span class="slabel">Engine maths</span>
+      <div class="seg" role="radiogroup" aria-label="Engine maths">
+        <label for="mx-a"><input type="radio" name="maths" id="mx-a" value="0" checked> A exact</label>
+        <label for="mx-b"><input type="radio" name="maths" id="mx-b" value="1"> B fast</label>
+        <label for="mx-d"><input type="radio" name="maths" id="mx-d" value="2"> A − B</label>
+      </div>
+      <label class="check" for="diffdb">difference
+        <select id="diffdb">
+          <option value="0">as is</option><option value="40">+40 dB</option><option value="60" selected>+60 dB</option><option value="80">+80 dB</option>
+        </select></label>
+      <button id="measure" type="button" class="play">Measure</button>
+      <span class="meta" id="loads"></span>
+      <p class="meta mnote" id="mnote"></p>
     </div>
 
     <div class="kinds" id="kinds" role="radiogroup" aria-label="Track type"></div>

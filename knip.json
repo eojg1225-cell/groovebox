@@ -5,7 +5,8 @@
     "src/worklet/processor.ts",
     "tools/*/main.ts",
     "tools/*/worklet.ts",
-    "tools/lab/level.test.ts"
+    "tools/lab/level.test.ts",
+    "src/instruments/mathFast.ts"
   ],
   "project": [
     "src/**/*.ts",

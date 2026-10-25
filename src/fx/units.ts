@@ -4,6 +4,7 @@
  * picks the unit's mode by name; A / B are its two controls. Allocation-free after
  * construction: every buffer is sized for the longest mode the unit will be asked for.
  */
+import { exp2, sinRad, sinTurn, tanh } from '../instruments/math';
 import { Svf } from '../instruments/dsp';
 import { Smoother } from '../engine/smoother';
 import { DELAY_MODES, DRIVE_MODES, FX_DELAY_TIMES, MOD_MODES, VERB_MODES } from './buses';
@@ -106,18 +107,18 @@ export class ModFx implements FxUnit {
         case 0: { // CHORUS
           this.bufL[this.write] = inL[i];
           this.bufR[this.write] = inR[i];
-          yl = tap(this.bufL, this.write, (12 + 7 * d * (0.5 + 0.5 * Math.sin(TAU * p))) * ms);
-          yr = tap(this.bufR, this.write, (12 + 7 * d * (0.5 + 0.5 * Math.sin(TAU * (p + 0.4)))) * ms);
+          yl = tap(this.bufL, this.write, (12 + 7 * d * (0.5 + 0.5 * sinTurn(p))) * ms);
+          yr = tap(this.bufR, this.write, (12 + 7 * d * (0.5 + 0.5 * sinTurn(p + 0.4))) * ms);
           break;
         }
         case 1: { // ENSEMBLE: three voices a side, 120 degrees apart, plus a fast shimmer
           this.bufL[this.write] = inL[i];
           this.bufR[this.write] = inR[i];
-          const vib = 0.35 * d * Math.sin(TAU * p * 7) * ms;
+          const vib = 0.35 * d * sinRad(TAU * p * 7) * ms;
           for (let k = 0; k < 3; k++) {
             const o = k / 3;
-            yl += tap(this.bufL, this.write, (9 + 3 * d * (0.5 + 0.5 * Math.sin(TAU * (p + o)))) * ms + vib);
-            yr += tap(this.bufR, this.write, (9 + 3 * d * (0.5 + 0.5 * Math.sin(TAU * (p + o + 1 / 6)))) * ms - vib);
+            yl += tap(this.bufL, this.write, (9 + 3 * d * (0.5 + 0.5 * sinTurn(p + o))) * ms + vib);
+            yr += tap(this.bufR, this.write, (9 + 3 * d * (0.5 + 0.5 * sinTurn(p + o + 1 / 6))) * ms - vib);
           }
           yl *= 0.47;
           yr *= 0.47;
@@ -126,8 +127,8 @@ export class ModFx implements FxUnit {
         case 2: { // FLANGER: 0.25 - 5 ms, fed back
           this.bufL[this.write] = inL[i] + this.fbL * 0.65;
           this.bufR[this.write] = inR[i] + this.fbR * 0.65;
-          yl = tap(this.bufL, this.write, (0.25 + 4.75 * d * (0.5 + 0.5 * Math.sin(TAU * p))) * ms);
-          yr = tap(this.bufR, this.write, (0.25 + 4.75 * d * (0.5 + 0.5 * Math.sin(TAU * (p + 0.25)))) * ms);
+          yl = tap(this.bufL, this.write, (0.25 + 4.75 * d * (0.5 + 0.5 * sinTurn(p))) * ms);
+          yr = tap(this.bufR, this.write, (0.25 + 4.75 * d * (0.5 + 0.5 * sinTurn(p + 0.25))) * ms);
           this.fbL = flush(yl);
           this.fbR = flush(yr);
           break;
@@ -136,8 +137,8 @@ export class ModFx implements FxUnit {
           if (this.counter-- <= 0) {
             this.counter = MOD_UPDATE;
             const coef = (hz: number) => { const tn = Math.tan((Math.PI * Math.min(hz, this.sr * 0.45)) / this.sr); return (tn - 1) / (tn + 1); };
-            this.aL = coef(150 * Math.pow(2, d * 5 * (0.5 + 0.5 * Math.sin(TAU * p))));
-            this.aR = coef(150 * Math.pow(2, d * 5 * (0.5 + 0.5 * Math.sin(TAU * (p + 0.25)))));
+            this.aL = coef(150 * exp2(d * 5 * (0.5 + 0.5 * sinTurn(p))));
+            this.aR = coef(150 * exp2(d * 5 * (0.5 + 0.5 * sinTurn(p + 0.25))));
           }
           let xl = inL[i] + this.fbL * 0.5;
           let xr = inR[i] + this.fbR * 0.5;
@@ -291,7 +292,7 @@ export class DelayFx implements FxUnit {
       this.lfo += m === 4 ? lfoInc : m === 2 || m === 3 ? 0.6 / sr : 0;
       if (this.lfo >= 1) this.lfo -= 1;
       let d = this.time.next();
-      if (wow > 0) d *= 1 + wow * Math.sin(TAU * this.lfo) + wow * 0.2 * Math.sin(TAU * this.lfo * 11.7);
+      if (wow > 0) d *= 1 + wow * sinTurn(this.lfo) + wow * 0.2 * sinRad(TAU * this.lfo * 11.7);
       d = Math.min(Math.max(d, 2), len - 2);
       let yl = tap(this.bufL, this.write, d);
       let yr = tap(this.bufR, this.write, d);
@@ -303,7 +304,7 @@ export class DelayFx implements FxUnit {
       if (m === 4) {
         if (this.counter-- <= 0) {
           this.counter = 16;
-          const hz = 400 * Math.pow(2, 3.3 * (0.5 + 0.5 * Math.sin(TAU * this.lfo)));
+          const hz = 400 * exp2(3.3 * (0.5 + 0.5 * sinTurn(this.lfo)));
           this.bpL.setup(hz, 0.75, sr);
           this.bpR.setup(hz * 1.12, 0.75, sr);
         }
@@ -311,9 +312,9 @@ export class DelayFx implements FxUnit {
         fl = this.bpL.band * 1.6; fr = this.bpR.band * 1.6;
         yl = fl; yr = fr;
       }
-      if (sat > 1) { fl = Math.tanh(fl * sat) / sat; fr = Math.tanh(fr * sat) / sat; }
-      const sl = flush(Math.tanh(fl * fb));
-      const srr = flush(Math.tanh(fr * fb));
+      if (sat > 1) { fl = tanh(fl * sat) / sat; fr = tanh(fr * sat) / sat; }
+      const sl = flush(tanh(fl * fb));
+      const srr = flush(tanh(fr * fb));
       if (m === 1) {
         // PING-PONG: the input enters on the left, each side feeds the other.
         this.bufL[this.write] = (inL[i] + inR[i]) * 0.5 + srr;
@@ -342,15 +343,15 @@ export class DelayFx implements FxUnit {
     for (let i = 0; i < n; i++) {
       this.time.next();
       const fb = this.fdbk;
-      this.bufL[this.write] = inL[i] + (fb > 0 ? Math.tanh(this.wetL * fb) : 0);
-      this.bufR[this.write] = inR[i] + (fb > 0 ? Math.tanh(this.wetR * fb) : 0);
+      this.bufL[this.write] = inL[i] + (fb > 0 ? tanh(this.wetL * fb) : 0);
+      this.bufR[this.write] = inR[i] + (fb > 0 ? tanh(this.wetR * fb) : 0);
       if (this.cycle >= len) this.cycle -= len;
       let yl = 0;
       let yr = 0;
       for (let k = 0; k < 2; k++) {
         let ph = this.cycle / len + k * 0.5;
         if (ph >= 1) ph -= 1;
-        const w = Math.sin(Math.PI * ph);
+        const w = sinRad(Math.PI * ph);
         const win = w * w;
         const d = 2 * len * ph + 1;
         yl += tap(this.bufL, this.write, d) * win;
@@ -656,7 +657,7 @@ export class VerbFx implements FxUnit {
     for (let k = 0; k < 2; k++) {
       let ph = this.shimPhase + k * 0.5;
       if (ph >= 1) ph -= 1;
-      const w = Math.sin(Math.PI * ph);
+      const w = sinRad(Math.PI * ph);
       y += tap(buf, this.shimWrite, W * (1 - ph) + 1) * w * w;
     }
     if (++this.shimWrite === buf.length) this.shimWrite = 0;
@@ -698,8 +699,8 @@ export class VerbFx implements FxUnit {
       this.springLpL = flush(this.springLpL + (l - this.springLpL) * lp);
       this.springLpR = flush(this.springLpR + (r - this.springLpR) * lp);
       const x = (inL[i] + inR[i]) * 0.3;
-      this.springL[this.springWrite] = x + Math.tanh(this.springLpL * fb);
-      this.springR[this.springWrite] = x + Math.tanh(this.springLpR * fb);
+      this.springL[this.springWrite] = x + tanh(this.springLpL * fb);
+      this.springR[this.springWrite] = x + tanh(this.springLpR * fb);
       if (++this.springWrite === len) this.springWrite = 0;
       wetL[i] = this.springLpL;
       wetR[i] = this.springLpR;
@@ -751,21 +752,21 @@ export class DriveFx implements FxUnit {
     const dc = 1 - (TAU * 10) / this.sr;
     const g = this.mode === 1 ? 1 + 200 * d * d : 1 + 30 * d * d;
     const bias = 0.2;
-    const tb = Math.tanh(bias);
+    const tb = tanh(bias);
     const levels = Math.pow(2, 16 - 13 * d);
     const holdN = 1 + Math.floor(d * d * 30);
     for (let i = 0; i < n; i++) {
       let l = inL[i];
       let r = inR[i];
       if (this.mode === 0) {
-        l = (Math.tanh(l * g + bias) - tb) * 0.8;
-        r = (Math.tanh(r * g + bias) - tb) * 0.8;
+        l = (tanh(l * g + bias) - tb) * 0.8;
+        r = (tanh(r * g + bias) - tb) * 0.8;
         // Remove the bias's DC.
         const yl = l - this.dcXL + dc * this.dcYL; this.dcXL = l; this.dcYL = flush(yl); l = yl;
         const yr = r - this.dcXR + dc * this.dcYR; this.dcXR = r; this.dcYR = flush(yr); r = yr;
       } else if (this.mode === 1) {
-        l = Math.max(-1, Math.min(1, Math.tanh(l * g) * 1.5)) * 0.6;
-        r = Math.max(-1, Math.min(1, Math.tanh(r * g) * 1.5)) * 0.6;
+        l = Math.max(-1, Math.min(1, tanh(l * g) * 1.5)) * 0.6;
+        r = Math.max(-1, Math.min(1, tanh(r * g) * 1.5)) * 0.6;
       } else {
         if (this.hold <= 0) {
           this.heldL = Math.round(l * levels) / levels;

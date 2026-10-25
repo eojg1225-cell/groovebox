@@ -5,6 +5,7 @@
  * built-in groove. Nothing here changes the app.
  */
 import workletUrl from './worklet.ts?worker&url';
+import BenchWorker from './bench.ts?worker&inline';
 import stored from './project.json';
 import { fromStored } from '../../src/engine/projectFile';
 import { patchOf, type Project, type SoundKind } from '../../src/engine/project';
@@ -13,9 +14,10 @@ import { INSTRUMENTS, SOUND_KINDS } from '../../src/instruments/registry';
 import { CANDIDATES } from './candidates';
 import { anchorNames, candidateIds, labSound, type Candidate } from './sound';
 import { grooveProject } from './groove';
+import { stressProject } from './stress';
 import { loudness } from './loudness';
 
-type Source = 'project' | 'groove';
+type Source = 'project' | 'groove' | 'stress';
 type Sweep = 'off' | 'timbre' | 'int';
 
 const state = {
@@ -30,6 +32,9 @@ const state = {
   match: true,
   sweep: 'off' as Sweep,
   bars: 8,
+  /** Engine maths heard: 0 = A exact, 1 = B fast, 2 = A - B. */
+  maths: 0,
+  diffDb: 60,
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -40,12 +45,14 @@ const snapshot = (): Project | null => fromStored((stored as { project: unknown 
 
 // ------------------------------------------------------------------ the project
 
-interface Built { project: Project; ch: number; base: Record<string, number>; volume: number; groove: boolean }
+/** extra: settings that stay on top of TIMBRE / INT (the stress test's DRIVE, FEEDBACK ...). */
+interface Built { project: Project; ch: number; base: Record<string, number>; volume: number; groove: boolean; extra: Record<string, number> }
 let built: Built | null = null;
 
 /** The project to play, with the test track found, its locks and live offsets cleared. */
 function build(): Built {
-  let p = state.source === 'project' ? snapshot() : null;
+  const stress = state.source === 'stress' ? stressProject() : null;
+  let p = stress ? stress.project : state.source === 'project' ? snapshot() : null;
   let ch = p ? p.channels.findIndex((c) => c.instrument === state.kind) : -1;
   const groove = ch < 0;
   if (groove) {
@@ -58,7 +65,8 @@ function build(): Built {
   c.liveOffset = {};
   project.song.rows = [];
   project.channels.forEach((o, i) => { o.mute = i === ch ? false : state.solo || o.mute; });
-  return { project, ch, base: { ...patchOf(c, c.activePattern).sound }, volume: c.volume, groove };
+  const extra = (!groove && stress?.extra[state.kind]) || {};
+  return { project, ch, base: { ...patchOf(c, c.activePattern).sound }, volume: c.volume, groove, extra };
 }
 
 // ------------------------------------------------------------------ audio
@@ -77,7 +85,46 @@ async function ensureAudio(): Promise<void> {
   node = new AudioWorkletNode(ctx, 'lab-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
   node.connect(ctx.destination);
   node.port.onmessage = () => { if (playing) { load(); post({ type: 'transport', playing: true }); } };
+  sendMaths();
 }
+
+// ------------------------------------------------------------------ maths A / B
+
+function sendMaths(): void {
+  post({ type: 'labOut', mode: state.maths, gain: Math.pow(10, state.diffDb / 20) });
+}
+
+/** Measure both engines on this device (bench.ts), on what plays now (the test track as set). */
+let bench: Worker | null = null;
+function measure(): void {
+  if (!built) built = build();
+  const project = structuredClone(built.project);
+  const c = project.channels[built.ch];
+  if (c.instrument !== 'none') c.sounds[c.instrument] = soundOf(current());
+  bench ??= new BenchWorker();
+  bench.onmessage = (e: MessageEvent<{ a: number; b: number }>) => {
+    const { a, b } = e.data;
+    const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+    $('loads').textContent = `This device, what plays now: A ${pct(a)} · B ${pct(b)} of one core in real time · B ${Math.round((1 - b / a) * 100)}% cheaper`;
+    $<HTMLButtonElement>('measure').disabled = false;
+  };
+  $('loads').textContent = 'Measuring (about 15 s) …';
+  $<HTMLButtonElement>('measure').disabled = true;
+  bench.postMessage(project);
+}
+$('measure').addEventListener('click', measure);
+$('mnote').textContent = 'Fast against exact, measured offline: the difference is about -116 to -128 dB below the sound (median over every drum, synth and FX test), -102 dB on the stress test. The largest are CRUSH (a value can tip into the next step, -72 dB) and strong FM FEEDBACK (small differences grow, -77 dB): the same sound, not the same samples. Measure times both engines on this device.';
+
+function setMaths(m: number): void {
+  state.maths = m;
+  document.querySelectorAll<HTMLInputElement>('input[name="maths"]').forEach((r) => { r.checked = Number(r.value) === m; });
+  sendMaths();
+}
+document.querySelectorAll<HTMLInputElement>('input[name="maths"]').forEach((r) => r.addEventListener('change', () => setMaths(Number(r.value))));
+$<HTMLSelectElement>('diffdb').addEventListener('change', (e) => {
+  state.diffDb = Number((e.target as HTMLSelectElement).value);
+  sendMaths();
+});
 
 /** (Re)build the project for the current track type and source; send it when audio runs. */
 function load(): void {
@@ -90,7 +137,7 @@ function load(): void {
 }
 
 function soundOf(c: Candidate | null): Record<string, number> {
-  return labSound(state.kind, c, state.timbre, state.intensity, built!.base);
+  return { ...labSound(state.kind, c, state.timbre, state.intensity, built!.base), ...built!.extra };
 }
 
 /** Send what changed, then the level and the readouts. */
@@ -322,12 +369,18 @@ function meta(): void {
   if (!built) return;
   const where = built.groove
     ? (state.source === 'project' ? `Your project has no ${INSTRUMENTS[state.kind].name} track: playing the built-in groove.` : 'Built-in groove')
+    : state.source === 'stress' ? `Maths stress test, track ${built.ch + 1}`
     : `Track ${built.ch + 1}, pattern ${'ABCD'[built.project.channels[built.ch].activePattern]}`;
   $('meta').textContent = `${where} · ${Math.round(built.project.bpm * 10) / 10} BPM`;
 }
 
+/** A new source: the test track starts where that source's own TIMBRE / INT are. */
 function rebuild(): void {
-  if (node) load(); else built = build();
+  built = build();
+  state.timbre = built.base.timbre ?? 0.5;
+  state.intensity = built.base.intensity ?? 0.5;
+  drawTimbre(); drawInt();
+  if (node) load(); else applySound();
   if (playing) post({ type: 'transport', playing: true });
   meta();
 }
@@ -366,6 +419,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space') { e.preventDefault(); $('play').click(); return; }
   if (e.key === 'r' || e.key === 'R') { $('ring').click(); return; }
+  if (e.key === 'm' || e.key === 'M') { setMaths((state.maths + 1) % 3); return; }
   const i = LETTERS.indexOf(e.key.toUpperCase());
   if (i >= 0 && !e.metaKey && !e.ctrlKey && !e.altKey) setCandidate(i);
 });

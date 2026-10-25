@@ -1,3 +1,4 @@
+import { tanh } from '../instruments/math';
 import type { Effect } from './Effect';
 import type { ParamSpec } from '../engine/params';
 import { Smoother } from '../engine/smoother';
@@ -84,8 +85,8 @@ export class Delay implements Effect {
       this.lpR += (yR - this.lpR) * this.lpCoeff;
       if (Math.abs(this.lpL) < 1e-15) this.lpL = 0;
       if (Math.abs(this.lpR) < 1e-15) this.lpR = 0;
-      this.bufL[this.write] = inL[i] + Math.tanh(this.lpL * this.fdbk);
-      this.bufR[this.write] = inR[i] + Math.tanh(this.lpR * this.fdbk);
+      this.bufL[this.write] = inL[i] + tanh(this.lpL * this.fdbk);
+      this.bufR[this.write] = inR[i] + tanh(this.lpR * this.fdbk);
       if (++this.write === len) this.write = 0;
       const r = this.ret.next();
       outL[off + i] += yL * r;

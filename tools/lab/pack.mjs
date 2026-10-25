@@ -10,7 +10,8 @@ const NAME = 'lab-worklet.js';
 const js = readFileSync(`${dir}/assets/${pick(/^index-.*\.js$/)}`, 'utf8').split(worklet).join(NAME).replace(/<\/script/gi, '<\\/script');
 const html = readFileSync(`${dir}/index.html`, 'utf8');
 const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('</body>')).replace(/<script[^>]*src="[^"]*"[^>]*><\/script>/g, '').trim();
-const page = `<title>GrooveAccess Sound Lab</title>
+const page = `<meta charset="utf-8">
+<title>GrooveAccess Sound Lab</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
 <style>

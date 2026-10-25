@@ -5,6 +5,7 @@
  * phase), modulating volume, pitch, filter cutoff, pan and send level.
  * Pure helpers shared by the engine (DSP) and the UI (parameter specs).
  */
+import { cosTurn } from '../instruments/math';
 import { choice, type ParamSpec } from './params';
 
 /**
@@ -97,6 +98,6 @@ function baseShape(shape: number, phase: number, held: number): number {
     case 3: return 1 - 2 * phase;
     case 4: return 2 * phase - 1;
     case 5: return held;
-    default: return Math.cos(2 * Math.PI * phase);
+    default: return cosTurn(phase);
   }
 }

@@ -100,3 +100,6 @@ td.knob-id { color: var(--muted); font-family: var(--body); text-align: left; }
 .err:empty { display: none; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 .play.ring { min-width: 0; }
+
+.maths { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.maths .mnote { flex-basis: 100%; margin: 0; }

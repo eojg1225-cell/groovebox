@@ -1,6 +1,7 @@
 import type { Instrument, Preset } from './Instrument';
 import { choice, type ParamSpec } from '../engine/params';
 import { decayMul, IdleGate, Noise, polyBlep, Svf } from './dsp';
+import { exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
@@ -544,7 +545,7 @@ export class Drum implements Instrument {
         // only falls, so once 2^x is exactly 1 it stays 1: skip the pow from then on.
         let sweep = 1;
         if (!this.sweepFlat) {
-          sweep = Math.pow(2, (this.tSweep * this.sweepEnv) / 12);
+          sweep = exp2((this.tSweep * this.sweepEnv) / 12);
           if (sweep === 1) this.sweepFlat = true;
         }
         const f = Math.min(tPitch * sweep, this.sweepTop);
@@ -561,7 +562,7 @@ export class Drum implements Instrument {
             osc = (ph < 0.5 ? 1 : -1) + polyBlep(ph, dt) - polyBlep(p2, dt);
             break;
           }
-          default: osc = Math.sin(TWO_PI * ph);
+          default: osc = sinTurn(ph);
         }
         sum += osc * this.tEnv * this.tLevel * this.gT;
         this.sweepEnv *= this.sweepMul;
@@ -616,7 +617,7 @@ export class Drum implements Instrument {
           this.fmC += mPitch * dtBase; if (this.fmC >= 1) this.fmC -= 1;
           this.fmM += mPitch * (1 + (METAL_RATIOS[3] - 1) * spread) * dtBase; if (this.fmM >= 1) this.fmM -= 1;
           const index = (0.5 + 9 * this.mFm) * (0.3 + 0.7 * this.mEnv); // M FM 4 = index ~37
-          m += wFm * Math.sin(TWO_PI * this.fmC + index * Math.sin(TWO_PI * this.fmM));
+          m += wFm * sinRad(TWO_PI * this.fmC + index * sinTurn(this.fmM));
         }
         m = m * (1 - mNoise) + this.noise.next() * mNoise;
         this.mFilter.process(m);
@@ -628,7 +629,7 @@ export class Drum implements Instrument {
           for (let k = 0; k < BELL_PARTIALS; k++) {
             bp[k] += mPitch * BELL_RATIOS[k] * dtBase;
             if (bp[k] >= 1) bp[k] -= 1;
-            b += Math.sin(TWO_PI * bp[k]) * BELL_LEVELS[k] * be[k];
+            b += sinTurn(bp[k]) * BELL_LEVELS[k] * be[k];
             be[k] *= this.bMul[k];
           }
           metal += b * this.mBell * BELL_GAIN;
@@ -680,7 +681,7 @@ export class Drum implements Instrument {
         this.filter.process(out);
         out = this.filter.low;
       }
-      if (this.drive > 1) out = Math.tanh(out * this.drive) * driveNorm * 0.8 * this.driveComp;
+      if (this.drive > 1) out = tanh(out * this.drive) * driveNorm * 0.8 * this.driveComp;
       if (this.crush > 0) {
         this.crushPhase += step;
         if (this.crushPhase >= 1) {

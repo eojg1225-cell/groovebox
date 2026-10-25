@@ -1,3 +1,4 @@
+import { pow10 } from '../instruments/math';
 import type { ParamSpec } from '../engine/params';
 
 /**
@@ -63,7 +64,7 @@ export class Compressor {
     const e = (this.makeupDb - this.grDb) / 20;
     if (e !== this.lastExp) {
       this.lastExp = e;
-      this.lastGain = Math.pow(10, e);
+      this.lastGain = pow10(e);
     }
     return this.lastGain;
   }
