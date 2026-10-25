@@ -14,6 +14,7 @@ import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { IdleGate, midiToHz } from '../src/instruments/dsp';
 import { Smoother } from '../src/engine/smoother';
+import { gatedLoudness } from '../tools/lab/loudness';
 import { Delay } from '../src/fx/Delay';
 
 import { Reverb } from '../src/fx/Reverb';
@@ -108,20 +109,10 @@ function engineWith(p: Project): Engine {
 }
 
 /**
- * Loudness of one default hit (synths: a half-second note) on track ch with this sound:
- * BS.1770 K-weighting (48 kHz), then the loudest 400 ms (momentary loudness), dB.
+ * Loudness of one default hit (synths: a half-second note) on track ch with this sound: the
+ * sound lab's gated measure (K-weighted, the 10 ms slices within 20 dB of the loudest), dB.
  */
 function loudness(ch: number, kind: SoundKind, sound: Record<string, number>): number {
-  const biquad = (c: number[], x: Float32Array) => {
-    const y = new Float32Array(x.length);
-    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-    for (let i = 0; i < x.length; i++) {
-      const v = c[0] * x[i] + c[1] * x1 + c[2] * x2 - c[3] * y1 - c[4] * y2;
-      x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v;
-    }
-    return y;
-  };
-  const k = (x: Float32Array) => biquad([1, -2, 1, -1.99004745483398, 0.99007225036621], biquad([1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585], x));
   const p = createDefaultProject();
   p.bpm = 120;
   p.master = 0.2; // under the limiter
@@ -134,14 +125,7 @@ function loudness(ch: number, kind: SoundKind, sound: Record<string, number>): n
   const e = engineWith(p);
   e.handleMessage({ type: 'transport', playing: true });
   const { l, r } = render(e, 1.5);
-  const wl = k(l), wr = k(r), win = SR * 0.4;
-  let sum = 0, best = 0;
-  for (let n = 0; n < l.length; n++) {
-    sum += wl[n] ** 2 + wr[n] ** 2;
-    if (n >= win) sum -= wl[n - win] ** 2 + wr[n - win] ** 2;
-    best = Math.max(best, sum);
-  }
-  return 10 * Math.log10(best / win);
+  return gatedLoudness(l, r);
 }
 
 const near = (actual: number[], expected: number[], tol = 4) => {
@@ -2376,6 +2360,19 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(Math.max(...levels) - Math.min(...levels)).toBeLessThan(1);
   }, 30_000);
 
+  it('every TIMBRE sound on every track plays as loud at INT 0 and 100 as at 50 (within 1 dB)', () => {
+    createDefaultProject().channels.forEach((c, ch) => {
+      const kind = c.instrument as SoundKind;
+      const specs = INSTRUMENTS[kind].params;
+      MACROS[kind].anchors.forEach((a, i) => {
+        const t = anchorPosition(kind, i);
+        const level = (x: number) => loudness(ch, kind, { ...presetSound(kind, 0), ...macroSound(kind, t, x, specs), timbre: t, intensity: x });
+        const mid = level(0.5);
+        for (const x of [0, 1]) expect(Math.abs(level(x) - mid), `${kind} ${a.name} INT ${x * 100}`).toBeLessThan(1);
+      });
+    });
+  }, 120_000);
+
   it('PLUCK echoes through its onboard delay; SPACE fully left dries it up', () => {
     const tail = (values: Record<string, number>) => {
       const l = play(synth('pluck', { decay: 0.05, release: 0.02, dtime: 2, dfdbk: 0.3, ...values }), 0.6, 0.02);
@@ -3334,7 +3331,7 @@ describe('v43: KICK TIMBRE sounds run soft -> extreme', () => {
     expect(at(psy, 1).c_level).toBe(0);
   });
 
-  it('every sound plays as loud at INT 0 and 100 as at 50 (within 1 dB)', () => {
+  it('every KICK sound plays as loud at INT 0 and 100 as at 50 (within 1 dB)', () => {
     MACROS.kick.anchors.forEach((a, i) => {
       const t = anchorPosition('kick', i);
       const sound = (x: number) => ({ ...presetSound('kick', 0), ...at(t, x), timbre: t, intensity: x });
@@ -3554,6 +3551,51 @@ describe('v47: KICK VINTAGE, TECHNO, PSY DOOF redone', () => {
     // The new VINTAGE is that kick, so its click trims all but vanish.
     expect(Math.abs(back.trims.kick!.c_len ?? 0)).toBeLessThan(0.01);
     expect(Math.abs(back.trims.kick!.c_noise ?? 0)).toBeLessThan(0.01);
+  });
+});
+
+describe('v49: track type gains from the gated loudness measure', () => {
+  const old = { kick: 0.565, snare: 0.797, hat: 4.359, perc: 0.778, bass: 0.383, pad: 0.273, lead: 0.633, pluck: 1.366 } as const;
+  const load = (volumes: number[], master = 0.8) => {
+    const start = createDefaultProject();
+    for (const c of start.channels) c.patterns[0].steps[0].active = true; // every track heard
+    const stored = JSON.parse(JSON.stringify(toStored(start)));
+    stored.version = 48;
+    stored.master = master;
+    stored.channels.forEach((c: { volume: number }, i: number) => { c.volume = volumes[i]; });
+    return fromStored(stored)!;
+  };
+  const kinds = createDefaultProject().channels.map((c) => c.instrument as SoundKind);
+
+  it('a saved mix plays as it was: each VOLUME x old / new type gain', () => {
+    const vols = [0.8, 0.5, 0.079, 0.5, 0.8, 0.8, 0.5, 0.5];
+    const p = load(vols);
+    p.channels.forEach((c, i) => expect(c.volume).toBeCloseTo((vols[i] * old[kinds[i]]) / INSTRUMENTS[kinds[i]].gain!, 4));
+    expect(p.master).toBe(0.8);
+  });
+
+  it('a VOLUME that would pass 1 brings every track down and MASTER up: the balance stays', () => {
+    const vols = [0.8, 0.843, 0.079, 0.811, 0.811, 0.803, 0.795, 0.78]; // MTHED
+    const p = load(vols);
+    const heard = (v: number, i: number, m: number) => v * INSTRUMENTS[kinds[i]].gain! * m;
+    const ratio = heard(p.channels[0].volume, 0, 1) / (vols[0] * old.kick);
+    p.channels.forEach((c, i) => {
+      expect(c.volume).toBeLessThanOrEqual(1);
+      expect(heard(c.volume, i, 1) / (vols[i] * old[kinds[i]])).toBeCloseTo(ratio, 4); // same balance
+    });
+    expect(p.master).toBe(1);
+    // The whole mix within 1.5 dB of before.
+    expect(20 * Math.log10(ratio * p.master / 0.8)).toBeGreaterThan(-1.5);
+  });
+
+  it('a track without notes is only capped, the rest keep their level', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 48;
+    stored.channels.forEach((c: { volume: number }, i: number) => { c.volume = i === 2 ? 0.8 : 0.5; }); // a silent HAT at 0.8
+    const p = fromStored(stored)!;
+    expect(p.channels[2].volume).toBe(1);
+    expect(p.channels[0].volume).toBeCloseTo((0.5 * old.kick) / INSTRUMENTS.kick.gain!, 4);
+    expect(p.master).toBe(0.8);
   });
 });
 

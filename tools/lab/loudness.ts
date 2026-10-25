@@ -1,7 +1,9 @@
 /**
  * Loudness of one sound, rendered offline on the real engine: one default hit (synths: a
- * half-second note), BS.1770 K-weighted, the loudest 400 ms (momentary loudness, dB). The
- * same measure as the app's "every TIMBRE sound is equally loud" test.
+ * half-second note), BS.1770 K-weighted, then GATED: the mean over the samples whose 10 ms
+ * loudness is within GATE_DB of the loudest moment (dB), so a sound's own tail and the silence after it don't
+ * count. A short hat and a long kick are compared on how loud they are while they sound.
+ * The same measure as the app's "every TIMBRE sound is equally loud" test.
  */
 import { Engine } from '../../src/engine/Engine';
 import { createDefaultProject } from '../../src/engine/defaultProject';
@@ -40,12 +42,35 @@ export function loudness(kind: SoundKind, sound: Record<string, number>): number
   const total = Math.floor((1.5 * SR) / BLOCK) * BLOCK;
   const l = new Float32Array(total), r = new Float32Array(total);
   for (let i = 0; i < total; i += BLOCK) e.process(l.subarray(i, i + BLOCK), r.subarray(i, i + BLOCK), BLOCK);
-  const wl = kWeight(l), wr = kWeight(r), win = SR * 0.4;
-  let sum = 0, best = 0;
-  for (let n = 0; n < total; n++) {
-    sum += wl[n] ** 2 + wr[n] ** 2;
-    if (n >= win) sum -= wl[n - win] ** 2 + wr[n - win] ** 2;
-    best = Math.max(best, sum);
+  return gatedLoudness(l, r);
+}
+
+/** Samples whose 10 ms loudness is within this many dB of the loudest moment count. */
+const GATE_DB = -20;
+const WINDOW = SR / 100;
+
+/**
+ * Gated loudness of a stereo render (48 kHz), dB: the K-weighted power averaged over the
+ * samples where the sound's 10 ms loudness (a sliding window centred on the sample) passes the
+ * gate. Gated sample by sample, a decaying tail crossing the gate changes the result smoothly
+ * (whole 10 ms slices made a short hat jump by ~1 dB per slice).
+ */
+export function gatedLoudness(l: Float32Array, r: Float32Array): number {
+  const wl = kWeight(l), wr = kWeight(r), n = wl.length, half = WINDOW >> 1;
+  const p = new Float64Array(n);
+  for (let i = 0; i < n; i++) p[i] = wl[i] ** 2 + wr[i] ** 2;
+  // 10 ms envelope by prefix sums.
+  const sum = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + p[i];
+  const env = new Float64Array(n);
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(0, i - half), b = Math.min(n, i + half);
+    env[i] = (sum[b] - sum[a]) / (b - a);
+    if (env[i] > peak) peak = env[i];
   }
-  return 10 * Math.log10(best / win + 1e-12);
+  const gate = peak * Math.pow(10, GATE_DB / 10);
+  let total = 0, count = 0;
+  for (let i = 0; i < n; i++) if (env[i] >= gate) { total += p[i]; count++; }
+  return 10 * Math.log10(total / count + 1e-12);
 }

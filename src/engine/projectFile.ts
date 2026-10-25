@@ -490,6 +490,26 @@ function readLfo(src: unknown, lfo: LfoState): void {
   lfo.spread = num(src.spread, lfo.spread, 0, 1);
 }
 
+/** The track types' output gains (InstrumentEntry.gain) before and after v49. */
+const TYPE_GAIN_V48: Record<SoundKind, number> = { kick: 0.565, snare: 0.797, hat: 4.359, perc: 0.778, bass: 0.383, pad: 0.273, lead: 0.633, pluck: 1.366 };
+const TYPE_GAIN_V49: Record<SoundKind, number> = { kick: 0.565, snare: 0.467, hat: 1.783, perc: 0.537, bass: 0.557, pad: 0.413, lead: 0.948, pluck: 1.105 };
+
+/**
+ * v49: the track types' output gains were set again with the gated loudness measure (a HAT
+ * read 7.8 dB too quiet on the old one), so each saved VOLUME is scaled by old / new gain and
+ * the project plays as it was mixed. If a VOLUME would pass 1, every track comes down together
+ * and MASTER goes up instead (as far as it goes; past that the whole mix is a little quieter);
+ * a track without notes doesn't count, it is just capped at 1.
+ */
+function typeGainV49(p: Project): void {
+  const scaled = p.channels.map((c) => (c.instrument === 'none' ? c.volume : (c.volume * TYPE_GAIN_V48[c.instrument]) / TYPE_GAIN_V49[c.instrument]));
+  // Only tracks with notes count (a silent one is just capped at 1).
+  const heard = p.channels.map((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)));
+  const over = Math.max(1, ...scaled.filter((_, i) => heard[i]));
+  p.channels.forEach((c, i) => { c.volume = Math.min(1, scaled[i] / over); });
+  if (over > 1) p.master = Math.min(1, p.master * over);
+}
+
 /** Read a stored project. Returns null only when the data has no channels at all. */
 export function fromStored(data: unknown): Project | null {
   if (!isObj(data) || !Array.isArray(data.channels) || data.channels.length === 0) return null;
@@ -523,6 +543,7 @@ export function fromStored(data: unknown): Project | null {
     const src = data.channels[i];
     if (isObj(src)) readChannel(src, p.channels[i], version);
   }
+  if (version < 49) typeGainV49(p);
   // Every pattern gets its patch and saved versions (where the save had none).
   for (const c of p.channels) initPatterns(c);
   return p;

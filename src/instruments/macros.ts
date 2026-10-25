@@ -65,41 +65,41 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       {
         // Dub / jungle: a tuned 808 boom - pure sine, slow drop, no click (RING makes it sing).
         name: '808 BOOM',
-        values: { ogain: 1.229, t_level: 1, t_pitch: 41, t_decay: 0.5, t_sweep: 12, t_stime: 0.06, c_level: 0, c_tone: 1500, c_reso: 0.1, c_len: 0.004, c_noise: 0.2, drive: 1.1, crush: 0 },
-        soft: { ogain: 1.277, t_sweep: 4, t_stime: 0.09, drive: 1 },
+        values: { ogain: 1.141, t_level: 1, t_pitch: 41, t_decay: 0.5, t_sweep: 12, t_stime: 0.06, c_level: 0, c_tone: 1500, c_reso: 0.1, c_len: 0.004, c_noise: 0.2, drive: 1.1, crush: 0 },
+        soft: { ogain: 1.196, t_sweep: 4, t_stime: 0.09, drive: 1 },
         // A long, saturated sub drop.
-        hard: { ogain: 0.984, t_sweep: 24, t_stime: 0.1, c_level: 0.12, c_tone: 1800, drive: 3 },
+        hard: { ogain: 0.947, t_sweep: 24, t_stime: 0.1, c_level: 0.12, c_tone: 1800, drive: 3 },
       },
       {
         // Project 1 (MTHED)'s kick: a long noisy click (the beater and skin of a real kick).
         name: 'VINTAGE',
-        values: { ogain: 1.079, t_level: 0.95, t_pitch: 46, t_decay: 0.5, t_sweep: 30, t_stime: 0.044, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.146, c_noise: 0.72, drive: 1.3, crush: 0 },
-        soft: { ogain: 1.098, t_sweep: 22, t_stime: 0.05, c_level: 0.02, drive: 1 },
+        values: { ogain: 0.963, t_level: 0.95, t_pitch: 46, t_decay: 0.5, t_sweep: 30, t_stime: 0.044, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.146, c_noise: 0.72, drive: 1.3, crush: 0 },
+        soft: { ogain: 0.96, t_sweep: 22, t_stime: 0.05, c_level: 0.02, drive: 1 },
         // A pushed tape-machine kick: more drop, more knock.
-        hard: { ogain: 0.979, t_sweep: 44, t_stime: 0.038, c_level: 0.3, c_tone: 2600, c_reso: 0.35, drive: 3.5 },
+        hard: { ogain: 0.974, t_sweep: 44, t_stime: 0.038, c_level: 0.3, c_tone: 2600, c_reso: 0.35, drive: 3.5 },
       },
       {
         name: 'PUNCH',
-        values: { ogain: 0.991, t_level: 0.95, t_pitch: 52, t_decay: 0.5, t_sweep: 30, t_stime: 0.03, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 },
-        soft: { ogain: 1.096, t_sweep: 10, t_stime: 0.05, c_level: 0.08, c_tone: 2200, drive: 1.2 },
-        hard: { ogain: 0.887, t_sweep: 44, t_stime: 0.03, c_level: 0.75, c_tone: 5500, c_reso: 0.5, c_noise: 0.6, drive: 6 },
+        values: { ogain: 0.942, t_level: 0.95, t_pitch: 52, t_decay: 0.5, t_sweep: 30, t_stime: 0.03, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 },
+        soft: { ogain: 1.025, t_sweep: 10, t_stime: 0.05, c_level: 0.08, c_tone: 2200, drive: 1.2 },
+        hard: { ogain: 0.963, t_sweep: 44, t_stime: 0.03, c_level: 0.75, c_tone: 5500, c_reso: 0.5, c_noise: 0.6, drive: 6 },
       },
       {
         name: 'TECHNO',
-        values: { ogain: 0.955, t_level: 0.95, t_pitch: 49, t_decay: 0.5, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 },
-        soft: { ogain: 1.129, t_sweep: 12, t_stime: 0.04, c_level: 0.08, c_tone: 2500, c_reso: 0.15, drive: 1.3 },
+        values: { ogain: 0.996, t_level: 0.95, t_pitch: 49, t_decay: 0.5, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 },
+        soft: { ogain: 1.076, t_sweep: 12, t_stime: 0.04, c_level: 0.08, c_tone: 2500, c_reso: 0.15, drive: 1.3 },
         // Hard house: a tall drop you hear fall (longer than PUNCH's, shorter than PSY DOOF's),
         // a punchy tail, only lightly clipped.
-        hard: { ogain: 0.882, t_pitch: 55, t_decay: 0.35, t_sweep: 72, t_stime: 0.07, c_level: 0.4, c_tone: 3200, c_reso: 0.5, c_len: 0.004, drive: 10 },
+        hard: { ogain: 0.828, t_pitch: 55, t_decay: 0.35, t_sweep: 72, t_stime: 0.07, c_level: 0.4, c_tone: 3200, c_reso: 0.5, c_len: 0.004, drive: 10 },
       },
       {
         // A laser zap down into a doof; the click fades out as INT rises (psy kicks have none).
         name: 'PSY DOOF',
-        values: { ogain: 0.768, t_level: 1, t_pitch: 58, t_decay: 0.5, t_sweep: 80, t_stime: 0.028, c_level: 0.12, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 16, crush: 0 },
-        soft: { ogain: 0.924, t_sweep: 10, t_stime: 0.06, c_level: 0.2, c_tone: 3000, c_reso: 0.3, drive: 2 },
+        values: { ogain: 0.932, t_level: 1, t_pitch: 58, t_decay: 0.5, t_sweep: 80, t_stime: 0.028, c_level: 0.12, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 16, crush: 0 },
+        soft: { ogain: 0.891, t_sweep: 10, t_stime: 0.06, c_level: 0.2, c_tone: 3000, c_reso: 0.3, drive: 2 },
         // Goa laser: a 7-octave zap from about 7 kHz, slow enough to hear it fall; no click,
         // little drive.
-        hard: { ogain: 0.602, t_sweep: 84, t_stime: 0.26, c_level: 0, drive: 8 },
+        hard: { ogain: 0.639, t_sweep: 84, t_stime: 0.26, c_level: 0, drive: 8 },
       },
     ],
     excite: [],
@@ -107,12 +107,12 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   snare: {
     anchors: [
       // Jazz rimshot: a woody, high knock with a little wire and a light decay.
-      { name: 'RIMSHOT', values: { ogain: 1.029, t_level: 0.85, t_pitch: 420, t_sweep: 5, m_level: 0.45, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0 } },
+      { name: 'RIMSHOT', values: { ogain: 0.942, t_level: 0.85, t_pitch: 420, t_sweep: 5, m_level: 0.45, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0 } },
       // Dub piccolo: high, tight and ringing.
-      { name: 'PICCOLO', values: { ogain: 1.16, t_level: 0.7, t_pitch: 330, t_sweep: 4, m_level: 0.7, m_noise: 0.7, m_pitch: 600, m_tone: 4500, m_spread: 0.8, m_mode: 0, m_fm: 0.3, drive: 1.4, crush: 0 } },
-      { name: 'TIGHT', values: { ogain: 1.135, t_level: 0.6, t_pitch: 240, t_sweep: 6, m_level: 0.8, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0 } },
-      { name: 'BREAK', values: { ogain: 0.981, t_level: 0.6, t_pitch: 195, t_sweep: 10, m_level: 0.9, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0 } },
-      { name: 'INDUSTRIAL', values: { ogain: 0.753, t_level: 0.7, t_pitch: 150, t_sweep: 18, m_level: 0.9, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.35 } },
+      { name: 'PICCOLO', values: { ogain: 1.078, t_level: 0.7, t_pitch: 330, t_sweep: 4, m_level: 0.7, m_noise: 0.7, m_pitch: 600, m_tone: 4500, m_spread: 0.8, m_mode: 0, m_fm: 0.3, drive: 1.4, crush: 0 } },
+      { name: 'TIGHT', values: { ogain: 1.113, t_level: 0.6, t_pitch: 240, t_sweep: 6, m_level: 0.8, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0 }, soft: { ogain: 1.211 } },
+      { name: 'BREAK', values: { ogain: 1.019, t_level: 0.6, t_pitch: 195, t_sweep: 10, m_level: 0.9, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0 }, soft: { ogain: 1.228 } },
+      { name: 'INDUSTRIAL', values: { ogain: 0.87, t_level: 0.7, t_pitch: 150, t_sweep: 18, m_level: 0.9, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.35 }, hard: { ogain: 0.894 }, soft: { ogain: 1.228 } },
     ],
     excite: [
       { id: 'drive', floor: 1, high: 2 }, { id: 'm_tone', floor: 900, high: 1.5 },
@@ -128,15 +128,15 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       {
         name: 'RIDE',
         values: {
-          ogain: 0.775, m_level: 0.508, m_pitch: 1470, m_spread: 0.72, m_noise: 0.44, m_tone: 3850, m_mode: 0.82, m_fm: 0.396, m_bell: 0.288, h_rattle: 0.36,
+          ogain: 0.723, m_level: 0.508, m_pitch: 1470, m_spread: 0.72, m_noise: 0.44, m_tone: 3850, m_mode: 0.82, m_fm: 0.396, m_bell: 0.288, h_rattle: 0.36,
           h_time: 0.0456, h_pitch: 1470, h_tone: 2940, h_noise: 0.212, h_mode: 0.82, h_spread: 0.72, c_level: 0.26, c_tone: 7000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.06, crush: 0,
-        },
+        }, soft: { ogain: 0.781 },
       },
-      { name: 'HAT', values: { ogain: 1.574, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0, m_bell: 0, h_rattle: 0 } },
+      { name: 'HAT', values: { ogain: 1.515, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.402 }, soft: { ogain: 1.679 } },
       // Splash: a small, bright cymbal - higher and hissier than the crash.
-      { name: 'SPLASH', values: { ogain: 1.306, m_level: 0.7, m_pitch: 620, m_spread: 1, m_noise: 0.55, m_tone: 7000, m_mode: 0.3, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.25, c_tone: 7000, c_reso: 0.3, c_len: 0.003, c_noise: 0.7, drive: 1.2, crush: 0, m_bell: 0, h_rattle: 0 } },
-      { name: 'CRASH', values: { ogain: 1.186, m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.7, m_tone: 4500, m_mode: 0.5, m_fm: 0.5, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0, m_bell: 0, h_rattle: 0 } },
-      { name: 'CHINA', values: { ogain: 0.968, m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.05, m_bell: 0, h_rattle: 0 } },
+      { name: 'SPLASH', values: { ogain: 1.387, m_level: 0.7, m_pitch: 620, m_spread: 1, m_noise: 0.55, m_tone: 7000, m_mode: 0.3, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.25, c_tone: 7000, c_reso: 0.3, c_len: 0.003, c_noise: 0.7, drive: 1.2, crush: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.276 }, soft: { ogain: 1.54 } },
+      { name: 'CRASH', values: { ogain: 1.306, m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.7, m_tone: 4500, m_mode: 0.5, m_fm: 0.5, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.148 }, soft: { ogain: 1.494 } },
+      { name: 'CHINA', values: { ogain: 1.119, m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.05, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.06 }, soft: { ogain: 1.395 } },
     ],
     excite: [
       { id: 'm_tone', floor: 3500, high: 1.5 }, { id: 'drive', floor: 1, high: 2.5 },
@@ -149,14 +149,14 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // on the SOUND page), so switching TIMBRE never moves a line up or down. Skins, then
     // metal, then wood: neighbours blend like with like.
     anchors: [
-      { name: 'LOW TOM', values: { ogain: 0.747, t_level: 0.95, t_pitch: 130.81, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 } },
-      { name: 'CONGA', values: { ogain: 0.797, t_level: 0.9, t_pitch: 130.81, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.2 } },
+      { name: 'LOW TOM', values: { ogain: 0.802, t_level: 0.95, t_pitch: 130.81, t_sweep: 9, t_stime: 0.08, c_level: 0.3, c_tone: 2200, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.3 }, hard: { ogain: 0.895 } },
+      { name: 'CONGA', values: { ogain: 0.855, t_level: 0.9, t_pitch: 130.81, t_sweep: 4, t_stime: 0.02, c_level: 0.55, c_tone: 3500, c_reso: 0.55, c_len: 0.003, c_noise: 0.25, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.2 }, hard: { ogain: 0.921 }, soft: { ogain: 0.861 } },
       // All metal: its INT 0 keeps the metal (the PERC rule fades metal out), only softer.
-      { name: 'COWBELL', values: { ogain: 2.824, t_level: 0, t_pitch: 130.81, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.5 }, soft: { m_level: 0.6 } },
+      { name: 'COWBELL', values: { ogain: 2.16, t_level: 0, t_pitch: 130.81, t_sweep: 0, t_stime: 0.02, c_level: 0.15, c_tone: 3000, c_reso: 0.3, c_len: 0.002, c_noise: 0.3, m_level: 0.85, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.5 }, hard: { ogain: 1.137 }, soft: { ogain: 3.155, m_level: 0.6 } },
       // Timbale: a shallow metal shell - a hard, bright stick, a short drop and the shell's
       // ring-mod clang an octave up (INTVL).
-      { name: 'TIMBALE', values: { ogain: 0.821, t_level: 0.85, t_pitch: 130.81, t_sweep: 3, t_stime: 0.03, c_level: 0.6, c_tone: 4200, c_reso: 0.45, c_len: 0.003, c_noise: 0.35, m_level: 0.35, m_spread: 0.35, m_noise: 0.15, m_tone: 1200, m_mode: 0.8, m_fm: 0.3, drive: 1.4 } },
-      { name: 'CLAVE', values: { ogain: 0.822, t_level: 0.85, t_pitch: 130.81, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.1 } },
+      { name: 'TIMBALE', values: { ogain: 0.882, t_level: 0.85, t_pitch: 130.81, t_sweep: 3, t_stime: 0.03, c_level: 0.6, c_tone: 4200, c_reso: 0.45, c_len: 0.003, c_noise: 0.35, m_level: 0.35, m_spread: 0.35, m_noise: 0.15, m_tone: 1200, m_mode: 0.8, m_fm: 0.3, drive: 1.4 }, hard: { ogain: 0.935 }, soft: { ogain: 0.904 } },
+      { name: 'CLAVE', values: { ogain: 0.868, t_level: 0.85, t_pitch: 130.81, t_sweep: 0, t_stime: 0.01, c_level: 0.6, c_tone: 2400, c_reso: 0.92, c_len: 0.015, c_noise: 0.05, m_level: 0, m_spread: 0.2, m_noise: 0, m_tone: 700, m_mode: 0, m_fm: 0.3, drive: 1.1 }, hard: { ogain: 0.931 }, soft: { ogain: 0.905 } },
     ],
     excite: [
       // The top quarter turns any of them into a warped clang: the metal layer comes in,
@@ -174,14 +174,14 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // ladder (RATIO_LADDER: 1 : 2, 2 : 3, 3 : 2); INTENSITY leaves FM LVL alone (the FM LVL knob
     // goes from none to full on every sound).
     anchors: [
-      { name: 'SINE SUB', values: { ogain: 0.721, shape: 0, fm: 0.12, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 } },
-      { name: 'GROWL', values: { ogain: 0.931, shape: 2, fm: 0.15, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+      { name: 'SINE SUB', values: { ogain: 0.713, shape: 0, fm: 0.12, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 }, hard: { ogain: 0.639 }, soft: { ogain: 0.783 } },
+      { name: 'GROWL', values: { ogain: 0.936, shape: 2, fm: 0.15, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 }, hard: { ogain: 0.838 }, soft: { ogain: 0.99 } },
       // 303: square through a resonant filter with a short, snappy envelope (accents and slides).
-      { name: 'ACID', values: { ogain: 0.586, shape: 3, fm: 0.15, fmratio: 3, cratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fattack: 0.0005, fdecay: 0.18, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 } },
-      { name: 'SOLID', values: { ogain: 2.143, shape: 2.3, fm: 0.15, fmratio: 2, cratio: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
+      { name: 'ACID', values: { ogain: 0.578, shape: 3, fm: 0.15, fmratio: 3, cratio: 2, sub: 0, cutoff: 350, reso: 0.75, fenv: 0.9, fattack: 0.0005, fdecay: 0.18, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 }, hard: { ogain: 0.543 }, soft: { ogain: 0.712 } },
+      { name: 'SOLID', values: { ogain: 2.171, shape: 2.3, fm: 0.15, fmratio: 2, cratio: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 }, hard: { ogain: 1.738 }, soft: { ogain: 2.866 } },
       // FM 2 : 3 (v39, was FM CLANG): carrier 3 x, modulator 2 x the note - the 2 : 3 partials
       // with the lowest on the note, so the pitch holds at every FM LEVEL / INTENSITY.
-      { name: 'FM 2:3', values: { ogain: 1.187, shape: 0, fm: 0.6, fmratio: 2, cratio: 3, sub: 0.15, cutoff: 2600, reso: 0.1, fenv: 0.5, fattack: 0.0005, fdecay: 0.16, drive: 1.4, glide: 0.03, decay: 0.45, sustain: 0.4, detune: 0 } },
+      { name: 'FM 2:3', values: { ogain: 1.193, shape: 0, fm: 0.6, fmratio: 2, cratio: 3, sub: 0.15, cutoff: 2600, reso: 0.1, fenv: 0.5, fattack: 0.0005, fdecay: 0.16, drive: 1.4, glide: 0.03, decay: 0.45, sustain: 0.4, detune: 0 }, hard: { ogain: 0.98 }, soft: { ogain: 1.994 } },
     ],
     excite: [
       { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
@@ -198,15 +198,15 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // musical intervals), so every stop on the way stays in tune with a chord.
     anchors: [
       // Warm: a soft wave with an octave-down modulator on stack 2 (a low growl under it).
-      { name: 'WARM', values: { ogain: 1.315, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 } },
+      { name: 'WARM', values: { ogain: 1.343, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 }, hard: { ogain: 1.47 }, soft: { ogain: 1.208 } },
       // Strings: saws, stack 2 a fifth up, the filter opening slowly.
-      { name: 'STRINGS', values: { ogain: 1.017, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 } },
+      { name: 'STRINGS', values: { ogain: 1.041, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 }, hard: { ogain: 1.17 }, soft: { ogain: 0.972 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { ogain: 0.745, cfeedback: 0, shape: 0, fm: 0.62, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 } },
-      { name: 'GLASS', values: { ogain: 0.962, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 } },
+      { name: 'TINE', values: { ogain: 0.771, cfeedback: 0, shape: 0, fm: 0.62, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 }, hard: { ogain: 0.966 }, soft: { ogain: 0.665 } },
+      { name: 'GLASS', values: { ogain: 0.915, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 }, hard: { ogain: 0.999 }, soft: { ogain: 0.74 } },
       // Ethereal: a 7x modulator over the body, stack 2 a twelfth up under a 5x one - every
       // sideband lands on a harmonic: a bright, high shimmer.
-      { name: 'ETHEREAL', values: { ogain: 1.551, cfeedback: 0, shape: 0.5, fm: 0.6, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 } },
+      { name: 'ETHEREAL', values: { ogain: 1.508, cfeedback: 0, shape: 0.5, fm: 0.6, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 }, hard: { ogain: 1.423 }, soft: { ogain: 1.384 } },
     ],
     excite: [
       // INTENSITY = how much of the carriers: stack 2 fades out below the middle (INT 0 =
@@ -226,12 +226,12 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // rises, in full in the top quarter. INTENSITY leaves the modulation alone: FM LVL,
     // FEEDBACK and the FM envelope set it (as on the BASS and PAD).
     anchors: [
-      { name: 'ODD 2:3', values: { ogain: 1.136, shape: 0.7, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, drive: 1.2 } },
+      { name: 'ODD 2:3', values: { ogain: 1.124, shape: 0.7, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, drive: 1.2 }, hard: { ogain: 1.46 }, soft: { ogain: 0.896 } },
       // Organ: drawbar-style carriers 1 : 2 : 3 on soft waves, full sustain - a bass or a lead.
-      { name: 'ORGAN', values: { ogain: 1.35, shape: 0.6, fm: 0.4, fmratio: 1, ratio2: 2, ratio3: 3, feedback: 0.15, carriers: 0.6, glide: 0.06, cutoff: 6000, reso: 0.05, fenv: 0.1, fdecay: 0.1, drive: 1.2 } },
-      { name: 'SAW 1:1', values: { ogain: 0.809, shape: 2, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, drive: 1.3 } },
-      { name: 'OCT 1:2', values: { ogain: 0.594, shape: 3, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, drive: 1.4 } },
-      { name: 'FIFTH 3:2', values: { ogain: 1.358, shape: 1.5, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, drive: 1.3 } },
+      { name: 'ORGAN', values: { ogain: 1.341, shape: 0.6, fm: 0.4, fmratio: 1, ratio2: 2, ratio3: 3, feedback: 0.15, carriers: 0.6, glide: 0.06, cutoff: 6000, reso: 0.05, fenv: 0.1, fdecay: 0.1, drive: 1.2 }, hard: { ogain: 1.462 }, soft: { ogain: 0.92 } },
+      { name: 'SAW 1:1', values: { ogain: 0.825, shape: 2, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, drive: 1.3 }, soft: { ogain: 0.88 } },
+      { name: 'OCT 1:2', values: { ogain: 0.591, shape: 3, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, drive: 1.4 }, hard: { ogain: 0.722 }, soft: { ogain: 0.454 } },
+      { name: 'FIFTH 3:2', values: { ogain: 1.363, shape: 1.5, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, drive: 1.3 }, hard: { ogain: 1.509 }, soft: { ogain: 1.133 } },
     ],
     excite: [
       { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
@@ -243,11 +243,11 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // Glassy -> a bright saw pluck -> a hollow, buzzy square pluck -> a raging FM donk.
     anchors: [
       // Steel: an FM steel-drum pluck (inharmonic 1 : 2.5).
-      { name: 'STEEL', values: { ogain: 1.176, shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, detune: 0.1, unison: 0, dratio: 0.71 } },
-      { name: 'GLASS PLUCK', values: { ogain: 1.431, shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.4, sustain: 0, release: 0.1, detune: 0.2, unison: 0, dratio: 0.75 } },
-      { name: 'SAW PLUCK', values: { ogain: 1.233, shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, decay: 0.4, sustain: 0.05, release: 0.08, detune: 0.35, unison: 0.5, dratio: 0.88 } },
-      { name: 'SQUARE PLUCK', values: { ogain: 0.63, shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, decay: 0.35, sustain: 0.03, release: 0.07, detune: 0.25, unison: 0.2, dratio: 0.86 } },
-      { name: 'RAGE DONK', values: { ogain: 0.766, shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, decay: 0.25, sustain: 0, release: 0.05, detune: 0.1, unison: 0, dratio: 0.72 } },
+      { name: 'STEEL', values: { ogain: 1.104, shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, detune: 0.1, unison: 0, dratio: 0.71 }, hard: { ogain: 0.888 }, soft: { ogain: 0.885 } },
+      { name: 'GLASS PLUCK', values: { ogain: 1.382, shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.4, sustain: 0, release: 0.1, detune: 0.2, unison: 0, dratio: 0.75 }, hard: { ogain: 0.874 }, soft: { ogain: 1.101 } },
+      { name: 'SAW PLUCK', values: { ogain: 1.364, shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, decay: 0.4, sustain: 0.05, release: 0.08, detune: 0.35, unison: 0.5, dratio: 0.88 }, hard: { ogain: 1.035 }, soft: { ogain: 0.917 } },
+      { name: 'SQUARE PLUCK', values: { ogain: 0.662, shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, decay: 0.35, sustain: 0.03, release: 0.07, detune: 0.25, unison: 0.2, dratio: 0.86 }, hard: { ogain: 0.801 }, soft: { ogain: 0.51 } },
+      { name: 'RAGE DONK', values: { ogain: 0.729, shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, decay: 0.25, sustain: 0, release: 0.05, detune: 0.1, unison: 0, dratio: 0.72 }, hard: { ogain: 0.695 }, soft: { ogain: 0.928 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'fenv', floor: 0.1, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
