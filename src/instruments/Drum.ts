@@ -375,11 +375,7 @@ export class Drum implements Instrument {
 
   /** Only a ringing hit responds: it is choked (closed off quickly). */
   noteOff(_group: number): void {
-    if (this.ringing) this.choke();
-  }
-
-  /** Close the hit off quickly (a RING note's end, or TRIM below FULL). */
-  choke(): void {
+    if (!this.ringing) return;
     this.ringing = false;
     this.tMul = this.chokeMul;
     this.mMul = this.chokeMul;

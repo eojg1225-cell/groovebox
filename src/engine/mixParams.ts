@@ -20,12 +20,6 @@ export const MIX_PARAMS: readonly ParamSpec[] = [
   { id: 'gate', name: 'TRIM', min: GATE_MIN, max: GATE_MAX, defaultValue: 1, unit: ' ST', curve: 'linear', decimals: 2 },
 ];
 
-/**
- * A drum track's TRIM (the same mix value): below a whole step the hit is choked where its
- * gate ends; FULL (1, the top) = it plays out its own decay.
- */
-export const DRUM_TRIM: ParamSpec = { ...(MIX_PARAMS.find((p) => p.id === 'gate') as ParamSpec), max: 1, display: 'full' };
-
 export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate' | 'cut';
 
 /** The channel field each mixer parameter lives in. */

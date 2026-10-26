@@ -18,8 +18,6 @@ export interface Instrument {
   noteOn(note: number, velocity: number, group: number, ring: boolean, slideFrom?: number, slide?: boolean): void;
   /** Release voices of a group; -1 releases everything. Percussive voices may ignore it. */
   noteOff(group: number): void;
-  /** Drums: close the hit off quickly (TRIM below FULL), ringing or not. */
-  choke?(): void;
   /** Pitch modulation in semitones (LFO), applied to sounding voices. Block rate. */
   setPitchMod(semitones: number): void;
   /** Filter cutoff modulation in octaves (LFO). Block rate. */

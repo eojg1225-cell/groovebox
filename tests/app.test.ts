@@ -437,15 +437,23 @@ describe('arrow keys', () => {
 });
 
 describe('PROJECT page TRIM, COUNT-IN, METRONOME', () => {
-  it('FUNC on the PROJECT page: every track\'s TRIM below, drums too (FULL at the top)', () => {
-    const { app, tap, press } = makeApp();
+  it('FUNC on the PROJECT page: TRIM on the synth tracks; it follows a track switched to a synth', () => {
+    const { app, tap, press, release } = makeApp();
+    const labels = () => (app as unknown as { targets: ({ label: string } | null)[] }).targets.slice(8).map((t) => t?.label);
     tap('mode:design');
     tap('dpage2');
     press('func');
-    const targets = (app as unknown as { targets: ({ label: string; spec: { display?: string } } | null)[] }).targets;
-    expect(targets.slice(8).map((t) => t?.label)).toEqual(['TRIM 1', 'TRIM 2', 'TRIM 3', 'TRIM 4', 'TRIM 5', 'TRIM 6', 'TRIM 7', 'TRIM 8']);
-    expect(targets[8]?.spec.display).toBe('full');
-    expect(targets[12]?.spec.display).toBeUndefined();
+    expect(labels()).toEqual([undefined, undefined, undefined, undefined, 'TRIM 5', 'TRIM 6', 'TRIM 7', 'TRIM 8']);
+    release('func');
+    tap('menu');
+    tap('step2'); // PROJECT SETTINGS
+    tap('step1'); // TRACKS
+    tap('step3'); // TRACK 3 (HAT)
+    for (let i = 0; i < 3; i++) tap('cur+'); // HAT -> PERC -> BASS -> PAD
+    tap('play');
+    tap('menu'); // closed
+    press('func');
+    expect(labels()[2]).toBe('TRIM 3');
   });
 
   it('COUNT-IN goes with PLAY in RECORD only; the click follows METRONOME and the mode', () => {

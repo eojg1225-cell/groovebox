@@ -44,7 +44,7 @@
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { DRUM_TRIM, GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
@@ -691,7 +691,7 @@ export class App {
     }
     if (id.startsWith(MIX_PREFIX)) {
       const mixId = id.slice(MIX_PREFIX.length) as MixId;
-      const spec = mixId === 'gate' && isDrum(c.instrument) ? DRUM_TRIM : MIX_PARAMS.find((p) => p.id === mixId);
+      const spec = MIX_PARAMS.find((p) => p.id === mixId);
       if (!spec) return null;
       const field = MIX_FIELD[mixId];
       return {
@@ -844,7 +844,8 @@ export class App {
 
   /**
    * DESIGN > PROJECT (global): TEMPO, SWING, MASTER, TIME SIG on top; every track's
-   * ACC/GHOST below. With FUNC: every track's TRIM below (drums: FULL or choked earlier).
+   * ACC/GHOST below. With FUNC: TRIM below on every synth track (drum slots stay empty, they
+   * play out their own decay; the knob follows the track's type, see TRACKS).
    */
   private projectTargets(): (KnobTarget | null)[] {
     const top: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
@@ -853,7 +854,7 @@ export class App {
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
     }));
     while (top.length < KNOBS_PER_ROW) top.push(null);
-    if (this.func) return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...this.trackRow('mix:gate', 'TRIM')];
+    if (this.func) return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...this.trackRow('mix:gate', 'TRIM', (c) => c.instrument !== 'none' && !isDrum(c.instrument))];
     return [...top, ...this.trackRow('mix:dyn', 'ACC')];
   }
 
@@ -2272,9 +2273,6 @@ export class App {
     this.send({ type: 'setInstrument', channel: ch, kind, sound: { ...patch.sound } });
     this.send({ type: 'setChord', channel: ch, chord: c.chord });
     this.send({ type: 'setNotes', channel: ch, notes: c.notes });
-    // TRIM means a choke on drums, a note's end on synths: back to its default (FULL / 1 step).
-    c.gateLength = 1;
-    this.send({ type: 'setMix', channel: ch, id: 'gate', value: 1 });
     this.save();
     this.flash(`TRACK ${ch + 1}: ${this.kindName(c)}`);
   }

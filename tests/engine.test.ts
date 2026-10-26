@@ -378,18 +378,6 @@ describe('sequencer', () => {
     });
   });
 
-  it('a drum\'s TRIM below FULL chokes the hit where its gate ends', () => {
-    const tail = (gate: number) => {
-      const p = kickProject([0]);
-      p.channels[0].sounds.kick = { ...presetSound('kick', 0), t_decay: 1, c_level: 0 };
-      p.channels[0].gateLength = gate;
-      const e = engineWith(p);
-      e.handleMessage({ type: 'transport', playing: true });
-      return stats(render(e, 0.4).l.subarray(9000, 18000)).peak;
-    };
-    expect(tail(0.25)).toBeLessThan(tail(1) * 0.01);
-  });
-
   it('switches pattern at the end of the loop, not immediately', () => {
     const p = kickProject([0]);
     p.channels[0].patterns[1].steps[2].active = true;

@@ -1243,8 +1243,6 @@ export class Engine {
     this.gateAt[ch] = -1;
     if (this.arpHeld[ch]) this.stopArp(ch);
     this.current[ch]?.noteOff(this.gateGroup[ch]);
-    // Drums: TRIM below a whole step chokes the hit where its gate ends (FULL = plays out).
-    if (this.gateLength[ch] < 1) this.current[ch]?.choke?.();
     this.gateSteps[ch] = 0;
     this.ringing[ch] = 0;
     this.tieLeft[ch] = 0;
