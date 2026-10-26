@@ -77,16 +77,17 @@ const MENU_TITLES: Record<MenuPage, string> = {
   top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
 };
 
-/** MENU open: the pages gone into (the last one shown), each with the line its cursor is on. */
+/**
+ * MENU open: the pages gone into (the last one shown), each with the line its cursor is on
+ * and its settings changed but not yet saved (line index -> option index; PLAY saves them).
+ */
 interface MainMenu {
-  stack: { page: MenuPage; item: number }[];
-  /** TRACKS: a type picked for a track, waiting for its strip key to confirm. */
-  pending: Map<number, InstrumentKind>;
+  stack: { page: MenuPage; item: number; pending: Map<number, number> }[];
 }
 
 /**
- * One MENU line: a setting (◀ ▶ / knob 1 step through `options`) or a way into a page
- * (`open`, ▶ / its strip key). `confirm` = a pending choice the strip key applies.
+ * One MENU line: a setting (◀ ▶ / knob 1 step through `options`; `get` = as saved, `set`
+ * saves) or a way into a page (`open`, ▶ / its strip key).
  */
 interface MenuLine {
   label: string;
@@ -94,8 +95,6 @@ interface MenuLine {
   get?(): number;
   set?(index: number): void;
   open?(): void;
-  pending?: boolean;
-  confirm?(): void;
 }
 
 /** TRACKS: the types a track can take, in this order (OFF = no instrument). */
@@ -1046,7 +1045,7 @@ export class App {
         this.touchedKnob = -1;
       }
     } else if (id === 'menu') {
-      this.menu = { stack: [{ page: 'top', item: 0 }], pending: new Map() };
+      this.menu = { stack: [{ page: 'top', item: 0, pending: new Map() }] };
       this.touchedKnob = -1;
     } else if (id === 'cancel') {
       this.cancel();
@@ -2093,22 +2092,42 @@ export class App {
 
   // ---------------------------------------------------------------- MENU, CANCEL
 
-  private get menuPage(): { page: MenuPage; item: number } {
+  private get menuPage(): MainMenu['stack'][number] {
     const st = this.menu!.stack;
     return st[st.length - 1];
   }
 
   private openPage(page: MenuPage): void {
-    this.menu!.stack.push({ page, item: 0 });
-    this.menu!.pending.clear();
+    this.menu!.stack.push({ page, item: 0, pending: new Map() });
   }
 
-  /** MENU back one page (from the top: closed). Pending track types are dropped. */
+  /** MENU back one page (from the top: closed); the page's unsaved changes are dropped. */
   private menuBack(): void {
     const menu = this.menu!;
-    menu.pending.clear();
     menu.stack.pop();
     if (menu.stack.length === 0) this.menu = null;
+  }
+
+  /** PLAY in MENU: save the page's changed settings, then back one page. */
+  private menuSave(): void {
+    const at = this.menuPage;
+    const lines = this.menuLines(at.page);
+    for (const [i, value] of at.pending) lines[i]?.set?.(value);
+    if (at.pending.size > 0) this.flash('SAVED');
+    this.menuBack();
+  }
+
+  /** A line's setting as shown: changed (not saved yet) or as saved. */
+  private menuValue(line: MenuLine, i: number): number {
+    return this.menuPage.pending.get(i) ?? line.get!();
+  }
+
+  /** Change a line's setting on screen (saved by PLAY); back to the saved value = no change. */
+  private menuPick(line: MenuLine, i: number, value: number): void {
+    const pending = this.menuPage.pending;
+    const v = Math.max(0, Math.min(line.options!.length - 1, value));
+    if (v === line.get!()) pending.delete(i);
+    else pending.set(i, v);
   }
 
   /** The lines of a MENU page. */
@@ -2141,33 +2160,21 @@ export class App {
         device('KEEP SCREEN ON', 'screenOn', ['PLAYING', 'ALWAYS']),
       ];
     }
-    const pending = this.menu!.pending;
     return this.project.channels.map((c, ch) => ({
       label: `TRACK ${ch + 1}`,
       options: TRACK_KINDS.map((k) => (k === 'none' ? 'OFF' : INSTRUMENTS[k].name)),
-      get: () => TRACK_KINDS.indexOf(pending.get(ch) ?? c.instrument),
-      set: (i) => {
-        const kind = TRACK_KINDS[i];
-        if (kind === c.instrument) pending.delete(ch);
-        else pending.set(ch, kind);
-      },
-      pending: pending.has(ch),
-      confirm: () => {
-        const kind = pending.get(ch);
-        pending.delete(ch);
-        if (kind !== undefined) this.setTrackType(ch, kind);
-      },
+      get: () => TRACK_KINDS.indexOf(c.instrument),
+      set: (i) => this.setTrackType(ch, TRACK_KINDS[i]),
     }));
   }
 
   /**
-   * A button while MENU is open. ▼ / ▲ (the OCT keys) move; ◀ ▶ step a setting, ▶ opens a
-   * page; a strip key goes to its line (and opens it, or confirms a pending track type);
-   * CANCEL (◀ on a page line) goes back a page; MENU closes it; a mode button closes it and
-   * goes there; PLAY still plays. True = handled here.
+   * A button while MENU is open. ▼ / ▲ (the OCT keys) move; ◀ ▶ change a setting on screen,
+   * ▶ opens a page; a strip key goes to its line (and opens a page); PLAY saves the page's
+   * changes and goes back a page, CANCEL (◀ on a page line) goes back without saving; MENU
+   * closes it, a mode button closes it and goes there (neither saves). True = handled here.
    */
   private onMenu(id: string, pressed: boolean): boolean {
-    if (id === 'play') return false;
     if (id.startsWith('mode:')) {
       if (pressed) this.menu = null;
       return false;
@@ -2180,15 +2187,14 @@ export class App {
     if (id === 'oct-' || id === 'oct+') {
       at.item = Math.max(0, Math.min(lines.length - 1, at.item + (id === 'oct-' ? 1 : -1)));
     } else if ((id === 'cur-' || id === 'cur+') && line.options) {
-      const i = line.get!() + (id === 'cur+' ? 1 : -1);
-      if (i >= 0 && i < line.options.length) line.set!(i);
+      this.menuPick(line, at.item, this.menuValue(line, at.item) + (id === 'cur+' ? 1 : -1));
     } else if (id === 'cur+') {
       line.open?.();
     } else if ((m = /^step(\d+)$/.exec(id)) && Number(m[1]) <= lines.length) {
       at.item = Number(m[1]) - 1;
-      const picked = lines[at.item];
-      if (picked.pending) picked.confirm?.();
-      else picked.open?.();
+      lines[at.item].open?.();
+    } else if (id === 'play') {
+      this.menuSave();
     } else if (id === 'cancel' && this.func) {
       this.undo();
     } else if (id === 'cancel' || id === 'cur-') {
@@ -2207,8 +2213,8 @@ export class App {
     if (line?.options) {
       out[0] = {
         label: line.label, spec: choice('menu', line.label, line.options), channel: this.selected,
-        get: () => line.get!(),
-        set: (v) => line.set!(Math.round(v)),
+        get: () => this.menuValue(line, at.item),
+        set: (v) => this.menuPick(line, at.item, Math.round(v)),
       };
     }
     return out;
@@ -2267,23 +2273,24 @@ export class App {
     const now = performance.now();
     const at = this.menuPage;
     const lines = this.menuLines(at.page);
-    const hint = at.page === 'tracks'
-      ? (lines[at.item]?.pending ? `TAP ${at.item + 1} TO CHANGE THE TRACK  CANCEL = BACK` : '< > TYPE, THEN TAP ITS NUMBER  CANCEL = BACK')
-      : this.menu!.stack.length > 1 ? 'OCT ARROWS MOVE  > OPEN  CANCEL = BACK' : 'OCT ARROWS MOVE  > OPEN  < > SET  MENU = CLOSE';
+    const changed = at.pending.size > 0;
+    const hint = changed ? 'PLAY = SAVE  CANCEL = BACK WITHOUT SAVING'
+      : lines.some((l) => l.options) ? 'OCT ARROWS MOVE  < > SET  PLAY = SAVE  CANCEL = BACK'
+      : 'OCT ARROWS MOVE  > OPEN  CANCEL = BACK';
     return {
       title: this.menu!.stack.map((e) => MENU_TITLES[e.page]).join(' > '),
-      items: lines.map((l) => ({
+      items: lines.map((l, i) => ({
         label: l.label,
-        value: l.options ? (l.options[l.get!()] ?? '') + (l.pending ? '?' : '') : '',
+        value: l.options ? (l.options[this.menuValue(l, i)] ?? '') + (at.pending.has(i) ? '?' : '') : '',
         page: !!l.open,
-        pending: !!l.pending,
+        pending: at.pending.has(i),
       })),
       item: at.item,
       message: now < this.messageUntil ? this.message : hint,
     };
   }
 
-  /** MENU: strip keys 1-n = the page's lines (the cursor's marked, pending ones flagged), the rest dark. */
+  /** MENU: strip keys 1-n = the page's lines (the cursor's marked, changed ones flagged), the rest dark. */
   private updateMenuStrip(): void {
     const at = this.menuPage;
     const lines = this.menuLines(at.page);
@@ -2294,9 +2301,9 @@ export class App {
       this.panel.setButtonFlag(id, 'off', !used);
       this.panel.setButtonFlag(id, 'lit', used);
       this.panel.setButtonFlag(id, 'cursor', i === at.item);
-      this.panel.setButtonFlag(id, 'accent', used && !!lines[i].pending);
+      this.panel.setButtonFlag(id, 'accent', used && at.pending.has(i));
       for (const f of ['black', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
-      this.panel.setLed(i, used && lines[i].pending ? 'rec' : i === at.item ? 'cursor' : '');
+      this.panel.setLed(i, used && at.pending.has(i) ? 'rec' : i === at.item ? 'cursor' : '');
     }
   }
 

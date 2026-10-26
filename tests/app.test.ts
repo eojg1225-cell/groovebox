@@ -420,7 +420,7 @@ describe('arrow keys', () => {
     const { app, tap, texts } = makeApp();
     tap('menu');
     tap('cur+'); // MODE: SONG
-    tap('menu'); // closed
+    tap('play'); // saved, the menu closes
     tap('ring'); // INSERT: a second row
     const row = () => (app as unknown as { songRow: number }).songRow;
     app.updateFrame(0);
@@ -439,20 +439,28 @@ describe('arrow keys', () => {
 describe('MENU and CANCEL', () => {
   const page = (app: App) => app.menu?.stack[app.menu.stack.length - 1];
 
-  it('MODE: ◀ ▶ = JAM / SONG at once, the menu stays open; SONG goes back to the mode it came from', () => {
+  it('MODE: ◀ ▶ change it on screen, PLAY saves (and goes back), CANCEL drops it', () => {
     const { app, tap, texts } = makeApp();
     tap('mode:design');
     tap('menu');
-    expect(page(app)).toEqual({ page: 'top', item: 0 });
-    tap('cur+');
-    expect(app.mode).toBe('song');
-    expect(app.menu).not.toBeNull();
-    app.updateFrame(0);
-    expect(texts.get('menu')).toBe('MENU<small>SONG</small>');
-    tap('cur-');
+    expect(page(app)).toEqual({ page: 'top', item: 0, pending: new Map() });
+    tap('cur+'); // SONG, not saved yet
+    expect(app.mode).toBe('design');
+    tap('cancel'); // back without saving: closed
+    expect(app.menu).toBeNull();
     expect(app.mode).toBe('design');
     tap('menu');
+    tap('cur+');
+    tap('play'); // saved: SONG, the menu closes (the top page)
+    expect(app.mode).toBe('song');
     expect(app.menu).toBeNull();
+    expect(app.playing).toBe(false); // PLAY in the menu is SAVE, not the transport
+    app.updateFrame(0);
+    expect(texts.get('menu')).toBe('MENU<small>SONG</small>');
+    tap('menu');
+    tap('cur-'); // JAM
+    tap('play');
+    expect(app.mode).toBe('design');
   });
 
   it('▼ / ▲ move, ▶ opens a page, CANCEL goes back a page and closes at the top', () => {
@@ -473,44 +481,51 @@ describe('MENU and CANCEL', () => {
     expect(app.menu).toBeNull();
   });
 
-  it('TRACKS: ◀ ▶ pick a type, the track\'s strip key changes it; notes stay, locks go', () => {
+  it('TRACKS: ◀ ▶ pick types on screen, PLAY saves them all; notes stay, locks go', () => {
     const { app, tap, sent } = makeApp();
     const snare = app.project.channels[1];
+    const hat = app.project.channels[2];
     snare.patterns[0].steps[4].active = true;
     snare.patterns[0].steps[4].locks = { decay: 0.3 };
     tap('menu');
     tap('step2'); // PROJECT SETTINGS
     tap('step1'); // TRACKS
     tap('oct-'); // TRACK 2
-    tap('cur+'); // SNARE -> HAT, pending
+    tap('cur+'); // SNARE -> HAT, on screen only
+    tap('oct-'); // TRACK 3
+    tap('cur-'); // HAT -> SNARE
     expect(snare.instrument).toBe('snare');
-    tap('step2'); // confirm
+    tap('play');
     expect(snare.instrument).toBe('hat');
+    expect(hat.instrument).toBe('snare');
+    expect(page(app)?.page).toBe('project'); // back a page
     expect(snare.patterns[0].steps[4].active).toBe(true);
     expect(snare.patterns[0].steps[4].locks).toBeUndefined();
     expect(sent).toContainEqual(expect.objectContaining({ type: 'setInstrument', channel: 1, kind: 'hat' }));
-    // A pick not confirmed is dropped by CANCEL.
+    // Changed, then CANCEL: nothing saved.
+    tap('step1');
     tap('cur+');
     tap('cancel');
-    expect(snare.instrument).toBe('hat');
+    expect(app.project.channels[0].instrument).toBe('kick');
   });
 
-  it('GLOBAL SETTINGS > TOUCH SETTINGS: ◀ ▶ and knob 1 set a device setting, kept in storage', () => {
+  it('GLOBAL SETTINGS > TOUCH SETTINGS: ◀ ▶ and knob 1 change device settings, PLAY saves them to storage', () => {
     const { app, tap, emit } = makeApp();
     tap('menu');
     tap('step3'); // GLOBAL SETTINGS
     tap('step1'); // TOUCH SETTINGS
     expect(page(app)?.page).toBe('touch');
     expect(deviceSettings.knobSpeed).toBe(1);
-    tap('cur+'); // KNOB SPEED: FAST
-    expect(deviceSettings.knobSpeed).toBe(2);
+    tap('cur+'); // KNOB SPEED: FAST (on screen)
     tap('cur+'); // already the last choice
-    expect(deviceSettings.knobSpeed).toBe(2);
-    expect(JSON.parse(localStorage.getItem('groovebox.device') ?? '{}').knobSpeed).toBe(2);
     tap('oct-');
     tap('oct-'); // TOUCH DELAY
     emit({ type: 'knob', id: 'k1', value: 0 });
+    expect(deviceSettings.knobSpeed).toBe(1);
+    tap('play');
+    expect(deviceSettings.knobSpeed).toBe(2);
     expect(deviceSettings.touchDelay).toBe(0);
+    expect(JSON.parse(localStorage.getItem('groovebox.device') ?? '{}').knobSpeed).toBe(2);
     deviceSettings.knobSpeed = 1;
     deviceSettings.touchDelay = 3;
   });
@@ -537,12 +552,9 @@ describe('MENU and CANCEL', () => {
     expect(priv.stepsMode).toBe(false);
   });
 
-  it('PLAY still plays with MENU open; a mode button closes it', () => {
+  it('a mode button closes MENU and goes there', () => {
     const { app, tap } = makeApp();
     tap('menu');
-    tap('play');
-    expect(app.playing).toBe(true);
-    expect(app.menu).not.toBeNull();
     tap('mode:play');
     expect(app.menu).toBeNull();
     expect(app.mode).toBe('play');
