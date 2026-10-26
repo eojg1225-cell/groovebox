@@ -22,7 +22,7 @@
  * FUNC + A-D = the selected track); playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
  * chosen one; PLAY primes the switch for the loop end and the sound glides there.
  * SAVE PROJECT saves every pattern and patch; edits since are marked * on the screen.
- * MENU: MODE (patterns / SONG). CANCEL backs out of what is open.
+ * MENU: a list (PATTERN MODE, SONG MODE). CANCEL backs out of what is open.
  * SONG  (MENU > MODE) arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
@@ -1029,7 +1029,7 @@ export class App {
         this.touchedKnob = -1;
       }
     } else if (id === 'menu') {
-      this.menu = { item: 0 };
+      this.menu = { item: this.mode === 'song' ? 1 : 0 }; // opens on the mode in use
       this.touchedKnob = -1;
     } else if (id === 'cancel') {
       this.cancel();
@@ -2076,11 +2076,12 @@ export class App {
 
   // ---------------------------------------------------------------- MENU, CANCEL
 
-  /** MENU's lines: MODE (patterns / SONG). */
+  /** MENU's lines: PATTERN MODE, SONG MODE (the one in use marked ON; choosing it closes MENU). */
   private menuItems(): MenuItem[] {
     const song = this.mode === 'song';
     return [
-      { label: 'MODE', value: song ? 'SONG' : 'PATTERNS', run: () => { this.menu = null; this.setMode(song ? this.patternMode : 'song'); } },
+      { label: 'PATTERN MODE', value: song ? '' : 'ON', run: () => { this.menu = null; if (song) this.setMode(this.patternMode); } },
+      { label: 'SONG MODE', value: song ? 'ON' : '', run: () => { this.menu = null; this.setMode('song'); } },
     ];
   }
 

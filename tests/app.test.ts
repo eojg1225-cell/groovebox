@@ -418,7 +418,7 @@ describe('arrow keys', () => {
   it('OCT ▼ / ▲ read the same in SONG: ROW ▼ = the next row down', () => {
     const { app, tap, texts } = makeApp();
     tap('menu');
-    tap('cur+'); // MODE: SONG
+    tap('step2'); // SONG MODE
     tap('ring'); // INSERT: a second row
     const row = () => (app as unknown as { songRow: number }).songRow;
     app.updateFrame(0);
@@ -435,20 +435,26 @@ describe('arrow keys', () => {
 });
 
 describe('MENU and CANCEL', () => {
-  it('MENU: ▶ opens; MODE switches to SONG and back to the mode it came from', () => {
+  it('MENU is a list: ▼ / ▲ move, ▶ or a strip key chooses; SONG MODE and back to the mode it came from', () => {
     const { app, tap, texts } = makeApp();
     tap('mode:design');
     tap('menu');
-    expect(app.menu).not.toBeNull();
-    tap('oct-'); // ▼: already the last line
+    expect(app.menu?.item).toBe(0); // opens on the mode in use
+    tap('oct-'); // ▼
+    expect(app.menu?.item).toBe(1);
+    tap('oct-'); // the last line: stays
+    expect(app.menu?.item).toBe(1);
+    tap('oct+'); // ▲
     expect(app.menu?.item).toBe(0);
-    tap('cur+');
+    tap('oct-');
+    tap('cur+'); // SONG MODE
     expect(app.mode).toBe('song');
     expect(app.menu).toBeNull();
     app.updateFrame(0);
     expect(texts.get('menu')).toBe('MENU<small>SONG</small>');
     tap('menu');
-    tap('step1'); // the strip key of MODE
+    expect(app.menu?.item).toBe(1);
+    tap('step1'); // PATTERN MODE
     expect(app.mode).toBe('design');
   });
 
