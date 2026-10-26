@@ -7,6 +7,7 @@ import { projectStore } from '../src/storage/projects';
 import type { ControlEvent } from '../src/controls/ControlSurface';
 import type { Panel } from '../src/ui/Panel';
 import type { MainToWorklet } from '../src/engine/protocol';
+import { deviceSettings } from '../src/storage/settings';
 
 /** A panel that swallows every call (the App only needs its events). */
 function makeApp() {
@@ -457,9 +458,9 @@ describe('MENU and CANCEL', () => {
   it('▼ / ▲ move, ▶ opens a page, CANCEL goes back a page and closes at the top', () => {
     const { app, tap } = makeApp();
     tap('menu');
+    tap('oct+'); // ▲ on the first line: stays
+    expect(page(app)?.item).toBe(0);
     tap('oct-'); // ▼ to PROJECT SETTINGS
-    expect(page(app)?.item).toBe(1);
-    tap('oct-'); // the last line: stays
     expect(page(app)?.item).toBe(1);
     tap('cur+');
     expect(page(app)?.page).toBe('project');
@@ -492,6 +493,26 @@ describe('MENU and CANCEL', () => {
     tap('cur+');
     tap('cancel');
     expect(snare.instrument).toBe('hat');
+  });
+
+  it('GLOBAL SETTINGS > TOUCH SETTINGS: ◀ ▶ and knob 1 set a device setting, kept in storage', () => {
+    const { app, tap, emit } = makeApp();
+    tap('menu');
+    tap('step3'); // GLOBAL SETTINGS
+    tap('step1'); // TOUCH SETTINGS
+    expect(page(app)?.page).toBe('touch');
+    expect(deviceSettings.knobSpeed).toBe(1);
+    tap('cur+'); // KNOB SPEED: FAST
+    expect(deviceSettings.knobSpeed).toBe(2);
+    tap('cur+'); // already the last choice
+    expect(deviceSettings.knobSpeed).toBe(2);
+    expect(JSON.parse(localStorage.getItem('groovebox.device') ?? '{}').knobSpeed).toBe(2);
+    tap('oct-');
+    tap('oct-'); // TOUCH DELAY
+    emit({ type: 'knob', id: 'k1', value: 0 });
+    expect(deviceSettings.touchDelay).toBe(0);
+    deviceSettings.knobSpeed = 1;
+    deviceSettings.touchDelay = 3;
   });
 
   it('CANCEL leaves the SAVE / LOAD panel button\'s screen, an FX view, flag placing and STEPS mode', () => {

@@ -8,9 +8,8 @@
  * physical rotary encoder will send on the hardware, so that path is exercised too.
  */
 import { localY } from './orientation';
+import { KNOB_SPEEDS, deviceSettings } from '../storage/settings';
 
-/** Pixels of slow vertical drag for the full range (larger = less sensitive). */
-const DRAG_PIXELS_FULL_RANGE = 400;
 /** Drag speed (design px per ms) below which the knob moves 1:1; above it, it speeds up. */
 const ACCEL_FROM = 0.15;
 /** Extra gain per px/ms above ACCEL_FROM, and the most it can reach. */
@@ -137,8 +136,11 @@ export class Knob {
     this.lastT = e.timeStamp;
     const k = Math.min(1, dt / SPEED_SMOOTH_MS);
     this.speed += (Math.abs(dy) / dt - this.speed) * k;
-    const gain = e.shiftKey ? 0.25 : Math.min(ACCEL_MAX, 1 + Math.max(0, this.speed - ACCEL_FROM) * ACCEL_GAIN);
-    this.dragPos = Math.min(this.steps, Math.max(0, this.dragPos + (dy / DRAG_PIXELS_FULL_RANGE) * gain * this.steps));
+    // TOUCH SETTINGS: KNOB SPEED = pixels of slow drag for the full range, KNOB ACCEL on / off.
+    const accel = deviceSettings.knobAccel ? Math.min(ACCEL_MAX, 1 + Math.max(0, this.speed - ACCEL_FROM) * ACCEL_GAIN) : 1;
+    const gain = e.shiftKey ? 0.25 : accel;
+    const fullRange = KNOB_SPEEDS[deviceSettings.knobSpeed].px;
+    this.dragPos = Math.min(this.steps, Math.max(0, this.dragPos + (dy / fullRange) * gain * this.steps));
     this.moveTo(this.dragPos);
   }
 

@@ -13,6 +13,7 @@ import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
 import { projectStore } from './storage/projects';
 import { startSlotSync } from './storage/slotSync';
+import { TOUCH_DELAYS, deviceSettings } from './storage/settings';
 
 /** Start-up: how long the title stays once the engine is running, then the zoom out. */
 const TITLE_HOLD_MS = 700;
@@ -145,12 +146,15 @@ function titleFrame(now: number): void {
 // ------------------------------------------------------------------ wake lock
 
 type WakeLock = { release(): Promise<void> };
+/** The screen stays on while playing, or always (TOUCH SETTINGS: KEEP SCREEN ON). */
+const keepAwake = () => app.playing || deviceSettings.screenOn === 1;
 let wakeLock: WakeLock | null = null;
 async function updateWakeLock(): Promise<void> {
   const nav = navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<WakeLock> } };
   try {
-    if (app.playing && !wakeLock && nav.wakeLock) wakeLock = await nav.wakeLock.request('screen');
-    if (!app.playing && wakeLock) { await wakeLock.release(); wakeLock = null; }
+    const want = keepAwake();
+    if (want && !wakeLock && nav.wakeLock) wakeLock = await nav.wakeLock.request('screen');
+    if (!want && wakeLock) { await wakeLock.release(); wakeLock = null; }
   } catch { /* not supported or denied */ }
 }
 document.addEventListener('visibilitychange', () => {
@@ -159,12 +163,7 @@ document.addEventListener('visibilitychange', () => {
 
 // ------------------------------------------------------------------ frame loop
 
-let wasPlaying = false;
-/**
- * Touch / click to event, on top of the reported audio latency: what the player hears is this
- * much behind what the engine plays when they tap along (live recording allows for it).
- */
-const TOUCH_MS = 15;
+let wasAwake = false;
 let sentListenMs = -1;
 
 /**
@@ -194,7 +193,10 @@ const frame = (now: number) => {
   if (host) {
     const lat = host.latency();
     audio.latencyMs = (Number.isFinite(lat.baseMs) ? lat.baseMs : 0) + (Number.isFinite(lat.outputMs) ? lat.outputMs : 0);
-    const listenMs = audio.latencyMs + TOUCH_MS;
+    // TOUCH DELAY: touch / click to event, on top of the reported audio latency: what the
+    // player hears is this much behind what the engine plays when they tap along (live
+    // recording allows for it).
+    const listenMs = audio.latencyMs + TOUCH_DELAYS[deviceSettings.touchDelay];
     if (Math.abs(listenMs - sentListenMs) >= 1) {
       sentListenMs = listenMs;
       host.send({ type: 'setListenLatency', ms: listenMs });
@@ -202,7 +204,7 @@ const frame = (now: number) => {
     if (audio.state === 'on' && host.ctx.state !== 'running') audio.state = 'off';
     else if (audio.state === 'off' && host.ctx.state === 'running') audio.state = 'on';
   }
-  if (app.playing !== wasPlaying) { wasPlaying = app.playing; void updateWakeLock(); }
+  if (keepAwake() !== wasAwake) { wasAwake = keepAwake(); void updateWakeLock(); }
   app.updateFrame(now);
   screen.begin();
   if (!titleDone) titleFrame(now);

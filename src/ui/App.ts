@@ -60,6 +60,7 @@ import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTarget
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
+import { HOLD_TIMES, KNOB_SPEEDS, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
@@ -71,8 +72,10 @@ type Mode = 'record' | 'play' | 'design' | 'song';
 
 
 /** MENU's pages (top = the list MENU opens on). */
-type MenuPage = 'top' | 'project' | 'tracks';
-const MENU_TITLES: Record<MenuPage, string> = { top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS' };
+type MenuPage = 'top' | 'project' | 'tracks' | 'global' | 'touch';
+const MENU_TITLES: Record<MenuPage, string> = {
+  top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
+};
 
 /** MENU open: the pages gone into (the last one shown), each with the line its cursor is on. */
 interface MainMenu {
@@ -130,8 +133,6 @@ const SPEED_MARK = { normal: '', double: ' X2', half: ' /2', triplet: ' T' } as 
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
 /** A relative live knob: -100..+100 % around the sound as set (centre). */
 const OFFSET_SPEC: ParamSpec = { id: 'offset', name: 'OFFSET', min: -100, max: 100, defaultValue: 0, unit: '%', curve: 'linear', decimals: 0 };
-/** FUNC released sooner than this, with no knob turned = a tap (latches FUNC on / off). */
-const FUNC_TAP_MS = 350;
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 function noteName(n: number): string {
@@ -2041,7 +2042,7 @@ export class App {
       this.funcDownAt = performance.now();
     } else {
       this.funcHeld = false;
-      if (!this.funcUsed && performance.now() - this.funcDownAt < FUNC_TAP_MS) this.funcLatched = !this.funcLatched;
+      if (!this.funcUsed && performance.now() - this.funcDownAt < HOLD_TIMES[deviceSettings.holdTime].ms) this.funcLatched = !this.funcLatched;
     }
     this.refreshPanel();
   }
@@ -2120,9 +2121,26 @@ export class App {
           set: (i) => this.setMode(i === 1 ? 'song' : this.mode === 'song' ? this.patternMode : this.mode),
         },
         { label: 'PROJECT SETTINGS', open: () => this.openPage('project') },
+        { label: 'GLOBAL SETTINGS', open: () => this.openPage('global') },
       ];
     }
     if (page === 'project') return [{ label: 'TRACKS', open: () => this.openPage('tracks') }];
+    if (page === 'global') return [{ label: 'TOUCH SETTINGS', open: () => this.openPage('touch') }];
+    if (page === 'touch') {
+      // Kept on this device (storage/settings.ts), not in the project.
+      const device = (label: string, key: keyof typeof deviceSettings, options: readonly string[]): MenuLine => ({
+        label, options,
+        get: () => deviceSettings[key],
+        set: (i) => { deviceSettings[key] = i; saveDeviceSettings(); },
+      });
+      return [
+        device('KNOB SPEED', 'knobSpeed', KNOB_SPEEDS.map((k) => k.name)),
+        device('KNOB ACCEL', 'knobAccel', ['OFF', 'ON']),
+        device('TOUCH DELAY', 'touchDelay', TOUCH_DELAYS.map((ms) => `${ms} MS`)),
+        device('HOLD TIME', 'holdTime', HOLD_TIMES.map((h) => h.name)),
+        device('KEEP SCREEN ON', 'screenOn', ['PLAYING', 'ALWAYS']),
+      ];
+    }
     const pending = this.menu!.pending;
     return this.project.channels.map((c, ch) => ({
       label: `TRACK ${ch + 1}`,

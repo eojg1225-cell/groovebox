@@ -75,3 +75,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - MENU without SAVE / LOAD (2026-10-26): they stay on their own panel button only; MENU holds MODE (settings to come).
 - MENU as a list (2026-10-26): PATTERN MODE and SONG MODE are lines of their own (was one MODE line), so ▼ / ▲ move between them.
 - MENU pages (2026-10-26): MODE (JAM / SONG) as one setting line; PROJECT SETTINGS > TRACKS chooses each track's type (or OFF), applied by the track's strip key; menu pages with a title path, ◀ ▶ / knob 1 for settings, CANCEL back a page.
+- TOUCH SETTINGS (2026-10-26): MENU > GLOBAL SETTINGS > TOUCH SETTINGS, kept on the device: KNOB SPEED, KNOB ACCEL, TOUCH DELAY (was a fixed 15 ms), HOLD TIME (FUNC tap vs hold, was 350 ms), KEEP SCREEN ON (playing / always).
