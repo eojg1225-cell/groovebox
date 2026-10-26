@@ -25,7 +25,7 @@
  * track). Edits since are marked * on the screen.
  * SONG  arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
- *          OCT -/+ row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
+ *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
  *          the next bar), A-D = the row, hold tracks + A-D = their cells, FUNC + A-D = the selected track's. PLAY here plays the
  *          song from the cursor row (it keeps playing in the other modes until STOP).
  * RESET: every patch returns to its saved version and the rest (mix, FX, LFO) to the saved
@@ -1273,7 +1273,7 @@ export class App {
       this.songCol = Math.max(0, Math.min(NUM_CHANNELS, this.songCol + (id === 'cur+' ? 1 : -1)));
       if (this.songCol > 0) this.selected = this.songCol - 1;
     } else if (id === 'oct-' || id === 'oct+') {
-      moveRow(this.songRow + (id === 'oct+' ? 1 : -1));
+      moveRow(this.songRow + (id === 'oct-' ? 1 : -1)); // ROW ▼ = down the grid
     } else if (id === 'ring') {
       // INSERT: a copy of the cursor row, after it.
       if (rows.length >= SONG_MAX_ROWS) { this.flash('SONG FULL'); return true; }
@@ -2363,8 +2363,9 @@ export class App {
     const song = this.mode === 'song';
     this.panel.setButtonText('ring', song ? 'INSERT<small>ROW</small>' : 'RING');
     this.panel.setButtonText('dyn:accent', song ? 'DELETE<small>ROW</small>' : 'ACCENT');
-    this.panel.setButtonText('oct-', song ? 'ROW ▲' : 'OCT −');
-    this.panel.setButtonText('oct+', song ? 'ROW ▼' : 'OCT +');
+    // The same arrows in every mode: ▼ (oct-) = octave down / the next row down the grid.
+    this.panel.setButtonText('oct-', song ? 'ROW ▼' : 'OCT ▼');
+    this.panel.setButtonText('oct+', song ? 'ROW ▲' : 'OCT ▲');
     if (song) {
       this.panel.setButtonLit('ring', false);
       this.panel.setButtonLit('dyn:accent', false);

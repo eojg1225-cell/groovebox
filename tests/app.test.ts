@@ -413,3 +413,22 @@ describe('PLAY starts from the bar shown', () => {
     expect(lastStart(sent)).toMatchObject({ playing: true, fromStep: 0 });
   });
 });
+
+describe('arrow keys', () => {
+  it('OCT ▼ / ▲ read the same in SONG: ROW ▼ = the next row down', () => {
+    const { app, tap, texts } = makeApp();
+    tap('mode:song');
+    tap('ring'); // INSERT: a second row
+    const row = () => (app as unknown as { songRow: number }).songRow;
+    app.updateFrame(0);
+    expect(texts.get('oct-')).toBe('ROW ▼');
+    expect(texts.get('oct+')).toBe('ROW ▲');
+    tap('oct+');
+    expect(row()).toBe(0);
+    tap('oct-');
+    expect(row()).toBe(1);
+    tap('mode:record');
+    app.updateFrame(0);
+    expect(texts.get('oct-')).toBe('OCT ▼');
+  });
+});
