@@ -15,6 +15,7 @@ import { Noise, Svf, silent } from '../instruments/dsp';
 import { LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { FxBus } from '../fx/FxBus';
 import { Limiter } from '../fx/Limiter';
+import { Click } from '../instruments/Click';
 import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
 import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
@@ -78,6 +79,20 @@ export class Engine {
   private swing = 0; // 0..0.5 fraction of a step
   private readonly master: Smoother;
   private readonly limiter: Limiter;
+  /** METRONOME / COUNT-IN: the click, its level (0 = silent), whether it plays with the music. */
+  private readonly click: Click;
+  private clickBuf = new Float32Array(1024);
+  /** The click wrote into clickBuf this block. */
+  private clicked = false;
+  private clickLevel = 0;
+  private clickOn = false;
+  /** Master steps of COUNT-IN still to go before the sequencer starts (and how many in all). */
+  private countLeft = 0;
+  private countTotal = 0;
+  /** The LFO clock the music starts on (the count-in runs on its own). */
+  private lfoStartClock = 0;
+  /** Which master steps of the bar start a beat (the time signature's groups). */
+  private readonly beatAt = new Uint8Array(16);
 
   /** How late the player hears the engine, in frames, besides the limiter (setListenLatency). */
   private listenFrames = 0;
@@ -323,6 +338,8 @@ export class Engine {
     this.sampleRate = sampleRate;
     this.master = new Smoother(0.8, 0.02, sampleRate);
     this.limiter = new Limiter(sampleRate);
+    this.click = new Click(sampleRate);
+    this.beatAt[0] = this.beatAt[4] = this.beatAt[8] = this.beatAt[12] = 1;
     for (let k = 0; k < NUM_BUSES; k++) {
       this.buses.push(new FxBus(sampleRate, k));
       this.busL.push(new Float32Array(CHUNK));
@@ -386,10 +403,16 @@ export class Engine {
           this.songBar = -1; // the row is entered on the first step
           this.setPlaying(true);
           if (!this.songOn && msg.fromStep) this.startAt(msg.fromChannel ?? 0, msg.fromStep);
+          this.countTotal = this.countLeft = Math.max(0, Math.round(msg.countIn ?? 0)) * this.barLen;
+          this.lfoStartClock = this.lfoClock;
         }
         this.setPlaying(msg.playing);
         break;
       case 'setSong': this.setSong(msg.song); break;
+      case 'setClick':
+        this.clickOn = msg.on;
+        this.clickLevel = Math.max(0, Math.min(1, msg.level));
+        break;
       case 'songJump':
         if (!this.songOn) break;
         this.songJumpTo = Math.max(0, Math.min(this.songLength - 1, msg.row));
@@ -503,6 +526,7 @@ export class Engine {
       this.songOff.fill(0);
     }
     this.globalStep = 0;
+    this.countLeft = 0;
     if (this.pendingMeter >= 0) this.applyMeter(this.pendingMeter);
     this.barOrigin = 0;
     this.framesToStep = 0; // first step fires at the next sample
@@ -608,11 +632,15 @@ export class Engine {
   process(outL: Float32Array, outR: Float32Array, frames: number): void {
     outL.fill(0, 0, frames);
     outR.fill(0, 0, frames);
+    if (this.clickBuf.length < frames) this.clickBuf = new Float32Array(frames);
+    if (this.clicked) this.clickBuf.fill(0, 0, frames);
+    this.clicked = false;
     this.stepPatchGlides(frames);
     let pos = 0;
     while (pos < frames) {
       if (this.playing && this.framesToStep <= 0) {
-        this.fireStep();
+        if (this.countLeft > 0) this.countStep();
+        else this.fireStep();
         continue;
       }
       let n = frames - pos;
@@ -670,6 +698,7 @@ export class Engine {
         if (n < 1) n = 1;
       }
       this.renderChunk(outL, outR, pos, n);
+      if (this.click.render(this.clickBuf, pos, n)) this.clicked = true;
       pos += n;
       for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.arpHeld[ch]) this.arpAt[ch] -= n;
       if (this.playing) {
@@ -730,6 +759,14 @@ export class Engine {
     this.pendingMeter = -1;
     this.meter = m;
     this.barLen = meterLength(m);
+    // A beat starts each of the meter's (non-empty) groups.
+    this.beatAt.fill(0);
+    let at = 0;
+    for (const g of METERS[m].groups) {
+      if (g === 0) continue;
+      this.beatAt[at] = 1;
+      at += g;
+    }
     this.barOrigin = this.globalStep;
     for (let k = 0; k < NUM_CHANNELS * NUM_PATTERNS; k++) this.refreshOn(k);
     this.lfoSteps = this.lfoRateSteps();
@@ -776,12 +813,29 @@ export class Engine {
 
   // ------------------------------------------------------------------ sequencing
 
+  /** COUNT-IN: one straight step of clicks before the music (the sequencer waits). */
+  private countStep(): void {
+    const pos = (this.countTotal - this.countLeft) % this.barLen;
+    if (this.beatAt[pos]) this.click.trigger(pos === 0);
+    this.lastStepFrames = (60 / this.bpm / 4) * this.sampleRate;
+    this.framesToStep += this.lastStepFrames;
+    if (--this.countLeft === 0) this.lfoClock = this.lfoStartClock;
+  }
+
+  /** COUNT-IN: beats still to go (0 = none). */
+  get countBeats(): number {
+    let n = 0;
+    for (let k = this.countTotal - this.countLeft; k < this.countTotal; k++) n += this.beatAt[k % this.barLen];
+    return n;
+  }
+
   private fireStep(): void {
     const g = this.globalStep;
     const atBar = this.barPos(g) === 0;
     if (atBar && this.pendingMeter >= 0) this.applyMeter(this.pendingMeter);
     const pos = this.barPos(g);
     const stepLen = this.stepFrames(g);
+    if (this.clickOn && this.beatAt[pos]) this.click.trigger(pos === 0);
     if (atBar && this.notesPending) this.applyPendingNotes();
     if (this.songOn && atBar) this.songBarLine();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -1189,6 +1243,8 @@ export class Engine {
     this.gateAt[ch] = -1;
     if (this.arpHeld[ch]) this.stopArp(ch);
     this.current[ch]?.noteOff(this.gateGroup[ch]);
+    // Drums: TRIM below a whole step chokes the hit where its gate ends (FULL = plays out).
+    if (this.gateLength[ch] < 1) this.current[ch]?.choke?.();
     this.gateSteps[ch] = 0;
     this.ringing[ch] = 0;
     this.tieLeft[ch] = 0;
@@ -1366,7 +1422,7 @@ export class Engine {
     // Legato over a note still being recorded: glide from it, and it now lasts until here.
     const prev = slide && this.recNote[ch] >= 0 ? this.recNote[ch] : -1;
     this.noteOn(ch, note, velocity, false, slide ? prev : -1);
-    if (!this.playing || !this.current[ch]) return;
+    if (!this.playing || !this.current[ch] || this.countLeft > 0) return;
     const { index, isNext, global } = this.nearestStep(ch);
     const pattern = this.activePattern[ch];
     if (prev >= 0) {
@@ -1415,7 +1471,7 @@ export class Engine {
    * it belongs on another step (then it is recorded as a note of its own).
    */
   private recordChordNote(ch: number, note: number, velocity: number): boolean {
-    if (!this.playing || this.recNote[ch] < 0 || !playsChords(this.kind[ch])) return false;
+    if (!this.playing || this.countLeft > 0 || this.recNote[ch] < 0 || !playsChords(this.kind[ch])) return false;
     const nearest = this.nearestStep(ch);
     const together = this.frame - this.recFrame[ch] < CHORD_WINDOW * this.sampleRate;
     if (!together && (nearest.index !== this.recIndex[ch] || this.activePattern[ch] !== this.recPattern[ch])) return false;
@@ -1664,6 +1720,15 @@ export class Engine {
       const g = this.master.next() * Math.SQRT2;
       outL[i] *= g;
       outR[i] *= g;
+    }
+    // The click past MASTER, through the limiter (so it stays in time with the music).
+    if (this.clicked && this.clickLevel > 0) {
+      const k = 0.5 * this.clickLevel;
+      const c = this.clickBuf;
+      for (let i = 0; i < frames; i++) {
+        outL[i] += c[i] * k;
+        outR[i] += c[i] * k;
+      }
     }
     this.limiter.process(outL, outR, frames);
     let pL = this.peakL;

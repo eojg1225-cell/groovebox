@@ -44,7 +44,7 @@
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { DRUM_TRIM, GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
@@ -60,7 +60,7 @@ import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTarget
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
-import { HOLD_TIMES, KNOB_SPEEDS, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
+import { CLICK_LEVELS, COUNT_INS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
@@ -349,6 +349,8 @@ export class App {
   /** RESET lit until (the patches' glide to the bar line). */
   private resetLitUntil = 0;
   private targets: (KnobTarget | null)[] = [];
+  /** The click setting last sent to the engine. */
+  private clickSent = '';
 
   constructor(
     public project: Project,
@@ -365,6 +367,25 @@ export class App {
   setStatus(s: Status): void {
     this.status = s;
     this.statusAt = performance.now();
+    if (s.countIn > 0) {
+      this.message = `COUNT-IN ${s.countIn}`;
+      this.messageUntil = this.statusAt + 200;
+    }
+  }
+
+  /** METRONOME: the click with the music (RECORDING = in RECORD mode), at CLICK LEVEL. */
+  private clickMessage(): Extract<MainToWorklet, { type: 'setClick' }> {
+    const m = deviceSettings.metronome;
+    return { type: 'setClick', on: m === 2 || (m === 1 && this.mode === 'record'), level: CLICK_LEVELS[deviceSettings.clickLevel] / 100 };
+  }
+
+  /** Sends the click setting when it changed (mode or settings). */
+  private syncClick(): void {
+    const msg = this.clickMessage();
+    const key = `${msg.on}:${msg.level}`;
+    if (key === this.clickSent) return;
+    this.clickSent = key;
+    this.send(msg);
   }
 
   /** Messages that bring a freshly started engine in line with the UI. */
@@ -373,6 +394,7 @@ export class App {
       { type: 'loadProject', project: this.project },
       ...this.muteMessages(),
       { type: 'transport', playing: this.playing, gen: this.transportGen },
+      this.clickMessage(),
     ];
   }
 
@@ -669,7 +691,7 @@ export class App {
     }
     if (id.startsWith(MIX_PREFIX)) {
       const mixId = id.slice(MIX_PREFIX.length) as MixId;
-      const spec = MIX_PARAMS.find((p) => p.id === mixId);
+      const spec = mixId === 'gate' && isDrum(c.instrument) ? DRUM_TRIM : MIX_PARAMS.find((p) => p.id === mixId);
       if (!spec) return null;
       const field = MIX_FIELD[mixId];
       return {
@@ -821,8 +843,8 @@ export class App {
   }
 
   /**
-   * DESIGN > PROJECT (global): TEMPO, SWING, MASTER on top; every track's ACC/GHOST
-   * below. With FUNC: every synth track's TRIM below (drums play out their own decay).
+   * DESIGN > PROJECT (global): TEMPO, SWING, MASTER, TIME SIG on top; every track's
+   * ACC/GHOST below. With FUNC: every track's TRIM below (drums: FULL or choked earlier).
    */
   private projectTargets(): (KnobTarget | null)[] {
     const top: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
@@ -831,7 +853,7 @@ export class App {
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
     }));
     while (top.length < KNOBS_PER_ROW) top.push(null);
-    if (this.func) return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...this.trackRow('mix:gate', 'TRIM', (c) => !isDrum(c.instrument))];
+    if (this.func) return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...this.trackRow('mix:gate', 'TRIM')];
     return [...top, ...this.trackRow('mix:dyn', 'ACC')];
   }
 
@@ -1010,7 +1032,9 @@ export class App {
       this.songPlaying = this.playing && this.mode === 'song' && this.project.song.rows.length > 0;
       this.send({
         type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: top ? 0 : this.songRow,
-        fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16, gen: ++this.transportGen,
+        fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16,
+        // COUNT-IN: before live recording only.
+        countIn: this.playing && this.mode === 'record' ? deviceSettings.countIn : 0, gen: ++this.transportGen,
       });
     } else if (id.startsWith('mode:')) {
       this.setMode(id.slice(5) as Mode);
@@ -2144,14 +2168,21 @@ export class App {
       ];
     }
     if (page === 'project') return [{ label: 'TRACKS', open: () => this.openPage('tracks') }];
-    if (page === 'global') return [{ label: 'TOUCH SETTINGS', open: () => this.openPage('touch') }];
+    // GLOBAL / TOUCH SETTINGS are kept on this device (storage/settings.ts), not in the project.
+    const device = (label: string, key: keyof typeof deviceSettings, options: readonly string[]): MenuLine => ({
+      label, options,
+      get: () => deviceSettings[key],
+      set: (i) => { deviceSettings[key] = i; saveDeviceSettings(); },
+    });
+    if (page === 'global') {
+      return [
+        device('COUNT-IN', 'countIn', COUNT_INS),
+        device('METRONOME', 'metronome', METRONOMES),
+        device('CLICK LEVEL', 'clickLevel', CLICK_LEVELS.map((v) => `${v} %`)),
+        { label: 'TOUCH SETTINGS', open: () => this.openPage('touch') },
+      ];
+    }
     if (page === 'touch') {
-      // Kept on this device (storage/settings.ts), not in the project.
-      const device = (label: string, key: keyof typeof deviceSettings, options: readonly string[]): MenuLine => ({
-        label, options,
-        get: () => deviceSettings[key],
-        set: (i) => { deviceSettings[key] = i; saveDeviceSettings(); },
-      });
       return [
         device('KNOB SPEED', 'knobSpeed', KNOB_SPEEDS.map((k) => k.name)),
         device('KNOB ACCEL', 'knobAccel', ['OFF', 'ON']),
@@ -2241,6 +2272,9 @@ export class App {
     this.send({ type: 'setInstrument', channel: ch, kind, sound: { ...patch.sound } });
     this.send({ type: 'setChord', channel: ch, chord: c.chord });
     this.send({ type: 'setNotes', channel: ch, notes: c.notes });
+    // TRIM means a choke on drums, a note's end on synths: back to its default (FULL / 1 step).
+    c.gateLength = 1;
+    this.send({ type: 'setMix', channel: ch, id: 'gate', value: 1 });
     this.save();
     this.flash(`TRACK ${ch + 1}: ${this.kindName(c)}`);
   }
@@ -2531,6 +2565,7 @@ export class App {
 
   /** Knob labels/positions and button states that change on input, not per frame. */
   refreshPanel(): void {
+    this.syncClick();
     this.targets = this.computeTargets();
     this.targets.forEach((t, i) => {
       this.panel.configureKnob(

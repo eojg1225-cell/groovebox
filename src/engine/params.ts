@@ -34,8 +34,11 @@ export interface ParamSpec {
    * mode; live knobs can only be assigned non-coarse parameters.
    */
   readonly coarse?: boolean;
-  /** Special readouts: 'dj' = FX 1's FILTER (LP <- OFF -> HP, shown with its cutoff). */
-  readonly display?: 'dj';
+  /**
+   * Special readouts: 'dj' = FX 1's FILTER (LP <- OFF -> HP, shown with its cutoff); 'full'
+   * = FULL at the top of the range (a drum's TRIM: the hit plays out).
+   */
+  readonly display?: 'dj' | 'full';
 }
 
 /** Shorthand for a discrete, coarse parameter. */
@@ -93,6 +96,7 @@ export function formatValue(spec: ParamSpec, value: number): string {
     const c = djCutoff(value);
     return c === 0 ? 'OFF' : c < 0 ? `LP ${hz(-c)}` : `HP ${hz(c)}`;
   }
+  if (spec.display === 'full' && value >= spec.max) return 'FULL';
   const abs = Math.abs(value);
   const digits = spec.decimals ?? (abs >= 100 ? 0 : abs >= 10 ? 1 : 2);
   return value.toFixed(digits) + spec.unit;

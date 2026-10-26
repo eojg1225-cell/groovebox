@@ -15,10 +15,22 @@ export const HOLD_TIMES = [
   { name: 'NORMAL', ms: 350 },
   { name: 'LONG', ms: 500 },
 ] as const;
+/** COUNT-IN: bars of clicks before live recording starts. */
+export const COUNT_INS = ['OFF', '1 BAR', '2 BARS'] as const;
+/** METRONOME: when the click plays with the music. */
+export const METRONOMES = ['OFF', 'RECORDING', 'ALWAYS'] as const;
+/** CLICK LEVEL choices, %. */
+export const CLICK_LEVELS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 /** TOUCH DELAY choices (ms): how much later than the engine the player hears a tap land. */
 export const TOUCH_DELAYS = [0, 5, 10, 15, 20, 25, 30, 40, 50] as const;
 
 interface DeviceSettings {
+  /** Index into COUNT_INS. */
+  countIn: number;
+  /** Index into METRONOMES. */
+  metronome: number;
+  /** Index into CLICK_LEVELS. */
+  clickLevel: number;
   /** Index into KNOB_SPEEDS. */
   knobSpeed: number;
   /** Quick drags move a knob further (1) or not (0). */
@@ -32,9 +44,10 @@ interface DeviceSettings {
 }
 
 const KEY = 'groovebox.device';
-const DEFAULTS: DeviceSettings = { knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0 };
+const DEFAULTS: DeviceSettings = { countIn: 0, metronome: 0, clickLevel: 7, knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0 };
 /** How many choices each setting has. */
 const CHOICES: Record<keyof DeviceSettings, number> = {
+  countIn: COUNT_INS.length, metronome: METRONOMES.length, clickLevel: CLICK_LEVELS.length,
   knobSpeed: KNOB_SPEEDS.length, knobAccel: 2, touchDelay: TOUCH_DELAYS.length, holdTime: HOLD_TIMES.length, screenOn: 2,
 };
 

@@ -258,7 +258,7 @@ describe('TEMPO', () => {
 });
 
 describe('RECORD strip: the same as PLAY', () => {
-  const status = (steps: number[]) => ({ type: 'status' as const, peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0 });
+  const status = (steps: number[]) => ({ type: 'status' as const, peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0, countIn: 0 });
 
   it('placing a flag while playing follows the playhead to the bar it is in', () => {
     const { app, tap, texts } = makeApp();
@@ -370,7 +370,7 @@ describe('live knobs', () => {
 });
 
 describe('PLAY starts from the bar shown', () => {
-  const status = (steps: number[]) => ({ type: 'status' as const, peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0 });
+  const status = (steps: number[]) => ({ type: 'status' as const, peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0, countIn: 0 });
   const lastStart = (sent: MainToWorklet[]) => sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
 
   it('BAR picks the start bar of the selected track, also in PLAY while stopped', () => {
@@ -433,6 +433,38 @@ describe('arrow keys', () => {
     tap('mode:record');
     app.updateFrame(0);
     expect(texts.get('oct-')).toBe('OCT ▼');
+  });
+});
+
+describe('PROJECT page TRIM, COUNT-IN, METRONOME', () => {
+  it('FUNC on the PROJECT page: every track\'s TRIM below, drums too (FULL at the top)', () => {
+    const { app, tap, press } = makeApp();
+    tap('mode:design');
+    tap('dpage2');
+    press('func');
+    const targets = (app as unknown as { targets: ({ label: string; spec: { display?: string } } | null)[] }).targets;
+    expect(targets.slice(8).map((t) => t?.label)).toEqual(['TRIM 1', 'TRIM 2', 'TRIM 3', 'TRIM 4', 'TRIM 5', 'TRIM 6', 'TRIM 7', 'TRIM 8']);
+    expect(targets[8]?.spec.display).toBe('full');
+    expect(targets[12]?.spec.display).toBeUndefined();
+  });
+
+  it('COUNT-IN goes with PLAY in RECORD only; the click follows METRONOME and the mode', () => {
+    const { tap, sent } = makeApp();
+    deviceSettings.countIn = 1;
+    deviceSettings.metronome = 1; // RECORDING
+    tap('mode:design');
+    tap('play');
+    expect(sent.filter((m) => m.type === 'transport').pop()).toMatchObject({ playing: true, countIn: 0 });
+    tap('play');
+    tap('mode:record');
+    expect(sent.filter((m) => m.type === 'setClick').pop()).toMatchObject({ on: true });
+    tap('play');
+    expect(sent.filter((m) => m.type === 'transport').pop()).toMatchObject({ playing: true, countIn: 1 });
+    tap('play');
+    tap('mode:play');
+    expect(sent.filter((m) => m.type === 'setClick').pop()).toMatchObject({ on: false });
+    deviceSettings.countIn = 0;
+    deviceSettings.metronome = 0;
   });
 });
 
@@ -513,7 +545,7 @@ describe('MENU and CANCEL', () => {
     const { app, tap, emit } = makeApp();
     tap('menu');
     tap('step3'); // GLOBAL SETTINGS
-    tap('step1'); // TOUCH SETTINGS
+    tap('step4'); // TOUCH SETTINGS
     expect(page(app)?.page).toBe('touch');
     expect(deviceSettings.knobSpeed).toBe(1);
     tap('cur+'); // KNOB SPEED: FAST (on screen)

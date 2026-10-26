@@ -20,7 +20,7 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
   // Reused status object; postMessage clones it.
   private readonly status: Extract<WorkletToMain, { type: 'status' }> = {
     type: 'status', peakL: 0, peakR: 0, frame: 0, playing: false,
-    steps: new Array<number>(NUM_CHANNELS).fill(0), patterns: new Array<number>(NUM_CHANNELS).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0,
+    steps: new Array<number>(NUM_CHANNELS).fill(0), patterns: new Array<number>(NUM_CHANNELS).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0, countIn: 0,
   };
   private readonly pong = { type: 'pong', id: 0 } as Extract<WorkletToMain, { type: 'pong' }>;
   private readonly resetMsg: WorkletToMain = { type: 'engineReset' };
@@ -103,6 +103,7 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
       s.barSteps = this.engine.barSteps;
       s.songRow = this.engine.songRow;
       s.songBar = this.engine.songBar;
+      s.countIn = this.engine.countBeats;
       for (let ch = 0; ch < s.steps.length; ch++) {
         s.steps[ch] = this.engine.currentStep[ch];
         s.patterns[ch] = this.engine.activePattern[ch];

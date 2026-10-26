@@ -338,6 +338,58 @@ describe('sequencer', () => {
     });
   });
 
+  describe('METRONOME and COUNT-IN', () => {
+    it('clicks on every beat while playing, louder on the bar', () => {
+      const e = engineWith(kickProject([]));
+      e.handleMessage({ type: 'setClick', on: true, level: 1 });
+      e.handleMessage({ type: 'transport', playing: true });
+      const out = render(e, 2.1).l;
+      near(onsets(out), [0, 24000, 48000, 72000, 96000]);
+      expect(stats(out.subarray(0, 2000)).peak).toBeGreaterThan(stats(out.subarray(24000, 26000)).peak);
+    });
+
+    it('clicks on the time signature\'s beats (7/8: 4 + 3 + 4 + 3)', () => {
+      const p = kickProject([]);
+      p.meter = 4;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'setClick', on: true, level: 1 });
+      e.handleMessage({ type: 'transport', playing: true });
+      near(onsets(render(e, 1.7).l), [0, 24000, 42000, 66000]);
+    });
+
+    it('COUNT-IN: a bar of clicks, then the music from its first step', () => {
+      const e = engineWith(kickProject([0]));
+      e.handleMessage({ type: 'setClick', on: false, level: 0 });
+      e.handleMessage({ type: 'transport', playing: true, countIn: 1 });
+      expect(e.countBeats).toBe(4);
+      near(onsets(render(e, 2.1).l), [96000]);
+      expect(e.countBeats).toBe(0);
+    });
+
+    it('COUNT-IN: keys played during it sound but are not recorded', () => {
+      const e = engineWith(kickProject([]));
+      const got: RecordedMsg[] = [];
+      e.onRecorded = (m) => got.push(m);
+      e.handleMessage({ type: 'transport', playing: true, countIn: 1 });
+      render(e, 0.5);
+      e.handleMessage({ type: 'recordNote', channel: 0, note: 36, velocity: 0.8, accent: false });
+      render(e, 0.1);
+      expect(got).toEqual([]);
+    });
+  });
+
+  it('a drum\'s TRIM below FULL chokes the hit where its gate ends', () => {
+    const tail = (gate: number) => {
+      const p = kickProject([0]);
+      p.channels[0].sounds.kick = { ...presetSound('kick', 0), t_decay: 1, c_level: 0 };
+      p.channels[0].gateLength = gate;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 0.4).l.subarray(9000, 18000)).peak;
+    };
+    expect(tail(0.25)).toBeLessThan(tail(1) * 0.01);
+  });
+
   it('switches pattern at the end of the loop, not immediately', () => {
     const p = kickProject([0]);
     p.channels[0].patterns[1].steps[2].active = true;

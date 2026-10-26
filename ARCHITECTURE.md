@@ -66,8 +66,9 @@ Main -> worklet:
 | `setBus` | `bus` (0-2 = FX 1-3), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
-| `transport` | `playing`, `song?`, `fromRow?`, `fromChannel?`, `fromStep?`, `gen?` | Start / stop; `song` = play the song from row `fromRow`. Patterns: `fromStep` (a bar line of track `fromChannel`'s pattern; absent = the top) = every track starts where it would be had all played from the top until that track reached that step (`Engine.startAt` moves the step counters on silently; notes started earlier don't sound). `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
+| `transport` | `playing`, `song?`, `fromRow?`, `fromChannel?`, `fromStep?`, `countIn?`, `gen?` | Start / stop; `countIn` = bars of clicks before the music (COUNT-IN: the sequencer, LFO and recording wait); `song` = play the song from row `fromRow`. Patterns: `fromStep` (a bar line of track `fromChannel`'s pattern; absent = the top) = every track starts where it would be had all played from the top until that track reached that step (`Engine.startAt` moves the step counters on silently; notes started earlier don't sound). `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
 | `setSong` | `song` | Replace the song rows |
+| `setClick` | `on`, `level` | METRONOME: click on the beats while playing (`on`), level 0..1 (also the count-in's) |
 | `songJump` | `row` | While the song plays: go to this row at the next bar line |
 | `trigger` | `channel`, `note`, `velocity`, `slideFrom?` | Play a note now (`slideFrom` = legato from a held note) |
 | `recordNote` | `channel`, `note`, `velocity`, `accent`, `slide?`, `chord?` | Live recording: play now, write to the nearest step (answers `recordedNote` / `recordedChord`) |
@@ -78,7 +79,7 @@ Worklet -> main:
 | type | fields | meaning |
 |---|---|---|
 | `ready` | `sampleRate` | Processor constructed |
-| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load` | ~30 Hz: meters, playhead and playing pattern per track, position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
+| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load`, `countIn` | ~30 Hz: meters, COUNT-IN beats left, playhead and playing pattern per track, position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
 | `pong` | `id` | Answer to `ping` |
 | `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate`, `slide`, `start?` | A live-recorded note was written (sent again with its length on release; `start` = it replaced the step's notes) |
