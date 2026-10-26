@@ -381,20 +381,14 @@ export function initPatterns(c: ChannelState): void {
   });
 }
 
-/** SAVE: the pattern's notes and / or patch as they are now become its saved version. */
-export function lockPattern(c: ChannelState, p: number, notes: boolean, patch: boolean): void {
-  const pat = c.patterns[p];
-  if (notes) {
-    pat.savedNotes = cloneNotes(pat);
-    pat.notesDirty = false;
-  }
-  if (patch) {
-    pat.savedPatch = clonePatch(patchOf(c, p));
-    pat.patchDirty = false;
-  }
-}
-
 /** SAVE PROJECT: every pattern and patch saved. */
 export function lockProject(p: Project): void {
-  for (const c of p.channels) for (let i = 0; i < NUM_PATTERNS; i++) lockPattern(c, i, true, true);
+  for (const c of p.channels) {
+    c.patterns.forEach((pat, i) => {
+      pat.savedNotes = cloneNotes(pat);
+      pat.notesDirty = false;
+      pat.savedPatch = clonePatch(patchOf(c, i));
+      pat.patchDirty = false;
+    });
+  }
 }

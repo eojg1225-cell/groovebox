@@ -3,8 +3,8 @@
  * Fixed design-size box scaled to fit the window; on a portrait screen it is rotated
  * so the instrument is always landscape.
  *
- *   [ pixel screen ] [ MODE: record / play / sound design ]
- *                    [ save  | TEMPO MASTER   ]
+ *   [ pixel screen ] [ MODE: record / play / sound design | MENU ]
+ *                    [ cancel, save/load, reset | TEMPO MASTER ]
  *                    [ pages |                ]
  *                    [ FX 1-3, LFO | PAT A-D ]
  *   [ 8 track modules, each: knob / M, channel button, S / knob ]
@@ -13,7 +13,7 @@
  *   [ 16-button strip (steps or keyboard)          ] | [ PLAY ]
  *   (the strip's right divider sits under the groove between modules 7 and 8)
  *
- * Control ids: mode:record|play|design, ch1..8, mute1..8, solo1..8, save, saveproject,
+ * Control ids: mode:record|play|design, menu, ch1..8, mute1..8, solo1..8, cancel, saveproject,
  * reset, patA..D (beside the FX buttons), dpage0..2, fx1..fx3 + fx4 (LFO), play, clear
  * (held: CLEAR + step / channel), copy (held: COPY + channel = same pattern slot there,
  * COPY + A-D = that pattern of this track),
@@ -42,7 +42,6 @@ export const MODES = [
   { id: 'record', label: 'RECORD' },
   { id: 'play', label: 'PLAY' },
   { id: 'design', label: 'DESIGN' },
-  { id: 'song', label: 'SONG' },
 ] as const;
 
 /**
@@ -121,7 +120,8 @@ export class Panel implements ControlSurface {
     const q = (sel: string) => root.querySelector(sel) as HTMLElement;
 
     for (const m of MODES) q('.modes').appendChild(this.makeButton(`mode:${m.id}`, m.label, 'btn mode'));
-    q('.save-buttons').appendChild(this.makeButton('save', 'SAVE<small>PATTERN</small>', 'btn save'));
+    q('.modes').appendChild(this.makeButton('menu', 'MENU', 'btn mode'));
+    q('.save-buttons').appendChild(this.makeButton('cancel', 'CANCEL', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
     for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
@@ -414,7 +414,7 @@ export class Panel implements ControlSurface {
   }
 
   /**
-   * Space: play. Z: FUNC (hold). 1-8: select channel, Shift+1-8: mute, Alt+1-8: solo.
+   * Space: play. Z: FUNC (hold). Escape: CANCEL. 1-8: select channel, Shift+1-8: mute, Alt+1-8: solo.
    * Q..I: strip buttons 1-8, A..K: strip buttons 9-16.
    */
   private installKeyboard(): void {
@@ -422,6 +422,7 @@ export class Panel implements ControlSurface {
     const toId = (e: KeyboardEvent): string | null => {
       if (e.code === 'Space') return 'play';
       if (e.code === 'KeyZ') return 'func';
+      if (e.code === 'Escape') return 'cancel';
       const digit = /^Digit([1-8])$/.exec(e.code);
       if (digit) return e.shiftKey ? `mute${digit[1]}` : e.altKey ? `solo${digit[1]}` : `ch${digit[1]}`;
       const key = /^Key([A-Z])$/.exec(e.code);

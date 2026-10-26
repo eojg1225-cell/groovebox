@@ -21,9 +21,9 @@
  * A-D (under FX): every track's pattern (hold channels + A-D = only those, unselected;
  * FUNC + A-D = the selected track); playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
  * chosen one; PLAY primes the switch for the loop end and the sound glides there.
- * SAVE: RECORD = the track's pattern notes, DESIGN = its patch, PLAY = both (FUNC = every
- * track). Edits since are marked * on the screen.
- * SONG  arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
+ * SAVE PROJECT saves every pattern and patch; edits since are marked * on the screen.
+ * MENU: MODE (patterns / SONG), SAVE / LOAD PROJECT. CANCEL backs out of what is open.
+ * SONG  (MENU > MODE) arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
  *          the next bar), A-D = the row, hold tracks + A-D = their cells, FUNC + A-D = the selected track's. PLAY here plays the
@@ -50,7 +50,7 @@ import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
-  cloneNotes, clonePatch, editPattern, initPatterns, lockPattern, lockProject, patchOf, setPatchOf,
+  cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset, createDefaultProject } from '../engine/defaultProject';
@@ -65,10 +65,22 @@ import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
-import type { DesignView, LaneCell, LiveView, ProjectView, SongView } from './views';
+import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongView } from './views';
 
 type Mode = 'record' | 'play' | 'design' | 'song';
 
+
+/** MENU: the item the cursor is on. */
+interface MainMenu {
+  item: number;
+}
+
+/** One MENU line: its name, what it is set to ('' = none), and what ▶ / its strip key does. */
+interface MenuItem {
+  label: string;
+  value: string;
+  run: () => void;
+}
 
 /** SAVE / LOAD state. */
 interface ProjectMenu {
@@ -309,6 +321,10 @@ export class App {
   private newSlot = -1;
   /** SAVE / LOAD (stopped only): name entry and the 64 slots, 16 to a bank on the strip. */
   projMenu: ProjectMenu | null = null;
+  /** MENU open (SAVE / LOAD opened from it goes back to it). */
+  menu: MainMenu | null = null;
+  /** The pattern mode SONG was entered from (MENU leaves SONG to it). */
+  private patternMode: Mode = 'record';
   private glides = new Map<string, Glide>();
   private glideStart = 0;
   private glideEnd = 0;
@@ -806,6 +822,7 @@ export class App {
   /** The 16 knob targets for the current mode. */
   private computeTargets(): (KnobTarget | null)[] {
     if (this.projMenu) return this.nameTargets();
+    if (this.menu) return new Array(KNOB_COUNT).fill(null);
     // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.mode === 'song') return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
@@ -843,6 +860,10 @@ export class App {
     }
     if (id === 'func') return this.onFunc(e.pressed);
     if (this.projMenu && this.onProjectMenu(id, e.pressed)) {
+      this.refreshPanel();
+      return;
+    }
+    if (this.menu && this.onMenu(id, e.pressed)) {
       this.refreshPanel();
       return;
     }
@@ -976,23 +997,7 @@ export class App {
         fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16, gen: ++this.transportGen,
       });
     } else if (id.startsWith('mode:')) {
-      this.mode = id.slice(5) as Mode;
-      this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
-      if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
-      // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY and
-      // DESIGN (kept going between those two).
-      if (this.mode !== 'record') { this.ring = false; this.slideArm = false; this.dynamic = 'normal'; }
-      if (!this.forcing) {
-        for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-          if (this.forceRing[ch] || this.forceSlide[ch] || this.forceDyn[ch] !== 'normal') this.setForce(ch, false, false, 'normal');
-        }
-      }
-      this.touchedKnob = -1;
-      if (this.mode === 'song' && this.project.song.rows.length === 0) {
-        // A first row from what the tracks play now.
-        this.project.song.rows.push({ bars: 4, patterns: this.project.channels.map((c) => c.activePattern) });
-        this.sendSong();
-      }
+      this.setMode(id.slice(5) as Mode);
     } else if ((m = /^ch(\d)$/.exec(id))) {
       // Channel buttons act on release: a tap selects (or, a bus open, FUNC + tap = on /
       // off the bus, a tap = back to that track); held + A-D = its pattern.
@@ -1023,8 +1028,11 @@ export class App {
         this.fxView = this.fxView === n ? 0 : n;
         this.touchedKnob = -1;
       }
-    } else if (id === 'save') {
-      this.saveCurrent();
+    } else if (id === 'menu') {
+      this.menu = { item: 0 };
+      this.touchedKnob = -1;
+    } else if (id === 'cancel') {
+      this.cancel();
     } else if (id === 'reset') {
       this.startReset();
     } else if (id === 'saveproject') {
@@ -1366,25 +1374,6 @@ export class App {
     this.save();
   }
 
-  /**
-   * SAVE: the selected track's pattern as it is now becomes its saved version - RECORD its
-   * notes, DESIGN its patch, PLAY (and SONG) both. FUNC + SAVE: every track's.
-   */
-  private saveCurrent(): void {
-    const notes = this.mode !== 'design';
-    const patch = this.mode !== 'record';
-    if (this.funcHeld) this.funcUsed = true;
-    const tracks = this.func ? this.project.channels.map((_, ch) => ch) : [this.selected];
-    for (const ch of tracks) {
-      const c = this.project.channels[ch];
-      lockPattern(c, c.activePattern, notes, patch);
-    }
-    this.save();
-    const what = notes && patch ? 'PATTERN + PATCH' : notes ? 'PATTERN' : 'PATCH';
-    const c = this.channel;
-    this.flash(`SAVED ${what} ${this.func ? 'ALL TRACKS' : `${this.selected + 1} ${PATTERN_NAMES[c.activePattern]}`}`);
-  }
-
   /** Unsaved edits on a pattern (notes or patch): marked * on the screen. */
   private dirty(c: ChannelState, p = c.activePattern): boolean {
     const pat = c.patterns[p];
@@ -1591,6 +1580,28 @@ export class App {
     }
     this.sendStep(index, step);
     this.save();
+  }
+
+  /** RECORD / PLAY / DESIGN (the mode buttons) or SONG (from MENU). */
+  private setMode(mode: Mode): void {
+    if (mode === 'song' && this.mode !== 'song') this.patternMode = this.mode;
+    this.mode = mode;
+    this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
+    if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
+    // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY and
+    // DESIGN (kept going between those two).
+    if (this.mode !== 'record') { this.ring = false; this.slideArm = false; this.dynamic = 'normal'; }
+    if (!this.forcing) {
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+        if (this.forceRing[ch] || this.forceSlide[ch] || this.forceDyn[ch] !== 'normal') this.setForce(ch, false, false, 'normal');
+      }
+    }
+    this.touchedKnob = -1;
+    if (this.mode === 'song' && this.project.song.rows.length === 0) {
+      // A first row from what the tracks play now.
+      this.project.song.rows.push({ bars: 4, patterns: this.project.channels.map((c) => c.activePattern) });
+      this.sendSong();
+    }
   }
 
   /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
@@ -2058,9 +2069,101 @@ export class App {
     this.touchedKnob = -1;
   }
 
-  private closeProjectMenu(): void {
+  /** back = CANCEL: to MENU if SAVE / LOAD was opened from it; otherwise MENU closes too. */
+  private closeProjectMenu(back = false): void {
     this.projMenu = null;
     this.barHeld = false;
+    if (!back) this.menu = null;
+  }
+
+  // ---------------------------------------------------------------- MENU, CANCEL
+
+  /** MENU's lines: MODE (patterns / SONG), SAVE and LOAD PROJECT. */
+  private menuItems(): MenuItem[] {
+    const song = this.mode === 'song';
+    return [
+      { label: 'MODE', value: song ? 'SONG' : 'PATTERNS', run: () => { this.menu = null; this.setMode(song ? this.patternMode : 'song'); } },
+      { label: 'SAVE PROJECT', value: '', run: () => this.openProjectMenu('save') },
+      { label: 'LOAD PROJECT', value: '', run: () => this.openProjectMenu('load') },
+    ];
+  }
+
+  /**
+   * A button while MENU is open. ▼ / ▲ (the OCT keys) move, ▶ or a strip key opens a line,
+   * ◀ / CANCEL / MENU close it; a mode button closes it and goes there; PLAY still plays.
+   * True = handled here.
+   */
+  private onMenu(id: string, pressed: boolean): boolean {
+    const menu = this.menu!;
+    if (id === 'play') return false;
+    if (id.startsWith('mode:')) {
+      if (pressed) this.menu = null;
+      return false;
+    }
+    if (!pressed) return true;
+    const items = this.menuItems();
+    let m: RegExpExecArray | null;
+    if (id === 'oct-' || id === 'oct+') {
+      menu.item = Math.max(0, Math.min(items.length - 1, menu.item + (id === 'oct-' ? 1 : -1)));
+    } else if (id === 'cur+') {
+      items[menu.item].run();
+    } else if ((m = /^step(\d+)$/.exec(id)) && Number(m[1]) <= items.length) {
+      menu.item = Number(m[1]) - 1;
+      items[menu.item].run();
+    } else if (id === 'cancel' && this.func) {
+      this.undo();
+    } else if (id === 'cur-' || id === 'cancel' || id === 'menu') {
+      this.menu = null;
+    }
+    return true;
+  }
+
+  /** CANCEL: back out of what is open, innermost first. FUNC + CANCEL = UNDO. */
+  private cancel(): void {
+    if (this.func) {
+      this.undo();
+    } else if (this.fxView > 0) {
+      this.fxView = 0;
+      this.touchedKnob = -1;
+    } else if (this.mode === 'record' && (this.ring || this.slideArm || this.dynamic !== 'normal')) {
+      this.ring = false;
+      this.slideArm = false;
+      this.dynamic = 'normal';
+    } else if (this.stepsMode) {
+      this.stepsMode = false;
+    } else if (this.restArm) {
+      this.restArm = false;
+    }
+  }
+
+  private undo(): void {
+    if (this.funcHeld) this.funcUsed = true;
+    this.flash('UNDO: NOT YET');
+  }
+
+  /** The MENU screen. */
+  menuView(): MenuView {
+    const now = performance.now();
+    return {
+      items: this.menuItems().map(({ label, value }) => ({ label, value })),
+      item: this.menu!.item,
+      message: now < this.messageUntil ? this.message : '',
+    };
+  }
+
+  /** MENU: strip keys 1-n = its lines (the cursor's lit), the rest dark. */
+  private updateMenuStrip(): void {
+    const items = this.menuItems().length;
+    for (let i = 0; i < STEP_BUTTONS; i++) {
+      const id = `step${i + 1}`;
+      const used = i < items;
+      this.panel.setButtonText(id, used ? String(i + 1) : '');
+      this.panel.setButtonFlag(id, 'off', !used);
+      this.panel.setButtonFlag(id, 'lit', used);
+      this.panel.setButtonFlag(id, 'cursor', i === this.menu!.item);
+      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, i === this.menu!.item ? 'cursor' : '');
+    }
   }
 
   /** A button while SAVE / LOAD is open. True = handled here (others are ignored, a few pass). */
@@ -2076,6 +2179,14 @@ export class App {
       return false;
     }
     if (id === 'clear') return false; // CLEAR held + slot = delete (LOAD)
+    if (id === 'cancel' && !this.func) {
+      this.closeProjectMenu(true);
+      return true;
+    }
+    if (id === 'menu') {
+      this.closeProjectMenu();
+      return true;
+    }
     if (id === 'saveproject') {
       if (this.funcHeld) this.funcUsed = true;
       if (menu.kind === 'save' && this.func) this.openProjectMenu('load');
@@ -2321,8 +2432,8 @@ export class App {
     }
     this.panel.setButtonLit('clear', this.clearHeld);
     this.panel.setButtonLit('reset', this.glides.size > 0 || performance.now() < this.resetLitUntil);
-    // SAVE: what this mode edits (RECORD the notes, DESIGN the patch, PLAY both).
-    this.panel.setButtonText('save', `SAVE<small>${this.mode === 'record' ? 'PATTERN' : this.mode === 'design' ? 'PATCH' : 'PAT+PATCH'}</small>`);
+    this.panel.setButtonLit('menu', !!this.menu);
+    this.panel.setButtonText('menu', this.mode === 'song' ? 'MENU<small>SONG</small>' : 'MENU');
     // SAVE PROJECT doubles as LOAD (FUNC): the label says which one a tap opens.
     this.panel.setButtonText('saveproject', this.func ? 'LOAD<small>PROJECT</small>' : 'SAVE/LOAD<small>PROJECT</small>');
     this.panel.setButtonEnabled('clear', this.mode !== 'design');
@@ -2385,6 +2496,10 @@ export class App {
       this.panel.setButtonEnabled('len', true);
       this.panel.setButtonEnabled('speed', true);
     }
+    if (this.menu) {
+      for (const id of ['oct-', 'oct+', 'cur-', 'cur+']) this.panel.setButtonEnabled(id, true);
+      this.panel.root.classList.toggle('keyboard', false);
+    }
   }
 
   /** SONG: the strip = 16 rows (lit = row exists, head = playing row, cursor row marked). */
@@ -2419,6 +2534,10 @@ export class App {
     this.stepGlides(now);
     if (this.projMenu) {
       this.updateProjectStrip();
+      return;
+    }
+    if (this.menu) {
+      this.updateMenuStrip();
       return;
     }
     if (this.mode === 'song') {

@@ -417,7 +417,8 @@ describe('PLAY starts from the bar shown', () => {
 describe('arrow keys', () => {
   it('OCT ▼ / ▲ read the same in SONG: ROW ▼ = the next row down', () => {
     const { app, tap, texts } = makeApp();
-    tap('mode:song');
+    tap('menu');
+    tap('cur+'); // MODE: SONG
     tap('ring'); // INSERT: a second row
     const row = () => (app as unknown as { songRow: number }).songRow;
     app.updateFrame(0);
@@ -430,5 +431,70 @@ describe('arrow keys', () => {
     tap('mode:record');
     app.updateFrame(0);
     expect(texts.get('oct-')).toBe('OCT ▼');
+  });
+});
+
+describe('MENU and CANCEL', () => {
+  it('MENU: ▼ / ▲ move, ▶ opens; MODE switches to SONG and back to the mode it came from', () => {
+    const { app, tap, texts } = makeApp();
+    tap('mode:design');
+    tap('menu');
+    expect(app.menu).not.toBeNull();
+    tap('oct-'); // ▼
+    expect(app.menu?.item).toBe(1);
+    tap('oct+'); // ▲
+    tap('cur+');
+    expect(app.mode).toBe('song');
+    expect(app.menu).toBeNull();
+    app.updateFrame(0);
+    expect(texts.get('menu')).toBe('MENU<small>SONG</small>');
+    tap('menu');
+    tap('step1'); // the strip key of MODE
+    expect(app.mode).toBe('design');
+  });
+
+  it('SAVE / LOAD opened from MENU: CANCEL goes back to MENU, CANCEL again closes it', () => {
+    const { app, tap } = makeApp();
+    tap('menu');
+    tap('step3'); // LOAD PROJECT
+    expect(app.projMenu?.kind).toBe('load');
+    tap('cancel');
+    expect(app.projMenu).toBeNull();
+    expect(app.menu).not.toBeNull();
+    tap('cancel');
+    expect(app.menu).toBeNull();
+  });
+
+  it('CANCEL leaves the SAVE / LOAD panel button\'s screen, an FX view, flag placing and STEPS mode', () => {
+    const { app, tap } = makeApp();
+    const priv = app as unknown as { fxView: number; stepsMode: boolean };
+    tap('saveproject');
+    tap('cancel');
+    expect(app.projMenu).toBeNull();
+    expect(app.menu).toBeNull();
+    tap('fx2');
+    expect(priv.fxView).toBe(2);
+    tap('cancel');
+    expect(priv.fxView).toBe(0);
+    tap('mode:record');
+    tap('ring');
+    expect(app.ring).toBe(true);
+    tap('cancel');
+    expect(app.ring).toBe(false);
+    tap('len');
+    expect(priv.stepsMode).toBe(true);
+    tap('cancel');
+    expect(priv.stepsMode).toBe(false);
+  });
+
+  it('PLAY still plays with MENU open; a mode button closes it', () => {
+    const { app, tap } = makeApp();
+    tap('menu');
+    tap('play');
+    expect(app.playing).toBe(true);
+    expect(app.menu).not.toBeNull();
+    tap('mode:play');
+    expect(app.menu).toBeNull();
+    expect(app.mode).toBe('play');
   });
 });
