@@ -5,8 +5,9 @@ export default defineConfig({
   base: './',
   build: {
     target: 'es2020',
-    // The panel font goes inline (the Artifact build is one page, no asset files).
-    assetsInlineLimit: (file) => (file.endsWith('.woff2') ? true : undefined),
+    // The panel font and the keep-awake video go inline (the Artifact build is one page, no
+    // asset files).
+    assetsInlineLimit: (file) => (file.endsWith('.woff2') || file.endsWith('.mp4') ? true : undefined),
   },
   worker: {
     // The AudioWorklet module is bundled as a classic self-contained script.

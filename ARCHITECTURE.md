@@ -244,7 +244,9 @@ mode / page / bus (`computeTargets`), and it builds the screen view-models (`vie
 design view, song view, project menu). `PixelScreen` records each frame's drawing and only redraws when
 it changed, with text from cached glyph canvases. On portrait screens `Panel.fit` rotates the panel 90°
 and `orientation.ts` keeps knob drags in panel coordinates. Audio starts on the first touch / click / key
-(browsers require a gesture); until then the footer says TOUCH FOR SOUND.
+(browsers require a gesture); until then the footer says TOUCH FOR SOUND. `wake.ts` keeps the screen on
+while playing (or always, KEEP SCREEN ON): the Screen Wake Lock, or where it is refused (the Artifact's
+frame may not ask for it) a 2 KB muted looping video out of sight (`awake.mp4`, inlined by `vite.config.ts`).
 
 ## Parameters
 

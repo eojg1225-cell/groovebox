@@ -14,6 +14,7 @@ import { createDefaultProject } from './engine/defaultProject';
 import { projectStore } from './storage/projects';
 import { startSlotSync } from './storage/slotSync';
 import { TOUCH_DELAYS, deviceSettings } from './storage/settings';
+import { ScreenAwake } from './ui/wake';
 
 /** Start-up: how long the title stays once the engine is running, then the zoom out. */
 const TITLE_HOLD_MS = 700;
@@ -145,25 +146,12 @@ function titleFrame(now: number): void {
 
 // ------------------------------------------------------------------ wake lock
 
-type WakeLock = { release(): Promise<void> };
 /** The screen stays on while playing, or always (TOUCH SETTINGS: KEEP SCREEN ON). */
 const keepAwake = () => app.playing || deviceSettings.screenOn === 1;
-let wakeLock: WakeLock | null = null;
-async function updateWakeLock(): Promise<void> {
-  const nav = navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<WakeLock> } };
-  try {
-    const want = keepAwake();
-    if (want && !wakeLock && nav.wakeLock) wakeLock = await nav.wakeLock.request('screen');
-    if (!want && wakeLock) { await wakeLock.release(); wakeLock = null; }
-  } catch { /* not supported or denied */ }
-}
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { wakeLock = null; void updateWakeLock(); }
-});
+const screenAwake = new ScreenAwake();
 
 // ------------------------------------------------------------------ frame loop
 
-let wasAwake = false;
 let sentListenMs = -1;
 
 /**
@@ -204,7 +192,7 @@ const frame = (now: number) => {
     if (audio.state === 'on' && host.ctx.state !== 'running') audio.state = 'off';
     else if (audio.state === 'off' && host.ctx.state === 'running') audio.state = 'on';
   }
-  if (keepAwake() !== wasAwake) { wasAwake = keepAwake(); void updateWakeLock(); }
+  screenAwake.set(keepAwake());
   app.updateFrame(now);
   screen.begin();
   if (!titleDone) titleFrame(now);
