@@ -287,6 +287,8 @@ export class Drum implements Instrument {
   /** Decay multipliers in use for the current hit (normal, ring or choke). */
   private tMul = 0; private mMul = 0; private cMul = 0;
   private ringing = false;
+  /** The track's RING: RING decays x this. */
+  private ringScale = 1;
 
   // Voice state: per layer an envelope value and stage (OFF / ATTACKING / DECAYING).
   private tune = 1;
@@ -467,16 +469,23 @@ export class Drum implements Instrument {
     this.cFilter.setup(f, this.cReso, this.sr);
   }
 
-  /** Normal decays, and RING ones (decay x RING_STRETCH + the type's ring extension). */
+  setRingLength(scale: number): void {
+    if (scale === this.ringScale) return;
+    this.ringScale = scale;
+    this.updateDecays();
+  }
+
+  /** Normal decays, and RING ones ((decay x RING_STRETCH + the type's ring extension) x the track's RING). */
   private updateDecays(): void {
     const sr = this.sr;
     const extra = this.voice.ringExtra;
+    const k = this.ringScale;
     this.tDecayMul = decayMul(this.tDecay, sr);
     this.mDecayMul = decayMul(this.mDecay, sr);
     this.cDecayMul = decayMul(this.cLen, sr);
-    this.tRingMul = decayMul(this.tDecay * RING_STRETCH + extra, sr);
-    this.mRingMul = decayMul(this.mDecay * RING_STRETCH + extra, sr);
-    this.cRingMul = decayMul(this.cLen * RING_STRETCH, sr);
+    this.tRingMul = decayMul((this.tDecay * RING_STRETCH + extra) * k, sr);
+    this.mRingMul = decayMul((this.mDecay * RING_STRETCH + extra) * k, sr);
+    this.cRingMul = decayMul(this.cLen * RING_STRETCH * k, sr);
   }
 
   /**

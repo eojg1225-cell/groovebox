@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 49;
+export const PROJECT_VERSION = 50;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -245,6 +245,8 @@ export interface ChannelState {
   dynamics: number;
   /** TRIM (mix id 'gate'): how long each sequenced note's last step is held, in steps (1/8 .. 2; 1 = as entered). */
   gateLength: number;
+  /** RING (mix id 'ring', drums): how long RING steps ring, x the designed length (1 = as designed). */
+  ringLength: number;
   /** MID CUT: the track's own cut after DRIVE, 0..1 (centre = the sound's MID FREQ). */
   midCut: number;
   /** The track is modulated by the (shared) LFO. */
@@ -297,6 +299,7 @@ export function emptyChannel(): ChannelState {
     sendLevel: 0.5,
     dynamics: 100,
     gateLength: 1,
+    ringLength: 1,
     midCut: 0,
     lfoOn: false,
     mute: false,

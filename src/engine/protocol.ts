@@ -5,7 +5,7 @@
 import type { InstrumentKind, PatternSpeed, Project, Song, Step } from './project';
 import type { LfoId } from './lfo';
 
-export type MixParam = 'volume' | 'pan' | 'mute' | 'send' | 'dyn' | 'gate' | 'cut';
+export type MixParam = 'volume' | 'pan' | 'mute' | 'send' | 'dyn' | 'gate' | 'cut' | 'ring';
 /** meter: the time signature (index into METERS); playing, it changes at the next bar line. */
 export type GlobalParam = 'bpm' | 'swing' | 'master' | 'meter';
 

@@ -844,8 +844,8 @@ export class App {
 
   /**
    * DESIGN > PROJECT (global): TEMPO, SWING, MASTER, TIME SIG on top; every track's
-   * ACC/GHOST below. With FUNC: TRIM below on every synth track (drum slots stay empty, they
-   * play out their own decay; the knob follows the track's type, see TRACKS).
+   * ACC/GHOST below. With FUNC below: TRIM on a synth track, RING (how long RING steps ring)
+   * on a drum track; each slot follows its track's type (see TRACKS).
    */
   private projectTargets(): (KnobTarget | null)[] {
     const top: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
@@ -854,7 +854,12 @@ export class App {
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
     }));
     while (top.length < KNOBS_PER_ROW) top.push(null);
-    if (this.func) return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...this.trackRow('mix:gate', 'TRIM', (c) => c.instrument !== 'none' && !isDrum(c.instrument))];
+    if (this.func) {
+      const bottom = this.project.channels.map((c, ch) => (c.instrument === 'none' ? null
+        : isDrum(c.instrument) ? this.paramTarget(ch, 'mix:ring', `RING ${ch + 1}`, ch === this.selected)
+        : this.paramTarget(ch, 'mix:gate', `TRIM ${ch + 1}`, ch === this.selected)));
+      return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...bottom];
+    }
     return [...top, ...this.trackRow('mix:dyn', 'ACC')];
   }
 

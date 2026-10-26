@@ -338,6 +338,24 @@ describe('sequencer', () => {
     });
   });
 
+  it('RING (per track) scales how long RING steps ring; x1 = as before, kept in saves', () => {
+    const ringTail = (scale?: number) => {
+      const p = kickProject([0]);
+      p.channels[0].patterns[0].steps[0].ring = true;
+      if (scale !== undefined) p.channels[0].ringLength = scale;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 1).l.subarray(20000, 30000)).peak;
+    };
+    expect(ringTail(1)).toBe(ringTail());
+    expect(ringTail(2)).toBeGreaterThan(ringTail(1) * 2);
+    expect(ringTail(0.5)).toBeLessThan(ringTail(1) * 0.5);
+    const p = createDefaultProject();
+    p.channels[1].ringLength = 2.5;
+    expect(fromStored(toStored(p))?.channels[1].ringLength).toBe(2.5);
+    expect(fromStored({ ...toStored(p), channels: toStored(p).channels.map((c) => ({ ...c, ringLength: undefined })) })?.channels[1].ringLength).toBe(1);
+  });
+
   describe('METRONOME and COUNT-IN', () => {
     it('clicks on every beat while playing, louder on the bar', () => {
       const e = engineWith(kickProject([]));

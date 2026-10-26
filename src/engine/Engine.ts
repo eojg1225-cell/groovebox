@@ -499,6 +499,7 @@ export class Engine {
       this.setMix(ch, 'pan', c.pan);
       this.setMix(ch, 'dyn', c.dynamics ?? 100);
       this.setMix(ch, 'gate', c.gateLength ?? 1);
+      this.setMix(ch, 'ring', c.ringLength ?? 1);
       this.setMix(ch, 'cut', c.midCut ?? 0);
       this.route[ch] = this.busIndex(c.fxSend);
       this.inDrumBus[ch] = c.fx1 ? 1 : 0;
@@ -2006,6 +2007,11 @@ export class Engine {
     if (id === 'send') { this.sendLevel[ch].setTarget(value); return; }
     if (id === 'dyn') { this.dynDepth[ch] = value / 100; return; }
     if (id === 'gate') { this.gateLength[ch] = value; return; }
+    if (id === 'ring') {
+      // Every drum type the track can switch to rings this long.
+      for (const kind of SOUND_KINDS) this.instruments[ch][kind].setRingLength?.(value);
+      return;
+    }
     if (id === 'cut') { this.cuts[ch].setAmount(value); return; }
     if (id === 'volume') this.volumeValue[ch] = value;
     else if (id === 'pan') this.pan[ch].setTarget(value);

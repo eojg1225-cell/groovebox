@@ -3,6 +3,8 @@ import { METERS } from './project';
 
 export const GATE_MIN = 0.125;
 export const GATE_MAX = 2;
+export const RING_MIN = 0.25;
+export const RING_MAX = 4;
 
 /** Per-channel mixer parameters. */
 export const MIX_PARAMS: readonly ParamSpec[] = [
@@ -18,12 +20,15 @@ export const MIX_PARAMS: readonly ParamSpec[] = [
   // the sound's MID FREQ, SOUND page FUNC).
   { id: 'cut', name: 'MID CUT', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'gate', name: 'TRIM', min: GATE_MIN, max: GATE_MAX, defaultValue: 1, unit: ' ST', curve: 'linear', decimals: 2 },
+  // RING (drums): how long a RING step rings, x its length as designed (each layer's decay
+  // x3 plus the type's ring extension).
+  { id: 'ring', name: 'RING', min: RING_MIN, max: RING_MAX, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 2 },
 ];
 
-export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate' | 'cut';
+export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate' | 'cut' | 'ring';
 
 /** The channel field each mixer parameter lives in. */
-export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength', cut: 'midCut' } as const;
+export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength', cut: 'midCut', ring: 'ringLength' } as const;
 
 /** Velocity of a normal hit (ghost 0.45, accent 1.0). */
 const NORMAL_VELOCITY = 0.8;

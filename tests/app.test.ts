@@ -437,13 +437,13 @@ describe('arrow keys', () => {
 });
 
 describe('PROJECT page TRIM, COUNT-IN, METRONOME', () => {
-  it('FUNC on the PROJECT page: TRIM on the synth tracks; it follows a track switched to a synth', () => {
+  it('FUNC on the PROJECT page: RING on drum tracks, TRIM on synths; each follows a track switched to the other', () => {
     const { app, tap, press, release } = makeApp();
     const labels = () => (app as unknown as { targets: ({ label: string } | null)[] }).targets.slice(8).map((t) => t?.label);
     tap('mode:design');
     tap('dpage2');
     press('func');
-    expect(labels()).toEqual([undefined, undefined, undefined, undefined, 'TRIM 5', 'TRIM 6', 'TRIM 7', 'TRIM 8']);
+    expect(labels()).toEqual(['RING 1', 'RING 2', 'RING 3', 'RING 4', 'TRIM 5', 'TRIM 6', 'TRIM 7', 'TRIM 8']);
     release('func');
     tap('menu');
     tap('step2'); // PROJECT SETTINGS

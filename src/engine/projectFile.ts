@@ -18,7 +18,7 @@ import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, preset
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { BUS_PARAMS, FX_LIVE, NUM_BUSES } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
-import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN } from './mixParams';
+import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN, RING_MAX, RING_MIN } from './mixParams';
 import { METERS, type InstrumentKind, type PatternSpeed } from './project';
 import { LFO_RATES, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
@@ -135,6 +135,8 @@ interface StoredChannel {
   sendLevel: number;
   dynamics?: number;
   gateLength?: number;
+  /** v50 on (older: 1 = as designed). */
+  ringLength?: number;
   midCut?: number;
   lfoOn: boolean;
   mute: boolean;
@@ -185,6 +187,7 @@ export function toStored(p: Project): StoredProject {
       sendLevel: c.sendLevel,
       dynamics: c.dynamics,
       gateLength: c.gateLength,
+      ringLength: c.ringLength,
       midCut: c.midCut,
       lfoOn: c.lfoOn,
       mute: c.mute,
@@ -434,6 +437,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.dynamics = num(src.dynamics, 100, 0, 200);
   ch.gateLength = num(src.gateLength, 1, GATE_MIN, GATE_MAX);
+  ch.ringLength = num(src.ringLength, 1, RING_MIN, RING_MAX);
   ch.midCut = num(src.midCut, 0, 0, 1);
   ch.mute = src.mute === true;
   ch.fx1 = src.fx1 === true;
