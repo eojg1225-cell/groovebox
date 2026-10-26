@@ -502,9 +502,10 @@ export class App {
     const head = this.status?.steps[ch] ?? -1;
     // Other lanes, PLAY, DESIGN and live recording (placing a flag too) follow the playhead's
     // 16-step block.
-    const following = ch !== this.selected || (this.followsPlayhead && !this.stepsMode);
+    // Stopped, every track shows the bar it stopped in (or was set to): the next PLAY's start.
+    const following = this.playing && (ch !== this.selected || (this.followsPlayhead && !this.stepsMode));
     let page: number;
-    if (following) page = this.playing && head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : 0;
+    if (following) page = head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : this.viewPage[ch];
     else if (!stepsOnStrip(c.instrument) && this.mode === 'record' && !this.stepsMode) {
       // Step entry: the cursor's block, or while a note is being tied, the block its end is in
       // (a tie runs on past the bar line into the next block, and round past the loop end).
@@ -958,10 +959,22 @@ export class App {
       return;
     }
     if (id === 'play') {
+      // FUNC + PLAY = from the top (stopping: back to the top for the next PLAY); FUNC lets go.
+      const top = this.func;
+      if (top) {
+        this.funcHeld = false;
+        this.funcLatched = false;
+        this.funcUsed = true;
+      }
+      if (this.playing) this.keepBars(top);
       this.playing = !this.playing;
-      // PLAY in SONG mode plays the song from the cursor row; elsewhere the patterns.
+      // PLAY in SONG mode plays the song from the cursor row; elsewhere the patterns, from
+      // the bar the strip shows for the selected track (every track where it would be then).
       this.songPlaying = this.playing && this.mode === 'song' && this.project.song.rows.length > 0;
-      this.send({ type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: this.songRow, gen: ++this.transportGen });
+      this.send({
+        type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: top ? 0 : this.songRow,
+        fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16, gen: ++this.transportGen,
+      });
     } else if (id.startsWith('mode:')) {
       this.mode = id.slice(5) as Mode;
       this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
@@ -1583,7 +1596,23 @@ export class App {
   /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
   /** The strip shows the bar playing: PLAY, DESIGN and live recording (RECORD while playing). */
   private get followsPlayhead(): boolean {
-    return this.mode === 'play' || this.mode === 'design' || this.recording;
+    return this.playing && (this.mode === 'play' || this.mode === 'design' || this.recording);
+  }
+
+  /**
+   * STOP: every track keeps the bar it was playing (top = back to bar 1), so the next PLAY
+   * carries on from there; step entry's cursor moves into that bar.
+   */
+  private keepBars(top: boolean): void {
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      const c = this.project.channels[ch];
+      const head = this.status?.steps[ch] ?? -1;
+      const heard = this.status?.patterns[ch] ?? c.activePattern;
+      if (!top && (head < 0 || heard !== c.activePattern)) continue;
+      const page = top ? 0 : Math.floor(head / 16);
+      this.viewPage[ch] = page;
+      this.cursor[ch] = Math.min(page * 16 + (this.cursor[ch] % 16), c.patterns[c.activePattern].length - 1);
+    }
   }
 
   /** PLAY and DESIGN: RING / SLIDE / ACCENT / GHOST make every note on the track play that way. */

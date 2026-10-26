@@ -367,3 +367,49 @@ describe('live knobs', () => {
     expect(ids(7)).toEqual(expect.arrayContaining(['dtime', 'track:chord']));
   });
 });
+
+describe('PLAY starts from the bar shown', () => {
+  const status = (steps: number[]) => ({ type: 'status' as const, peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0 });
+  const lastStart = (sent: MainToWorklet[]) => sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
+
+  it('BAR picks the start bar of the selected track, also in PLAY while stopped', () => {
+    const { app, sent, tap } = makeApp();
+    app.project.channels[0].patterns[app.project.channels[0].activePattern].length = 64;
+    tap('mode:play');
+    tap('ch1');
+    tap('steppage');
+    tap('steppage');
+    tap('play');
+    expect(lastStart(sent)).toMatchObject({ playing: true, fromChannel: 0, fromStep: 32 });
+  });
+
+  it('STOP keeps the bar playing, so PLAY carries on from there', () => {
+    const { app, sent, tap } = makeApp();
+    app.project.channels[0].patterns[app.project.channels[0].activePattern].length = 64;
+    tap('mode:play');
+    tap('ch1');
+    tap('play');
+    app.setStatus(status([50, 2, 2, 2, 2, 2, 2, 2]));
+    tap('play');
+    tap('play');
+    expect(lastStart(sent)).toMatchObject({ playing: true, fromStep: 48 });
+  });
+
+  it('FUNC + PLAY starts from the top and lets go of FUNC (held or latched)', () => {
+    const { app, sent, tap, press, release } = makeApp();
+    app.project.channels[0].patterns[app.project.channels[0].activePattern].length = 64;
+    tap('mode:record');
+    tap('ch1');
+    tap('steppage');
+    tap('func'); // latched
+    tap('play');
+    expect(lastStart(sent)).toMatchObject({ playing: true, fromStep: 0 });
+    expect((app as unknown as { func: boolean }).func).toBe(false);
+    press('func');
+    tap('play'); // stop, back to the top
+    release('func');
+    expect((app as unknown as { func: boolean }).func).toBe(false);
+    tap('play');
+    expect(lastStart(sent)).toMatchObject({ playing: true, fromStep: 0 });
+  });
+});

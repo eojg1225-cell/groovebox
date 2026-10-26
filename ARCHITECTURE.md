@@ -66,7 +66,7 @@ Main -> worklet:
 | `setBus` | `bus` (0-2 = FX 1-3), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
-| `transport` | `playing`, `song?`, `fromRow?`, `gen?` | Start (from step 1) / stop; `song` = play the song from row `fromRow`. `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
+| `transport` | `playing`, `song?`, `fromRow?`, `fromChannel?`, `fromStep?`, `gen?` | Start / stop; `song` = play the song from row `fromRow`. Patterns: `fromStep` (a bar line of track `fromChannel`'s pattern; absent = the top) = every track starts where it would be had all played from the top until that track reached that step (`Engine.startAt` moves the step counters on silently; notes started earlier don't sound). `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
 | `setSong` | `song` | Replace the song rows |
 | `songJump` | `row` | While the song plays: go to this row at the next bar line |
 | `trigger` | `channel`, `note`, `velocity`, `slideFrom?` | Play a note now (`slideFrom` = legato from a held note) |

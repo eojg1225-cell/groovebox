@@ -384,6 +384,8 @@ export class Engine {
           this.songOn = msg.song === true && this.songLength > 0;
           this.songRow = this.songOn ? Math.max(0, Math.min(this.songLength - 1, msg.fromRow ?? 0)) : -1;
           this.songBar = -1; // the row is entered on the first step
+          this.setPlaying(true);
+          if (!this.songOn && msg.fromStep) this.startAt(msg.fromChannel ?? 0, msg.fromStep);
         }
         this.setPlaying(msg.playing);
         break;
@@ -532,6 +534,74 @@ export class Engine {
         this.restoreBase(ch);
       }
     }
+  }
+
+  /**
+   * PLAY from a bar: every track's step counters move on, silently, to where they would be
+   * had everything played from the top until track ch reached step `from` of its pattern.
+   * Notes that would have started before then do not sound.
+   */
+  private startAt(ch: number, from: number): void {
+    if (!this.current[ch]) return;
+    const pat = ch * NUM_PATTERNS + this.activePattern[ch];
+    const len = this.patternLength[pat];
+    const base = pat * MAX_STEPS;
+    if (from >= len || this.nextOn(base, from, len) < 0) return;
+    let g = 0;
+    for (; g < 4 * MAX_STEPS; g++) {
+      const pos = this.barPos(g);
+      if (this.callsAt(ch, pos) && this.peekStep(ch) >= from) break;
+      for (let c = 0; c < NUM_CHANNELS; c++) {
+        if (!this.current[c] || !this.callsAt(c, pos)) continue;
+        const rate = this.patternRate[c * NUM_PATTERNS + this.activePattern[c]];
+        this.chaseStep(c, g);
+        if (rate < 1) this.chaseStep(c, g + 0.5);
+        else if (rate > 1 && rate < 2) {
+          this.chaseStep(c, g + 4 / 3);
+          this.chaseStep(c, g + 8 / 3);
+        }
+      }
+    }
+    this.globalStep = g;
+    this.lfoClock = g;
+    this.lfoTrig.fill(g);
+  }
+
+  /** Whether track ch steps on master step `pos` of the bar (half time / triplets: not every one). */
+  private callsAt(ch: number, pos: number): boolean {
+    const rate = this.patternRate[ch * NUM_PATTERNS + this.activePattern[ch]];
+    if (rate >= 2) return pos % 2 === 0;
+    if (rate > 1) return pos % 4 === 0;
+    return true;
+  }
+
+  /** The step track ch plays next (-1 = none plays). */
+  private peekStep(ch: number): number {
+    const pat = ch * NUM_PATTERNS + this.activePattern[ch];
+    const len = this.patternLength[pat];
+    const base = pat * MAX_STEPS;
+    const idx = this.nextOn(base, this.position[ch] % len, len);
+    return idx >= 0 ? idx : this.nextOn(base, 0, len);
+  }
+
+  /** startAt: one silent step of track ch (at master position `at`): stepChannel's counters only. */
+  private chaseStep(ch: number, at: number): void {
+    const pat = ch * NUM_PATTERNS + this.activePattern[ch];
+    const len = this.patternLength[pat];
+    const base = pat * MAX_STEPS;
+    this.chanRate[ch] = this.patternRate[pat];
+    this.chanAt[ch] = at;
+    this.chanCount[ch]++;
+    if (this.loopStart[ch]) this.offGrid[ch] = at === Math.floor(at) && this.barPos(at) === 0 ? 0 : 1;
+    const idx = this.peekStep(ch);
+    if (idx < 0) {
+      this.position[ch] = 0;
+      this.loopStart[ch] = 1;
+      return;
+    }
+    const next = this.nextOn(base, idx + 1, len);
+    this.loopStart[ch] = next < 0 ? 1 : 0;
+    this.position[ch] = next < 0 ? 0 : next;
   }
 
   /** Overwrites outL/outR with `frames` samples. */

@@ -305,6 +305,39 @@ describe('sequencer', () => {
     near(onsets(render(e, 0.5).l), [9000]);
   });
 
+  describe('PLAY from a bar', () => {
+    /** Tracks 1-4 at 64 / 48 / 32 / 24 steps (track 1's speed as given), steps after the first one fires. */
+    function startFrom(channel: number, step: number, speed?: 'half' | 'double'): number[] {
+      const p = kickProject([]);
+      [64, 48, 32, 24].forEach((len, ch) => { p.channels[ch].patterns[0].length = len; });
+      if (speed) p.channels[0].patterns[0].speed = speed;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true, fromChannel: channel, fromStep: step });
+      render(e, 0.01);
+      return Array.from(e.currentStep.slice(0, 4));
+    }
+
+    it('starts every track where it would be at that bar of the selected track', () => {
+      expect(startFrom(0, 32)).toEqual([32, 32, 0, 8]); // bar 3
+      expect(startFrom(0, 48)).toEqual([48, 0, 16, 0]); // bar 4
+      expect(startFrom(2, 16)).toEqual([16, 16, 16, 16]);
+      expect(startFrom(0, 0)).toEqual([0, 0, 0, 0]);
+    });
+
+    it('counts the selected track\'s bars at its own speed', () => {
+      // Half time: its bar 3 is master bar 5 (64 steps in).
+      expect(startFrom(0, 32, 'half')).toEqual([32, 16, 0, 16]);
+      // Double time: its bar 2 is half way through master bar 1.
+      expect(startFrom(0, 16, 'double')).toEqual([16, 8, 8, 8]);
+    });
+
+    it('plays the bar\'s first hit at once', () => {
+      const e = engineWith(kickProject([2, 32], { length: 64 }));
+      e.handleMessage({ type: 'transport', playing: true, fromChannel: 0, fromStep: 32 });
+      near(onsets(render(e, 0.5).l), [0]);
+    });
+  });
+
   it('switches pattern at the end of the loop, not immediately', () => {
     const p = kickProject([0]);
     p.channels[0].patterns[1].steps[2].active = true;

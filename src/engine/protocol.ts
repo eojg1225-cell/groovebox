@@ -63,13 +63,17 @@ export type MainToWorklet =
   | { type: 'setLfo'; id: LfoId; value: number }
   /** Put a track on / off the LFO. */
   | { type: 'setLfoTrack'; channel: number; on: boolean }
-  /** Start / stop. song = play the song (from row fromRow) instead of the patterns. */
+  /**
+   * Start / stop. song = play the song (from row fromRow) instead of the patterns. Patterns:
+   * fromStep (a bar line of track fromChannel's pattern, absent = the top) = every track
+   * starts where it would be had all played from the top until that track reached that step.
+   */
   /**
    * `gen`: the UI's transport count. STOP also goes as the node's `stop` AudioParam (it gets
    * through when an overloaded audio thread holds messages back); a transport message older
    * than a STOP already applied that way is dropped.
    */
-  | { type: 'transport'; playing: boolean; song?: boolean; fromRow?: number; gen?: number }
+  | { type: 'transport'; playing: boolean; song?: boolean; fromRow?: number; fromChannel?: number; fromStep?: number; gen?: number }
   /** Replace the song (sent after every song edit; small). */
   | { type: 'setSong'; song: Song }
   /** While the song plays: go to this row at the next bar line. */
