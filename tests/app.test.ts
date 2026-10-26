@@ -418,7 +418,8 @@ describe('arrow keys', () => {
   it('OCT ▼ / ▲ read the same in SONG: ROW ▼ = the next row down', () => {
     const { app, tap, texts } = makeApp();
     tap('menu');
-    tap('step2'); // SONG MODE
+    tap('cur+'); // MODE: SONG
+    tap('menu'); // closed
     tap('ring'); // INSERT: a second row
     const row = () => (app as unknown as { songRow: number }).songRow;
     app.updateFrame(0);
@@ -435,27 +436,62 @@ describe('arrow keys', () => {
 });
 
 describe('MENU and CANCEL', () => {
-  it('MENU is a list: ▼ / ▲ move, ▶ or a strip key chooses; SONG MODE and back to the mode it came from', () => {
+  const page = (app: App) => app.menu?.stack[app.menu.stack.length - 1];
+
+  it('MODE: ◀ ▶ = JAM / SONG at once, the menu stays open; SONG goes back to the mode it came from', () => {
     const { app, tap, texts } = makeApp();
     tap('mode:design');
     tap('menu');
-    expect(app.menu?.item).toBe(0); // opens on the mode in use
-    tap('oct-'); // ▼
-    expect(app.menu?.item).toBe(1);
-    tap('oct-'); // the last line: stays
-    expect(app.menu?.item).toBe(1);
-    tap('oct+'); // ▲
-    expect(app.menu?.item).toBe(0);
-    tap('oct-');
-    tap('cur+'); // SONG MODE
+    expect(page(app)).toEqual({ page: 'top', item: 0 });
+    tap('cur+');
     expect(app.mode).toBe('song');
-    expect(app.menu).toBeNull();
+    expect(app.menu).not.toBeNull();
     app.updateFrame(0);
     expect(texts.get('menu')).toBe('MENU<small>SONG</small>');
-    tap('menu');
-    expect(app.menu?.item).toBe(1);
-    tap('step1'); // PATTERN MODE
+    tap('cur-');
     expect(app.mode).toBe('design');
+    tap('menu');
+    expect(app.menu).toBeNull();
+  });
+
+  it('▼ / ▲ move, ▶ opens a page, CANCEL goes back a page and closes at the top', () => {
+    const { app, tap } = makeApp();
+    tap('menu');
+    tap('oct-'); // ▼ to PROJECT SETTINGS
+    expect(page(app)?.item).toBe(1);
+    tap('oct-'); // the last line: stays
+    expect(page(app)?.item).toBe(1);
+    tap('cur+');
+    expect(page(app)?.page).toBe('project');
+    tap('step1'); // TRACKS
+    expect(page(app)?.page).toBe('tracks');
+    tap('cancel');
+    expect(page(app)?.page).toBe('project');
+    tap('cancel');
+    tap('cancel');
+    expect(app.menu).toBeNull();
+  });
+
+  it('TRACKS: ◀ ▶ pick a type, the track\'s strip key changes it; notes stay, locks go', () => {
+    const { app, tap, sent } = makeApp();
+    const snare = app.project.channels[1];
+    snare.patterns[0].steps[4].active = true;
+    snare.patterns[0].steps[4].locks = { decay: 0.3 };
+    tap('menu');
+    tap('step2'); // PROJECT SETTINGS
+    tap('step1'); // TRACKS
+    tap('oct-'); // TRACK 2
+    tap('cur+'); // SNARE -> HAT, pending
+    expect(snare.instrument).toBe('snare');
+    tap('step2'); // confirm
+    expect(snare.instrument).toBe('hat');
+    expect(snare.patterns[0].steps[4].active).toBe(true);
+    expect(snare.patterns[0].steps[4].locks).toBeUndefined();
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'setInstrument', channel: 1, kind: 'hat' }));
+    // A pick not confirmed is dropped by CANCEL.
+    tap('cur+');
+    tap('cancel');
+    expect(snare.instrument).toBe('hat');
   });
 
   it('CANCEL leaves the SAVE / LOAD panel button\'s screen, an FX view, flag placing and STEPS mode', () => {

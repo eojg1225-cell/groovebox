@@ -51,12 +51,12 @@ import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
-  setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type Project, type SoundKind, type Step,
+  setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SoundKind, type Step,
 } from '../engine/project';
-import { applyPreset, createDefaultProject } from '../engine/defaultProject';
+import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, LIVE_MACROS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
@@ -70,17 +70,33 @@ import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongView } 
 type Mode = 'record' | 'play' | 'design' | 'song';
 
 
-/** MENU: the item the cursor is on. */
+/** MENU's pages (top = the list MENU opens on). */
+type MenuPage = 'top' | 'project' | 'tracks';
+const MENU_TITLES: Record<MenuPage, string> = { top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS' };
+
+/** MENU open: the pages gone into (the last one shown), each with the line its cursor is on. */
 interface MainMenu {
-  item: number;
+  stack: { page: MenuPage; item: number }[];
+  /** TRACKS: a type picked for a track, waiting for its strip key to confirm. */
+  pending: Map<number, InstrumentKind>;
 }
 
-/** One MENU line: its name, what it is set to ('' = none), and what ▶ / its strip key does. */
-interface MenuItem {
+/**
+ * One MENU line: a setting (◀ ▶ / knob 1 step through `options`) or a way into a page
+ * (`open`, ▶ / its strip key). `confirm` = a pending choice the strip key applies.
+ */
+interface MenuLine {
   label: string;
-  value: string;
-  run: () => void;
+  options?: readonly string[];
+  get?(): number;
+  set?(index: number): void;
+  open?(): void;
+  pending?: boolean;
+  confirm?(): void;
 }
+
+/** TRACKS: the types a track can take, in this order (OFF = no instrument). */
+const TRACK_KINDS: readonly InstrumentKind[] = ['none', ...SOUND_KINDS];
 
 /** SAVE / LOAD state. */
 interface ProjectMenu {
@@ -822,7 +838,7 @@ export class App {
   /** The 16 knob targets for the current mode. */
   private computeTargets(): (KnobTarget | null)[] {
     if (this.projMenu) return this.nameTargets();
-    if (this.menu) return new Array(KNOB_COUNT).fill(null);
+    if (this.menu) return this.menuTargets();
     // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.mode === 'song') return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
@@ -1029,7 +1045,7 @@ export class App {
         this.touchedKnob = -1;
       }
     } else if (id === 'menu') {
-      this.menu = { item: this.mode === 'song' ? 1 : 0 }; // opens on the mode in use
+      this.menu = { stack: [{ page: 'top', item: 0 }], pending: new Map() };
       this.touchedKnob = -1;
     } else if (id === 'cancel') {
       this.cancel();
@@ -2076,43 +2092,133 @@ export class App {
 
   // ---------------------------------------------------------------- MENU, CANCEL
 
-  /** MENU's lines: PATTERN MODE, SONG MODE (the one in use marked ON; choosing it closes MENU). */
-  private menuItems(): MenuItem[] {
-    const song = this.mode === 'song';
-    return [
-      { label: 'PATTERN MODE', value: song ? '' : 'ON', run: () => { this.menu = null; if (song) this.setMode(this.patternMode); } },
-      { label: 'SONG MODE', value: song ? 'ON' : '', run: () => { this.menu = null; this.setMode('song'); } },
-    ];
+  private get menuPage(): { page: MenuPage; item: number } {
+    const st = this.menu!.stack;
+    return st[st.length - 1];
+  }
+
+  private openPage(page: MenuPage): void {
+    this.menu!.stack.push({ page, item: 0 });
+    this.menu!.pending.clear();
+  }
+
+  /** MENU back one page (from the top: closed). Pending track types are dropped. */
+  private menuBack(): void {
+    const menu = this.menu!;
+    menu.pending.clear();
+    menu.stack.pop();
+    if (menu.stack.length === 0) this.menu = null;
+  }
+
+  /** The lines of a MENU page. */
+  private menuLines(page: MenuPage): MenuLine[] {
+    if (page === 'top') {
+      return [
+        {
+          label: 'MODE', options: ['JAM', 'SONG'],
+          get: () => (this.mode === 'song' ? 1 : 0),
+          set: (i) => this.setMode(i === 1 ? 'song' : this.mode === 'song' ? this.patternMode : this.mode),
+        },
+        { label: 'PROJECT SETTINGS', open: () => this.openPage('project') },
+      ];
+    }
+    if (page === 'project') return [{ label: 'TRACKS', open: () => this.openPage('tracks') }];
+    const pending = this.menu!.pending;
+    return this.project.channels.map((c, ch) => ({
+      label: `TRACK ${ch + 1}`,
+      options: TRACK_KINDS.map((k) => (k === 'none' ? 'OFF' : INSTRUMENTS[k].name)),
+      get: () => TRACK_KINDS.indexOf(pending.get(ch) ?? c.instrument),
+      set: (i) => {
+        const kind = TRACK_KINDS[i];
+        if (kind === c.instrument) pending.delete(ch);
+        else pending.set(ch, kind);
+      },
+      pending: pending.has(ch),
+      confirm: () => {
+        const kind = pending.get(ch);
+        pending.delete(ch);
+        if (kind !== undefined) this.setTrackType(ch, kind);
+      },
+    }));
   }
 
   /**
-   * A button while MENU is open. ▼ / ▲ (the OCT keys) move, ▶ or a strip key opens a line,
-   * ◀ / CANCEL / MENU close it; a mode button closes it and goes there; PLAY still plays.
-   * True = handled here.
+   * A button while MENU is open. ▼ / ▲ (the OCT keys) move; ◀ ▶ step a setting, ▶ opens a
+   * page; a strip key goes to its line (and opens it, or confirms a pending track type);
+   * CANCEL (◀ on a page line) goes back a page; MENU closes it; a mode button closes it and
+   * goes there; PLAY still plays. True = handled here.
    */
   private onMenu(id: string, pressed: boolean): boolean {
-    const menu = this.menu!;
     if (id === 'play') return false;
     if (id.startsWith('mode:')) {
       if (pressed) this.menu = null;
       return false;
     }
     if (!pressed) return true;
-    const items = this.menuItems();
+    const at = this.menuPage;
+    const lines = this.menuLines(at.page);
+    const line = lines[at.item];
     let m: RegExpExecArray | null;
     if (id === 'oct-' || id === 'oct+') {
-      menu.item = Math.max(0, Math.min(items.length - 1, menu.item + (id === 'oct-' ? 1 : -1)));
+      at.item = Math.max(0, Math.min(lines.length - 1, at.item + (id === 'oct-' ? 1 : -1)));
+    } else if ((id === 'cur-' || id === 'cur+') && line.options) {
+      const i = line.get!() + (id === 'cur+' ? 1 : -1);
+      if (i >= 0 && i < line.options.length) line.set!(i);
     } else if (id === 'cur+') {
-      items[menu.item].run();
-    } else if ((m = /^step(\d+)$/.exec(id)) && Number(m[1]) <= items.length) {
-      menu.item = Number(m[1]) - 1;
-      items[menu.item].run();
+      line.open?.();
+    } else if ((m = /^step(\d+)$/.exec(id)) && Number(m[1]) <= lines.length) {
+      at.item = Number(m[1]) - 1;
+      const picked = lines[at.item];
+      if (picked.pending) picked.confirm?.();
+      else picked.open?.();
     } else if (id === 'cancel' && this.func) {
       this.undo();
-    } else if (id === 'cur-' || id === 'cancel' || id === 'menu') {
+    } else if (id === 'cancel' || id === 'cur-') {
+      this.menuBack();
+    } else if (id === 'menu') {
       this.menu = null;
     }
     return true;
+  }
+
+  /** MENU: knob 1 = the setting on the cursor's line. */
+  private menuTargets(): (KnobTarget | null)[] {
+    const out: (KnobTarget | null)[] = new Array(KNOB_COUNT).fill(null);
+    const at = this.menuPage;
+    const line = this.menuLines(at.page)[at.item];
+    if (line?.options) {
+      out[0] = {
+        label: line.label, spec: choice('menu', line.label, line.options), channel: this.selected,
+        get: () => line.get!(),
+        set: (v) => line.set!(Math.round(v)),
+      };
+    }
+    return out;
+  }
+
+  /**
+   * TRACKS: track ch becomes another type (or OFF). Its notes stay; every pattern gets the
+   * new type's starting sound (the saved patches too: RESET doesn't bring the old type
+   * back), its locks go (they belong to the old type's knobs), its live knobs and CHORD are
+   * the type's defaults. Mix and routing stay.
+   */
+  private setTrackType(ch: number, kind: InstrumentKind): void {
+    const c = this.project.channels[ch];
+    trackDefaults(c, kind);
+    const patch = patchOf(c, c.activePattern);
+    c.patterns.forEach((pat, p) => {
+      if (p !== c.activePattern) setPatchOf(c, p, patch);
+      pat.savedPatch = clonePatch(patch);
+      pat.patchDirty = true;
+      for (const st of pat.steps) delete st.locks;
+      for (const st of pat.savedNotes?.steps ?? []) delete st.locks;
+    });
+    this.octave[ch] = kind === 'none' ? 36 : INSTRUMENTS[kind].baseNote;
+    this.send({ type: 'setInstrument', channel: ch, kind, sound: { ...patch.sound } });
+    this.send({ type: 'setChord', channel: ch, chord: c.chord });
+    this.send({ type: 'setNotes', channel: ch, notes: c.notes });
+    this.save();
+    this.flash(`TRACK ${ch + 1}: ${this.kindName(c)}`);
   }
 
   /** CANCEL: back out of what is open, innermost first. FUNC + CANCEL = UNDO. */
@@ -2141,25 +2247,38 @@ export class App {
   /** The MENU screen. */
   menuView(): MenuView {
     const now = performance.now();
+    const at = this.menuPage;
+    const lines = this.menuLines(at.page);
+    const hint = at.page === 'tracks'
+      ? (lines[at.item]?.pending ? `TAP ${at.item + 1} TO CHANGE THE TRACK  CANCEL = BACK` : '< > TYPE, THEN TAP ITS NUMBER  CANCEL = BACK')
+      : this.menu!.stack.length > 1 ? 'OCT ARROWS MOVE  > OPEN  CANCEL = BACK' : 'OCT ARROWS MOVE  > OPEN  < > SET  MENU = CLOSE';
     return {
-      items: this.menuItems().map(({ label, value }) => ({ label, value })),
-      item: this.menu!.item,
-      message: now < this.messageUntil ? this.message : '',
+      title: this.menu!.stack.map((e) => MENU_TITLES[e.page]).join(' > '),
+      items: lines.map((l) => ({
+        label: l.label,
+        value: l.options ? (l.options[l.get!()] ?? '') + (l.pending ? '?' : '') : '',
+        page: !!l.open,
+        pending: !!l.pending,
+      })),
+      item: at.item,
+      message: now < this.messageUntil ? this.message : hint,
     };
   }
 
-  /** MENU: strip keys 1-n = its lines (the cursor's lit), the rest dark. */
+  /** MENU: strip keys 1-n = the page's lines (the cursor's marked, pending ones flagged), the rest dark. */
   private updateMenuStrip(): void {
-    const items = this.menuItems().length;
+    const at = this.menuPage;
+    const lines = this.menuLines(at.page);
     for (let i = 0; i < STEP_BUTTONS; i++) {
       const id = `step${i + 1}`;
-      const used = i < items;
+      const used = i < lines.length;
       this.panel.setButtonText(id, used ? String(i + 1) : '');
       this.panel.setButtonFlag(id, 'off', !used);
       this.panel.setButtonFlag(id, 'lit', used);
-      this.panel.setButtonFlag(id, 'cursor', i === this.menu!.item);
-      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
-      this.panel.setLed(i, i === this.menu!.item ? 'cursor' : '');
+      this.panel.setButtonFlag(id, 'cursor', i === at.item);
+      this.panel.setButtonFlag(id, 'accent', used && !!lines[i].pending);
+      for (const f of ['black', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, used && lines[i].pending ? 'rec' : i === at.item ? 'cursor' : '');
     }
   }
 

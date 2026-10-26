@@ -74,3 +74,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - MENU and CANCEL (2026-10-26): the SONG mode button became MENU (MODE PATTERNS / SONG, SAVE / LOAD PROJECT; OCT ▼ ▲ move, ▶ / strip key open, ◀ / CANCEL back); the pattern SAVE button became CANCEL (backs out of menus, FX views, flag placing, STEPS mode; FUNC + CANCEL reserved for UNDO). Pattern SAVE removed: SAVE PROJECT saves every pattern.
 - MENU without SAVE / LOAD (2026-10-26): they stay on their own panel button only; MENU holds MODE (settings to come).
 - MENU as a list (2026-10-26): PATTERN MODE and SONG MODE are lines of their own (was one MODE line), so ▼ / ▲ move between them.
+- MENU pages (2026-10-26): MODE (JAM / SONG) as one setting line; PROJECT SETTINGS > TRACKS chooses each track's type (or OFF), applied by the track's strip key; menu pages with a title path, ◀ ▶ / knob 1 for settings, CANCEL back a page.

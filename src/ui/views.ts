@@ -353,31 +353,38 @@ export function drawProjectView(s: PixelScreen, v: ProjectView): void {
 }
 
 export interface MenuView {
-  items: { label: string; value: string }[];
+  /** The pages gone into, e.g. MENU > PROJECT SETTINGS > TRACKS. */
+  title: string;
+  /** value: a setting's choice ('' = none); page: the line opens a page; pending: a choice waiting for its strip key. */
+  items: { label: string; value: string; page: boolean; pending: boolean }[];
   item: number;
+  /** A confirmation, or how to use the page. */
   message: string;
 }
 
-const MENU_ROW_H = 12;
+const MENU_ROW_H = 11;
 
 /** MENU: one line per item (number = its strip key), the cursor's line inverted. */
 export function drawMenuView(s: PixelScreen, v: MenuView): void {
   s.clear();
   s.rect(0, 0, SCREEN_W, 13, INK.hi);
-  s.text(3, 2, 'MENU', INK.bg, 2);
+  s.text(3, 4, v.title, INK.bg);
   v.items.forEach((it, i) => {
-    const y = 20 + i * MENU_ROW_H;
+    const y = 18 + i * MENU_ROW_H;
     const on = i === v.item;
     if (on) s.rect(0, y - 2, SCREEN_W, MENU_ROW_H - 1, INK.hi);
     const ink = on ? INK.bg : INK.mid;
     s.text(3, y, String(i + 1).padStart(2, '0'), ink);
     s.text(20, y, it.label, on ? INK.bg : INK.hi);
-    if (it.value) s.textRight(SCREEN_W - 12, y, it.value, ink);
-    s.text(SCREEN_W - 8, y, '>', ink);
+    if (it.page) s.text(SCREEN_W - 8, y, '>', ink);
+    else if (it.value) {
+      const valueInk = it.pending ? (on ? INK.bg : INK.warn) : ink;
+      s.textRight(SCREEN_W - 12, y, it.value, valueInk);
+      s.text(SCREEN_W - 8, y, on ? '<>' : '', ink);
+    }
   });
   s.rect(0, FOOTER_Y - 3, SCREEN_W, 1, INK.dim);
-  if (v.message) s.text(2, FOOTER_Y, v.message, INK.warn);
-  else s.text(2, FOOTER_Y, 'OCT ARROWS MOVE  > OR STRIP = OPEN  < / CANCEL = BACK', INK.mid);
+  s.text(2, FOOTER_Y, v.message, INK.mid);
 }
 
 /**

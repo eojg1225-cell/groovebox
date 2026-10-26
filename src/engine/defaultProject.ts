@@ -1,5 +1,5 @@
-import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type Project, type SoundKind } from './project';
-import { CHORD_NAMES } from './chords';
+import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type InstrumentKind, type Project, type SoundKind } from './project';
+import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
 import { INSTRUMENTS, presetSound } from '../instruments/registry';
 import { defaultBuses } from '../fx/buses';
 import { fromStored } from './projectFile';
@@ -22,8 +22,25 @@ export function liveDefaults(c: ChannelState): void {
   c.liveOffset = {};
 }
 
-/** Where each track starts along its TIMBRE. */
-const START_PRESETS = ['PUNCH', 'TIGHT', 'HAT', 'LOW TOM', 'SOLID', 'WARM', 'ODD 2:3', 'GLASS PLUCK'];
+/** Where each type starts along its TIMBRE. */
+const START_SOUND: Record<SoundKind, string> = {
+  kick: 'PUNCH', snare: 'TIGHT', hat: 'HAT', perc: 'LOW TOM', bass: 'SOLID', pad: 'WARM', lead: 'ODD 2:3', pluck: 'GLASS PLUCK',
+};
+
+/**
+ * A track becomes `kind` (or OFF): the type's starting sound, live knobs and CHORD (PAD:
+ * MIN9). Notes, mix and routing are left alone.
+ */
+export function trackDefaults(c: ChannelState, kind: InstrumentKind): void {
+  c.chord = kind === 'pad' ? CHORD_NAMES.indexOf('MIN9') : 0;
+  c.notes = MAX_CHORD_NOTES;
+  if (kind === 'none') {
+    c.instrument = 'none';
+    return;
+  }
+  applyPreset(c, kind, Math.max(0, INSTRUMENTS[kind].presets.findIndex((p) => p.name === START_SOUND[kind])));
+  liveDefaults(c);
+}
 
 /** A fresh project: eight tracks with sounds ready, every pattern empty, nothing routed. */
 export function createDefaultProject(): Project {
@@ -31,8 +48,7 @@ export function createDefaultProject(): Project {
   const kinds: SoundKind[] = ['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck'];
   const channels = Array.from({ length: NUM_CHANNELS }, (_, i) => {
     const c = emptyChannel();
-    applyPreset(c, kinds[i], Math.max(0, INSTRUMENTS[kinds[i]].presets.findIndex((p) => p.name === START_PRESETS[i])));
-    liveDefaults(c);
+    trackDefaults(c, kinds[i]);
     // Drum steps play at the designed pitch (note 36); pitched steps start on the keyboard's A.
     const base = INSTRUMENTS[kinds[i]].drum ? 36 : INSTRUMENTS[kinds[i]].baseNote;
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
@@ -44,7 +60,6 @@ export function createDefaultProject(): Project {
   for (const c of channels) if (INSTRUMENTS[c.instrument as SoundKind].drum) c.fx1 = true;
   of('pad').fxSend = 2;
   of('lead').fxSend = 3;
-  of('pad').chord = CHORD_NAMES.indexOf('MIN9');
   // The sustained synths' trimmed output: half VOLUME sits with the drums.
   for (const kind of ['pad', 'lead', 'pluck'] as const) of(kind).volume = 0.5;
   return {
