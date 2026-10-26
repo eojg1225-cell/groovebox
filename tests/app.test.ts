@@ -600,3 +600,46 @@ describe('MENU and CANCEL', () => {
     expect(app.mode).toBe('play');
   });
 });
+
+describe('SONG grid: rows, track selection, A-D', () => {
+  const song = () => {
+    const r = makeApp();
+    r.tap('menu');
+    r.tap('cur+'); // MODE: SONG
+    r.tap('play'); // saved
+    return r;
+  };
+  const rows = (app: App) => app.project.song.rows.map((row) => row.patterns.join(','));
+  const cursor = (app: App) => (app as unknown as { songRow: number }).songRow;
+
+  it('ROW ▼ past the last row adds an empty one; left empty upward it goes again', () => {
+    const { app, tap } = song();
+    expect(app.project.song.rows.length).toBe(1);
+    tap('oct-');
+    expect(app.project.song.rows.length).toBe(2);
+    expect(cursor(app)).toBe(1);
+    expect(app.project.song.rows[1].patterns.every((p) => p === -1)).toBe(true);
+    tap('oct+');
+    expect(app.project.song.rows.length).toBe(1);
+    tap('oct-');
+    tap('patB'); // filled: it stays
+    tap('oct+');
+    expect(app.project.song.rows.length).toBe(2);
+  });
+
+  it('A-D: the pattern on the selected tracks, the rest blank; nothing selected = every track', () => {
+    const { app, tap } = song();
+    tap('patC');
+    expect(rows(app)[0]).toBe('2,2,2,2,2,2,2,2');
+    tap('ch1');
+    tap('ch5');
+    tap('patA');
+    expect(rows(app)[0]).toBe('0,-1,-1,-1,0,-1,-1,-1');
+    tap('ch5'); // deselected
+    tap('patD');
+    expect(rows(app)[0]).toBe('3,-1,-1,-1,-1,-1,-1,-1');
+    tap('ch1');
+    tap('patB');
+    expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
+  });
+});

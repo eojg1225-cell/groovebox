@@ -26,7 +26,8 @@
  * SONG  (MENU > MODE) arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
- *          the next bar), A-D = the row, hold tracks + A-D = their cells, FUNC + A-D = the selected track's. PLAY here plays the
+ *          the next bar), channel taps select tracks, A-D = the row: that pattern on the selected tracks
+ *          (none selected: all), the rest OFF; FUNC + A-D = the cursor's track; ROW ▼ past the end adds a row. PLAY here plays the
  *          song from the cursor row (it keeps playing in the other modes until STOP).
  * RESET: every patch returns to its saved version and the rest (mix, FX, LFO) to the saved
  * project, live knobs centred: while playing it glides back to land on the next bar line,
@@ -303,6 +304,10 @@ export class App {
   private songPage = 0;
   /** The transport is playing the song (not the patterns). */
   private songPlaying = false;
+  /** SONG: the tracks selected with the channel buttons (A-D fill them; none = every track). */
+  private readonly songTracks = new Set<number>();
+  /** SONG: the empty row ROW ▼ added past the end (taken away again if left empty upward), -1 = none. */
+  private songAdded = -1;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
   /** chord: PAD / PLUCK keys added to the step meanwhile (the cursor moves on when all are up). */
   /** The note(s) being entered in step entry: their key, step, held chord, and (PAD / PLUCK) which notes ▶ / ◀ tie. */
@@ -1001,6 +1006,11 @@ export class App {
       this.heldTrack = Number(m[1]) - 1;
       this.heldUsed = false;
     }
+    if (this.mode === 'song' && (m = /^pat([A-D])$/.exec(id))) {
+      this.songPattern(PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
+      this.refreshPanel();
+      return;
+    }
     if ((m = /^pat([A-D])$/.exec(id))) {
       // A-D: every track; channels held: only those; FUNC: the selected track.
       const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
@@ -1320,12 +1330,26 @@ export class App {
     const rows = this.songRows;
     let m: RegExpExecArray | null;
     const moveRow = (row: number) => {
+      // Leaving the row ROW ▼ added, still empty, upward: it goes again.
+      const added = this.songAdded;
+      if (added >= 0 && row < added && added === rows.length - 1 && rows.length > 1 && rows[added].patterns.every((p) => p < 0)) {
+        rows.pop();
+        this.sendSong();
+      }
+      if (row !== added) this.songAdded = -1;
       this.songRow = Math.max(0, Math.min(rows.length - 1, row));
       this.songPage = Math.floor(this.songRow / 16);
     };
     if (id === 'cur-' || id === 'cur+') {
       this.songCol = Math.max(0, Math.min(NUM_CHANNELS, this.songCol + (id === 'cur+' ? 1 : -1)));
       if (this.songCol > 0) this.selected = this.songCol - 1;
+    } else if (id === 'oct-' && this.songRow === rows.length - 1) {
+      // ROW ▼ past the last row: a new, empty row (as long as the last).
+      if (rows.length >= SONG_MAX_ROWS) { this.flash('SONG FULL'); return true; }
+      rows.push({ bars: rows[rows.length - 1]?.bars ?? 4, patterns: new Array<number>(NUM_CHANNELS).fill(-1) });
+      this.sendSong();
+      moveRow(rows.length - 1);
+      this.songAdded = this.songRow;
     } else if (id === 'oct-' || id === 'oct+') {
       moveRow(this.songRow + (id === 'oct-' ? 1 : -1)); // ROW ▼ = down the grid
     } else if (id === 'ring') {
@@ -1354,12 +1378,43 @@ export class App {
         this.flash(`ROW ${row + 1} AT NEXT BAR`);
       }
     } else if ((m = /^ch(\d)$/.exec(id))) {
-      this.songCol = Number(m[1]);
-      return false; // and select the track as usual
+      // A channel tap selects / deselects the track for A-D (and puts the cursor on it).
+      const ch = Number(m[1]) - 1;
+      if (this.songTracks.has(ch)) this.songTracks.delete(ch);
+      else this.songTracks.add(ch);
+      this.songCol = ch + 1;
+      this.selected = ch;
+      this.heldTrack = -1;
     } else {
       return false;
     }
     return true;
+  }
+
+  /**
+   * SONG A-D: the cursor row plays this pattern on the selected tracks and nothing on the
+   * others; with no track selected, on every track. FUNC + A-D: only the cursor's track.
+   */
+  private songPattern(pattern: number): void {
+    const name = PATTERN_NAMES[pattern];
+    if (this.songRows.length === 0) {
+      this.project.song.rows.push({ bars: 4, patterns: new Array<number>(NUM_CHANNELS).fill(-1) });
+      this.songRow = 0;
+    }
+    if (this.func) {
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      if (this.songCol > 0) {
+        this.setSongCell(this.songCol - 1, pattern);
+        this.flash(`ROW ${this.songRow + 1}: ${this.songCol} ${name}`);
+      }
+      return;
+    }
+    const row = this.songRows[this.songRow];
+    const all = this.songTracks.size === 0;
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) row.patterns[ch] = all || this.songTracks.has(ch) ? pattern : -1;
+    if (this.songAdded === this.songRow) this.songAdded = -1; // filled: it stays
+    this.sendSong();
+    this.flash(all ? `ROW ${this.songRow + 1}: ALL ${name}` : `ROW ${this.songRow + 1}: ${name} ON ${[...this.songTracks].sort().map((c) => c + 1).join(' ')}`);
   }
 
   /** Set track ch's pattern in the cursor row (-1 = off). */
@@ -2582,7 +2637,9 @@ export class App {
       const c = this.project.channels[ch];
       // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
       const sendView = this.sendOpen;
-      this.panel.setButtonLit(`ch${ch + 1}`, sendView ? this.onBus(c, this.fxView) : ch === this.selected);
+      // SONG: lit = selected for A-D.
+      const lit = sendView ? this.onBus(c, this.fxView) : this.mode === 'song' ? this.songTracks.has(ch) : ch === this.selected;
+      this.panel.setButtonLit(`ch${ch + 1}`, lit);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonLit(`solo${ch + 1}`, this.soloed[ch]);
@@ -2945,6 +3002,7 @@ export class App {
       channelLabel: 'SONG',
       patternLabel: `${rows.length} ROWS ${totalBars} BARS`,
       tracks: this.project.channels.map((c, i) => `${i + 1}${this.kindName(c).slice(0, 3)}`),
+      selectedTracks: this.project.channels.map((_, i) => this.songTracks.has(i)),
       rows: rows.slice(first, first + visible).map((r, k) => ({
         index: first + k,
         bars: r.bars,

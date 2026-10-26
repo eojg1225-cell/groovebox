@@ -254,6 +254,8 @@ export function drawDesignView(s: PixelScreen, v: DesignView): void {
 export interface SongView extends HeaderView, FooterView {
   /** Column titles, one per track. */
   tracks: string[];
+  /** Tracks selected for A-D (underlined). */
+  selectedTracks: boolean[];
   rows: { index: number; bars: number; cells: string[] }[];
   cursorRow: number;
   /** 0 = BARS, 1-8 = tracks. */
@@ -275,7 +277,10 @@ export function drawSongView(s: PixelScreen, v: SongView): void {
   drawHeader(s, v, '', INK.mid);
   s.text(2, 12, 'ROW', INK.mid);
   s.text(SONG_BARS_X, 12, 'BAR', v.cursorCol === 0 ? INK.hi : INK.mid);
-  v.tracks.forEach((t, i) => s.text(SONG_TRACK_X + i * SONG_COL_W, 12, t, v.cursorCol === i + 1 ? INK.hi : INK.mid));
+  v.tracks.forEach((t, i) => {
+    s.text(SONG_TRACK_X + i * SONG_COL_W, 12, t, v.cursorCol === i + 1 ? INK.hi : INK.mid);
+    if (v.selectedTracks[i]) s.rect(SONG_TRACK_X + i * SONG_COL_W, 17, SONG_COL_W - 4, 1, INK.warn);
+  });
   s.rect(0, SONG_Y - 2, SCREEN_W, 1, INK.dim);
   v.rows.forEach((r, k) => {
     const y = SONG_Y + k * SONG_ROW_H;
