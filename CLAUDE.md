@@ -61,7 +61,7 @@ Milestone M2 (mixer + FX) mostly done. **Next:** check the new FX buses on the F
 - Touch: `main.ts` cancels touch defaults; the panel runs on pointer events; everything lets go on `lostpointercapture`, blur and hidden (`Panel.releaseAll`). Portrait screens rotate the panel (`orientation.ts`).
 
 ### Modes
-- **MENU** (the top row's fourth button, `App.menu`, `views.drawMenuView`): a list on the screen: MODE (PATTERNS / SONG: switches to SONG, or back to the mode SONG was entered from), SAVE PROJECT, LOAD PROJECT. ▼ / ▲ (the OCT keys) move, ▶ or the line's strip key opens it, ◀ / CANCEL / MENU close it; a mode button closes it and goes there; PLAY still plays; knobs do nothing. SAVE / LOAD opened from it goes back to it on CANCEL (closes it when done).
+- **MENU** (the top row's fourth button, `App.menu`, `views.drawMenuView`): a list on the screen: MODE (PATTERNS / SONG: switches to SONG, or back to the mode SONG was entered from); settings to come. SAVE / LOAD stay on their own panel button. ▼ / ▲ (the OCT keys) move, ▶ or the line's strip key opens it, ◀ / CANCEL / MENU close it; a mode button closes it and goes there; PLAY still plays; knobs do nothing.
 - **CANCEL** (`App.cancel`): backs out of what is open, innermost first: the SAVE / LOAD screen, MENU, an FX / LFO view, RECORD flag placing, STEPS mode, REST armed; nothing open = nothing. FUNC + CANCEL = UNDO (not built yet: says UNDO: NOT YET).
 - **RECORD.** Stopped = step entry, playing = live recording (notes, releases and knob locks land where they were heard: `setListenLatency` = output latency + 15 ms touch).
   - Drum lanes (KICK, SNARE, HAT): the strip toggles steps; drag (or press the next step while one is held) to paint a stroke; the first step decides add / erase / flags / rests.

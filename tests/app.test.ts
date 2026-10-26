@@ -435,14 +435,13 @@ describe('arrow keys', () => {
 });
 
 describe('MENU and CANCEL', () => {
-  it('MENU: ▼ / ▲ move, ▶ opens; MODE switches to SONG and back to the mode it came from', () => {
+  it('MENU: ▶ opens; MODE switches to SONG and back to the mode it came from', () => {
     const { app, tap, texts } = makeApp();
     tap('mode:design');
     tap('menu');
     expect(app.menu).not.toBeNull();
-    tap('oct-'); // ▼
-    expect(app.menu?.item).toBe(1);
-    tap('oct+'); // ▲
+    tap('oct-'); // ▼: already the last line
+    expect(app.menu?.item).toBe(0);
     tap('cur+');
     expect(app.mode).toBe('song');
     expect(app.menu).toBeNull();
@@ -451,18 +450,6 @@ describe('MENU and CANCEL', () => {
     tap('menu');
     tap('step1'); // the strip key of MODE
     expect(app.mode).toBe('design');
-  });
-
-  it('SAVE / LOAD opened from MENU: CANCEL goes back to MENU, CANCEL again closes it', () => {
-    const { app, tap } = makeApp();
-    tap('menu');
-    tap('step3'); // LOAD PROJECT
-    expect(app.projMenu?.kind).toBe('load');
-    tap('cancel');
-    expect(app.projMenu).toBeNull();
-    expect(app.menu).not.toBeNull();
-    tap('cancel');
-    expect(app.menu).toBeNull();
   });
 
   it('CANCEL leaves the SAVE / LOAD panel button\'s screen, an FX view, flag placing and STEPS mode', () => {

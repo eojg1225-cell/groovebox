@@ -22,7 +22,7 @@
  * FUNC + A-D = the selected track); playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
  * chosen one; PLAY primes the switch for the loop end and the sound glides there.
  * SAVE PROJECT saves every pattern and patch; edits since are marked * on the screen.
- * MENU: MODE (patterns / SONG), SAVE / LOAD PROJECT. CANCEL backs out of what is open.
+ * MENU: MODE (patterns / SONG). CANCEL backs out of what is open.
  * SONG  (MENU > MODE) arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
@@ -321,7 +321,7 @@ export class App {
   private newSlot = -1;
   /** SAVE / LOAD (stopped only): name entry and the 64 slots, 16 to a bank on the strip. */
   projMenu: ProjectMenu | null = null;
-  /** MENU open (SAVE / LOAD opened from it goes back to it). */
+  /** MENU open. */
   menu: MainMenu | null = null;
   /** The pattern mode SONG was entered from (MENU leaves SONG to it). */
   private patternMode: Mode = 'record';
@@ -2069,22 +2069,18 @@ export class App {
     this.touchedKnob = -1;
   }
 
-  /** back = CANCEL: to MENU if SAVE / LOAD was opened from it; otherwise MENU closes too. */
-  private closeProjectMenu(back = false): void {
+  private closeProjectMenu(): void {
     this.projMenu = null;
     this.barHeld = false;
-    if (!back) this.menu = null;
   }
 
   // ---------------------------------------------------------------- MENU, CANCEL
 
-  /** MENU's lines: MODE (patterns / SONG), SAVE and LOAD PROJECT. */
+  /** MENU's lines: MODE (patterns / SONG). */
   private menuItems(): MenuItem[] {
     const song = this.mode === 'song';
     return [
       { label: 'MODE', value: song ? 'SONG' : 'PATTERNS', run: () => { this.menu = null; this.setMode(song ? this.patternMode : 'song'); } },
-      { label: 'SAVE PROJECT', value: '', run: () => this.openProjectMenu('save') },
-      { label: 'LOAD PROJECT', value: '', run: () => this.openProjectMenu('load') },
     ];
   }
 
@@ -2180,10 +2176,6 @@ export class App {
     }
     if (id === 'clear') return false; // CLEAR held + slot = delete (LOAD)
     if (id === 'cancel' && !this.func) {
-      this.closeProjectMenu(true);
-      return true;
-    }
-    if (id === 'menu') {
       this.closeProjectMenu();
       return true;
     }
