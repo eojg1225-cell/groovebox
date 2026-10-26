@@ -2472,13 +2472,13 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(tail({ dmix: 0.5, verb: 0 })).toBeGreaterThan(0.002);
     expect(tail({ dmix: 0, verb: 0 })).toBeLessThan(1e-4);
     expect(LIVE_MACROS.pluck.find((m) => m.id === 'macro:space')!.targets.map((t) => t.id)).toEqual(['dmix', 'verb']);
-    expect(INSTRUMENTS.pluck.liveFunc).toContain('macro:space');
+    expect(INSTRUMENTS.pluck.live).toEqual(['cutoff', 'macro:space']); // LIVE 2
   });
 
   it('PLUCK SUSTAIN (live) rings each note on without touching RELEASE; SUSTAIN on the page holds', () => {
     const m = LIVE_MACROS.pluck.find((x) => x.id === 'macro:sustain')!;
     expect(m.targets.map((t) => t.id)).toEqual(['attack', 'decay', 'sustain', 'fdecay']);
-    expect(INSTRUMENTS.pluck.live).toEqual(['cutoff', 'track:notes']);
+    expect(INSTRUMENTS.pluck.liveFunc).toEqual(['macro:sustain', 'track:notes']);
     expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
     const held = play(synth('pluck', { sustain: 0.6, dmix: 0, verb: 0 }), 0.8, 0.8);
     const plucked = play(synth('pluck', { sustain: 0, dmix: 0, verb: 0 }), 0.8, 0.8);
