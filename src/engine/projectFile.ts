@@ -430,6 +430,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   }
   // Live knobs on parameters the type does not have: back to the type's defaults.
   if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, id))) liveDefaults(ch);
+  if (version < 51) liveV51(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;
@@ -497,6 +498,14 @@ function readLfo(src: unknown, lfo: LfoState): void {
 /** The track types' output gains (InstrumentEntry.gain) before and after v49. */
 const TYPE_GAIN_V48: Record<SoundKind, number> = { kick: 0.565, snare: 0.797, hat: 4.359, perc: 0.778, bass: 0.383, pad: 0.273, lead: 0.633, pluck: 1.366 };
 const TYPE_GAIN_V49: Record<SoundKind, number> = { kick: 0.565, snare: 0.467, hat: 1.783, perc: 0.537, bass: 0.557, pad: 0.413, lead: 0.948, pluck: 1.105 };
+
+/**
+ * v51: every track's live knobs (LIVE 1-4, centred) back to its type's defaults as they are
+ * now (e.g. PLUCK LIVE 2 = SPACE), set by the user's request for every project saved before.
+ */
+function liveV51(ch: ChannelState): void {
+  liveDefaults(ch);
+}
 
 /**
  * v49: the track types' output gains were set again with the gated loudness measure (a HAT

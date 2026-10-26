@@ -3645,6 +3645,23 @@ describe('v47: KICK VINTAGE, TECHNO, PSY DOOF redone', () => {
   });
 });
 
+describe('v51: live knobs back to the type defaults', () => {
+  it('a save before v51 loads every track with its type\'s live knobs as they are now; a v51 save keeps its own', () => {
+    const p = createDefaultProject();
+    p.channels[7].live = ['cutoff', 'track:notes'];
+    p.channels[7].liveFunc = ['macro:sustain', 'macro:space'];
+    p.channels[7].liveOffset = { cutoff: 0.4 };
+    p.channels[0].live = ['mix:pan', 'mix:volume'];
+    const stored = toStored(p);
+    const old = fromStored({ ...stored, version: 50 })!;
+    expect(old.channels[7].live).toEqual(['cutoff', 'macro:space']);
+    expect(old.channels[7].liveFunc).toEqual(['macro:sustain', 'track:notes']);
+    expect(old.channels[7].liveOffset).toEqual({});
+    expect(old.channels[0].live).toEqual(INSTRUMENTS.kick.live);
+    expect(fromStored(stored)!.channels[0].live).toEqual(['mix:pan', 'mix:volume']);
+  });
+});
+
 describe('v49: track type gains from the gated loudness measure', () => {
   const old = { kick: 0.565, snare: 0.797, hat: 4.359, perc: 0.778, bass: 0.383, pad: 0.273, lead: 0.633, pluck: 1.366 } as const;
   const load = (volumes: number[], master = 0.8) => {
