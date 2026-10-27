@@ -242,8 +242,6 @@ export class Engine {
   private readonly gateGroup = new Int16Array(NUM_CHANNELS);
   /** The held note is a RING note: it ends at the next hit or rest, not by count. */
   private readonly ringing = new Uint8Array(NUM_CHANNELS);
-  /** A RING / SLIDE note's own tie: steps still under it, where a rest does not end it. */
-  private readonly tieLeft = new Int32Array(NUM_CHANNELS);
   /** Live recording: the held note per channel (-1 = none) and where it started. */
   private readonly recNote = new Int16Array(NUM_CHANNELS).fill(-1);
   /** When the note being recorded was played (engine frames): PAD / PLUCK chord keys near it join it. */
@@ -968,7 +966,12 @@ export class Engine {
     const inRun = this.runLeft[ch] > 0;
     if (inRun) this.runLeft[ch]--;
     else this.rollLeft[ch] = 0;
-    if (slideFrom >= 0) {
+    // REST: everything sounding on the track stops (held, ringing, tied, releasing) over
+    // CUT_FADE; a muted track's notes play out.
+    const rest = this.stepRest[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0 && this.muted[ch] === 0;
+    if (rest) {
+      this.cutTrack(ch);
+    } else if (slideFrom >= 0) {
       this.gateSteps[ch] = 0;
       this.ringing[ch] = 0;
       this.gateAt[ch] = -1;
@@ -977,10 +980,8 @@ export class Engine {
       this.releaseGate(ch);
     } else if (this.gateSteps[ch] > 0) {
       if (this.ringing[ch]) {
-        // A RING note ends at the next hit or rest on this track (a rest under the note's own
-        // tie does not count: the tie says the note goes on over it).
-        if (this.stepActive[s] || (this.stepRest[s] && this.tieLeft[ch] === 0)) this.releaseGate(ch);
-        else if (this.tieLeft[ch] > 0) this.tieLeft[ch]--;
+        // A RING note ends at the next hit on this track (or a REST, above).
+        if (this.stepActive[s]) this.releaseGate(ch);
       } else if (--this.gateSteps[ch] === 0) {
         // A held note ends where its gate says: at the start of a later step, or (GATE
         // above 1) that far into it.
@@ -1031,7 +1032,6 @@ export class Engine {
         this.gateGroup[ch] = root;
         this.gateSteps[ch] = ring || slide ? 1 : this.stepGate[s];
         this.ringing[ch] = ring || slide ? 1 : 0;
-        this.tieLeft[ch] = ring || slide ? Math.max(0, this.stepGate[s] - 1) : 0;
         this.gateAt[ch] = -1;
         if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
         this.sliding[ch] = slide ? 1 : 0;
@@ -1398,7 +1398,17 @@ export class Engine {
     this.current[ch]?.noteOff(this.gateGroup[ch]);
     this.gateSteps[ch] = 0;
     this.ringing[ch] = 0;
-    this.tieLeft[ch] = 0;
+  }
+
+  /** REST: the track's sequenced notes forgotten and every voice cut (Instrument.cut). */
+  private cutTrack(ch: number): void {
+    this.sliding[ch] = 0;
+    this.gateAt[ch] = -1;
+    this.gateSteps[ch] = 0;
+    this.ringing[ch] = 0;
+    if (this.arpHeld[ch]) this.stopArp(ch);
+    this.clearHolds(ch);
+    this.current[ch]?.cut();
   }
 
   /** Live note released. If it was being recorded, its length becomes the step's gate. */

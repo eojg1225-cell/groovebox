@@ -94,3 +94,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - UNDO depth 16 (2026-10-27): was 50; more than needed.
 - FUNC + A-D dropped (2026-10-27): holding a channel + A-D does the same; in the SONG grid a single cell is set with its knob. FUNC no longer changes A-D.
 - HOLD + PATTERN (2026-10-27, v54): GLOBAL and PROJECT setting like HOLD + RESET: held channels + A-D switch every other track (KEEP HELD, default) or only the held ones (SWITCH HELD, the old behaviour).
+- REST always cuts (2026-10-27): a REST step stops everything sounding on its track (held, tied, ringing, releasing notes, drum decays) over a 3 ms fade; before, it only ended a RING / SLIDE note not under its own tie (`tieLeft` removed). Saved projects with rests sound different where a release or decay ran past a rest.

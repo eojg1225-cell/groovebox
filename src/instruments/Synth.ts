@@ -1,7 +1,7 @@
-import type { Instrument, Preset } from './Instrument';
+import { CUT_FADE, type Instrument, type Preset } from './Instrument';
 import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
 import { decayMul, IdleGate, midiToHz, polyBlep, Svf } from './dsp';
-import { exp2, sinRad, sinTurn, tanh } from './math';
+import { cosTurn, exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { driveCompGain } from './driveComp';
@@ -289,11 +289,15 @@ class Voice {
   fmattacking = false;
   age = 0;
   counter = 0;
+  /** REST: samples of its fade left (0 = not cut; -1 = faded, silent until its next note). */
+  cutLeft = 0;
   readonly filter = new Svf();
 }
 
 export class Synth implements Instrument {
   private readonly sr: number;
+  /** REST's fade, samples. */
+  private readonly cutLen: number;
   private readonly velK: number;
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
@@ -364,6 +368,7 @@ export class Synth implements Instrument {
   /** driveRise: the type's DRIVE level compensation curve (driveComp.ts). */
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], fixed: Record<string, number>, private readonly driveRise?: readonly number[]) {
     this.sr = sampleRate;
+    this.cutLen = Math.max(1, Math.round(CUT_FADE * sampleRate));
     this.dcR = 1 - (2 * Math.PI * DC_HZ) / sampleRate;
     this.velK = 1 - Math.exp(-1 / (VEL_SMOOTH * sampleRate));
     this.duckAttackInc = 1 / (DUCK_ATTACK * sampleRate);
@@ -430,6 +435,7 @@ export class Synth implements Instrument {
     v.fmenv = v.fmattacking ? 0 : 1;
     v.age = ++this.ageCounter;
     v.counter = 0;
+    v.cutLeft = 0;
   }
 
   setPitchMod(semitones: number): void {
@@ -452,6 +458,14 @@ export class Synth implements Instrument {
     this.fmIndex = dx7Index(this.fmEff);
     const f2 = this.fm2 + this.fmMod;
     this.fm2Index = dx7Index(f2 < 0 ? 0 : f2 > 1 ? 1 : f2);
+  }
+
+  cut(): void {
+    for (const v of this.voices) {
+      if (!sounding(v) || v.cutLeft !== 0) continue;
+      v.cutLeft = this.cutLen;
+      v.hold = false;
+    }
   }
 
   noteOff(group: number): void {
@@ -868,6 +882,17 @@ export class Synth implements Instrument {
       v.vel += (v.velocity - v.vel) * velK;
       let out = v.filter.low * v.vel * level;
       if (drive > 1) out = tanh(out * drive) * driveNorm * driveComp;
+      if (v.cutLeft !== 0) {
+        // REST: a half-cosine fade, then nothing until the voice's next note.
+        if (v.cutLeft > 0) {
+          out *= 0.5 - 0.5 * cosTurn((0.5 * v.cutLeft) / this.cutLen);
+          if (--v.cutLeft === 0) {
+            v.cutLeft = -1;
+            v.stage[0] = STAGE_OFF;
+            v.stage[1] = STAGE_OFF;
+          }
+        } else out = 0;
+      }
       outL[i] += out;
       outR[i] += out;
     }

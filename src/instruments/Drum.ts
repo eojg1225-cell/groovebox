@@ -1,4 +1,4 @@
-import type { Instrument, Preset } from './Instrument';
+import { CUT_FADE, type Instrument, type Preset } from './Instrument';
 import { choice, type ParamSpec } from '../engine/params';
 import { decayMul, IdleGate, Noise, polyBlep, Svf } from './dsp';
 import { exp2, sinRad, sinTurn, tanh } from './math';
@@ -208,7 +208,6 @@ const RING_STRETCH = 3;
  * A drum hit again while still sounding (rolls, fast repeats) would cut the old hit off
  * dead - a click. The old hit's last output fades out over this long instead, under the new one.
  */
-const RETRIGGER_FADE = 0.003;
 /** A ringing drum is choked (by the next hit or a rest) with this fade. */
 const CHOKE_SECONDS = 0.012;
 const FILTER_UPDATE = 16;
@@ -307,7 +306,7 @@ export class Drum implements Instrument {
 
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], private readonly voice: DrumVoice) {
     this.sr = sampleRate;
-    this.fadeLen = Math.max(1, Math.round(RETRIGGER_FADE * sampleRate));
+    this.fadeLen = Math.max(1, Math.round(CUT_FADE * sampleRate));
     this.chokeMul = decayMul(CHOKE_SECONDS, sampleRate);
     this.sweepTop = Math.min(18000, 0.4 * sampleRate);
     this.rGap = RATTLE_GAP * sampleRate;
@@ -525,8 +524,18 @@ export class Drum implements Instrument {
     this.airGate.done(l, r, n);
   }
 
+  cut(): void {
+    if (this.tStage === OFF && this.mStage === OFF && this.cStage === OFF) return;
+    // As a retrigger without the new hit: the last value fades out.
+    this.fadeFrom = this.lastOut;
+    this.fadeLeft = this.fadeLen;
+    this.tStage = OFF; this.mStage = OFF; this.cStage = OFF;
+    this.tEnv = 0; this.mEnv = 0; this.cEnv = 0;
+    this.ringing = false;
+  }
+
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
-    if (this.tStage === OFF && this.mStage === OFF && this.cStage === OFF) {
+    if (this.tStage === OFF && this.mStage === OFF && this.cStage === OFF && this.fadeLeft === 0) {
       this.lastOut = 0;
       return;
     }

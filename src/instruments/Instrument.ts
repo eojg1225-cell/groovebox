@@ -1,5 +1,8 @@
 import type { ParamSpec } from '../engine/params';
 
+/** A REST (or a drum retrigger) fades what it cuts off over this long, s: no click. */
+export const CUT_FADE = 0.003;
+
 /**
  * Common interface for every sound source. Implementations must be allocation-free in
  * noteOn/noteOff/setParam/render.
@@ -18,6 +21,8 @@ export interface Instrument {
   noteOn(note: number, velocity: number, group: number, ring: boolean, slideFrom?: number, slide?: boolean): void;
   /** Release voices of a group; -1 releases everything. Percussive voices may ignore it. */
   noteOff(group: number): void;
+  /** REST: everything sounding (held, ringing, releasing) stops, over a 3 ms fade (CUT_FADE). */
+  cut(): void;
   /** Drums: RING steps ring this many times their designed length (the track's RING). */
   setRingLength?(scale: number): void;
   /** Pitch modulation in semitones (LFO), applied to sounding voices. Block rate. */

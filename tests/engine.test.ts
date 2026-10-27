@@ -1079,6 +1079,30 @@ describe('RING and REST', () => {
     expect(level(l, 26000, 29900)).toBeGreaterThan(0.01); // still ringing in step 4
     expect(level(l, 31000, 40000)).toBeLessThan(0.002); // stopped by the rest at step 5
   });
+
+  it('a REST cuts a long release and a drum\'s decay at once, without a click', () => {
+    const jump = (l: Float32Array, a: number, b: number) => { let m = 0; for (let i = a + 1; i < b; i++) m = Math.max(m, Math.abs(l[i] - l[i - 1])); return m; };
+    // PAD: two notes of their own lengths, a 3 s release; a rest at step 4 (24000).
+    const p = kickProject([], { bpm: 120 });
+    p.channels.forEach((c) => (c.fxSend = 0));
+    const pad = p.channels[5];
+    pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, sustain2: 1, release: 3, release2: 3 };
+    Object.assign(pad.patterns[0].steps[0], { active: true, note: 60, gate: 2, extra: [64], extraGate: [3] });
+    pad.patterns[0].steps[4].rest = true;
+    // KICK: a plain (not RING) hit with a long decay; a rest at step 1.
+    const kick = p.channels[0];
+    kick.sounds.kick = { ...kick.sounds.kick!, t_decay: 2 };
+    kick.patterns[0].steps[0].active = true;
+    kick.patterns[0].steps[1].rest = true;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const out = render(e, 0.8).l;
+    expect(stats(out.subarray(20000, 23900)).peak).toBeGreaterThan(0.01); // the PAD's release still sounding
+    // All cut (the kick long before); the limiter's look-ahead delays it a few ms.
+    expect(stats(out.subarray(24700, 36000)).peak).toBeLessThan(0.001);
+    // The kick's cut (frame 6000) fades: no step bigger than the hit's own.
+    expect(jump(out, 6000, 6400)).toBeLessThan(jump(out, 5000, 5990) * 1.5 + 0.01);
+  });
 });
 
 describe('project', () => {
@@ -1278,25 +1302,18 @@ describe('slides and rolls', () => {
     expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
   });
 
-  it('a rest under a SLIDE note\'s own tie does not cut it: it still glides into the next note', () => {
-    const p = kickProject([], { bpm: 120 });
+  it('a rest under a note\'s own tie cuts it too (a REST always cuts)', () => {
+    const p = kickProject([], { bpm: 120 }); // a 16th = 6000 frames
     const b = p.channels[4];
-    b.sounds.bass = { ...b.sounds.bass!, shape: 0, fm: 0, sub: 0, detune: 0, cutoff: 20000, fenv: 0, sustain: 1, glide: 0.06, drive: 1 };
-    const pat = b.patterns[0];
-    Object.assign(pat.steps[0], { active: true, note: 45, gate: 3, slide: true }); // tied over steps 2-3
-    for (const i of [1, 2]) pat.steps[i].rest = true; // rests left under the tie
-    Object.assign(pat.steps[3], { active: true, note: 57, gate: 1 });
+    b.sounds.bass = { ...b.sounds.bass!, sustain: 1, release: 0.01 };
     b.fxSend = 0;
-    const crossingsAfterBoundary = (slide: boolean) => {
-      pat.steps[0].slide = slide;
-      const e = engineWith(p);
-      e.handleMessage({ type: 'transport', playing: true });
-      const l = render(e, 0.5).l.subarray(18000, 18960); // first 20 ms of step 4
-      let c = 0;
-      for (let i = 1; i < l.length; i++) if ((l[i - 1] < 0) !== (l[i] < 0)) c++;
-      return c;
-    };
-    expect(crossingsAfterBoundary(true)).toBeLessThan(crossingsAfterBoundary(false) * 0.85);
+    Object.assign(b.patterns[0].steps[0], { active: true, note: 45, gate: 3, slide: true });
+    b.patterns[0].steps[1].rest = true;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    const l = render(e, 0.4).l;
+    expect(stats(l.subarray(3000, 5900)).peak).toBeGreaterThan(0.01);
+    expect(stats(l.subarray(6400, 17000)).peak).toBeLessThan(0.001);
   });
 
   it('MUTE stops new notes only: a sounding note plays out, an unmuted track comes back on its next note', () => {
