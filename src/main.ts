@@ -198,7 +198,7 @@ const frame = (now: number) => {
   if (!titleDone) titleFrame(now);
   else if (app.projMenu) drawProjectView(screen, app.projectView());
   else if (app.menu) drawMenuView(screen, app.menuView());
-  else if (app.mode === 'song') drawSongView(screen, app.songView(now, audio));
+  else if (app.songGrid) drawSongView(screen, app.songView(now, audio));
   else if (app.sendOpen) drawDesignView(screen, app.sendView(now, audio));
   else if (app.mode === 'design' || app.playMix) drawDesignView(screen, app.designView(now, audio));
   else drawLiveView(screen, app.liveView(now, audio));

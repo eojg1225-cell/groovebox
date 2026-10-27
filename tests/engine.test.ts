@@ -356,6 +356,18 @@ describe('sequencer', () => {
     expect(fromStored({ ...toStored(p), channels: toStored(p).channels.map((c) => ({ ...c, ringLength: undefined })) })?.channels[1].ringLength).toBe(1);
   });
 
+  it('SONG from a bar inside a row: every track where it would be by then', () => {
+    const p = kickProject([0, 16, 32]);
+    p.channels[0].patterns[0].length = 48;
+    p.song = { rows: [{ bars: 2, patterns: [0, -1, -1, -1, -1, -1, -1, -1] }, { bars: 4, patterns: [0, -1, -1, -1, -1, -1, -1, -1] }] };
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 1, fromBar: 2 });
+    render(e, 0.01);
+    expect(e.songRow).toBe(1);
+    expect(e.songBar).toBe(2);
+    expect(e.currentStep[0]).toBe(32); // the row restarts its pattern: bar 3 = step 32
+  });
+
   describe('METRONOME and COUNT-IN', () => {
     it('clicks on every beat while playing, louder on the bar', () => {
       const e = engineWith(kickProject([]));

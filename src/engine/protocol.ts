@@ -67,14 +67,15 @@ export type MainToWorklet =
    * Start / stop. song = play the song (from row fromRow) instead of the patterns. Patterns:
    * fromStep (a bar line of track fromChannel's pattern, absent = the top) = every track
    * starts where it would be had all played from the top until that track reached that step.
-   * countIn = bars of clicks before the music starts (COUNT-IN).
+   * countIn = bars of clicks before the music starts (COUNT-IN). Song: fromBar = the bar
+   * inside row fromRow to start on (every track where it would be by then).
    */
   /**
    * `gen`: the UI's transport count. STOP also goes as the node's `stop` AudioParam (it gets
    * through when an overloaded audio thread holds messages back); a transport message older
    * than a STOP already applied that way is dropped.
    */
-  | { type: 'transport'; playing: boolean; song?: boolean; fromRow?: number; fromChannel?: number; fromStep?: number; countIn?: number; gen?: number }
+  | { type: 'transport'; playing: boolean; song?: boolean; fromRow?: number; fromBar?: number; fromChannel?: number; fromStep?: number; countIn?: number; gen?: number }
   /** METRONOME: the click on the beats while playing (on), and its level 0..1 (COUNT-IN too). */
   | { type: 'setClick'; on: boolean; level: number }
   /** Replace the song (sent after every song edit; small). */

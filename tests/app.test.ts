@@ -431,7 +431,7 @@ describe('arrow keys', () => {
     expect(row()).toBe(0);
     tap('oct-');
     expect(row()).toBe(1);
-    tap('mode:record');
+    tap('mode:play'); // SONG PLAY: the keys are the usual ones again
     app.updateFrame(0);
     expect(texts.get('oct-')).toBe('OCT ▼');
   });
@@ -486,14 +486,15 @@ describe('MENU and CANCEL', () => {
     tap('menu');
     expect(page(app)).toEqual({ page: 'top', item: 0, pending: new Map() });
     tap('cur+'); // SONG, not saved yet
-    expect(app.mode).toBe('design');
+    expect(app.song).toBe(false);
     tap('cancel'); // back without saving: closed
     expect(app.menu).toBeNull();
-    expect(app.mode).toBe('design');
+    expect(app.song).toBe(false);
     tap('menu');
     tap('cur+');
-    tap('play'); // saved: SONG, the menu closes (the top page)
-    expect(app.mode).toBe('song');
+    tap('play'); // saved: SONG, the menu closes (the top page); SONG opens on RECORD (the grid)
+    expect(app.song).toBe(true);
+    expect(app.mode).toBe('record');
     expect(app.menu).toBeNull();
     expect(app.playing).toBe(false); // PLAY in the menu is SAVE, not the transport
     app.updateFrame(0);
@@ -501,7 +502,7 @@ describe('MENU and CANCEL', () => {
     tap('menu');
     tap('cur-'); // JAM
     tap('play');
-    expect(app.mode).toBe('design');
+    expect(app.song).toBe(false);
   });
 
   it('▼ / ▲ move, ▶ opens a page, CANCEL goes back a page and closes at the top', () => {
@@ -768,5 +769,61 @@ describe('HOLD + RESET and project settings', () => {
     const p = createDefaultProject();
     p.settings = { metronome: 2 };
     expect(fromStored(toStored(p))!.settings).toEqual({ metronome: 2 });
+  });
+});
+
+describe('SONG over RECORD / PLAY / DESIGN', () => {
+  const song = () => {
+    const r = makeApp();
+    r.tap('menu');
+    r.tap('cur+'); // MODE: SONG
+    r.tap('play');
+    return r;
+  };
+  const lastTransport = (sent: MainToWorklet[]) => sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
+
+  it('RECORD is the grid; PLAY and DESIGN play the song with their usual pages', () => {
+    const { app, tap, sent } = song();
+    expect(app.songGrid).toBe(true);
+    tap('mode:design');
+    expect(app.songGrid).toBe(false);
+    tap('play');
+    expect(lastTransport(sent)).toMatchObject({ playing: true, song: true, fromRow: 0, fromBar: 0 });
+    tap('play');
+    tap('mode:play');
+    tap('play');
+    expect(lastTransport(sent)).toMatchObject({ playing: true, song: true });
+  });
+
+  it('BAR + ◀ ▶ in the grid picks the bar of the cursor row to start from; another row starts from its first', () => {
+    const { app, tap, press, release, sent } = song();
+    press('steppage');
+    tap('cur+');
+    tap('cur+');
+    release('steppage');
+    expect((app as unknown as { songPage: number }).songPage).toBe(0); // BAR held for ◀ ▶: no page turn
+    tap('play');
+    expect(lastTransport(sent)).toMatchObject({ fromRow: 0, fromBar: 2 });
+    tap('play');
+    tap('oct-'); // a new row
+    tap('patA');
+    tap('play');
+    expect(lastTransport(sent)).toMatchObject({ fromRow: 1, fromBar: 0 });
+    tap('play');
+    tap('func');
+    tap('play'); // FUNC + PLAY: the top
+    expect(lastTransport(sent)).toMatchObject({ fromRow: 0, fromBar: 0 });
+  });
+
+  it('STOP keeps the row and bar playing, so PLAY carries on there', () => {
+    const { app, tap, sent } = song();
+    tap('oct-');
+    tap('patB');
+    tap('oct+');
+    tap('play');
+    app.setStatus({ type: 'status', peakL: 0, peakR: 0, frame: 0, playing: true, steps: new Array<number>(8).fill(0), patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: 1, songBar: 2, load: 0, countIn: 0 });
+    tap('play');
+    tap('play');
+    expect(lastTransport(sent)).toMatchObject({ fromRow: 1, fromBar: 2 });
   });
 });

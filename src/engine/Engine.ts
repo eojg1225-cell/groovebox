@@ -403,6 +403,7 @@ export class Engine {
           this.songBar = -1; // the row is entered on the first step
           this.setPlaying(true);
           if (!this.songOn && msg.fromStep) this.startAt(msg.fromChannel ?? 0, msg.fromStep);
+          if (this.songOn && msg.fromBar) this.startSongAt(Math.max(0, Math.min(this.songBars[this.songRow] - 1, Math.round(msg.fromBar))));
           this.countTotal = this.countLeft = Math.max(0, Math.round(msg.countIn ?? 0)) * this.barLen;
           this.lfoStartClock = this.lfoClock;
         }
@@ -574,19 +575,41 @@ export class Engine {
     if (from >= len || this.nextOn(base, from, len) < 0) return;
     let g = 0;
     for (; g < 4 * MAX_STEPS; g++) {
-      const pos = this.barPos(g);
-      if (this.callsAt(ch, pos) && this.peekStep(ch) >= from) break;
-      for (let c = 0; c < NUM_CHANNELS; c++) {
-        if (!this.current[c] || !this.callsAt(c, pos)) continue;
-        const rate = this.patternRate[c * NUM_PATTERNS + this.activePattern[c]];
-        this.chaseStep(c, g);
-        if (rate < 1) this.chaseStep(c, g + 0.5);
-        else if (rate > 1 && rate < 2) {
-          this.chaseStep(c, g + 4 / 3);
-          this.chaseStep(c, g + 8 / 3);
-        }
+      if (this.callsAt(ch, this.barPos(g)) && this.peekStep(ch) >= from) break;
+      this.chaseMasterStep(g);
+    }
+    this.startClockAt(g);
+  }
+
+  /**
+   * SONG from a bar inside a row: the row is entered and every track's counters move on,
+   * silently, through its first `bar` bars (each row starts its patterns from the top).
+   */
+  private startSongAt(bar: number): void {
+    this.enterRow(this.songRow);
+    const steps = bar * this.barLen;
+    for (let g = 0; g < steps; g++) this.chaseMasterStep(g);
+    this.songBar = bar - 1; // the first bar line moves it on to `bar`
+    this.startClockAt(steps);
+  }
+
+  /** startAt / startSongAt: one master step of every track, counters only. */
+  private chaseMasterStep(g: number): void {
+    const pos = this.barPos(g);
+    for (let c = 0; c < NUM_CHANNELS; c++) {
+      if (!this.current[c] || !this.callsAt(c, pos)) continue;
+      const rate = this.patternRate[c * NUM_PATTERNS + this.activePattern[c]];
+      this.chaseStep(c, g);
+      if (rate < 1) this.chaseStep(c, g + 0.5);
+      else if (rate > 1 && rate < 2) {
+        this.chaseStep(c, g + 4 / 3);
+        this.chaseStep(c, g + 8 / 3);
       }
     }
+  }
+
+  /** The master clock (and the LFO, phase-locked to it) starts at master step g. */
+  private startClockAt(g: number): void {
     this.globalStep = g;
     this.lfoClock = g;
     this.lfoTrig.fill(g);
