@@ -558,7 +558,7 @@ describe('MENU and CANCEL', () => {
     const { app, tap, emit } = makeApp();
     tap('menu');
     tap('step3'); // GLOBAL SETTINGS
-    tap('step5'); // TOUCH SETTINGS
+    tap('step6'); // TOUCH SETTINGS
     expect(page(app)?.page).toBe('touch');
     expect(deviceSettings.knobSpeed).toBe(1);
     tap('cur+'); // KNOB SPEED: FAST (on screen)
@@ -644,16 +644,28 @@ describe('SONG grid: rows, track selection, A-D', () => {
 });
 
 describe('A-D', () => {
-  it('FUNC + A-D is plain A-D (every track); hold a channel for one track', () => {
+  it('FUNC + A-D is plain A-D (every track); held channels keep their pattern (KEEP HELD, the default)', () => {
     const { app, tap, press, release } = makeApp();
+    const pats = () => app.project.channels.map((c) => c.activePattern).join('');
     press('func');
     tap('patB');
     release('func');
-    expect(app.project.channels.map((c) => c.activePattern).join('')).toBe('11111111');
+    expect(pats()).toBe('11111111');
+    press('ch3');
+    press('ch5');
+    tap('patC');
+    release('ch5');
+    release('ch3');
+    expect(pats()).toBe('22121222');
+  });
+
+  it('HOLD + PATTERN SWITCH HELD (here the project\'s own): only the held channels switch', () => {
+    const { app, tap, press, release } = makeApp();
+    app.project.settings = { holdPattern: 1 };
     press('ch3');
     tap('patC');
     release('ch3');
-    expect(app.project.channels.map((c) => c.activePattern).join('')).toBe('11211111');
+    expect(app.project.channels.map((c) => c.activePattern).join('')).toBe('00200000');
   });
 });
 

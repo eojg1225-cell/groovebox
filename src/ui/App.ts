@@ -61,7 +61,7 @@ import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTarget
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
-import { CLICK_LEVELS, COUNT_INS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
+import { CLICK_LEVELS, COUNT_INS, HOLD_PATTERNS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
@@ -1147,12 +1147,19 @@ export class App {
       return;
     }
     if ((m = /^pat([A-D])$/.exec(id))) {
-      // A-D: every track; channels held: only those.
+      // A-D: every track; channels held: HOLD + PATTERN = KEEP HELD switches all but those,
+      // SWITCH HELD only those.
       const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
       if (this.heldChannels.size > 0) {
         const held = [...this.heldChannels].sort();
-        for (const ch of held) this.selectPattern(ch, pat, held.length === 1);
-        if (held.length > 1) this.flash(`${held.map((ch) => ch + 1).join(' ')} PAT ${m[1]}`);
+        const names = held.map((ch) => ch + 1).join(' ');
+        if (this.setting('holdPattern') === 1) {
+          for (const ch of held) this.selectPattern(ch, pat, held.length === 1);
+          if (held.length > 1) this.flash(`${names} PAT ${m[1]}`);
+        } else {
+          for (let ch = 0; ch < NUM_CHANNELS; ch++) if (!this.heldChannels.has(ch)) this.selectPattern(ch, pat, false);
+          this.flash(`ALL BUT ${names} PAT ${m[1]}`);
+        }
         this.heldUsed = true;
       } else {
         for (let ch = 0; ch < NUM_CHANNELS; ch++) this.selectPattern(ch, pat, false);
@@ -2539,6 +2546,7 @@ export class App {
         own('METRONOME', 'metronome', METRONOMES),
         own('CLICK LEVEL', 'clickLevel', CLICK_LEVELS.map((v) => `${v} %`)),
         own('HOLD + RESET', 'holdReset', HOLD_RESETS),
+        own('HOLD + PATTERN', 'holdPattern', HOLD_PATTERNS),
       ];
     }
     // GLOBAL / TOUCH SETTINGS are kept on this device (storage/settings.ts), not in the project.
@@ -2553,6 +2561,7 @@ export class App {
         device('METRONOME', 'metronome', METRONOMES),
         device('CLICK LEVEL', 'clickLevel', CLICK_LEVELS.map((v) => `${v} %`)),
         device('HOLD + RESET', 'holdReset', HOLD_RESETS),
+        device('HOLD + PATTERN', 'holdPattern', HOLD_PATTERNS),
         { label: 'TOUCH SETTINGS', open: () => this.openPage('touch') },
       ];
     }

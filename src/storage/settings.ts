@@ -23,6 +23,8 @@ export const METRONOMES = ['OFF', 'RECORDING', 'ALWAYS'] as const;
 export const CLICK_LEVELS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 /** HOLD + RESET: track / FX / LFO buttons held while RESET is pressed are kept out of it, or are all it resets. */
 export const HOLD_RESETS = ['KEEP HELD', 'RESET HELD'] as const;
+/** HOLD + PATTERN: track buttons held while A-D is pressed keep their pattern (the others switch), or are the only ones that switch. */
+export const HOLD_PATTERNS = ['KEEP HELD', 'SWITCH HELD'] as const;
 /** TOUCH DELAY choices (ms): how much later than the engine the player hears a tap land. */
 export const TOUCH_DELAYS = [0, 5, 10, 15, 20, 25, 30, 40, 50] as const;
 
@@ -35,6 +37,8 @@ interface DeviceSettings {
   clickLevel: number;
   /** Index into HOLD_RESETS. */
   holdReset: number;
+  /** Index into HOLD_PATTERNS. */
+  holdPattern: number;
   /** Index into KNOB_SPEEDS. */
   knobSpeed: number;
   /** Quick drags move a knob further (1) or not (0). */
@@ -48,10 +52,10 @@ interface DeviceSettings {
 }
 
 const KEY = 'groovebox.device';
-const DEFAULTS: DeviceSettings = { countIn: 0, metronome: 0, clickLevel: 7, holdReset: 0, knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0 };
+const DEFAULTS: DeviceSettings = { countIn: 0, metronome: 0, clickLevel: 7, holdReset: 0, holdPattern: 0, knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0 };
 /** How many choices each setting has. */
 const CHOICES: Record<keyof DeviceSettings, number> = {
-  countIn: COUNT_INS.length, metronome: METRONOMES.length, clickLevel: CLICK_LEVELS.length, holdReset: HOLD_RESETS.length,
+  countIn: COUNT_INS.length, metronome: METRONOMES.length, clickLevel: CLICK_LEVELS.length, holdReset: HOLD_RESETS.length, holdPattern: HOLD_PATTERNS.length,
   knobSpeed: KNOB_SPEEDS.length, knobAccel: 2, touchDelay: TOUCH_DELAYS.length, holdTime: HOLD_TIMES.length, screenOn: 2,
 };
 
