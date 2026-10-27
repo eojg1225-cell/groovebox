@@ -52,7 +52,7 @@ import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
-  setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SoundKind, type Step,
+  setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SettingKey, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
@@ -61,7 +61,7 @@ import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTarget
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
-import { CLICK_LEVELS, COUNT_INS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
+import { CLICK_LEVELS, COUNT_INS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
@@ -405,10 +405,15 @@ export class App {
     return s && s.instrument === this.project.channels[ch].instrument ? s : undefined;
   }
 
+  /** A GLOBAL setting as it applies now: the project's own choice, else (DEFAULT) the device's. */
+  private setting(key: SettingKey): number {
+    return this.project.settings?.[key] ?? deviceSettings[key];
+  }
+
   /** METRONOME: the click with the music (RECORDING = in RECORD mode), at CLICK LEVEL. */
   private clickMessage(): Extract<MainToWorklet, { type: 'setClick' }> {
-    const m = deviceSettings.metronome;
-    return { type: 'setClick', on: m === 2 || (m === 1 && this.mode === 'record'), level: CLICK_LEVELS[deviceSettings.clickLevel] / 100 };
+    const m = this.setting('metronome');
+    return { type: 'setClick', on: m === 2 || (m === 1 && this.mode === 'record'), level: CLICK_LEVELS[this.setting('clickLevel')] / 100 };
   }
 
   /** Sends the click setting when it changed (mode or settings). */
@@ -1092,7 +1097,7 @@ export class App {
         type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: top ? 0 : this.songRow,
         fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16,
         // COUNT-IN: before live recording only.
-        countIn: this.playing && this.mode === 'record' ? deviceSettings.countIn : 0, gen: ++this.transportGen,
+        countIn: this.playing && this.mode === 'record' ? this.setting('countIn') : 0, gen: ++this.transportGen,
       });
     } else if (id.startsWith('mode:')) {
       this.setMode(id.slice(5) as Mode);
@@ -1223,27 +1228,33 @@ export class App {
    */
   private startReset(): void {
     const now = performance.now();
-    // Tracks held down sit it out (and their buttons no longer select on release), with the
-    // FX / LFO knobs their live knobs move; FX 1-3 / LFO held down keep that bus / the LFO
-    // (the press that opened or closed its view is undone).
-    const keep = new Set(this.heldChannels);
-    if (keep.size > 0) this.heldUsed = true;
-    const keepKeys = new Set<string>();
+    // Track / FX 1-3 / LFO buttons held down: HOLD + RESET = KEEP HELD keeps them out of it,
+    // RESET HELD resets only them. A held track takes along the FX / LFO knobs its live knobs
+    // move. Their buttons no longer act on release (an FX press's view change is undone).
+    const held = new Set(this.heldChannels);
+    const heldKeys = new Set<string>();
     for (const n of this.heldBuses) {
-      if (n === 4) for (const id of Object.keys(LFO_PARAMS)) keepKeys.add(`lfo:${id}`);
-      else for (const t of this.sendTargets(n - 1)) if (t?.key) keepKeys.add(t.key);
+      if (n === 4) for (const id of Object.keys(LFO_PARAMS)) heldKeys.add(`lfo:${id}`);
+      else for (const t of this.sendTargets(n - 1)) if (t?.key) heldKeys.add(t.key);
     }
-    if (this.heldBuses.size > 0) this.fxView = this.fxViewBefore;
-    for (const ch of keep) {
+    for (const ch of held) {
       const c = this.project.channels[ch];
       for (const id of [...c.live, ...c.liveFunc]) {
         const fx = FX_LIVE.find((f) => f.id === id);
-        if (fx) keepKeys.add(`bus:${fx.bus}:${fx.param}`);
-        else if (id.startsWith('lfo:')) keepKeys.add(id);
+        if (fx) heldKeys.add(`bus:${fx.bus}:${fx.param}`);
+        else if (id.startsWith('lfo:')) heldKeys.add(id);
       }
     }
-    const keptNames = [...[...keep].sort().map((ch) => String(ch + 1)), ...[...this.heldBuses].sort().map((n) => (n === 4 ? 'LFO' : `FX${n}`))];
-    const kept = keptNames.length > 0 ? ` (KEPT ${keptNames.join(' ')})` : '';
+    const anyHeld = held.size > 0 || this.heldBuses.size > 0;
+    if (held.size > 0) this.heldUsed = true;
+    if (this.heldBuses.size > 0) this.fxView = this.fxViewBefore;
+    const only = anyHeld && this.setting('holdReset') === 1;
+    // The tracks left alone, and whether a bus / LFO knob (by its key) is.
+    const keep = new Set<number>();
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) if (only ? !held.has(ch) : held.has(ch)) keep.add(ch);
+    const keepKey = (key: string) => (only ? !heldKeys.has(key) : heldKeys.has(key));
+    const heldNames = [...[...held].sort().map((ch) => String(ch + 1)), ...[...this.heldBuses].sort().map((n) => (n === 4 ? 'LFO' : `FX${n}`))];
+    const kept = !anyHeld ? '' : only ? ` (ONLY ${heldNames.join(' ')})` : ` (KEPT ${heldNames.join(' ')})`;
     if (now < this.resetAgainUntil) {
       this.resetAgainUntil = 0;
       this.resetNotes(keep, kept);
@@ -1256,21 +1267,22 @@ export class App {
       if (Math.abs(current - target) < 1e-9) return;
       glides.set(key, { spec, from: toNorm(spec, current), to: toNorm(spec, target), target, set });
     };
-    const fromTarget = (t: KnobTarget | null, target: number) => {
-      if (t?.key && !keepKeys.has(t.key)) add(t.key, t.spec, t.get(), target, (v) => t.set(v));
+    // own = a track's own knob (decided by `keep`), else an FX / LFO knob (by keepKey).
+    const fromTarget = (t: KnobTarget | null, target: number, own = false) => {
+      if (t?.key && (own || !keepKey(t.key))) add(t.key, t.spec, t.get(), target, (v) => t.set(v));
     };
     this.project.channels.forEach((c, ch) => {
       const s = saved.channels[ch];
       if (!s || keep.has(ch)) return;
       for (const spec of MIX_PARAMS) {
-        fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[MIX_FIELD[spec.id as MixId]] ?? spec.defaultValue);
+        fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[MIX_FIELD[spec.id as MixId]] ?? spec.defaultValue, true);
       }
       if (!isDrum(c.instrument)) {
-        fromTarget(this.paramTarget(ch, 'track:chord'), s.chord);
-        fromTarget(this.paramTarget(ch, 'track:notes'), s.notes - 1);
+        fromTarget(this.paramTarget(ch, 'track:chord'), s.chord, true);
+        fromTarget(this.paramTarget(ch, 'track:notes'), s.notes - 1, true);
       }
       // Relative live knobs glide back to the centre (the sound as set).
-      for (const id of Object.keys(c.liveOffset)) fromTarget(this.liveKnob(ch, id, false), 0);
+      for (const id of Object.keys(c.liveOffset)) fromTarget(this.liveKnob(ch, id, false), 0, true);
     });
     // Patches: each edited one back to its saved version (the engine glides the one playing).
     let patches = 0;
@@ -1290,7 +1302,7 @@ export class App {
     for (let k = 0; k < NUM_BUSES; k++) {
       for (const t of this.sendTargets(k)) if (t?.key) fromTarget(t, saved.buses[k]?.[t.key.split(':')[2]] ?? t.spec.defaultValue);
     }
-    for (const gid of ['swing'] as const) {
+    for (const gid of only ? [] : (['swing'] as const)) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
       add(`global:${gid}`, spec, this.project[gid], saved[gid], (v) => this.setGlobal(gid, v));
     }
@@ -2289,7 +2301,26 @@ export class App {
         { label: 'GLOBAL SETTINGS', open: () => this.openPage('global') },
       ];
     }
-    if (page === 'project') return [{ label: 'TRACKS', open: () => this.openPage('tracks') }];
+    if (page === 'project') {
+      // The project's own GLOBAL settings: DEFAULT = whatever GLOBAL SETTINGS say.
+      const own = (label: string, key: SettingKey, options: readonly string[]): MenuLine => ({
+        label, options: ['DEFAULT', ...options],
+        get: () => (this.project.settings?.[key] ?? -1) + 1,
+        set: (i) => {
+          const s = (this.project.settings ??= {});
+          if (i === 0) delete s[key];
+          else s[key] = i - 1;
+          this.save();
+        },
+      });
+      return [
+        { label: 'TRACKS', open: () => this.openPage('tracks') },
+        own('COUNT-IN', 'countIn', COUNT_INS),
+        own('METRONOME', 'metronome', METRONOMES),
+        own('CLICK LEVEL', 'clickLevel', CLICK_LEVELS.map((v) => `${v} %`)),
+        own('HOLD + RESET', 'holdReset', HOLD_RESETS),
+      ];
+    }
     // GLOBAL / TOUCH SETTINGS are kept on this device (storage/settings.ts), not in the project.
     const device = (label: string, key: keyof typeof deviceSettings, options: readonly string[]): MenuLine => ({
       label, options,
@@ -2301,6 +2332,7 @@ export class App {
         device('COUNT-IN', 'countIn', COUNT_INS),
         device('METRONOME', 'metronome', METRONOMES),
         device('CLICK LEVEL', 'clickLevel', CLICK_LEVELS.map((v) => `${v} %`)),
+        device('HOLD + RESET', 'holdReset', HOLD_RESETS),
         { label: 'TOUCH SETTINGS', open: () => this.openPage('touch') },
       ];
     }

@@ -86,3 +86,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Changed knobs in yellow (2026-10-27): a knob away from its default draws its arc yellow (SOUND knobs: away from their TIMBRE / INTENSITY value; double tap returns there, was the raw parameter default).
 - Yellow = unsaved (2026-10-27): a knob is yellow when it differs from the saved project (TIMBRE included), not from a default; double tap goes back to the saved value.
 - RESET holds (2026-10-27): a held track also keeps the FX / LFO knobs its live knobs move (KICK's FX1:MOD in PLAY was reset, so holding the track seemed not to work); FX 1-3 / LFO held keep that bus / the LFO.
+- HOLD + RESET and project settings (2026-10-27, v52): GLOBAL HOLD + RESET (KEEP HELD / RESET HELD); PROJECT SETTINGS can set COUNT-IN, METRONOME, CLICK LEVEL and HOLD + RESET for the project (DEFAULT = the GLOBAL setting), stored `settings`.

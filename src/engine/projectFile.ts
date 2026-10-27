@@ -8,7 +8,7 @@
  * and FX, but its sounds are taken as stored and may differ (isOldFormat).
  */
 import {
-  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
+  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
   emptyPattern, initPatterns, patchOf,
   type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
 } from './project';
@@ -156,6 +156,8 @@ interface StoredProject {
   buses: Record<string, number>[];
   /** v36: time signature (index into METERS; absent = 4/4). */
   meter?: number;
+  /** v52: the project's own GLOBAL settings (option indices; absent = DEFAULT). */
+  settings?: Record<string, number>;
   channels: StoredChannel[];
 }
 
@@ -167,6 +169,7 @@ export function toStored(p: Project): StoredProject {
     swing: p.swing,
     master: p.master,
     meter: p.meter,
+    settings: { ...p.settings },
     lfo: { ...p.lfo },
     song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })) },
     buses: p.buses.map((b) => ({ ...b })),
@@ -531,6 +534,14 @@ export function fromStored(data: unknown): Project | null {
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
   p.meter = Math.round(num(data.meter, 0, 0, METERS.length - 1));
+  p.settings = {};
+  if (isObj(data.settings)) {
+    for (const k of SETTING_KEYS) {
+      const v = data.settings[k];
+      // Option indices (the app keeps each within its own list).
+      if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 64) p.settings[k] = v;
+    }
+  }
   const version = num(data.version, 0);
   // FX 1-3 (v41; older FX settings take the new buses' defaults).
   if (version >= 41 && Array.isArray(data.buses)) {

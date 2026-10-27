@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../src/ui/App';
 import { createDefaultProject } from '../src/engine/defaultProject';
 import { stepNotes } from '../src/engine/project';
+import { fromStored, toStored } from '../src/engine/projectFile';
 import { projectStore } from '../src/storage/projects';
 import type { ControlEvent } from '../src/controls/ControlSurface';
 import type { Panel } from '../src/ui/Panel';
@@ -553,7 +554,7 @@ describe('MENU and CANCEL', () => {
     const { app, tap, emit } = makeApp();
     tap('menu');
     tap('step3'); // GLOBAL SETTINGS
-    tap('step4'); // TOUCH SETTINGS
+    tap('step5'); // TOUCH SETTINGS
     expect(page(app)?.page).toBe('touch');
     expect(deviceSettings.knobSpeed).toBe(1);
     tap('cur+'); // KNOB SPEED: FAST (on screen)
@@ -712,5 +713,60 @@ describe('RESET with buttons held', () => {
     tap('reset'); // nothing held: both go back
     glide(app);
     expect(JSON.stringify(app.project.lfo)).not.toBe(lfo);
+  });
+});
+
+describe('HOLD + RESET and project settings', () => {
+  const glide = (app: App) => (app as unknown as { stepGlides(n: number): void }).stepGlides(performance.now() + 10);
+
+  it('RESET HELD: only the held track (with its FX knob) and the held bus reset; the rest stay', () => {
+    const { app, tap, press, release, emit } = makeApp();
+    app.project.settings = { holdReset: 1 };
+    tap('mode:play');
+    emit({ type: 'knob', id: 'k1', value: 0.9 }); // KICK FX1:MOD
+    emit({ type: 'knob', id: 'k10', value: 0.9 }); // SNARE DECAY
+    tap('mode:design');
+    tap('dpage1'); // MIX
+    emit({ type: 'knob', id: 'k1', value: 0.2 }); // KICK VOLUME
+    emit({ type: 'knob', id: 'k2', value: 0.2 }); // SNARE VOLUME
+    tap('fx2');
+    emit({ type: 'knob', id: 'k1', value: 0.7 });
+    tap('fx2');
+    const snare = app.project.channels[1].volume;
+    const fx2 = JSON.stringify(app.project.buses[1]);
+    press('ch1');
+    tap('reset');
+    release('ch1');
+    glide(app);
+    const fresh = createDefaultProject();
+    expect(app.project.channels[0].volume).toBe(fresh.channels[0].volume);
+    expect(app.project.buses[0].mod_vol).toBe(fresh.buses[0].mod_vol);
+    expect(app.project.channels[1].volume).toBe(snare);
+    expect(app.project.channels[1].liveOffset['macro:decay']).toBeGreaterThan(0);
+    expect(JSON.stringify(app.project.buses[1])).toBe(fx2);
+  });
+
+  it('a project setting overrides GLOBAL; DEFAULT follows it; it is saved with the project', () => {
+    const { app, tap, sent } = makeApp();
+    deviceSettings.countIn = 2;
+    tap('menu');
+    tap('step2'); // PROJECT SETTINGS
+    tap('oct-'); // COUNT-IN
+    tap('cur+'); // DEFAULT -> OFF
+    tap('play');
+    expect(app.project.settings?.countIn).toBe(0);
+    tap('menu'); // closed
+    tap('mode:record');
+    tap('play');
+    expect(sent.filter((m) => m.type === 'transport').pop()).toMatchObject({ countIn: 0 });
+    tap('play');
+    delete app.project.settings!.countIn; // DEFAULT
+    tap('play');
+    expect(sent.filter((m) => m.type === 'transport').pop()).toMatchObject({ countIn: 2 });
+    tap('play');
+    deviceSettings.countIn = 0;
+    const p = createDefaultProject();
+    p.settings = { metronome: 2 };
+    expect(fromStored(toStored(p))!.settings).toEqual({ metronome: 2 });
   });
 });

@@ -73,7 +73,7 @@ export function createDefaultProject(): Project {
   for (const c of channels) c.volume = defaultVolume(c.instrument as SoundKind);
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
-    buses: defaultBuses(), lfo: defaultLfo(), song: { rows: [] }, meter: 0, channels,
+    buses: defaultBuses(), lfo: defaultLfo(), song: { rows: [] }, meter: 0, settings: {}, channels,
   };
 }
 

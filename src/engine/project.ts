@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 51;
+export const PROJECT_VERSION = 52;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -256,8 +256,14 @@ export interface ChannelState {
   activePattern: number;
 }
 
+/** The GLOBAL settings a project can set for itself (MENU > PROJECT SETTINGS). */
+export type SettingKey = 'countIn' | 'metronome' | 'clickLevel' | 'holdReset';
+export const SETTING_KEYS: readonly SettingKey[] = ['countIn', 'metronome', 'clickLevel', 'holdReset'];
+
 export interface Project {
   version: number;
+  /** This project's own choice of a GLOBAL setting (an option index); absent = DEFAULT (the device's). */
+  settings?: Partial<Record<SettingKey, number>>;
   bpm: number;
   /** 50..75 (%): 50 = straight. */
   swing: number;
