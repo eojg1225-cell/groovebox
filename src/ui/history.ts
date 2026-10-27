@@ -16,7 +16,7 @@ import {
 } from '../engine/project';
 
 /** How many steps UNDO goes back. */
-export const UNDO_DEPTH = 50;
+export const UNDO_DEPTH = 16;
 
 export interface HistoryEntry {
   label: string;
