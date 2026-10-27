@@ -54,7 +54,7 @@ import {
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SoundKind, type Step,
 } from '../engine/project';
-import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
+import { applyPreset, createDefaultProject, defaultChord, defaultVolume, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
@@ -223,6 +223,12 @@ interface KnobTarget {
   get(): number;
   set(value: number): void;
   highlight?: boolean;
+  /**
+   * The knob's default as things stand (real units; absent = spec.defaultValue): a SOUND
+   * page knob's is the value TIMBRE / INTENSITY give it. Away from it the knob shows yellow;
+   * a double tap goes back to it.
+   */
+  base?(): number;
   /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "bus:k:id" ... */
   key?: string;
 }
@@ -691,6 +697,7 @@ export class App {
       return {
         label: label ?? 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch, highlight, key: `${ch}:${id}`,
         get: () => c.chord,
+        base: () => defaultChord(c.instrument),
         set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
       };
     }
@@ -701,6 +708,7 @@ export class App {
       const field = MIX_FIELD[mixId];
       return {
         label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
+        base: () => (mixId === 'volume' && c.instrument !== 'none' ? defaultVolume(c.instrument) : spec.defaultValue),
         get: () => c[field],
         set: (v) => {
           c[field] = v;
@@ -715,6 +723,10 @@ export class App {
     return {
       label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
+      // TIMBRE picks the sound (never a change); a knob TIMBRE / INTENSITY set: their value.
+      base: () => (id === 'timbre' ? (c.sounds[kind]?.timbre ?? spec.defaultValue)
+        : this.macroParams(kind).has(id) ? (hiddenSound(kind, c.sounds[kind] ?? {}, INSTRUMENTS[kind].params)[id] ?? spec.defaultValue)
+        : spec.defaultValue),
       set: (v) => {
         this.setSoundParam(ch, kind, id, v);
         // PAD / LEAD: ATTACK, DECAY, SUSTAIN, RELEASE move both oscillators.
@@ -2628,7 +2640,7 @@ export class App {
     this.targets.forEach((t, i) => {
       this.panel.configureKnob(
         i,
-        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.spec.defaultValue), highlight: t.highlight } : null,
+        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight } : null,
       );
     });
 

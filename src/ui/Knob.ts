@@ -43,12 +43,12 @@ export class Knob {
   constructor(
     readonly id: string,
     label: string,
-    public defaultValue: number,
+    private defaultNorm: number,
     private readonly onChange: (id: string, value: number) => void,
     private readonly onTurn: (id: string, delta: number) => void,
     readonly steps = 127,
   ) {
-    this.pos = Math.round(defaultValue * steps);
+    this.pos = Math.round(defaultNorm * steps);
     const el = document.createElement('div');
     el.className = 'knob';
     el.innerHTML = `
@@ -76,6 +76,16 @@ export class Knob {
     this.render();
   }
 
+  /** Where a double tap goes (normalised); away from it the knob is drawn yellow. */
+  get defaultValue(): number {
+    return this.defaultNorm;
+  }
+
+  set defaultValue(value: number) {
+    this.defaultNorm = value;
+    this.markChanged();
+  }
+
   setLabel(label: string): void {
     if (this.labelEl.textContent !== label) this.labelEl.textContent = label;
   }
@@ -84,6 +94,7 @@ export class Knob {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     this.el.classList.toggle('disabled', !enabled);
+    this.markChanged();
     if (!enabled) this.dragPointer = null;
   }
 
@@ -97,6 +108,11 @@ export class Knob {
     if (pos === this.pos) return;
     this.pos = pos;
     this.render();
+  }
+
+  /** Away from its default (e.g. a SOUND knob off its TIMBRE value): drawn yellow. */
+  private markChanged(): void {
+    this.el?.classList.toggle('changed', this.enabled && this.pos !== Math.round(this.defaultNorm * this.steps));
   }
 
   private moveTo(pos: number): void {
@@ -160,5 +176,6 @@ export class Knob {
     const v = this.pos / this.steps;
     this.cap.style.transform = `rotate(${-SWEEP_DEG / 2 + v * SWEEP_DEG}deg)`;
     this.arc.style.strokeDasharray = `${v * SWEEP_DEG} 360`;
+    this.markChanged();
   }
 }

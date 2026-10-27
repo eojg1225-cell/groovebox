@@ -32,7 +32,7 @@ const START_SOUND: Record<SoundKind, string> = {
  * MIN9). Notes, mix and routing are left alone.
  */
 export function trackDefaults(c: ChannelState, kind: InstrumentKind): void {
-  c.chord = kind === 'pad' ? CHORD_NAMES.indexOf('MIN9') : 0;
+  c.chord = defaultChord(kind);
   c.notes = MAX_CHORD_NOTES;
   if (kind === 'none') {
     c.instrument = 'none';
@@ -40,6 +40,16 @@ export function trackDefaults(c: ChannelState, kind: InstrumentKind): void {
   }
   applyPreset(c, kind, Math.max(0, INSTRUMENTS[kind].presets.findIndex((p) => p.name === START_SOUND[kind])));
   liveDefaults(c);
+}
+
+/** A type's starting CHORD: PAD MIN9, the rest OFF. */
+export function defaultChord(kind: InstrumentKind): number {
+  return kind === 'pad' ? CHORD_NAMES.indexOf('MIN9') : 0;
+}
+
+/** A type's VOLUME in a new project: the sustained synths' trimmed output sits with the drums at half. */
+export function defaultVolume(kind: SoundKind): number {
+  return kind === 'pad' || kind === 'lead' || kind === 'pluck' ? 0.5 : 0.8;
 }
 
 /** A fresh project: eight tracks with sounds ready, every pattern empty, nothing routed. */
@@ -60,8 +70,7 @@ export function createDefaultProject(): Project {
   for (const c of channels) if (INSTRUMENTS[c.instrument as SoundKind].drum) c.fx1 = true;
   of('pad').fxSend = 2;
   of('lead').fxSend = 3;
-  // The sustained synths' trimmed output: half VOLUME sits with the drums.
-  for (const kind of ['pad', 'lead', 'pluck'] as const) of(kind).volume = 0.5;
+  for (const c of channels) c.volume = defaultVolume(c.instrument as SoundKind);
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,
     buses: defaultBuses(), lfo: defaultLfo(), song: { rows: [] }, meter: 0, channels,

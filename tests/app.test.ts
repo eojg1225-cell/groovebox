@@ -643,3 +643,25 @@ describe('SONG grid: rows, track selection, A-D', () => {
     expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
   });
 });
+
+describe('changed knobs', () => {
+  it('every knob of a new project sits on its default (SOUND knobs: their TIMBRE / INT value); a turned one does not', () => {
+    const { app, tap, emit } = makeApp();
+    type T = { label: string; get(): number; base?(): number; spec: { defaultValue: number } } | null;
+    const targets = () => (app as unknown as { targets: T[] }).targets;
+    const off = () => targets().filter((t) => t && Math.abs(t.get() - (t.base?.() ?? t.spec.defaultValue)) > 1e-9).map((t) => t!.label);
+    tap('mode:design');
+    for (let ch = 1; ch <= 8; ch++) {
+      tap(`ch${ch}`);
+      expect(off()).toEqual([]);
+    }
+    for (const page of ['dpage1', 'dpage2', 'fx1', 'fx2', 'fx3', 'fx4']) {
+      tap(page);
+      expect(off()).toEqual([]);
+    }
+    tap('dpage0');
+    tap('ch5');
+    emit({ type: 'knob', id: 'k14', value: 0.1 }); // BASS CUTOFF
+    expect(off()).toHaveLength(1);
+  });
+});
