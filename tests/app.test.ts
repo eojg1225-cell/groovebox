@@ -643,6 +643,20 @@ describe('SONG grid: rows, track selection, A-D', () => {
   });
 });
 
+describe('A-D', () => {
+  it('FUNC + A-D is plain A-D (every track); hold a channel for one track', () => {
+    const { app, tap, press, release } = makeApp();
+    press('func');
+    tap('patB');
+    release('func');
+    expect(app.project.channels.map((c) => c.activePattern).join('')).toBe('11111111');
+    press('ch3');
+    tap('patC');
+    release('ch3');
+    expect(app.project.channels.map((c) => c.activePattern).join('')).toBe('11211111');
+  });
+});
+
 describe('changed knobs', () => {
   it('every knob of a new project sits on its saved value; a turned one (TIMBRE too) does not', () => {
     const { app, tap, emit } = makeApp();

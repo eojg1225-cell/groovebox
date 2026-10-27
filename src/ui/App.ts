@@ -18,16 +18,16 @@
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
- * A-D (under FX): every track's pattern (hold channels + A-D = only those, unselected;
- * FUNC + A-D = the selected track); playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
+ * A-D (under FX): every track's pattern (hold channels + A-D = only those, unselected);
+ * playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
  * chosen one; PLAY primes the switch for the loop end and the sound glides there.
  * SAVE PROJECT saves every pattern and patch; edits since are marked * on the screen.
- * MENU: a list (PATTERN MODE, SONG MODE). CANCEL backs out of what is open.
+ * MENU: MODE (JAM / SONG), PROJECT SETTINGS, GLOBAL SETTINGS. CANCEL / UNDO: see cancel().
  * SONG  (MENU > MODE; RECORD = the grid, PLAY / DESIGN play the song) arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
  *          the next bar), channel taps select tracks, A-D = the row: that pattern on the selected tracks
- *          (none selected: all), the rest OFF; FUNC + A-D = the cursor's track; ROW ▼ past the end adds a row. PLAY here plays the
+ *          (none selected: all), the rest OFF; ROW ▼ past the end adds a row. PLAY here plays the
  *          song from the cursor row (it keeps playing in the other modes until STOP).
  * RESET: every patch returns to its saved version and the rest (mix, FX, LFO) to the saved
  * project, live knobs centred: while playing it glides back to land on the next bar line,
@@ -1147,19 +1147,16 @@ export class App {
       return;
     }
     if ((m = /^pat([A-D])$/.exec(id))) {
-      // A-D: every track; channels held: only those; FUNC: the selected track.
+      // A-D: every track; channels held: only those.
       const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
       if (this.heldChannels.size > 0) {
         const held = [...this.heldChannels].sort();
         for (const ch of held) this.selectPattern(ch, pat, held.length === 1);
         if (held.length > 1) this.flash(`${held.map((ch) => ch + 1).join(' ')} PAT ${m[1]}`);
         this.heldUsed = true;
-      } else if (this.func) {
-        this.selectPattern(this.selected, pat);
-        if (this.funcHeld) this.funcUsed = true; // not a latching tap
       } else {
         for (let ch = 0; ch < NUM_CHANNELS; ch++) this.selectPattern(ch, pat, false);
-        this.flash(this.songGrid ? `ROW: ALL ${m[1]}` : `ALL TRACKS PAT ${m[1]}`);
+        this.flash(`ALL TRACKS PAT ${m[1]}`);
       }
       this.refreshPanel();
       return;
@@ -1571,21 +1568,13 @@ export class App {
 
   /**
    * SONG A-D: the cursor row plays this pattern on the selected tracks and nothing on the
-   * others; with no track selected, on every track. FUNC + A-D: only the cursor's track.
+   * others; with no track selected, on every track.
    */
   private songPattern(pattern: number): void {
     const name = PATTERN_NAMES[pattern];
     if (this.songRows.length === 0) {
       this.project.song.rows.push({ bars: 4, patterns: new Array<number>(NUM_CHANNELS).fill(-1) });
       this.songRow = 0;
-    }
-    if (this.func) {
-      if (this.funcHeld) this.funcUsed = true; // not a latching tap
-      if (this.songCol > 0) {
-        this.setSongCell(this.songCol - 1, pattern);
-        this.flash(`ROW ${this.songRow + 1}: ${this.songCol} ${name}`);
-      }
-      return;
     }
     const row = this.songRows[this.songRow];
     const all = this.songTracks.size === 0;

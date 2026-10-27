@@ -92,3 +92,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - COPY BAR, COPY notes only (2026-10-27): COPY + BAR copies the shown bar onto a bar picked with ◀ ▶ (▶ past the end grows the pattern), COPY pastes all 16 steps. COPY + channel / A-D copies only the notes (was notes + patch, same type only): any type, a chord onto a one-note track keeps its lowest note.
 - UNDO / REDO (2026-10-27): the CANCEL button is UNDO outside MENU, SAVE / LOAD, a primed SONG DESIGN step and COPY BAR (FUNC + UNDO = REDO), one step per gesture (a live-recording pass = one), 50 deep, from canonical project snapshots (`ui/history.ts`); it no longer closes FX views, flag placing, STEPS mode or REST.
 - UNDO depth 16 (2026-10-27): was 50; more than needed.
+- FUNC + A-D dropped (2026-10-27): holding a channel + A-D does the same; in the SONG grid a single cell is set with its knob. FUNC no longer changes A-D.
