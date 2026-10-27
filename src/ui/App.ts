@@ -54,7 +54,7 @@ import {
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SoundKind, type Step,
 } from '../engine/project';
-import { applyPreset, createDefaultProject, defaultChord, defaultVolume, trackDefaults } from '../engine/defaultProject';
+import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
@@ -224,8 +224,8 @@ interface KnobTarget {
   set(value: number): void;
   highlight?: boolean;
   /**
-   * The knob's default as things stand (real units; absent = spec.defaultValue): a SOUND
-   * page knob's is the value TIMBRE / INTENSITY give it. Away from it the knob shows yellow;
+   * The value as last saved (real units; absent = spec.defaultValue): the project's saved
+   * copy, a SOUND knob's from its pattern's saved patch. Away from it the knob shows yellow;
    * a double tap goes back to it.
    */
   base?(): number;
@@ -344,6 +344,8 @@ export class App {
   private statusAt = 0;
   /** State RESET returns to when nothing has been saved: the project as the session began. */
   private baseline: Project;
+  /** The project as last saved (or as the session / a new project began), cached for the knobs' yellow. */
+  private savedCache: Project | null = null;
   /** The empty slot a new project was started from (LOAD): SAVE opens on its bank. -1 = none. */
   private newSlot = -1;
   /** SAVE / LOAD (stopped only): name entry and the 64 slots, 16 to a bank on the strip. */
@@ -382,6 +384,21 @@ export class App {
       this.message = `COUNT-IN ${s.countIn}`;
       this.messageUntil = this.statusAt + 200;
     }
+  }
+
+  /** The project as last saved: the open slot's saved copy, else as the session / new project began. */
+  private savedProject(): Project {
+    if (!this.savedCache) {
+      const openId = projectStore.openId();
+      this.savedCache = (openId ? projectStore.load(openId) : null) ?? this.baseline;
+    }
+    return this.savedCache;
+  }
+
+  /** Track ch as last saved, when it was the same type then (else nothing to compare). */
+  private savedChannel(ch: number): ChannelState | undefined {
+    const s = this.savedProject().channels[ch];
+    return s && s.instrument === this.project.channels[ch].instrument ? s : undefined;
   }
 
   /** METRONOME: the click with the music (RECORDING = in RECORD mode), at CLICK LEVEL. */
@@ -636,6 +653,7 @@ export class App {
     return {
       label: this.liveName(c, id), spec: OFFSET_SPEC, channel: ch, highlight, key: `${ch}:off:${id}`,
       get: () => (c.liveOffset[id] ?? 0) * 100,
+      base: () => (this.savedChannel(ch)?.liveOffset[id] ?? 0) * 100,
       set: (v) => this.setLiveOffset(ch, id, v / 100),
     };
   }
@@ -657,6 +675,7 @@ export class App {
       return {
         label: label ?? spec.name, spec, channel: ch, highlight, key: id,
         get: () => this.project.lfo[lfoId],
+        base: () => this.savedProject().lfo[lfoId],
         set: (v) => { this.project.lfo[lfoId] = v; this.send({ type: 'setLfo', id: lfoId, value: v }); },
       };
     }
@@ -664,6 +683,7 @@ export class App {
       return {
         label: label ?? 'NOTES', spec: choice('notes', 'NOTES', NOTES_NAMES), channel: ch, highlight, key: `${ch}:${id}`,
         get: () => c.notes - 1,
+        base: () => (this.savedChannel(ch)?.notes ?? c.notes) - 1,
         set: (v) => { c.notes = v + 1; this.send({ type: 'setNotes', channel: ch, notes: c.notes }); },
       };
     }
@@ -672,6 +692,7 @@ export class App {
       return {
         label: label ?? 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch, highlight,
         get: () => c.presets[kind] ?? 0,
+        base: () => c.patterns[c.activePattern].savedPatch?.preset ?? 0,
         set: (v) => this.loadPreset(ch, kind, v),
       };
     }
@@ -697,7 +718,7 @@ export class App {
       return {
         label: label ?? 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch, highlight, key: `${ch}:${id}`,
         get: () => c.chord,
-        base: () => defaultChord(c.instrument),
+        base: () => this.savedChannel(ch)?.chord ?? 0,
         set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
       };
     }
@@ -708,7 +729,7 @@ export class App {
       const field = MIX_FIELD[mixId];
       return {
         label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
-        base: () => (mixId === 'volume' && c.instrument !== 'none' ? defaultVolume(c.instrument) : spec.defaultValue),
+        base: () => this.savedChannel(ch)?.[field] ?? spec.defaultValue,
         get: () => c[field],
         set: (v) => {
           c[field] = v;
@@ -723,10 +744,7 @@ export class App {
     return {
       label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
-      // TIMBRE picks the sound (never a change); a knob TIMBRE / INTENSITY set: their value.
-      base: () => (id === 'timbre' ? (c.sounds[kind]?.timbre ?? spec.defaultValue)
-        : this.macroParams(kind).has(id) ? (hiddenSound(kind, c.sounds[kind] ?? {}, INSTRUMENTS[kind].params)[id] ?? spec.defaultValue)
-        : spec.defaultValue),
+      base: () => c.patterns[c.activePattern].savedPatch?.sound[id] ?? spec.defaultValue,
       set: (v) => {
         this.setSoundParam(ch, kind, id, v);
         // PAD / LEAD: ATTACK, DECAY, SUSTAIN, RELEASE move both oscillators.
@@ -841,6 +859,7 @@ export class App {
     return {
       label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`,
       get: () => this.project.buses[k][id] ?? spec.defaultValue,
+      base: () => this.savedProject().buses[k]?.[id] ?? spec.defaultValue,
       set: (v: number) => { this.project.buses[k][id] = v; this.send({ type: 'setBus', bus: k, id, value: v }); },
     };
   }
@@ -867,6 +886,7 @@ export class App {
   private projectTargets(): (KnobTarget | null)[] {
     const top: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
       label: spec.name, spec, channel: this.selected, key: `global:${spec.id}`,
+      base: () => this.savedProject()[spec.id as GlobalId | 'meter'],
       get: () => this.getGlobal(spec.id as GlobalId),
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
     }));
@@ -1447,6 +1467,7 @@ export class App {
       out[ch] = {
         label: `${ch + 1} ${this.kindName(c)}`, spec: cell, channel: ch, highlight: this.songCol === ch + 1,
         get: () => row.patterns[ch] + 1,
+        base: () => (this.savedProject().song.rows[this.songRow]?.patterns[ch] ?? -2) + 1,
         set: (v) => { this.setSongCell(ch, v - 1); },
       };
     });
@@ -1454,6 +1475,7 @@ export class App {
       label: 'BARS', spec: { id: 'bars', name: 'BARS', min: 1, max: SONG_MAX_BARS, defaultValue: 4, unit: '', curve: 'linear', decimals: 0 },
       channel: this.selected, highlight: this.songCol === 0,
       get: () => row.bars,
+      base: () => this.savedProject().song.rows[this.songRow]?.bars ?? 0,
       set: (v) => { row.bars = Math.max(1, Math.round(v)); this.sendSong(); },
     };
     const rows = this.songRows.length;
@@ -2318,6 +2340,7 @@ export class App {
       out[0] = {
         label: line.label, spec: choice('menu', line.label, line.options), channel: this.selected,
         get: () => this.menuValue(line, at.item),
+        base: () => line.get!(), // a change not saved with PLAY yet shows yellow
         set: (v) => this.menuPick(line, at.item, Math.round(v)),
       };
     }
@@ -2482,6 +2505,7 @@ export class App {
     projectStore.setOpen(saved.id);
     this.newSlot = -1;
     this.baseline = JSON.parse(JSON.stringify(this.project)) as Project;
+    this.savedCache = null;
     this.closeProjectMenu();
     this.flash(`SAVED ${name} IN ${slot + 1}`);
   }
@@ -2555,6 +2579,7 @@ export class App {
     project.channels.forEach(initPatterns);
     this.project = project;
     this.baseline = JSON.parse(JSON.stringify(project)) as Project;
+    this.savedCache = null;
     this.resetAgainUntil = 0;
     this.entry = null;
     project.channels.forEach((c, i) => { this.octave[i] = c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote; });
@@ -2659,7 +2684,7 @@ export class App {
     }
     for (const [id, gid] of Object.entries(MASTER_GLOBAL)) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
-      this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, spec.defaultValue));
+      this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, this.savedProject()[gid]));
     }
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       this.panel.setButtonLit(`fx${n}`, this.fxView === n);

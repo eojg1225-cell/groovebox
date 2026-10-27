@@ -645,7 +645,7 @@ describe('SONG grid: rows, track selection, A-D', () => {
 });
 
 describe('changed knobs', () => {
-  it('every knob of a new project sits on its default (SOUND knobs: their TIMBRE / INT value); a turned one does not', () => {
+  it('every knob of a new project sits on its saved value; a turned one (TIMBRE too) does not', () => {
     const { app, tap, emit } = makeApp();
     type T = { label: string; get(): number; base?(): number; spec: { defaultValue: number } } | null;
     const targets = () => (app as unknown as { targets: T[] }).targets;
@@ -663,5 +663,7 @@ describe('changed knobs', () => {
     tap('ch5');
     emit({ type: 'knob', id: 'k14', value: 0.1 }); // BASS CUTOFF
     expect(off()).toHaveLength(1);
+    emit({ type: 'knob', id: 'k1', value: 0.9 }); // TIMBRE counts too
+    expect(off()).toContain('TIMBRE');
   });
 });

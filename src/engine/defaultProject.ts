@@ -43,12 +43,12 @@ export function trackDefaults(c: ChannelState, kind: InstrumentKind): void {
 }
 
 /** A type's starting CHORD: PAD MIN9, the rest OFF. */
-export function defaultChord(kind: InstrumentKind): number {
+function defaultChord(kind: InstrumentKind): number {
   return kind === 'pad' ? CHORD_NAMES.indexOf('MIN9') : 0;
 }
 
 /** A type's VOLUME in a new project: the sustained synths' trimmed output sits with the drums at half. */
-export function defaultVolume(kind: SoundKind): number {
+function defaultVolume(kind: SoundKind): number {
   return kind === 'pad' || kind === 'lead' || kind === 'pluck' ? 0.5 : 0.8;
 }
 
