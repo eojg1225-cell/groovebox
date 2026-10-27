@@ -851,8 +851,8 @@ export class App {
   }
 
   /**
-   * DESIGN: OCT - / + step the selected synth's OCTAVE parameter (part of its patch, like
-   * the knob) instead of the keyboard's octave. False when the track has no OCTAVE (drums).
+   * FUNC + OCT ▼ / ▲: step the selected synth's OCTAVE parameter (part of its patch) instead
+   * of the keyboard's octave. False when the track has no OCTAVE (drums, PERC).
    */
   private stepOctave(d: number): boolean {
     const c = this.channel;
@@ -1283,8 +1283,10 @@ export class App {
       // BAR: held for ◀ / ▶, a tap (on release) = the next bar.
       this.barHeld = true;
       this.barUsed = false;
-    } else if ((id === 'oct-' || id === 'oct+') && this.mode === 'design' && this.stepOctave(id === 'oct+' ? 1 : -1)) {
-      // DESIGN on a synth: OCT - / + move the sound's OCTAVE (stepOctave).
+    } else if ((id === 'oct-' || id === 'oct+') && this.func) {
+      // FUNC + OCT ▼ / ▲ (any mode): the sound's OCTAVE, part of the patch (synths only).
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      if (!this.stepOctave(id === 'oct+' ? 1 : -1)) this.flash('NO OCTAVE');
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
@@ -3326,8 +3328,9 @@ export class App {
     this.panel.setButtonText('ring', song ? 'INSERT<small>ROW</small>' : 'RING');
     this.panel.setButtonText('dyn:accent', song ? 'DELETE<small>ROW</small>' : 'ACCENT');
     // The same arrows in every mode: ▼ (oct-) = octave down / the next row down the grid.
-    this.panel.setButtonText('oct-', song ? 'ROW ▼' : 'OCT ▼');
-    this.panel.setButtonText('oct+', song ? 'ROW ▲' : 'OCT ▲');
+    // FUNC: the sound's OCTAVE (SND), else the keyboard's.
+    this.panel.setButtonText('oct-', song ? 'ROW ▼' : this.func && !this.menu ? 'SND ▼' : 'OCT ▼');
+    this.panel.setButtonText('oct+', song ? 'ROW ▲' : this.func && !this.menu ? 'SND ▲' : 'OCT ▲');
     if (song) {
       this.panel.setButtonLit('ring', false);
       this.panel.setButtonLit('dyn:accent', false);

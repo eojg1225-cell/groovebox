@@ -1140,3 +1140,30 @@ describe('UNDO / REDO', () => {
     expect(c.patterns[0].steps[6].active).toBe(false);
   });
 });
+
+describe('OCT and FUNC + OCT', () => {
+  it('OCT is the keyboard octave in every mode; FUNC + OCT the synth sound\'s OCTAVE (drums: none)', () => {
+    const { app, tap, press, release, texts } = makeApp();
+    const priv = app as unknown as { octave: number[]; message: string };
+    const bass = () => app.project.channels[4].sounds.bass!.octave;
+    tap('ch5');
+    tap('mode:design');
+    const was = bass();
+    const kb = priv.octave[4];
+    tap('oct+');
+    expect(bass()).toBe(was);
+    expect(priv.octave[4]).toBe(kb + 12);
+    tap('mode:play');
+    press('func');
+    expect(texts.get('oct+')).toBe('SND ▲');
+    tap('oct+');
+    release('func');
+    expect(bass()).toBe(was + 1);
+    expect(texts.get('oct+')).toBe('OCT ▲');
+    tap('ch1');
+    press('func');
+    tap('oct-');
+    release('func');
+    expect(priv.message).toBe('NO OCTAVE');
+  });
+});
