@@ -300,6 +300,10 @@ export class App {
   private heldTrack = -1;
   /** Every channel button down now (held + RESET = those tracks keep their state). */
   private readonly heldChannels = new Set<number>();
+  /** FX 1-3 / LFO buttons down now (1-4; held + RESET = that bus / the LFO keeps its state). */
+  private readonly heldBuses = new Set<number>();
+  /** The bus view before the FX buttons now held opened / closed it (put back if they were held for RESET). */
+  private fxViewBefore = 0;
   /** SOLO per track (not saved): any on mutes every track that is not. */
   private readonly soloed: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private heldUsed = false;
@@ -939,6 +943,12 @@ export class App {
       if (e.pressed) this.heldChannels.add(Number(m[1]) - 1);
       else this.heldChannels.delete(Number(m[1]) - 1);
     }
+    if ((m = /^fx([1-4])$/.exec(id))) {
+      if (e.pressed) {
+        if (this.heldBuses.size === 0) this.fxViewBefore = this.fxView; // the view before the first one
+        this.heldBuses.add(Number(m[1]));
+      } else this.heldBuses.delete(Number(m[1]));
+    }
     if (id === 'func') return this.onFunc(e.pressed);
     if (this.projMenu && this.onProjectMenu(id, e.pressed)) {
       this.refreshPanel();
@@ -1213,10 +1223,27 @@ export class App {
    */
   private startReset(): void {
     const now = performance.now();
-    // Tracks held down sit it out (and their buttons no longer select on release).
+    // Tracks held down sit it out (and their buttons no longer select on release), with the
+    // FX / LFO knobs their live knobs move; FX 1-3 / LFO held down keep that bus / the LFO
+    // (the press that opened or closed its view is undone).
     const keep = new Set(this.heldChannels);
     if (keep.size > 0) this.heldUsed = true;
-    const kept = keep.size > 0 ? ` (KEPT ${[...keep].sort().map((ch) => ch + 1).join(' ')})` : '';
+    const keepKeys = new Set<string>();
+    for (const n of this.heldBuses) {
+      if (n === 4) for (const id of Object.keys(LFO_PARAMS)) keepKeys.add(`lfo:${id}`);
+      else for (const t of this.sendTargets(n - 1)) if (t?.key) keepKeys.add(t.key);
+    }
+    if (this.heldBuses.size > 0) this.fxView = this.fxViewBefore;
+    for (const ch of keep) {
+      const c = this.project.channels[ch];
+      for (const id of [...c.live, ...c.liveFunc]) {
+        const fx = FX_LIVE.find((f) => f.id === id);
+        if (fx) keepKeys.add(`bus:${fx.bus}:${fx.param}`);
+        else if (id.startsWith('lfo:')) keepKeys.add(id);
+      }
+    }
+    const keptNames = [...[...keep].sort().map((ch) => String(ch + 1)), ...[...this.heldBuses].sort().map((n) => (n === 4 ? 'LFO' : `FX${n}`))];
+    const kept = keptNames.length > 0 ? ` (KEPT ${keptNames.join(' ')})` : '';
     if (now < this.resetAgainUntil) {
       this.resetAgainUntil = 0;
       this.resetNotes(keep, kept);
@@ -1230,7 +1257,7 @@ export class App {
       glides.set(key, { spec, from: toNorm(spec, current), to: toNorm(spec, target), target, set });
     };
     const fromTarget = (t: KnobTarget | null, target: number) => {
-      if (t?.key) add(t.key, t.spec, t.get(), target, (v) => t.set(v));
+      if (t?.key && !keepKeys.has(t.key)) add(t.key, t.spec, t.get(), target, (v) => t.set(v));
     };
     this.project.channels.forEach((c, ch) => {
       const s = saved.channels[ch];

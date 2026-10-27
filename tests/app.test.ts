@@ -667,3 +667,50 @@ describe('changed knobs', () => {
     expect(off()).toContain('TIMBRE');
   });
 });
+
+describe('RESET with buttons held', () => {
+  const glide = (app: App) => (app as unknown as { stepGlides(n: number): void }).stepGlides(performance.now() + 10);
+
+  it('a held track keeps its own settings and the FX knobs its live knobs move (PLAY: KICK LIVE 1 = FX1:MOD)', () => {
+    const { app, tap, press, release, emit } = makeApp();
+    tap('mode:play');
+    tap('ch1');
+    emit({ type: 'knob', id: 'k1', value: 0.9 }); // FX1:MOD
+    emit({ type: 'knob', id: 'k9', value: 0.9 }); // DECAY
+    emit({ type: 'knob', id: 'k2', value: 0.1 }); // SNARE LIVE 1 = FX1:DELAY
+    const mod = app.project.buses[0].mod_vol;
+    press('ch1');
+    tap('reset');
+    release('ch1');
+    glide(app);
+    expect(app.project.buses[0].mod_vol).toBe(mod);
+    expect(app.project.channels[0].liveOffset['macro:decay']).toBeGreaterThan(0);
+    expect(app.project.buses[0].dly_vol).toBe(createDefaultProject().buses[0].dly_vol); // SNARE's: reset
+    expect(app.selected).toBe(0);
+  });
+
+  it('a held FX / LFO button keeps that bus / the LFO, and its view stays as it was', () => {
+    const { app, tap, press, release, emit } = makeApp();
+    const priv = app as unknown as { fxView: number };
+    tap('mode:design');
+    tap('fx2');
+    emit({ type: 'knob', id: 'k1', value: 0.7 });
+    tap('fx4');
+    emit({ type: 'knob', id: 'k1', value: 0.7 });
+    tap('fx4'); // back to the pages
+    const fx2 = JSON.stringify(app.project.buses[1]);
+    const lfo = JSON.stringify(app.project.lfo);
+    press('fx2');
+    press('fx4');
+    tap('reset');
+    release('fx2');
+    release('fx4');
+    glide(app);
+    expect(JSON.stringify(app.project.buses[1])).toBe(fx2);
+    expect(JSON.stringify(app.project.lfo)).toBe(lfo);
+    expect(priv.fxView).toBe(0);
+    tap('reset'); // nothing held: both go back
+    glide(app);
+    expect(JSON.stringify(app.project.lfo)).not.toBe(lfo);
+  });
+});
