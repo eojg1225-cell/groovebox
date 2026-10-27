@@ -9,6 +9,9 @@ import type { ControlEvent } from '../src/controls/ControlSurface';
 import type { Panel } from '../src/ui/Panel';
 import type { MainToWorklet } from '../src/engine/protocol';
 import { deviceSettings } from '../src/storage/settings';
+import { changes, restore, snapshot } from '../src/ui/history';
+import { initPatterns } from '../src/engine/project';
+import start from '../src/engine/startProject.json';
 
 /** A panel that swallows every call (the App only needs its events). */
 function makeApp() {
@@ -572,26 +575,20 @@ describe('MENU and CANCEL', () => {
     deviceSettings.touchDelay = 3;
   });
 
-  it('CANCEL leaves the SAVE / LOAD panel button\'s screen, an FX view, flag placing and STEPS mode', () => {
-    const { app, tap } = makeApp();
-    const priv = app as unknown as { fxView: number; stepsMode: boolean };
+  it('CANCEL leaves the SAVE / LOAD screen; elsewhere the button is UNDO (REDO with FUNC) and leaves views alone', () => {
+    const { app, tap, texts } = makeApp();
+    const priv = app as unknown as { fxView: number };
     tap('saveproject');
+    expect(texts.get('cancel')).toBe('CANCEL');
     tap('cancel');
     expect(app.projMenu).toBeNull();
-    expect(app.menu).toBeNull();
+    expect(texts.get('cancel')).toBe('UNDO');
+    tap('func'); // latched
+    expect(texts.get('cancel')).toBe('REDO');
+    tap('func');
     tap('fx2');
+    tap('cancel');
     expect(priv.fxView).toBe(2);
-    tap('cancel');
-    expect(priv.fxView).toBe(0);
-    tap('mode:record');
-    tap('ring');
-    expect(app.ring).toBe(true);
-    tap('cancel');
-    expect(app.ring).toBe(false);
-    tap('len');
-    expect(priv.stepsMode).toBe(true);
-    tap('cancel');
-    expect(priv.stepsMode).toBe(false);
   });
 
   it('a mode button closes MENU and goes there', () => {
@@ -998,5 +995,122 @@ describe('COPY pattern: notes only, any track', () => {
     tap('ch7');
     release('copy');
     expect(app.project.channels[6].patterns[0].steps[2]).toMatchObject({ active: true, note: 45 });
+  });
+});
+
+describe('UNDO / REDO', () => {
+  it('a snapshot comes back as the same project, whichever pattern is being edited', () => {
+    const p = fromStored(start)!;
+    p.channels.forEach(initPatterns);
+    const snap = snapshot(p);
+    const back = restore(snap, p);
+    expect(snapshot(back)).toBe(snap);
+    expect(changes(p, back)).toEqual([]);
+    // Another pattern edited: the same snapshot.
+    const q = restore(snap, p);
+    q.channels.forEach((c) => { c.activePattern = 0; });
+    const moved = restore(snap, q);
+    expect(snapshot(moved)).toBe(snap);
+  });
+
+  const kick = (app: App) => app.project.channels[0].patterns[app.project.channels[0].activePattern];
+  const lastFlash = (app: App) => (app as unknown as { message: string }).message;
+
+  it('steps back and forward through strip edits, CLEAR and knob turns, each a step', () => {
+    const { app, tap, press, release, emit, sent } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    tap('step1');
+    tap('step5');
+    expect(kick(app).steps[0].active).toBe(true);
+    expect(kick(app).steps[4].active).toBe(true);
+    press('clear');
+    tap('step1');
+    tap('step5');
+    release('clear');
+    expect(kick(app).steps[0].active).toBe(false);
+    tap('mode:design');
+    emit({ type: 'touch', id: 'k2' });
+    const before = app.project.channels[0].volume;
+    const t = (app as unknown as { targets: ({ label: string; get(): number } | null)[] }).targets[1]!;
+    const was = t.get();
+    emit({ type: 'knob', id: 'k2', value: 0.95 });
+    expect(t.get()).not.toBe(was);
+    sent.length = 0;
+    tap('cancel'); // the knob turn
+    expect(t.get()).toBe(was);
+    expect(lastFlash(app)).toBe(`UNDO: ${t.label}`);
+    expect(app.project.channels[0].volume).toBe(before);
+    tap('cancel'); // the CLEAR (both steps)
+    expect(lastFlash(app)).toBe('UNDO: CLEAR KICK A');
+    expect(kick(app).steps[0].active).toBe(true);
+    expect(kick(app).steps[4].active).toBe(true);
+    expect(sent.some((m) => m.type === 'setStep' && m.index === 0 && m.step.active)).toBe(true);
+    tap('cancel'); // step 5
+    expect(kick(app).steps[4].active).toBe(false);
+    expect(kick(app).steps[0].active).toBe(true);
+    press('func');
+    tap('cancel'); // REDO step 5
+    release('func');
+    expect(kick(app).steps[4].active).toBe(true);
+    expect(lastFlash(app)).toBe('REDO: NOTES KICK A');
+    tap('cancel');
+    tap('cancel');
+    tap('cancel');
+    expect(lastFlash(app)).toBe('NOTHING TO UNDO');
+    expect(kick(app).steps[0].active).toBe(false);
+  });
+
+  it('a new edit drops the REDO steps; a pattern switch and MUTE stay as they are', () => {
+    const { app, tap } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    tap('step1');
+    tap('cancel');
+    tap('step2');
+    tap('func');
+    tap('cancel'); // FUNC latched: REDO, nothing there
+    tap('func');
+    expect(lastFlash(app)).toBe('NOTHING TO REDO');
+    tap('step3'); // on pattern A
+    tap('mute1');
+    tap('patB');
+    tap('cancel'); // undoes step 3 on A, stays on B, still muted
+    const c = app.project.channels[0];
+    expect(c.activePattern).toBe(1);
+    expect(c.mute).toBe(true);
+    expect(c.patterns[0].steps[2].active).toBe(false);
+    expect(c.patterns[0].steps[1].active).toBe(true);
+  });
+
+  it('a track type change is one step back, sounds included', () => {
+    const { app, tap, sent } = makeApp();
+    const menu = app as unknown as { setTrackType(ch: number, kind: string): void };
+    // The menu's TRACKS page runs setTrackType inside a gesture (its PLAY press).
+    (app as unknown as { beginGesture(k: string, l: string, s: boolean): void }).beginGesture('play', 'MENU', true);
+    menu.setTrackType(0, 'bass');
+    expect(app.project.channels[0].instrument).toBe('bass');
+    sent.length = 0;
+    tap('cancel');
+    expect(lastFlash(app)).toBe('UNDO: TRACK 1 TYPE');
+    expect(app.project.channels[0].instrument).toBe('kick');
+    expect(sent.some((m) => m.type === 'setInstrument' && m.kind === 'kick')).toBe(true);
+  });
+
+  it('a live-recording pass (PLAY to STOP) is one step back', () => {
+    const { app, tap } = makeApp();
+    tap('mode:record');
+    tap('ch5'); // BASS
+    tap('play');
+    const c = app.project.channels[4];
+    app.onRecorded({ type: 'recordedNote', channel: 4, pattern: 0, index: 2, note: 40, velocity: 0.8, accent: false, gate: 1, slide: false, start: true });
+    tap('step1'); // played live (no step entry while playing)
+    app.onRecorded({ type: 'recordedNote', channel: 4, pattern: 0, index: 6, note: 41, velocity: 0.8, accent: false, gate: 1, slide: false, start: true });
+    tap('play'); // STOP
+    expect(c.patterns[0].steps[2].active).toBe(true);
+    tap('cancel');
+    expect(lastFlash(app)).toBe('UNDO: RECORDING');
+    expect(c.patterns[0].steps[2].active).toBe(false);
+    expect(c.patterns[0].steps[6].active).toBe(false);
   });
 });

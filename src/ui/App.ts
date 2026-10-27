@@ -69,6 +69,7 @@ import { readUserPatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongView } from './views';
 import { CELLS_PER_BAR, valueAt } from '../engine/automation';
+import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
 
 type Mode = 'record' | 'play' | 'design';
 
@@ -309,6 +310,16 @@ export class App {
    * `saved` = the steps an added bar covered (put back if the bar is left again).
    */
   private copyBar: { from: number; to: number; length: number; saved: Map<number, Step> } | null = null;
+  /** UNDO / REDO (history.ts): the steps back and forward, the project as of the last gesture. */
+  private undoStack: HistoryEntry[] = [];
+  private redoStack: HistoryEntry[] = [];
+  private snap = '';
+  /** save() since the snapshot. */
+  private edited = false;
+  /** The gesture running (key: the control that began it); skip = not undoable (SAVE / LOAD, MENU settings). */
+  private gesture: { key: string; label: string; skip: boolean } | null = null;
+  /** Buttons held down (FUNC aside): a press while one is held belongs to its gesture. */
+  private down = new Set<string>();
   /** COPY held: + channel = copy the current pattern there, + A-D = to that pattern of this track. */
   private copyHeld = false;
   private copyUsed = false;
@@ -408,6 +419,7 @@ export class App {
     project.channels.forEach(initPatterns);
     this.baseline = JSON.parse(JSON.stringify(project)) as Project;
     this.octave = project.channels.map((c) => (c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote));
+    this.snap = snapshot(project);
     panel.subscribe((e) => this.onControl(e));
     this.refreshPanel();
   }
@@ -990,6 +1002,7 @@ export class App {
   // ---------------------------------------------------------------- controls
 
   private onControl(e: ControlEvent): void {
+    this.trackGesture(e);
     if (e.type === 'encoder') return this.onEncoder(e.id, e.delta);
     if (e.type === 'knob' && e.id.startsWith('m')) return this.onMasterKnob(e.id, e.value);
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
@@ -1974,10 +1987,11 @@ export class App {
   }
 
   /**
-   * COPY: a pattern (length, steps, flags, and onto the same type its patch) onto another
-   * track's / pattern slot. Onto KICK, SNARE and HAT the notes do not carry over (their
-   * hits play as designed); PERC and the synths keep them. Locks only go to a track of the
-   * same type. The copy is an unsaved edit there.
+   * COPY: a pattern's notes (length, speed, steps and flags; never its patch) onto another
+   * track's / pattern slot, of any type. Onto KICK, SNARE and HAT the pitches do not carry
+   * over (their hits play as designed); a drum's hits onto a pitched track land on its base
+   * note; a chord onto a one-note track keeps its lowest note. Locks only go to a track of
+   * the same type. The copy is an unsaved edit there.
    */
   private copyPattern(fromCh: number, fromPat: number, toCh: number, toPat: number): void {
     if (fromCh === toCh && fromPat === toPat) {
@@ -2015,6 +2029,7 @@ export class App {
     // Only the notes: the pattern keeps its own sound.
     this.copyUsed = true;
     this.flash(`COPIED ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${PATTERN_NAMES[toPat]}`);
+    this.relabel(`COPY > ${this.kindName(to)} ${PATTERN_NAMES[toPat]}`);
     this.save();
   }
 
@@ -2091,6 +2106,7 @@ export class App {
     this.viewPage[this.selected] = cb.to;
     this.save();
     this.flash(`COPIED BAR ${cb.from + 1} > ${cb.to + 1}`);
+    this.relabel(`COPY BAR ${cb.from + 1} > ${cb.to + 1}`);
   }
 
   /** Leave COPY BAR without pasting: bars added for it go again. */
@@ -2129,6 +2145,7 @@ export class App {
     });
     this.clearUsed = true;
     this.flash(`CLEARED ${ch + 1} ${this.kindName(c)} ${PATTERN_NAMES[p]}`);
+    this.relabel(`CLEAR ${this.kindName(c)} ${PATTERN_NAMES[p]}`);
     this.save();
   }
 
@@ -2435,6 +2452,7 @@ export class App {
   }
 
   private save(): void {
+    this.edited = true;
     mirrorToCloud(this.project);
     saveWorkSoon(this.project);
   }
@@ -2593,8 +2611,6 @@ export class App {
       lines[at.item].open?.();
     } else if (id === 'play') {
       this.menuSave();
-    } else if (id === 'cancel' && this.func) {
-      this.undo();
     } else if (id === 'cancel' || id === 'cur-') {
       this.menuBack();
     } else if (id === 'menu') {
@@ -2637,6 +2653,7 @@ export class App {
       for (const st of pat.savedNotes?.steps ?? []) delete st.locks;
     });
     this.octave[ch] = kind === 'none' ? 36 : INSTRUMENTS[kind].baseNote;
+    this.relabel(`TRACK ${ch + 1} TYPE`);
     this.send({ type: 'setInstrument', channel: ch, kind, sound: { ...patch.sound } });
     this.send({ type: 'setChord', channel: ch, chord: c.chord });
     this.send({ type: 'setNotes', channel: ch, notes: c.notes });
@@ -2811,33 +2828,149 @@ export class App {
     this.panel.setButtonText('steppage', `BAR<small>${bar + 1}/${total}</small>`);
   }
 
-  /** CANCEL: back out of what is open, innermost first. FUNC + CANCEL = UNDO. */
+  /**
+   * The CANCEL / UNDO button outside the menus: a primed SONG DESIGN step or COPY BAR =
+   * CANCEL (dropped); otherwise UNDO, FUNC + UNDO = REDO.
+   */
   private cancel(): void {
-    if (this.func) {
-      this.undo();
-    } else if (this.primed) {
+    if (this.primed) {
       this.unprime();
       this.flash('STEP LEFT UNLOCKED');
     } else if (this.copyBar) {
       this.dropCopyBar();
       this.flash('NOTHING COPIED');
-    } else if (this.fxView > 0) {
-      this.fxView = 0;
-      this.touchedKnob = -1;
-    } else if (this.mode === 'record' && (this.ring || this.slideArm || this.dynamic !== 'normal')) {
-      this.ring = false;
-      this.slideArm = false;
-      this.dynamic = 'normal';
-    } else if (this.stepsMode) {
-      this.stepsMode = false;
-    } else if (this.restArm) {
-      this.restArm = false;
+    } else {
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      this.undo(this.func);
     }
   }
 
-  private undo(): void {
-    if (this.funcHeld) this.funcUsed = true;
-    this.flash('UNDO: NOT YET');
+  /** The button reads CANCEL where it drops something pending, else UNDO (REDO with FUNC). */
+  private get cancelShows(): boolean {
+    return !!(this.menu || this.projMenu || this.primed || this.copyBar);
+  }
+
+  // ---------------------------------------------------------------- UNDO / REDO
+
+  /** Live recording: one PLAY -> STOP pass is one step back. */
+  private get livePass(): boolean {
+    return this.playing && this.mode === 'record' && !this.song;
+  }
+
+  /**
+   * A gesture starts with a knob touch (or a knob / encoder turn not part of the last one)
+   * or a button press with nothing else held; what changed during the one before becomes a
+   * step back.
+   */
+  private trackGesture(e: ControlEvent): void {
+    const inMenu = !!(this.menu || this.projMenu);
+    // A primed SONG DESIGN step and COPY BAR are one gesture until locked / pasted (or dropped).
+    const pending = !!(this.primed || this.copyBar);
+    if (e.type === 'button' && e.id !== 'func') {
+      if (e.pressed) this.down.add(e.id);
+      else this.down.delete(e.id);
+    }
+    if (pending) return;
+    if (e.type === 'touch') {
+      this.beginGesture(e.id, this.knobLabel(e.id), inMenu);
+    } else if (e.type === 'knob' || e.type === 'encoder') {
+      if (this.gesture?.key !== e.id) this.beginGesture(e.id, this.knobLabel(e.id), inMenu);
+    } else if (e.type === 'button' && e.pressed && e.id !== 'func' && this.down.size === 1) {
+      this.beginGesture(e.id, this.pressLabel(e.id), inMenu || e.id === 'cancel');
+    }
+  }
+
+  private beginGesture(key: string, label: string, skip: boolean): void {
+    if (this.livePass && this.gesture?.label === 'RECORDING') return; // the pass runs on
+    this.commitGesture();
+    this.gesture = { key, label, skip };
+  }
+
+  /** The gesture that ran (if it changed the project) becomes a step back. */
+  private commitGesture(): void {
+    const g = this.gesture;
+    this.gesture = null;
+    if (!this.edited) return;
+    this.edited = false;
+    const now = snapshot(this.project);
+    if (now === this.snap) return;
+    if (!g?.skip) {
+      this.undoStack.push({ label: g?.label ?? 'EDIT', before: this.snap, after: now });
+      if (this.undoStack.length > UNDO_DEPTH) this.undoStack.shift();
+      this.redoStack = [];
+    }
+    this.snap = now;
+  }
+
+  /** What UNDO will call this gesture (CLEAR / COPY / the menu's TRACKS name it better). */
+  private relabel(label: string): void {
+    if (!this.gesture) return;
+    this.gesture.label = label;
+    this.gesture.skip = false;
+  }
+
+  private knobLabel(id: string): string {
+    const gid = MASTER_GLOBAL[id];
+    if (gid) return GLOBAL_PARAMS.find((p) => p.id === gid)?.name ?? 'KNOB';
+    return this.targets[Number(id.slice(1)) - 1]?.label ?? 'KNOB';
+  }
+
+  private pressLabel(id: string): string {
+    const c = this.channel;
+    const at = `${this.kindName(c)} ${PATTERN_NAMES[c.activePattern]}`;
+    if (this.songGrid) return 'SONG';
+    if (this.autoSteps) return 'SONG LOCK';
+    if (id === 'play') return this.mode === 'record' && !this.song && !this.playing ? 'RECORDING' : 'PLAY';
+    if (id === 'reset') return 'RESET';
+    if (id === 'clear') return `CLEAR ${at}`;
+    if (id === 'copy') return `COPY ${at}`;
+    if (id === 'speed') return `TIME ${at}`;
+    if (id === 'len') return `STEPS ${at}`;
+    if (/^(fx\d|ch\d)$/.test(id)) return 'FX ROUTING';
+    if (id.startsWith('oct')) return 'OCTAVE';
+    return `NOTES ${at}`;
+  }
+
+  /** UNDO: back one step (REDO: forward one), playing or not. */
+  private undo(redo = false): void {
+    this.commitGesture(); // a live-recording pass so far is a step too
+    const from = redo ? this.redoStack : this.undoStack;
+    const to = redo ? this.undoStack : this.redoStack;
+    const step = from.pop();
+    if (!step) {
+      this.flash(redo ? 'NOTHING TO REDO' : 'NOTHING TO UNDO');
+    } else {
+      to.push(step);
+      this.applySnapshot(redo ? step.after : step.before);
+      this.flash(`${redo ? 'REDO' : 'UNDO'}: ${step.label}`);
+    }
+    this.gesture = this.livePass ? { key: 'play', label: 'RECORDING', skip: false } : null;
+  }
+
+  /** Go to a snapshot: the engine gets what differs, the UI lets go of what it no longer fits. */
+  private applySnapshot(snap: string): void {
+    const next = restore(snap, this.project);
+    for (const msg of changes(this.project, next)) this.send(msg);
+    next.channels.forEach((c, ch) => {
+      if (c.instrument !== this.project.channels[ch].instrument) this.octave[ch] = c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote;
+      const length = c.patterns[c.activePattern].length;
+      if (this.cursor[ch] >= length) this.cursor[ch] = 0;
+      if (this.viewPage[ch] * 16 >= length) this.viewPage[ch] = 0;
+    });
+    // In place: whatever holds the project or a channel sees the change.
+    const assign = (to: object, from: object) => {
+      for (const k of Object.keys(to)) if (!(k in from)) delete (to as Record<string, unknown>)[k];
+      Object.assign(to, from);
+    };
+    next.channels.forEach((c, ch) => assign(this.project.channels[ch], c));
+    next.channels = this.project.channels;
+    assign(this.project, next);
+    this.entry = null;
+    this.glides.clear();
+    this.songRow = Math.max(0, Math.min(this.songRow, next.song.rows.length - 1));
+    this.save();
+    this.edited = false;
+    this.snap = snapshot(this.project);
   }
 
   /** The MENU screen. */
@@ -2892,7 +3025,7 @@ export class App {
       return false;
     }
     if (id === 'clear') return false; // CLEAR held + slot = delete (LOAD)
-    if (id === 'cancel' && !this.func) {
+    if (id === 'cancel') {
       this.closeProjectMenu();
       return true;
     }
@@ -3036,6 +3169,11 @@ export class App {
     this.fxView = 0;
     for (const msg of this.syncMessages()) this.send(msg);
     this.save();
+    this.undoStack = [];
+    this.redoStack = [];
+    this.gesture = null;
+    this.snap = snapshot(project);
+    this.edited = false;
   }
 
   /** The SAVE / LOAD screen. */
@@ -3147,6 +3285,7 @@ export class App {
     this.panel.setButtonLit('clear', this.clearHeld);
     this.panel.setButtonLit('reset', this.glides.size > 0 || performance.now() < this.resetLitUntil);
     this.panel.setButtonLit('menu', !!this.menu);
+    this.panel.setButtonText('cancel', this.cancelShows ? 'CANCEL' : this.func ? 'REDO' : 'UNDO');
     this.panel.setButtonText('menu', this.song ? 'MENU<small>SONG</small>' : 'MENU');
     // SAVE PROJECT doubles as LOAD (FUNC): the label says which one a tap opens.
     this.panel.setButtonText('saveproject', this.func ? 'LOAD<small>PROJECT</small>' : 'SAVE/LOAD<small>PROJECT</small>');

@@ -15,7 +15,7 @@ src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio threa
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
 src/controls     ControlSurface event interface (knob / encoder / button, values normalised 0..1)
 src/ui           App (controller), Panel (on-screen ControlSurface), Knob, PixelScreen (256x128 canvas,
-                 3x5 font), views (screen view-models -> drawing), orientation
+                 3x5 font), views (screen view-models -> drawing), orientation, history (UNDO / REDO snapshots)
 src/storage      projects.ts (64 slots, ProjectStore), slotSync.ts (slots <-> claude.ai artifact db),
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
 tests            Vitest: the engine offline in Node, project storage / sync, the App via button events
