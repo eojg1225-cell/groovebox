@@ -368,6 +368,34 @@ describe('sequencer', () => {
     expect(e.currentStep[0]).toBe(32); // the row restarts its pattern: bar 3 = step 32
   });
 
+  it('SONG automation: a lane glides between locked steps, holds after the last, lets go on stop', () => {
+    const p = kickProject([0]);
+    p.channels[0].volume = 0.8;
+    p.song = { rows: [{ bars: 4, patterns: [0, -1, -1, -1, -1, -1, -1, -1] }], auto: { 'm:0:volume': [[0, 0], [32, 1]] } };
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 0 });
+    const out = render(e, 8).l; // 4 bars at 120 BPM
+    const bar = 96000;
+    const peak = (b: number) => stats(out.subarray(b * bar, b * bar + 4000)).peak;
+    expect(peak(0)).toBeLessThan(peak(1) * 0.1); // VOLUME 0 at the first lock
+    expect(peak(1)).toBeLessThan(peak(2) * 0.8); // half way up the glide
+    expect(peak(3)).toBeCloseTo(peak(2), 2); // held after the last lock
+    e.handleMessage({ type: 'transport', playing: false });
+    render(e, 0.2); // the volume glides back to the track's own
+    e.handleMessage({ type: 'transport', playing: true }); // the patterns: VOLUME as set again
+    const plain = render(e, 0.2).l;
+    const ref = engineWith(kickProject([0]));
+    ref.handleMessage({ type: 'loadProject', project: { ...kickProject([0]), channels: kickProject([0]).channels.map((c, i) => (i === 0 ? { ...c, volume: 0.8 } : c)) } });
+    ref.handleMessage({ type: 'transport', playing: true });
+    expect(stats(plain.subarray(0, 4000)).peak).toBeCloseTo(stats(render(ref, 0.2).l.subarray(0, 4000)).peak, 3);
+  });
+
+  it('SONG automation is kept in saves', () => {
+    const p = createDefaultProject();
+    p.song = { rows: [{ bars: 2, patterns: [0, 0, 0, 0, 0, 0, 0, 0] }], auto: { 's:4:cutoff': [[3, 500], [0, 200]], 'x:bad': [[1, 1]] } };
+    expect(fromStored(toStored(p))!.song.auto).toEqual({ 's:4:cutoff': [[0, 200], [3, 500]] });
+  });
+
   describe('METRONOME and COUNT-IN', () => {
     it('clicks on every beat while playing, louder on the bar', () => {
       const e = engineWith(kickProject([]));

@@ -11,6 +11,8 @@ export type ControlEvent =
    */
   | { type: 'encoder'; id: string; delta: number }
   | { type: 'fader'; id: string; value: number } // value normalised 0..1
+  /** A knob touched (finger / mouse down on it), before or without any turn. */
+  | { type: 'touch'; id: string }
   | { type: 'button'; id: string; pressed: boolean }
   | { type: 'joystick'; id: string; x: number; y: number }; // -1..1
 

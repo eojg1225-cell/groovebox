@@ -50,7 +50,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SettingKey, type SoundKind, type Step,
 } from '../engine/project';
@@ -68,6 +68,7 @@ import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
 import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongView } from './views';
+import { CELLS_PER_BAR, valueAt } from '../engine/automation';
 
 type Mode = 'record' | 'play' | 'design';
 
@@ -229,6 +230,15 @@ interface KnobTarget {
    * a double tap goes back to it.
    */
   base?(): number;
+  /**
+   * SONG automation: the knob's lane key (engine/automation.ts) and how its value maps to
+   * the stored / engine value (x scale; the relative live knobs: % -> -1..1).
+   */
+  auto?: { key: string; scale?: number };
+  /** SONG DESIGN: touched while a step is primed (locked there on the second tap). */
+  staged?: boolean;
+  /** A primed step's stand-in for this knob: the knob it stands for. */
+  inner?: KnobTarget;
   /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "bus:k:id" ... */
   key?: string;
 }
@@ -363,6 +373,16 @@ export class App {
   song = false;
   /** SONG: the bar inside the cursor row PLAY starts from (BAR + ◀ ▶; 0 = its first). */
   private songStartBar = 0;
+  /**
+   * SONG DESIGN step entry: the primed cell (song position), the knobs touched since with the
+   * value each will be locked at, and the knobs' own values to put back (auditioned meanwhile).
+   */
+  private primed: {
+    cell: number;
+    staged: Map<string, { t: KnobTarget; v: number }>;
+    orig: Map<string, { t: KnobTarget; v: number }>;
+    dirty: boolean[];
+  } | null = null;
   private glides = new Map<string, Glide>();
   private glideStart = 0;
   private glideEnd = 0;
@@ -499,6 +519,7 @@ export class App {
    * Holding CLEAR turns the strip into steps (to clear) in RECORD and PLAY.
    */
   private get keyboard(): boolean {
+    if (this.autoSteps) return false;
     if (this.clearHeld && this.mode !== 'design') return false;
     if (this.stepsMode) return false;
     if (this.placing && this.mode === 'record') return false;
@@ -671,6 +692,7 @@ export class App {
     if (c.instrument === 'none' || liveTargets(c.instrument, id).length === 0) return this.paramTarget(ch, id, undefined, highlight);
     return {
       label: this.liveName(c, id), spec: OFFSET_SPEC, channel: ch, highlight, key: `${ch}:off:${id}`,
+      auto: { key: `o:${ch}:${id}`, scale: 0.01 },
       get: () => (c.liveOffset[id] ?? 0) * 100,
       base: () => (this.savedChannel(ch)?.liveOffset[id] ?? 0) * 100,
       set: (v) => this.setLiveOffset(ch, id, v / 100),
@@ -692,7 +714,7 @@ export class App {
       const lfoId = id.slice(4) as LfoId;
       const spec = LFO_PARAMS[lfoId];
       return {
-        label: label ?? spec.name, spec, channel: ch, highlight, key: id,
+        label: label ?? spec.name, spec, channel: ch, highlight, key: id, auto: { key: `l:${lfoId}` },
         get: () => this.project.lfo[lfoId],
         base: () => this.savedProject().lfo[lfoId],
         set: (v) => { this.project.lfo[lfoId] = v; this.send({ type: 'setLfo', id: lfoId, value: v }); },
@@ -747,7 +769,7 @@ export class App {
       if (!spec) return null;
       const field = MIX_FIELD[mixId];
       return {
-        label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
+        label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`, auto: { key: `m:${ch}:${mixId}` },
         base: () => this.savedChannel(ch)?.[field] ?? spec.defaultValue,
         get: () => c[field],
         set: (v) => {
@@ -762,6 +784,8 @@ export class App {
     if (!spec) return null;
     return {
       label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
+      // Coarse settings (TIMBRE, waves, presets) aren't automated; the rest are.
+      auto: spec.coarse && id !== 'timbre' ? undefined : { key: `s:${ch}:${id}` },
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
       base: () => c.patterns[c.activePattern].savedPatch?.sound[id] ?? spec.defaultValue,
       set: (v) => {
@@ -846,11 +870,28 @@ export class App {
     const c = this.channel;
     const entry = c.instrument === 'none' ? null : INSTRUMENTS[c.instrument];
     const layout = entry ? (this.func ? entry.funcLayout : entry.layout) : [];
-    return [
-      { name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) },
-      { name: 'MIX', targets: () => this.mixTargets() },
-      { name: 'PROJECT', targets: () => this.projectTargets() },
-    ];
+    const sound = { name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) };
+    const mix = { name: 'MIX', targets: () => this.mixTargets() };
+    // SONG DESIGN (automation): the live knobs instead of PROJECT, first.
+    if (this.song) return [{ name: 'LIVE', targets: () => this.liveGrid() }, sound, mix];
+    return [sound, mix, { name: 'PROJECT', targets: () => this.projectTargets() }];
+  }
+
+  /** DESIGN's page for a track's sound (a channel tap opens it): SOUND, after LIVE in SONG. */
+  private get soundPage(): number {
+    return this.song ? 1 : 0;
+  }
+
+  /** The live knobs: column = track, rows = live knob 1 / 2 (FUNC: 3 / 4). */
+  private liveGrid(): (KnobTarget | null)[] {
+    const out: (KnobTarget | null)[] = [];
+    for (let row = 0; row < 2; row++) {
+      for (let ch = 0; ch < KNOBS_PER_ROW; ch++) {
+        const c = this.project.channels[ch];
+        out.push(this.liveKnob(ch, (this.func ? c.liveFunc : c.live)[row], ch === this.selected));
+      }
+    }
+    return out;
   }
 
   private getGlobal(id: GlobalId): number {
@@ -876,7 +917,7 @@ export class App {
   private busTarget(k: number, id: string): KnobTarget {
     const spec = busParam(k, id)!;
     return {
-      label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`,
+      label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`, auto: { key: `b:${k}:${id}` },
       get: () => this.project.buses[k][id] ?? spec.defaultValue,
       base: () => this.savedProject().buses[k]?.[id] ?? spec.defaultValue,
       set: (v: number) => { this.project.buses[k][id] = v; this.send({ type: 'setBus', bus: k, id, value: v }); },
@@ -926,23 +967,17 @@ export class App {
     // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.songGrid) return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
-    if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1);
+    // SONG DESIGN with a step primed: the knobs show and set what will be locked there.
+    const step = (t: (KnobTarget | null)[]) => (this.primed ? t.map((x) => (x?.auto ? this.primedTarget(x) : x)) : t);
+    if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.sendTargets(this.fxView - 1));
     if (this.mode === 'design') {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
       const t = pages[this.designPage].targets();
-      return Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null);
+      return step(Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null));
     }
     if (this.playMix) return this.mixTargets();
-    // Live knobs: column = track, rows = live knob 1 / 2 (FUNC: 3 / 4).
-    const out: (KnobTarget | null)[] = [];
-    for (let row = 0; row < 2; row++) {
-      for (let ch = 0; ch < KNOBS_PER_ROW; ch++) {
-        const c = this.project.channels[ch];
-        out.push(this.liveKnob(ch, (this.func ? c.liveFunc : c.live)[row], ch === this.selected));
-      }
-    }
-    return out;
+    return this.liveGrid();
   }
 
   // ---------------------------------------------------------------- controls
@@ -951,6 +986,7 @@ export class App {
     if (e.type === 'encoder') return this.onEncoder(e.id, e.delta);
     if (e.type === 'knob' && e.id.startsWith('m')) return this.onMasterKnob(e.id, e.value);
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
+    if (e.type === 'touch') return this.onTouch(Number(e.id.slice(1)) - 1);
     if (e.type !== 'button') return;
     const id = e.id;
     let m: RegExpExecArray | null;
@@ -986,14 +1022,14 @@ export class App {
             this.selected = this.heldTrack;
             this.fxView = 0;
             this.touchedKnob = -1;
-            if (this.mode === 'design') this.designPage = 0;
+            if (this.mode === 'design') this.designPage = this.soundPage;
           }
         } else if (!this.sendOpen && !this.heldUsed) {
           // A plain tap (no A-D meanwhile) selects the track; in DESIGN it opens its SOUND
           // page (MIX and PROJECT are global).
           this.selected = this.heldTrack;
           if (this.mode === 'design') {
-            this.designPage = 0;
+            this.designPage = this.soundPage;
             this.touchedKnob = -1;
           }
         }
@@ -1094,6 +1130,7 @@ export class App {
       return;
     }
     if (id === 'play') {
+      this.unprime();
       // FUNC + PLAY = from the top (stopping: back to the top for the next PLAY); FUNC lets go.
       const top = this.func;
       if (top) {
@@ -1598,6 +1635,10 @@ export class App {
   }
 
   private onStrip(button: number): void {
+    if (this.autoSteps) {
+      this.autoStripTap(button);
+      return;
+    }
     const ch = this.selected;
     this.stripDown.add(button);
     if (this.clearHeld && this.mode !== 'design') {
@@ -1796,6 +1837,7 @@ export class App {
 
   /** RECORD / PLAY / DESIGN (the mode buttons; in SONG they work on the song). */
   private setMode(mode: Mode): void {
+    this.unprime();
     this.mode = mode;
     this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
@@ -2146,6 +2188,10 @@ export class App {
    * moves with it (same place in the next bar), so the keyboard writes into the bar shown.
    */
   private changeBar(delta: number): void {
+    if (this.song && this.mode === 'design') {
+      this.gotoSongBar(this.songBarNumber(this.songRow, this.songStartBar) - 1 + delta);
+      return;
+    }
     const ch = this.selected;
     const pages = this.pageCount();
     if (pages <= 1) {
@@ -2477,10 +2523,180 @@ export class App {
     this.flash(`TRACK ${ch + 1}: ${this.kindName(c)}`);
   }
 
+  // ---------------------------------------------------------------- SONG step entry
+
+  /** SONG DESIGN stopped: the strip is one bar of the song, for locking knob values on its steps. */
+  private get autoSteps(): boolean {
+    return this.song && this.mode === 'design' && !this.playing && this.songRows.length > 0;
+  }
+
+  /** Go to song bar b (from 0; wraps): the strip shows it and PLAY starts there. */
+  private gotoSongBar(b: number): void {
+    const rows = this.songRows;
+    const total = rows.reduce((n, r) => n + r.bars, 0);
+    if (total === 0) return;
+    let left = ((b % total) + total) % total;
+    let row = 0;
+    while (left >= rows[row].bars) left -= rows[row++].bars;
+    this.unprime();
+    this.songRow = row;
+    this.songStartBar = left;
+    this.songPage = Math.floor(row / 16);
+    this.flash(`BAR ${this.songBarNumber(row, left)} = R${row + 1} B${left + 1}`);
+  }
+
+  /** A knob's locked value at song cell p (in its own units); NaN before its first lock. */
+  private laneAt(t: KnobTarget, p: number): number {
+    const pts = this.project.song.auto?.[t.auto!.key];
+    if (!pts?.length) return NaN;
+    const scale = t.auto!.scale ?? 1;
+    return valueAt(pts.map((q) => q[0]), pts.map((q) => q[1]), pts.length, p, scale === 1 ? t.spec : null) / scale;
+  }
+
+  /** A knob while a step is primed: shows the value the step will lock (or plays now); turning auditions it. */
+  private primedTarget(t: KnobTarget): KnobTarget {
+    const pr = this.primed!;
+    const key = t.auto!.key;
+    return {
+      ...t,
+      inner: t,
+      staged: pr.staged.has(key),
+      get: () => {
+        const s = pr.staged.get(key);
+        if (s) return s.v;
+        const v = this.laneAt(t, pr.cell);
+        return v === v ? v : t.get();
+      },
+      set: (v) => {
+        if (!pr.orig.has(key)) pr.orig.set(key, { t, v: t.get() });
+        pr.staged.set(key, { t, v });
+        t.set(v);
+      },
+    };
+  }
+
+  /**
+   * A knob touched. SONG DESIGN: a primed step takes it (locked at the value it shows, even
+   * unturned); with CLEAR held, all its locks in the song go.
+   */
+  private onTouch(slot: number): void {
+    const t = this.targets[slot];
+    if (!t?.auto || !this.song || this.mode !== 'design') return;
+    if (this.clearHeld) {
+      const lanes = this.project.song.auto;
+      if (lanes?.[t.auto.key]) {
+        delete lanes[t.auto.key];
+        this.sendSong();
+        this.save();
+        this.flash(`${t.label} CLEARED`);
+      }
+      this.clearUsed = true;
+    } else if (this.primed && !this.primed.staged.has(t.auto.key)) {
+      this.primed.staged.set(t.auto.key, { t: t.inner ?? t, v: t.get() });
+    } else return;
+    this.refreshPanel();
+  }
+
+  /** SONG DESIGN strip: tap = prime the step, again = lock (FUNC: every knob on the page); CLEAR + step = its locks go. */
+  private autoStripTap(cell: number): void {
+    if (!meterPlays(this.project.meter, cell)) return;
+    const bar = this.songBarNumber(this.songRow, this.songStartBar) - 1;
+    const pos = bar * CELLS_PER_BAR + cell;
+    if (this.clearHeld) {
+      const lanes = this.project.song.auto ?? {};
+      let n = 0;
+      for (const key of Object.keys(lanes)) {
+        const kept = lanes[key].filter((q) => q[0] !== pos);
+        n += lanes[key].length - kept.length;
+        if (kept.length > 0) lanes[key] = kept;
+        else delete lanes[key];
+      }
+      this.clearUsed = true;
+      this.sendSong();
+      this.save();
+      this.flash(n > 0 ? `STEP ${cell + 1}: ${n} CLEARED` : 'NO LOCKS HERE');
+      return;
+    }
+    if (this.primed?.cell === pos) {
+      if (this.funcHeld) this.funcUsed = true;
+      this.lockPrimed(this.func);
+      return;
+    }
+    this.unprime();
+    this.primed = {
+      cell: pos, staged: new Map(), orig: new Map(),
+      dirty: this.project.channels.flatMap((c) => c.patterns.map((p) => !!p.patchDirty)),
+    };
+  }
+
+  /** The second tap: each knob touched since priming is locked at its value there. */
+  private lockPrimed(all: boolean): void {
+    const pr = this.primed!;
+    if (all) for (const t of this.targets) if (t?.auto && !pr.staged.has(t.auto.key)) pr.staged.set(t.auto.key, { t: t.inner ?? t, v: t.get() });
+    const n = pr.staged.size;
+    const lanes = (this.project.song.auto ??= {});
+    for (const [key, { t, v }] of pr.staged) {
+      const pts = (lanes[key] ?? []).filter((q) => q[0] !== pr.cell);
+      pts.push([pr.cell, v * (t.auto?.scale ?? 1)]);
+      pts.sort((a, b) => a[0] - b[0]);
+      lanes[key] = pts;
+    }
+    const cell = pr.cell;
+    this.unprime();
+    if (n === 0) {
+      this.flash('TOUCH KNOBS TO LOCK');
+      return;
+    }
+    this.sendSong();
+    this.save();
+    this.flash(`LOCKED ${n} AT ${Math.floor(cell / CELLS_PER_BAR) + 1}.${(cell % CELLS_PER_BAR) + 1}`);
+  }
+
+  /** Leave a primed step: the knobs auditioned meanwhile go back to their own values. */
+  private unprime(): void {
+    const pr = this.primed;
+    if (!pr) return;
+    this.primed = null;
+    for (const { t, v } of pr.orig.values()) t.set(v);
+    let i = 0;
+    for (const c of this.project.channels) for (const p of c.patterns) p.patchDirty = pr.dirty[i++];
+  }
+
+  private primedHint(): string {
+    const pr = this.primed!;
+    const step = (pr.cell % CELLS_PER_BAR) + 1;
+    return `TAP ${step} TO LOCK ${pr.staged.size}`;
+  }
+
+  /** SONG DESIGN strip: the bar's 16 steps; lit = something is locked there, yellow = primed. */
+  private updateAutoStrip(): void {
+    const bar = this.songBarNumber(this.songRow, this.songStartBar) - 1;
+    const from = bar * CELLS_PER_BAR;
+    const locked = new Set<number>();
+    for (const pts of Object.values(this.project.song.auto ?? {})) {
+      for (const [p] of pts) if (p >= from && p < from + CELLS_PER_BAR) locked.add(Math.floor(p - from));
+    }
+    for (let i = 0; i < STEP_BUTTONS; i++) {
+      const id = `step${i + 1}`;
+      const primed = this.primed?.cell === from + i;
+      this.panel.setButtonText(id, String(i + 1));
+      this.panel.setButtonFlag(id, 'off', !meterPlays(this.project.meter, i));
+      this.panel.setButtonFlag(id, 'lit', locked.has(i));
+      this.panel.setButtonFlag(id, 'cursor', primed);
+      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, primed ? 'cursor' : '');
+    }
+    const total = this.songRows.reduce((n, r) => n + r.bars, 0);
+    this.panel.setButtonText('steppage', `BAR<small>${bar + 1}/${total}</small>`);
+  }
+
   /** CANCEL: back out of what is open, innermost first. FUNC + CANCEL = UNDO. */
   private cancel(): void {
     if (this.func) {
       this.undo();
+    } else if (this.primed) {
+      this.unprime();
+      this.flash('STEP LEFT UNLOCKED');
     } else if (this.fxView > 0) {
       this.fxView = 0;
       this.touchedKnob = -1;
@@ -2770,7 +2986,7 @@ export class App {
     this.targets.forEach((t, i) => {
       this.panel.configureKnob(
         i,
-        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight } : null,
+        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight, staged: t.staged } : null,
       );
     });
 
@@ -2834,7 +3050,7 @@ export class App {
     this.panel.setButtonLit('len', this.stepsMode);
     // BAR: not where the strip follows the playhead (PLAY, DESIGN, live recording). TIME (the
     // pattern's speed) works in every mode but SONG.
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || ((this.stepsMode || !this.followsPlayhead) && this.pageCount() > 1));
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || ((this.stepsMode || !this.followsPlayhead) && this.pageCount() > 1));
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design')));
@@ -2912,6 +3128,10 @@ export class App {
     }
     if (this.menu) {
       this.updateMenuStrip();
+      return;
+    }
+    if (this.autoSteps) {
+      this.updateAutoStrip();
       return;
     }
     if (this.songGrid) {
@@ -3070,7 +3290,7 @@ export class App {
         : `PAT ${PATTERN_NAMES[c.activePattern]}`) + (this.dirty(c) ? '*' : ''),
       bpmText: this.project.bpm.toFixed(0),
       playing: this.playing,
-      message: performance.now() < this.messageUntil ? this.message : '',
+      message: performance.now() < this.messageUntil ? this.message : this.primed ? this.primedHint() : '',
     };
   }
 

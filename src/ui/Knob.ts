@@ -47,6 +47,7 @@ export class Knob {
     private readonly onChange: (id: string, value: number) => void,
     private readonly onTurn: (id: string, delta: number) => void,
     readonly steps = 127,
+    private readonly onTouch: (id: string) => void = () => {},
   ) {
     this.pos = Math.round(defaultNorm * steps);
     const el = document.createElement('div');
@@ -126,6 +127,7 @@ export class Knob {
   private onDown(e: PointerEvent, body: HTMLElement): void {
     if (!this.enabled || this.dragPointer !== null) return; // one finger per knob
     e.preventDefault();
+    this.onTouch(this.id);
     const now = performance.now();
     if (now - this.lastTap < DOUBLE_TAP_MS) {
       this.lastTap = -Infinity;

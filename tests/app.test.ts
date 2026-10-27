@@ -827,3 +827,79 @@ describe('SONG over RECORD / PLAY / DESIGN', () => {
     expect(lastTransport(sent)).toMatchObject({ fromRow: 1, fromBar: 2 });
   });
 });
+
+describe('SONG DESIGN step entry', () => {
+  const songDesign = () => {
+    const r = makeApp();
+    r.tap('menu');
+    r.tap('cur+'); // MODE: SONG
+    r.tap('play');
+    r.tap('mode:design');
+    return r;
+  };
+  const targets = (app: App) => (app as unknown as { targets: ({ label: string; get(): number; staged?: boolean; auto?: { key: string } } | null)[] }).targets;
+
+  it('SONG DESIGN pages are LIVE / SOUND / MIX; a channel tap opens SOUND', () => {
+    const { app, tap } = songDesign();
+    expect((app as unknown as { pageNames(): string[] }).pageNames()).toEqual(['LIVE', 'SOUND', 'MIX']);
+    tap('ch5');
+    expect(app.designPage).toBe(1);
+  });
+
+  it('tap a step = primed; touched knobs (turned or not) lock there on the second tap; the knobs go back meanwhile', () => {
+    const { app, tap, emit } = songDesign();
+    tap('dpage2'); // MIX
+    const volume = app.project.channels[0].volume;
+    tap('step5'); // prime bar 1 step 5
+    emit({ type: 'touch', id: 'k1' }); // KICK VOLUME, unturned
+    emit({ type: 'touch', id: 'k10' }); // SNARE PAN
+    emit({ type: 'knob', id: 'k10', value: 1 }); // turned right (auditioned)
+    expect(targets(app)[0]?.staged).toBe(true);
+    expect(app.project.channels[1].pan).toBe(1);
+    tap('step5'); // lock
+    expect(app.project.song.auto).toEqual({ 'm:0:volume': [[4, volume]], 'm:1:pan': [[4, 1]] });
+    expect(app.project.channels[1].pan).toBe(0); // back to its own value
+  });
+
+  it('CANCEL leaves a primed step unlocked; CLEAR + step and CLEAR + touch take locks away; FUNC + tap locks the whole page', () => {
+    const { app, tap, press, release, emit } = songDesign();
+    tap('dpage2');
+    tap('step1');
+    emit({ type: 'knob', id: 'k1', value: 0.2 });
+    tap('cancel');
+    expect(app.project.song.auto ?? {}).toEqual({});
+    expect(app.project.channels[0].volume).toBe(createDefaultProject().channels[0].volume);
+    tap('step1');
+    press('func');
+    tap('step1'); // FUNC + tap: every knob on the page (its FUNC layer: SEND / MID CUT)
+    expect(Object.keys(app.project.song.auto!)).toHaveLength(16);
+    expect(app.project.song.auto!['m:0:send']).toBeDefined();
+    press('clear');
+    emit({ type: 'touch', id: 'k1' }); // SEND 1
+    release('clear');
+    release('func');
+    expect(Object.keys(app.project.song.auto!)).toHaveLength(15);
+    press('clear');
+    tap('step1');
+    release('clear');
+    expect(app.project.song.auto).toEqual({});
+  });
+
+  it('BAR moves through the song (rows and their bars); PLAY starts from the bar shown', () => {
+    const { app, tap, sent } = songDesign();
+    app.project.song.rows = [{ bars: 2, patterns: new Array<number>(8).fill(0) }, { bars: 3, patterns: new Array<number>(8).fill(1) }];
+    tap('steppage');
+    tap('steppage');
+    tap('steppage'); // song bar 4 = row 2 bar 2
+    tap('play');
+    expect(sent.filter((m) => m.type === 'transport').pop()).toMatchObject({ fromRow: 1, fromBar: 1 });
+    tap('play');
+    tap('step3');
+    emit_helper(app);
+  });
+});
+
+function emit_helper(app: App): void {
+  // The primed cell of song bar 4, step 3.
+  expect((app as unknown as { primed: { cell: number } | null }).primed?.cell).toBe(3 * 16 + 2);
+}

@@ -1,4 +1,6 @@
-import { dynVelocity } from './mixParams';
+import { MIX_PARAMS, dynVelocity } from './mixParams';
+import { CELLS_PER_BAR, parseAutoKey, valueAt, type AutoKind } from './automation';
+import type { ParamSpec } from './params';
 import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
@@ -7,12 +9,12 @@ import {
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
 import type { Instrument } from '../instruments/Instrument';
-import { INSTRUMENTS, SOUND_KINDS, liveContribution, liveTargets, playsChords } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, linkedParams, liveContribution, liveTargets, playsChords } from '../instruments/registry';
 import { toNorm, toValue } from './params';
 import { ARP_RATES } from '../instruments/Synth';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { Noise, Svf, silent } from '../instruments/dsp';
-import { LFO_RATES, lfoValue, type LfoId } from './lfo';
+import { LFO_PARAMS, LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { FxBus } from '../fx/FxBus';
 import { Limiter } from '../fx/Limiter';
 import { Click } from '../instruments/Click';
@@ -79,6 +81,20 @@ export class Engine {
   private swing = 0; // 0..0.5 fraction of a step
   private readonly master: Smoother;
   private readonly limiter: Limiter;
+  /** SONG automation: one lane per knob with locked values (compiled from the song). */
+  private lanes: Lane[] = [];
+  /** Each song row's first bar, counted from the song's start. */
+  private readonly rowStart = new Int32Array(SONG_MAX_ROWS + 1);
+  /** Played step of the bar -> its strip cell (the time signature's dark cells skipped). */
+  private readonly cellOf = new Uint8Array(16);
+  /** The values set by the user (not automation), restored when a lane lets go: by lane key. */
+  private readonly autoBase = new Map<string, number>();
+  /** Automation is setting a value now (setters then don't record it as the user's). */
+  private autoApplying = false;
+  /** The song just started: the lanes' first values land at once (no mixer glide). */
+  private autoSnap = false;
+  /** A track's sound was set by something else (pattern switch, glide): its lanes re-apply. */
+  private readonly autoStale = new Uint8Array(NUM_CHANNELS);
   /** METRONOME / COUNT-IN: the click, its level (0 = silent), whether it plays with the music. */
   private readonly click: Click;
   private clickBuf = new Float32Array(1024);
@@ -393,7 +409,7 @@ export class Engine {
         break;
       case 'setRouting': this.route[msg.channel] = this.busIndex(msg.send); break;
       case 'setDrumBus': this.inDrumBus[msg.channel] = msg.on ? 1 : 0; break;
-      case 'setBus': this.buses[msg.bus]?.setParam(msg.id, msg.value); break;
+      case 'setBus': this.setBusParam(msg.bus, msg.id, msg.value); break;
       case 'setLfo': this.setLfo(msg.id, msg.value); break;
       case 'setLfoTrack': this.lfoOn[msg.channel] = msg.on ? 1 : 0; break;
       case 'transport':
@@ -405,6 +421,7 @@ export class Engine {
           if (!this.songOn && msg.fromStep) this.startAt(msg.fromChannel ?? 0, msg.fromStep);
           if (this.songOn && msg.fromBar) this.startSongAt(Math.max(0, Math.min(this.songBars[this.songRow] - 1, Math.round(msg.fromBar))));
           this.countTotal = this.countLeft = Math.max(0, Math.round(msg.countIn ?? 0)) * this.barLen;
+          this.autoSnap = this.songOn;
           this.lfoStartClock = this.lfoClock;
         }
         this.setPlaying(msg.playing);
@@ -468,11 +485,12 @@ export class Engine {
   }
 
   loadProject(p: Project): void {
+    this.autoBase.clear();
     this.bpm = p.bpm;
     this.instrumentTempo();
     this.buses.forEach((bus, k) => {
       bus.setTempo(p.bpm);
-      for (const spec of BUS_PARAMS[k]) bus.setParam(spec.id, p.buses[k]?.[spec.id] ?? spec.defaultValue);
+      for (const spec of BUS_PARAMS[k]) this.setBusParam(k, spec.id, p.buses[k]?.[spec.id] ?? spec.defaultValue);
       bus.settle();
     });
     this.setSong(p.song ?? { rows: [] });
@@ -505,6 +523,7 @@ export class Engine {
       this.route[ch] = this.busIndex(c.fxSend);
       this.inDrumBus[ch] = c.fx1 ? 1 : 0;
       this.sendLevel[ch].setImmediate(c.sendLevel);
+      this.autoBase.set(`m:${ch}:send`, c.sendLevel);
       // A loaded project starts at its values instead of gliding to them.
       this.volume[ch].setImmediate(c.volume);
       this.pan[ch].setImmediate(c.pan);
@@ -522,6 +541,7 @@ export class Engine {
     if (playing === this.playing) return;
     this.playing = playing;
     if (!playing) {
+      this.releaseLanes();
       this.songOn = false;
       this.songRow = -1;
       this.songJumpTo = -1;
@@ -721,6 +741,7 @@ export class Engine {
         }
         if (n < 1) n = 1;
       }
+      if (this.songOn && this.playing && this.lanes.length > 0 && this.globalStep > 0) this.runAuto();
       this.renderChunk(outL, outR, pos, n);
       if (this.click.render(this.clickBuf, pos, n)) this.clicked = true;
       pos += n;
@@ -783,6 +804,8 @@ export class Engine {
     this.pendingMeter = -1;
     this.meter = m;
     this.barLen = meterLength(m);
+    let k = 0;
+    for (let cell = 0; cell < 16; cell++) if (meterPlays(m, cell)) this.cellOf[k++] = cell;
     // A beat starts each of the meter's (non-empty) groups.
     this.beatAt.fill(0);
     let at = 0;
@@ -1098,6 +1121,112 @@ export class Engine {
     });
     if (this.songOn && this.songLength === 0) { this.songOn = false; this.songRow = -1; this.songOff.fill(0); }
     if (this.songRow >= this.songLength) this.songRow = this.songLength - 1;
+    let bar = 0;
+    for (let i = 0; i < this.songLength; i++) { this.rowStart[i] = bar; bar += this.songBars[i]; }
+    this.rowStart[this.songLength] = bar;
+    // The lanes, anew (any that were playing hand their knobs back first).
+    this.releaseLanes();
+    this.lanes = [];
+    for (const key in song.auto ?? {}) {
+      const t = parseAutoKey(key);
+      const points = song.auto![key];
+      if (!t || !Array.isArray(points) || points.length === 0) continue;
+      const lane = new Lane(key, t.kind, t.index, t.id, points.length);
+      points.forEach(([p, v], i) => { lane.pos[i] = p; lane.val[i] = v; });
+      lane.spec = t.kind === 'm' ? MIX_PARAMS.find((s) => s.id === t.id) ?? null
+        : t.kind === 'b' ? BUS_PARAMS[t.index]?.find((s) => s.id === t.id) ?? null
+        : t.kind === 'l' ? LFO_PARAMS[t.id as LfoId] ?? null : null;
+      this.lanes.push(lane);
+    }
+  }
+
+  /** SONG automation for this chunk: where the song is now (in strip cells), each lane's value. */
+  private runAuto(): void {
+    const g = this.globalStep - 1;
+    const step = Math.min(1, Math.max(0, 1 - this.framesToStep / this.lastStepFrames));
+    const bar = this.rowStart[this.songRow] + Math.max(0, this.songBar);
+    const p = bar * CELLS_PER_BAR + this.cellOf[this.barPos(g)] + step;
+    for (const lane of this.lanes) {
+      const spec = lane.kind === 's' ? this.laneSpec(lane) : lane.spec;
+      if (lane.kind === 's' && !spec) continue;
+      const v = valueAt(lane.pos, lane.val, lane.pos.length, p, spec);
+      if (v !== v) { // NaN: before its first locked value
+        if (lane.active) this.releaseLane(lane);
+        continue;
+      }
+      if (lane.active && v === lane.last && !(lane.kind === 's' && this.autoStale[lane.index])) continue;
+      lane.active = true;
+      lane.last = v;
+      this.applyLane(lane, v);
+    }
+    this.autoStale.fill(0);
+    this.autoSnap = false;
+  }
+
+  /** A sound lane's parameter (slot) on the track's instrument now; null = it has none. */
+  private laneSpec(lane: Lane): ParamSpec | null {
+    const inst = this.current[lane.index];
+    if (!inst) return null;
+    if (lane.inst !== inst) {
+      lane.inst = inst;
+      lane.slot = this.slotOf(inst, lane.id);
+      const kind = this.kind[lane.index];
+      lane.links = kind === 'none' ? [] : linkedParams(kind, lane.id).map((id) => this.slotOf(inst, id)).filter((s) => s >= 0);
+    }
+    return lane.slot >= 0 ? inst.params[lane.slot] : null;
+  }
+
+  private applyLane(lane: Lane, v: number): void {
+    this.autoApplying = true;
+    const i = lane.index;
+    switch (lane.kind) {
+      case 's': {
+        const inst = this.current[i]!;
+        this.setSound(i, lane.id, v, lane.slot);
+        for (const s of lane.links) this.setSound(i, inst.params[s].id, v, s);
+        break;
+      }
+      case 'm':
+        this.setMix(i, lane.id as MixParam, v);
+        if (this.autoSnap) {
+          if (lane.id === 'volume') this.volume[i].setImmediate(v);
+          else if (lane.id === 'pan') this.pan[i].setImmediate(v);
+          else if (lane.id === 'send') this.sendLevel[i].setImmediate(v);
+        }
+        break;
+      case 'o': this.setOffset(i, lane.id, v); break;
+      case 'b': this.setBusParam(i, lane.id, v); break;
+      case 'l': this.setLfo(lane.id as LfoId, v); break;
+    }
+    this.autoApplying = false;
+  }
+
+  /** A lane lets go: its knob back to the user's value (a sound: the playing pattern's). */
+  private releaseLane(lane: Lane): void {
+    lane.active = false;
+    lane.last = NaN;
+    if (lane.kind === 's') {
+      const inst = this.current[lane.index];
+      if (!inst || this.laneSpec(lane) === null) return;
+      const at = (lane.index * NUM_PATTERNS + this.activePattern[lane.index]) * LOCK_SLOTS;
+      this.autoApplying = true;
+      this.setSound(lane.index, lane.id, this.patchValue[at + lane.slot], lane.slot);
+      for (const s of lane.links) this.setSound(lane.index, inst.params[s].id, this.patchValue[at + s], s);
+      this.autoApplying = false;
+      return;
+    }
+    const base = this.autoBase.get(lane.key);
+    this.applyLane(lane, base ?? (lane.kind === 'o' ? 0 : lane.spec?.defaultValue ?? 0));
+  }
+
+  private releaseLanes(): void {
+    for (const lane of this.lanes) if (lane.active) this.releaseLane(lane);
+  }
+
+  /** An FX bus parameter (the user's value is kept for the automation to come back to). */
+  private setBusParam(k: number, id: string, value: number): void {
+    if (!this.autoApplying) this.autoBase.set(`b:${k}:${id}`, value);
+    this.buses[k]?.setParam(id, value);
   }
 
   /**
@@ -1332,6 +1461,7 @@ export class Engine {
    * slot and re-applies the slots whose push changed (UI rate, not per block).
    */
   private setOffset(ch: number, id: string, value: number): void {
+    if (!this.autoApplying) this.autoBase.set(`o:${ch}:${id}`, value);
     const inst = this.current[ch];
     const offsets = this.liveOffsets[ch];
     if (value === 0) offsets.delete(id);
@@ -1713,6 +1843,7 @@ export class Engine {
   }
 
   private setLfo(id: LfoId, value: number): void {
+    if (!this.autoApplying) this.autoBase.set(`l:${id}`, value);
     switch (id) {
       case 'rate':
         this.lfoRate = Math.round(value);
@@ -1980,6 +2111,7 @@ export class Engine {
   private setSound(ch: number, id: string, value: number, knownSlot = -1): void {
     const inst = this.current[ch];
     if (!inst) return;
+    if (!this.autoApplying) this.autoStale[ch] = 1;
     const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
     if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
     this.applyParam(ch, inst, id, slot >= 0 ? this.withOffset(ch, slot, value) : value);
@@ -2027,6 +2159,7 @@ export class Engine {
   }
 
   private setMix(ch: number, id: MixParam, value: number): void {
+    if (!this.autoApplying) this.autoBase.set(`m:${ch}:${id}`, value);
     if (id === 'send') { this.sendLevel[ch].setTarget(value); return; }
     if (id === 'dyn') { this.dynDepth[ch] = value / 100; return; }
     if (id === 'gate') { this.gateLength[ch] = value; return; }
@@ -2040,5 +2173,25 @@ export class Engine {
     else if (id === 'pan') this.pan[ch].setTarget(value);
     else this.muted[ch] = value > 0 ? 1 : 0; // the sequencer skips a muted track's notes
     this.volume[ch].setTarget(this.volumeValue[ch]);
+  }
+}
+
+/** One SONG automation lane: a knob's locked values (see automation.ts). */
+class Lane {
+  readonly pos: Float64Array;
+  readonly val: Float64Array;
+  /** The parameter's spec (mix / bus / LFO; a sound lane's comes from the instrument playing). */
+  spec: ParamSpec | null = null;
+  /** Holding the knob now, and the value it last set. */
+  active = false;
+  last = NaN;
+  /** Sound lanes: the instrument the slot was looked up on, the slot, linked slots (PAD ATTACK ...). */
+  inst: Instrument | null = null;
+  slot = -1;
+  links: number[] = [];
+
+  constructor(readonly key: string, readonly kind: AutoKind, readonly index: number, readonly id: string, n: number) {
+    this.pos = new Float64Array(n);
+    this.val = new Float64Array(n);
   }
 }

@@ -176,6 +176,8 @@ html, body {
 .knob-arc { stroke: var(--accent); stroke-linecap: butt; }
 /* Away from its default (a SOUND knob: from the value TIMBRE / INTENSITY give it): yellow. */
 .knob.changed .knob-arc { stroke: var(--hot); }
+/* SONG DESIGN: touched while a step is primed = locked on it when it is tapped again. */
+.knob.staged .knob-cap { box-shadow: 0 0 0 3px var(--hot); }
 .knob-cap {
   position: absolute; inset: 11px;
   border-radius: 50%;

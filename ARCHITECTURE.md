@@ -67,7 +67,7 @@ Main -> worklet:
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
 | `transport` | `playing`, `song?`, `fromRow?`, `fromBar?`, `fromChannel?`, `fromStep?`, `countIn?`, `gen?` | Start / stop; `fromBar` = the bar inside row `fromRow` the song starts on (`Engine.startSongAt`); `countIn` = bars of clicks before the music (COUNT-IN: the sequencer, LFO and recording wait); `song` = play the song from row `fromRow`. Patterns: `fromStep` (a bar line of track `fromChannel`'s pattern; absent = the top) = every track starts where it would be had all played from the top until that track reached that step (`Engine.startAt` moves the step counters on silently; notes started earlier don't sound). `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
-| `setSong` | `song` | Replace the song rows |
+| `setSong` | `song` | Replace the song: rows, and the automation lanes (`song.auto`, compiled into `Engine.lanes`, played by `runAuto` while the song plays) |
 | `setClick` | `on`, `level` | METRONOME: click on the beats while playing (`on`), level 0..1 (also the count-in's) |
 | `songJump` | `row` | While the song plays: go to this row at the next bar line |
 | `trigger` | `channel`, `note`, `velocity`, `slideFrom?` | Play a note now (`slideFrom` = legato from a held note) |

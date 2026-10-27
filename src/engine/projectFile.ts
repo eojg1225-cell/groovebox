@@ -13,6 +13,7 @@ import {
   type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
+import { parseAutoKey } from './automation';
 import { macroIds } from '../instruments/macros';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
@@ -151,7 +152,8 @@ interface StoredProject {
   swing: number;
   master: number;
   lfo: LfoState;
-  song: { rows: { b: number; p: number[] }[] };
+  /** v53: `a` = the song's automation (key -> [position, value] pairs). */
+  song: { rows: { b: number; p: number[] }[]; a?: Record<string, [number, number][]> };
   /** v41: FX 1-3 settings (BUS_PARAMS ids). */
   buses: Record<string, number>[];
   /** v36: time signature (index into METERS; absent = 4/4). */
@@ -171,7 +173,7 @@ export function toStored(p: Project): StoredProject {
     meter: p.meter,
     settings: { ...p.settings },
     lfo: { ...p.lfo },
-    song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })) },
+    song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })), ...(p.song.auto ? { a: JSON.parse(JSON.stringify(p.song.auto)) as Record<string, [number, number][]> } : {}) },
     buses: p.buses.map((b) => ({ ...b })),
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
@@ -502,6 +504,21 @@ function readLfo(src: unknown, lfo: LfoState): void {
 const TYPE_GAIN_V48: Record<SoundKind, number> = { kick: 0.565, snare: 0.797, hat: 4.359, perc: 0.778, bass: 0.383, pad: 0.273, lead: 0.633, pluck: 1.366 };
 const TYPE_GAIN_V49: Record<SoundKind, number> = { kick: 0.565, snare: 0.467, hat: 1.783, perc: 0.537, bass: 0.557, pad: 0.413, lead: 0.948, pluck: 1.105 };
 
+/** SONG automation as stored: known keys, finite [position, value] pairs, in position order, one per position. */
+function readAuto(x: unknown): Record<string, [number, number][]> {
+  const out: Record<string, [number, number][]> = {};
+  if (!isObj(x)) return out;
+  for (const key in x) {
+    const pts = x[key];
+    if (!parseAutoKey(key) || !Array.isArray(pts)) continue;
+    const ok = pts.filter((q): q is [number, number] => Array.isArray(q) && q.length === 2 && Number.isFinite(q[0]) && Number.isFinite(q[1]) && q[0] >= 0);
+    ok.sort((a, b) => a[0] - b[0]);
+    const lane = ok.filter((q, i) => i === 0 || q[0] !== ok[i - 1][0]).map(([a, b]) => [a, b] as [number, number]);
+    if (lane.length > 0) out[key] = lane;
+  }
+  return out;
+}
+
 /**
  * v51: every track's live knobs (LIVE 1-4, centred) back to its type's defaults as they are
  * now (e.g. PLUCK LIVE 2 = SPACE), set by the user's request for every project saved before.
@@ -562,6 +579,8 @@ export function fromStored(data: unknown): Project | null {
       const patterns = Array.from({ length: NUM_CHANNELS }, (_, i) => Math.round(num(pats[i], -1, -1, NUM_PATTERNS - 1)));
       p.song.rows.push({ bars: Math.round(num(r.b, 4, 1, SONG_MAX_BARS)), patterns });
     }
+    const auto = readAuto(data.song.a);
+    if (Object.keys(auto).length > 0) p.song.auto = auto;
   }
   for (let i = 0; i < NUM_CHANNELS; i++) {
     const src = data.channels[i];

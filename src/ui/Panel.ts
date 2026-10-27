@@ -71,6 +71,7 @@ export class Panel implements ControlSurface {
   private readonly masterKnobs = new Map<string, Knob>();
   private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
+  private readonly touchEmit = (id: string) => this.emitter.emit({ type: 'touch', id });
 
   private stripSlide = false;
   private zoom = 0;
@@ -132,7 +133,7 @@ export class Panel implements ControlSurface {
     // track's channel button sits between its two knobs, MUTE left of it, SOLO right.
     const grid = q('.knob-grid');
     for (let i = 1; i <= KNOB_COUNT; i++) {
-      this.knobs.push(new Knob(`k${i}`, '', 0.5, this.knobEmit, this.encoderEmit));
+      this.knobs.push(new Knob(`k${i}`, '', 0.5, this.knobEmit, this.encoderEmit, 127, this.touchEmit));
     }
     for (let m = 0; m < KNOBS_PER_ROW; m++) {
       const module = document.createElement('div');
@@ -216,12 +217,14 @@ export class Panel implements ControlSurface {
   }
 
   /** Configure knob slot i (0-based): label, value and default, or null to disable it. */
-  configureKnob(i: number, slot: { label: string; value: number; defaultValue: number; highlight?: boolean } | null): void {
+  configureKnob(i: number, slot: { label: string; value: number; defaultValue: number; highlight?: boolean; staged?: boolean } | null): void {
     const k = this.knobs[i];
     if (!k) return;
     k.setEnabled(slot !== null);
     k.setLabel(slot?.label ?? '');
     k.el.classList.toggle('highlight', !!slot?.highlight);
+    // SONG DESIGN: a knob that will be locked on the primed step.
+    k.el.classList.toggle('staged', !!slot?.staged);
     if (slot) {
       k.defaultValue = slot.defaultValue;
       k.set(slot.value);

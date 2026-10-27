@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 52;
+export const PROJECT_VERSION = 53;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -27,6 +27,8 @@ export interface SongRow {
 
 export interface Song {
   rows: SongRow[];
+  /** Knob values locked at song positions, per knob (automation.ts: key -> [position, value] in order). */
+  auto?: Record<string, [number, number][]>;
 }
 
 import type { LfoState } from './lfo';
