@@ -3598,7 +3598,7 @@ describe('AIR (KICK, SNARE)', () => {
     for (let o = 0; o < n; o += BLOCK) d.render(l, r, o, o + BLOCK);
     const dry = l.slice();
     for (let o = 0; o < n; o += BLOCK) d.post(l.subarray(o, o + BLOCK), r.subarray(o, o + BLOCK), BLOCK);
-    return { dry, out: l, wet: l.map((v, i) => v - dry[i]) };
+    return { dry, out: l, wet: l.map((v, i) => v - dry[i]), wetR: r.map((v, i) => v - dry[i]) };
   };
 
   it('AIR LVL 0 leaves the hit untouched; turned up it adds a tail under the hit', () => {
@@ -3609,14 +3609,22 @@ describe('AIR (KICK, SNARE)', () => {
       const peak = stats(on.dry).peak, wet = stats(on.wet).peak;
       expect(wet, kind).toBeGreaterThan(peak * 0.1); // audible: within 20 dB
       expect(wet, kind).toBeLessThan(peak * 0.5); // under the hit
-      // The tail outlasts the hit.
-      expect(rms(on.wet, Math.floor(SR * 0.3), Math.floor(SR * 0.6)), kind).toBeGreaterThan(rms(on.dry, Math.floor(SR * 0.3), Math.floor(SR * 0.6)) * 0.1);
+      // Mono: the same tail on both sides.
+      expect(on.wetR, kind).toEqual(on.wet);
+      // Short at the default SIZE (a break's room, not a hall): gone 60 dB under the hit by 0.4 s.
+      expect(rms(on.wet, Math.floor(SR * 0.4), Math.floor(SR * 0.8)), kind).toBeLessThan(peak * 0.001);
     }
   });
 
-  it('AIR SIZE makes the room ring longer', () => {
-    const tail = (airsize: number) => rms(hit('kick', { air: 1, airsize }).wet, SR, 2 * SR);
-    expect(tail(1)).toBeGreaterThan(tail(0) * 10);
+  it("the SNARE's AIR stays out of the low mids (its pre-EQ)", () => {
+    // A low body only (200 Hz tone, no wires): hardly anything comes back.
+    const body = hit('snare', { air: 1, t_pitch: 200, t_sweep: 0, m_level: 0, drive: 1 });
+    expect(stats(body.wet).peak).toBeLessThan(stats(body.dry).peak * 0.05);
+  });
+
+  it('AIR SIZE makes the room ring longer (from barely a tail to about a second)', () => {
+    const tail = (airsize: number) => rms(hit('kick', { air: 1, airsize }).wet, Math.floor(SR * 0.2), SR);
+    expect(tail(1)).toBeGreaterThan(tail(0) * 100);
   });
 
   it("the KICK's AIR keeps out of the low end (its fixed EQ)", () => {

@@ -5,7 +5,7 @@ import { exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
-import { Reverb } from '../fx/Reverb';
+import { AirRoom } from './airRoom';
 
 /**
  * Drum voice built from layers. Each drum type uses two of them (its two "elements"):
@@ -162,14 +162,19 @@ interface DrumVoice {
   /** DRIVE level compensation curve (driveComp.ts). */
   driveRise?: readonly number[];
   /**
-   * AIR's fixed EQ on the room's tail (Hz): a high-pass so it never muddies the low end, a
-   * low-pass so it stays soft; and its level (x AIR_GAIN). No AIR on the type without it.
+   * AIR's fixed pre-EQ (Hz, before its mono room, airRoom.ts): high-passes so it never
+   * muddies the low end, a low-pass so it stays soft; and its level (x AIR_GAIN). No AIR on
+   * the type without it.
    */
   air?: { highPass: number; lowPass: number; gain: number };
 }
-// KICK's air keeps clear of the sub and the body (only its knock rings); SNARE's opens higher.
-export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { highPass: 350, lowPass: 2500, gain: 1.5 } };
-export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { highPass: 400, lowPass: 6000, gain: 1 } };
+/** AIR's level per type: at the default AIR SIZE, the KICK's first 100 ms as loud as the old stereo room's, the SNARE's 3 dB under it. */
+const KICK_AIR_GAIN = 3.45;
+const SNARE_AIR_GAIN = 2;
+// KICK's air keeps clear of the sub and the body, and has no treble (only its knock rings);
+// SNARE's is cut higher so it never gets muddy or swamps the hit, and stops short of the fizz.
+export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { highPass: 300, lowPass: 1400, gain: KICK_AIR_GAIN } };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { highPass: 600, lowPass: 5000, gain: SNARE_AIR_GAIN } };
 export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
@@ -219,14 +224,10 @@ function attackInc(seconds: number, sr: number): number {
 }
 
 /**
- * AIR: the room (short, close), the level at full AIR LVL (on a square law: fine at the low
- * end; full = the tail about 10 dB under the hit), the EQ's resonance (Q ~0.7).
+ * AIR: the level at full AIR LVL (on a square law: fine at the low end), x each type's gain
+ * (they keep AIR LVL's range as it was with the stereo room).
  */
-const AIR_ROOM = { rev_damp: 0.6, rev_predelay: 4, rev_width: 1, rev_return: 1 };
 const AIR_GAIN = 0.8;
-/** AIR SIZE 1 = Reverb SIZE this (a room, never a hall). */
-const AIR_SIZE_MAX = 0.75;
-const AIR_EQ_RESO = 0.3;
 /** AIR LVL glides over this long (s); the room runs in chunks of AIR_CHUNK samples. */
 const AIR_SMOOTH = 0.02;
 /** AIR is skipped after this long of silence in and (nearly) out: longer than its longest tail. */
@@ -272,13 +273,9 @@ export class Drum implements Instrument {
   private readonly chokeMul: number;
   /** The body's sweep never goes above this (Hz): 18 kHz, or below Nyquist at low rates. */
   private readonly sweepTop: number;
-  // AIR: the room, its EQ (high-pass x2 then low-pass, per side), scratch buffers, the level.
-  private readonly room: Reverb | null = null;
-  private readonly airEq: Svf[] = [];
-  private readonly airInL = new Float32Array(AIR_CHUNK);
-  private readonly airInR = new Float32Array(AIR_CHUNK);
-  private readonly airL = new Float32Array(AIR_CHUNK);
-  private readonly airR = new Float32Array(AIR_CHUNK);
+  // AIR: the mono room (its pre-EQ inside), scratch buffer, the level.
+  private readonly room: AirRoom | null = null;
+  private readonly airMono = new Float32Array(AIR_CHUNK);
   private airTarget = 0; private airGain = 0; private airIdle = true;
   /** AIR on but died away: skipped until the drum sounds again. */
   private readonly airGate: IdleGate;
@@ -314,17 +311,7 @@ export class Drum implements Instrument {
     this.rRelease = Math.exp(-1 / (RATTLE_RELEASE * sampleRate));
     this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
     this.airGate = new IdleGate(AIR_IDLE_SECONDS, sampleRate);
-    if (voice.air) {
-      this.room = new Reverb(sampleRate);
-      for (const id in AIR_ROOM) this.room.setParam(id, AIR_ROOM[id as keyof typeof AIR_ROOM]);
-      const { highPass, lowPass } = voice.air;
-      // Per side: two high-passes (24 dB / octave: the sub stays dry), then the low-pass.
-      for (let k = 0; k < 6; k++) {
-        const f = new Svf();
-        f.setup(k < 4 ? highPass : lowPass, AIR_EQ_RESO, sampleRate);
-        this.airEq.push(f);
-      }
-    }
+    if (voice.air) this.room = new AirRoom(sampleRate, voice.air.highPass, voice.air.lowPass);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
     for (const p of params) this.setParam(p.id, p.defaultValue);
@@ -446,7 +433,7 @@ export class Drum implements Instrument {
       case 'crush': this.crush = v; break;
       case 'ogain': this.oGain = v; break;
       case 'air': this.airTarget = v * v * AIR_GAIN * (this.voice.air?.gain ?? 0); break;
-      case 'airsize': this.room?.setParam('rev_size', v * AIR_SIZE_MAX); break;
+      case 'airsize': this.room?.setSize(v); break;
     }
   }
 
@@ -497,7 +484,6 @@ export class Drum implements Instrument {
     if (this.airTarget === 0 && this.airGain < 1e-5) {
       if (!this.airIdle) {
         room.reset();
-        for (const f of this.airEq) f.reset();
         this.airGain = 0;
         this.airIdle = true;
       }
@@ -505,20 +491,17 @@ export class Drum implements Instrument {
     }
     this.airIdle = false;
     if (this.airGate.skip(l, r, n)) return;
-    const eq = this.airEq;
-    const hpL = eq[0], hpR = eq[1], hp2L = eq[2], hp2R = eq[3], lpL = eq[4], lpR = eq[5];
+    const mono = this.airMono;
     for (let off = 0; off < n; off += AIR_CHUNK) {
       const m = Math.min(AIR_CHUNK, n - off);
-      for (let i = 0; i < m; i++) { this.airInL[i] = l[off + i]; this.airInR[i] = r[off + i]; }
-      this.airL.fill(0, 0, m);
-      this.airR.fill(0, 0, m);
-      room.process(this.airInL, this.airInR, this.airL, this.airR, 0, m);
+      for (let i = 0; i < m; i++) mono[i] = (l[off + i] + r[off + i]) * 0.5;
+      room.process(mono, mono, m);
+      // Mono: the same tail on both sides (the track's PAN places it with the hit).
       for (let i = 0; i < m; i++) {
         this.airGain += (this.airTarget - this.airGain) * this.airK;
-        hpL.process(this.airL[i]); hp2L.process(hpL.high); lpL.process(hp2L.high);
-        hpR.process(this.airR[i]); hp2R.process(hpR.high); lpR.process(hp2R.high);
-        l[off + i] += lpL.low * this.airGain;
-        r[off + i] += lpR.low * this.airGain;
+        const w = mono[i] * this.airGain;
+        l[off + i] += w;
+        r[off + i] += w;
       }
     }
     this.airGate.done(l, r, n);
