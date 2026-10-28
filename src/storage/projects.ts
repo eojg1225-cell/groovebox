@@ -30,7 +30,8 @@ export interface ProjectStore {
   isOld(id: string): boolean;
   /** Its working copy (unsaved edits), if any. */
   loadWork(id: string): Project | null;
-  saveWork(id: string, project: Project): void;
+  /** False when it could not be kept (storage full). */
+  saveWork(id: string, project: Project): boolean;
   /** Empty a slot (its saved project and working copy go). */
   remove(slot: number): void;
   /** The project open now (null = not saved anywhere yet). */
@@ -174,8 +175,8 @@ class LocalProjectStore implements ProjectStore {
     return parse(get(work(id)));
   }
 
-  saveWork(id: string, project: Project): void {
-    put(work(id), JSON.stringify(toStored(project)));
+  saveWork(id: string, project: Project): boolean {
+    return put(work(id), JSON.stringify(toStored(project)));
   }
 
   remove(slot: number): void {
@@ -209,11 +210,11 @@ export const localProjects = new LocalProjectStore();
 export const projectStore: ProjectStore = localProjects;
 
 let workTimer: ReturnType<typeof setTimeout> | undefined;
-/** Debounced: the open project's working copy follows every edit. */
-export function saveWorkSoon(project: Project): void {
+/** Debounced: the open project's working copy follows every edit; `failed` is told when it could not be kept. */
+export function saveWorkSoon(project: Project, failed?: () => void): void {
   clearTimeout(workTimer);
   workTimer = setTimeout(() => {
     const id = projectStore.openId();
-    if (id) projectStore.saveWork(id, project);
+    if (id && !projectStore.saveWork(id, project)) failed?.();
   }, 1000);
 }

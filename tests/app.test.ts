@@ -1175,3 +1175,152 @@ describe('OCT and FUNC + OCT', () => {
     expect(priv.message).toBe('NO OCTAVE');
   });
 });
+
+describe('STEP EDIT', () => {
+  type T = { label: string; get(): number; staged?: boolean; auto?: { key: string } } | null;
+  const targets = (app: App) => (app as unknown as { targets: T[] }).targets;
+  const priv = (app: App) => app as unknown as { primed: { cell: number; staged: Map<string, unknown> } | null; message: string };
+
+  it('RECORD only, stopped: primes the cursor step; touched knobs lock on a tap of the yellow step; moving waits for LOCK or CANCEL', () => {
+    const { app, tap, emit, flags, texts } = makeApp();
+    tap('mode:play');
+    tap('stepedit'); // PLAY mode: not here
+    expect(app.stepEdit).toBe(false);
+    tap('mode:record');
+    tap('ch5'); // BASS
+    tap('stepedit');
+    expect(app.stepEdit).toBe(true);
+    expect(priv(app).primed?.cell).toBe(0);
+    tap('cur+');
+    tap('cur+');
+    expect(priv(app).primed?.cell).toBe(2);
+    app.updateFrame(0);
+    expect(flags.get('step3')?.has('cursor')).toBe(true);
+    emit({ type: 'touch', id: 'k5' }); // BASS LIVE 1
+    emit({ type: 'knob', id: 'k5', value: 0.9 });
+    expect(texts.get('cancel')).toBe('CANCEL');
+    tap('cur+'); // refused while a knob waits
+    expect(priv(app).primed?.cell).toBe(2);
+    expect(priv(app).message).toBe('LOCK OR CANCEL FIRST');
+    tap('step3'); // lock
+    const step = app.project.channels[4].patterns[0].steps[2];
+    expect(Object.keys(step.locks ?? {})).toEqual(['cutoff']); // BASS LIVE 1 = CUTOFF, stored by its bare id
+    expect(priv(app).primed?.cell).toBe(2); // still primed there
+    expect(texts.get('cancel')).toBe('UNDO');
+    app.updateFrame(0);
+    expect(flags.get('step3')?.has('lit')).toBe(true);
+    tap('cancel'); // UNDO: the lock goes
+    expect(app.project.channels[4].patterns[0].steps[2].locks).toBeUndefined();
+    tap('play');
+    expect(app.stepEdit).toBe(false);
+  });
+
+  it('FUNC shows the SOUND page; its own sound params lock by their bare id; CLEAR + step takes a step\'s locks away', () => {
+    const { app, tap, press, release, emit } = makeApp();
+    tap('mode:record');
+    tap('ch5');
+    tap('stepedit');
+    press('func');
+    expect(targets(app)[0]?.label).toBe('TIMBRE');
+    emit({ type: 'touch', id: 'k14' }); // CUTOFF (module 6 bottom)
+    emit({ type: 'knob', id: 'k14', value: 0.5 });
+    release('func');
+    tap('step1');
+    const locks = app.project.channels[4].patterns[0].steps[0].locks ?? {};
+    expect(Object.keys(locks)).toEqual(['cutoff']);
+    press('clear');
+    tap('step1');
+    release('clear');
+    expect(app.project.channels[4].patterns[0].steps[0].locks).toBeUndefined();
+  });
+
+  it('SONG DESIGN works the same: no moving while knobs wait; ◀ ▶ move the primed step', () => {
+    const { app, tap, emit } = makeApp();
+    tap('menu');
+    tap('cur+'); // MODE: SONG
+    tap('play');
+    tap('mode:design');
+    tap('dpage2');
+    tap('step1');
+    tap('cur+');
+    expect(priv(app).primed?.cell).toBe(1);
+    emit({ type: 'touch', id: 'k1' });
+    tap('step5');
+    expect(priv(app).primed?.cell).toBe(1);
+    tap('cancel');
+    tap('step5');
+    expect(priv(app).primed?.cell).toBe(4);
+  });
+});
+
+describe('ARP key', () => {
+  it('tap = on / off for the selected track; FUNC + ARP = its knobs; MODE starts OFF', () => {
+    const { app, tap, press, release, sent, emit } = makeApp();
+    tap('ch1');
+    tap('arp');
+    expect(app.project.channels[0].arp?.on).toBe(true);
+    expect(sent.some((m) => m.type === 'setArp' && m.id === 'on' && m.value === 1)).toBe(true);
+    expect(app.project.channels[0].arp?.mode).toBe(0);
+    press('func');
+    tap('arp');
+    release('func');
+    expect(app.arpOpen).toBe(true);
+    const t = (app as unknown as { targets: ({ label: string } | null)[] }).targets;
+    expect(t[0]?.label).toBe('ARP MODE');
+    emit({ type: 'knob', id: 'k1', value: 1 / 6 }); // UP
+    expect(app.project.channels[0].arp?.mode).toBe(1);
+    tap('arp');
+    expect(app.project.channels[0].arp?.on).toBe(false);
+    const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;
+    expect(back.channels[0].arp).toEqual({ on: false, mode: 1, rate: 3, oct: 0 });
+  });
+});
+
+describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
+  it('PLAY on a drum: ROLL held repeats (holdRoll on / off); a quick tap still sets every note rolling', () => {
+    const { app, press, release, tap, sent } = makeApp();
+    tap('mode:play');
+    tap('ch1');
+    press('slide');
+    expect(sent.some((m) => m.type === 'holdRoll' && m.on)).toBe(true);
+    release('slide'); // quick: a tap
+    expect(sent.some((m) => m.type === 'holdRoll' && !m.on)).toBe(true);
+    expect((app as unknown as { forceSlide: boolean[] }).forceSlide[0]).toBe(true);
+  });
+
+  it('BAR + ▶ on the last bar adds an empty one (BAR lit at 16 steps); STEPS + ◀ ▶ = one step', () => {
+    const { app, tap, press, release, texts } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    press('steppage');
+    tap('cur+');
+    release('steppage');
+    expect(app.project.channels[0].patterns[0].length).toBe(32);
+    app.updateFrame(0);
+    expect(texts.get('steppage')).toContain('2/2');
+    press('len');
+    tap('cur-');
+    release('len');
+    expect(app.project.channels[0].patterns[0].length).toBe(31);
+  });
+
+  it('a step the time signature leaves out shows ×', () => {
+    const { app, tap, texts } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    app.project.meter = 1; // a time signature with dark steps
+    app.updateFrame(0);
+    expect([...Array(16).keys()].some((i) => texts.get(`step${i + 1}`) === '×')).toBe(true);
+  });
+
+  it('a PAD track turned BASS keeps each chord\'s lowest note; mixer locks stay, sound locks go', () => {
+    const { app } = makeApp();
+    const pad = app.project.channels[5];
+    Object.assign(pad.patterns[0].steps[0], { active: true, note: 64, extra: [60, 67], extraGate: [1, 1], locks: { cutoff: 900, 'm:5:volume': 0.5 } });
+    (app as unknown as { setTrackType(ch: number, k: string): void }).setTrackType(5, 'bass');
+    const st = pad.patterns[0].steps[0];
+    expect(st.note).toBe(60);
+    expect(st.extra).toBeUndefined();
+    expect(st.locks).toEqual({ 'm:5:volume': 0.5 });
+  });
+});

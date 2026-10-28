@@ -70,6 +70,7 @@ import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES,
 import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongView } from './views';
 import { CELLS_PER_BAR, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
+import { ARP_MODES, ARP_PARAMS, defaultArp, type ArpId } from '../engine/arp';
 
 type Mode = 'record' | 'play' | 'design';
 
@@ -260,6 +261,23 @@ type GlobalId = 'bpm' | 'swing' | 'master';
 /** The master knobs beside PLAY. */
 const MASTER_GLOBAL: Readonly<Record<string, GlobalId>> = { mtempo: 'bpm', mmaster: 'master' };
 
+/** A step's locks on its track's sound (its own params, live knobs) go; mixer / FX / LFO / ARP ones stay. */
+function dropSoundLocks(step: Step, ch: number): void {
+  if (!step.locks) return;
+  for (const k of Object.keys(step.locks)) {
+    if (!k.includes(':') || k.startsWith(`s:${ch}:`) || k.startsWith(`o:${ch}:`)) delete step.locks[k];
+  }
+  if (Object.keys(step.locks).length === 0) delete step.locks;
+}
+
+/** One note at a time: a chord keeps its lowest note (as a CHORD plays it). */
+function lowestNoteOnly(step: Step): void {
+  if (!step.extra?.length) return;
+  step.note = Math.min(step.note, ...step.extra);
+  delete step.extra;
+  delete step.extraGate;
+}
+
 export class App {
   selected = 0;
   mode: Mode = 'record';
@@ -301,6 +319,16 @@ export class App {
   private liveNote = -1;
   /** Send shown on the knobs in RECORD/PLAY (1-3), 0 = the tracks' live knobs. */
   private fxView = 0;
+  /** FUNC + ARP: the selected track's ARP knobs on screen. */
+  private arpView = false;
+  /**
+   * STEP EDIT (RECORD, stopped): the strip shows the selected track's steps for locking knob
+   * values on them; a step is always primed (yellow), ◀ ▶ / taps move it while nothing waits.
+   */
+  stepEdit = false;
+  /** ROLL held down (PLAY / DESIGN, drum track): when it went down, and on which track. */
+  private rollHeldAt = -1;
+  private rollHeldCh = -1;
   /** CLEAR held, and whether anything was cleared while it was. */
   private clearHeld = false;
   private clearUsed = false;
@@ -373,10 +401,12 @@ export class App {
   private touchedAt = 0;
   private status: Status | null = null;
   private statusAt = 0;
-  /** State RESET returns to when nothing has been saved: the project as the session began. */
-  private baseline: Project;
-  /** The project as last saved (or as the session / a new project began), cached for the knobs' yellow. */
-  private savedCache: Project | null = null;
+  /**
+   * The project as last saved (the open slot's saved copy; nothing saved: as the session / a
+   * new project began), for RESET and the knobs' yellow. Its patterns are left out: each
+   * pattern keeps its own saved copy (Pattern.savedNotes / savedPatch).
+   */
+  private saved: Project;
   /** The empty slot a new project was started from (LOAD): SAVE opens on its bank. -1 = none. */
   private newSlot = -1;
   /** SAVE / LOAD (stopped only): name entry and the 64 slots, 16 to a bank on the strip. */
@@ -396,6 +426,8 @@ export class App {
    */
   private primed: {
     cell: number;
+    /** STEP EDIT: the pattern whose step it is (cell = its step); absent = a SONG DESIGN cell. */
+    pattern?: { ch: number; p: number };
     staged: Map<string, { t: KnobTarget; v: number }>;
     orig: Map<string, { t: KnobTarget; v: number }>;
     dirty: boolean[];
@@ -417,7 +449,7 @@ export class App {
     private send: (msg: MainToWorklet) => void,
   ) {
     project.channels.forEach(initPatterns);
-    this.baseline = JSON.parse(JSON.stringify(project)) as Project;
+    this.saved = this.savedOf(project);
     this.octave = project.channels.map((c) => (c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote));
     this.snap = snapshot(project);
     panel.subscribe((e) => this.onControl(e));
@@ -433,13 +465,16 @@ export class App {
     }
   }
 
-  /** The project as last saved: the open slot's saved copy, else as the session / new project began. */
+  /** The project as last saved (see `saved`). */
   private savedProject(): Project {
-    if (!this.savedCache) {
-      const openId = projectStore.openId();
-      this.savedCache = (openId ? projectStore.load(openId) : null) ?? this.baseline;
-    }
-    return this.savedCache;
+    return this.saved;
+  }
+
+  /** `saved` for a project just opened: its slot's saved copy, else the project as it is; without patterns. */
+  private savedOf(project: Project): Project {
+    const openId = projectStore.openId();
+    const from = (openId ? projectStore.load(openId) : null) ?? project;
+    return JSON.parse(JSON.stringify({ ...from, channels: from.channels.map((c) => ({ ...c, patterns: [] })) })) as Project;
   }
 
   /** Track ch as last saved, when it was the same type then (else nothing to compare). */
@@ -537,11 +572,16 @@ export class App {
    * Holding CLEAR turns the strip into steps (to clear) in RECORD and PLAY.
    */
   private get keyboard(): boolean {
-    if (this.autoSteps || this.copyBar) return false;
+    if (this.autoSteps || this.copyBar || this.stepEdit) return false;
     if (this.clearHeld && this.mode !== 'design') return false;
     if (this.stepsMode) return false;
     if (this.placing && this.mode === 'record') return false;
     return !stepsOnStrip(this.channel.instrument) || this.mode !== 'record';
+  }
+
+  /** The ARP view open (FUNC + ARP): knobs and screen show the selected track's ARP. */
+  get arpOpen(): boolean {
+    return this.arpView && !this.songGrid;
   }
 
   /** RECORD / PLAY with a bus open: knobs and screen show that bus. */
@@ -638,6 +678,7 @@ export class App {
   /** Which block of 16 steps the strip/screen shows for a channel. */
   private visiblePage(ch: number): number {
     if (this.copyBar && ch === this.selected) return this.copyBar.to;
+    if (this.stepEdit && this.primed && ch === this.selected) return Math.floor(this.primed.cell / 16);
     const c = this.project.channels[ch];
     const heard = this.status?.patterns[ch] ?? c.activePattern;
     const head = this.status?.steps[ch] ?? -1;
@@ -885,15 +926,20 @@ export class App {
    * SWING, MASTER; every track's ACC/GHOST, FUNC TRIM). MIX and PROJECT are global.
    */
   private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
-    const ch = this.selected;
-    const c = this.channel;
-    const entry = c.instrument === 'none' ? null : INSTRUMENTS[c.instrument];
-    const layout = entry ? (this.func ? entry.funcLayout : entry.layout) : [];
-    const sound = { name: 'SOUND', targets: () => layout.map((id) => (id ? this.paramTarget(ch, id) : null)) };
+    const sound = { name: 'SOUND', targets: () => this.soundTargets(this.func) };
     const mix = { name: 'MIX', targets: () => this.mixTargets() };
     // SONG DESIGN (automation): the live knobs instead of PROJECT, first.
     if (this.song) return [{ name: 'LIVE', targets: () => this.liveGrid() }, sound, mix];
     return [sound, mix, { name: 'PROJECT', targets: () => this.projectTargets() }];
+  }
+
+  /** The selected track's SOUND page (func: its FUNC layer). */
+  private soundTargets(func: boolean): (KnobTarget | null)[] {
+    const ch = this.selected;
+    const c = this.channel;
+    const entry = c.instrument === 'none' ? null : INSTRUMENTS[c.instrument];
+    const layout = entry ? (func ? entry.funcLayout : entry.layout) : [];
+    return layout.map((id) => (id ? this.paramTarget(ch, id) : null));
   }
 
   /** DESIGN's page for a track's sound (a channel tap opens it): SOUND, after LIVE in SONG. */
@@ -902,12 +948,12 @@ export class App {
   }
 
   /** The live knobs: column = track, rows = live knob 1 / 2 (FUNC: 3 / 4). */
-  private liveGrid(): (KnobTarget | null)[] {
+  private liveGrid(func = this.func): (KnobTarget | null)[] {
     const out: (KnobTarget | null)[] = [];
     for (let row = 0; row < 2; row++) {
       for (let ch = 0; ch < KNOBS_PER_ROW; ch++) {
         const c = this.project.channels[ch];
-        out.push(this.liveKnob(ch, (this.func ? c.liveFunc : c.live)[row], ch === this.selected));
+        out.push(this.liveKnob(ch, (func ? c.liveFunc : c.live)[row], ch === this.selected));
       }
     }
     return out;
@@ -988,7 +1034,10 @@ export class App {
     if (this.songGrid) return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
     // SONG DESIGN with a step primed: the knobs show and set what will be locked there.
     const step = (t: (KnobTarget | null)[]) => (this.primed ? t.map((x) => (x?.auto ? this.primedTarget(x) : x)) : t);
+    if (this.arpOpen) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.arpTargets());
     if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.sendTargets(this.fxView - 1));
+    // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
+    if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
     if (this.mode === 'design') {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
@@ -1031,6 +1080,7 @@ export class App {
     }
     if (!e.pressed) {
       if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
+      if (id === 'slide' && this.rollHeldCh >= 0) this.releaseRoll();
       if ((m = /^ch(\d)$/.exec(id)) && this.heldTrack === Number(m[1]) - 1) {
         // A bus is open, a plain tap (no pattern picked meanwhile): with FUNC held it adds /
         // removes the track; otherwise it goes back to the tracks, on that one.
@@ -1044,6 +1094,8 @@ export class App {
             this.touchedKnob = -1;
             if (this.mode === 'design') this.designPage = this.soundPage;
           }
+        } else if (!this.sendOpen && !this.heldUsed && this.stepEdit && this.waiting && this.heldTrack !== this.selected) {
+          this.flash('LOCK OR CANCEL FIRST');
         } else if (!this.sendOpen && !this.heldUsed) {
           // A plain tap (no A-D meanwhile) selects the track; in DESIGN it opens its SOUND
           // page (MIX and PROJECT are global).
@@ -1074,6 +1126,7 @@ export class App {
         // STEPS tapped (no ◀ / ▶ meanwhile): STEPS mode on / off.
         this.lenHeld = false;
         if (!this.lenUsed) {
+          this.leaveStepEdit();
           this.stepsMode = !this.stepsMode;
           this.flash(this.stepsMode ? 'STEPS: TAP A STEP ON / OFF' : 'STEPS OFF');
         }
@@ -1086,6 +1139,8 @@ export class App {
       }
       return;
     }
+    // The other strip modes (flag placing, REST) end STEP EDIT.
+    if (this.stepEdit && (id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost' || id === 'rest')) this.leaveStepEdit();
     if (id === 'copy' && this.copyBar) {
       this.pasteBar();
       this.copyUsed = true; // its release is not a tap
@@ -1100,6 +1155,7 @@ export class App {
       return;
     }
     if (this.copyHeld && id === 'steppage' && !this.songGrid && !this.autoSteps) {
+      this.leaveStepEdit();
       this.startCopyBar();
       this.copyUsed = true;
       this.refreshPanel();
@@ -1173,6 +1229,7 @@ export class App {
       return;
     }
     if (id === 'play') {
+      this.leaveStepEdit();
       this.unprime();
       // FUNC + PLAY = from the top (stopping: back to the top for the next PLAY); FUNC lets go.
       const top = this.func;
@@ -1221,6 +1278,7 @@ export class App {
       if (this.mode === 'play') this.playPage = page;
       else this.designPage = page;
       this.fxView = 0; // back from a bus to the DESIGN pages
+      this.arpView = false;
       this.touchedKnob = -1;
     } else if ((m = /^fx([1-4])$/.exec(id))) {
       const n = Number(m[1]);
@@ -1231,8 +1289,13 @@ export class App {
       } else {
         // Show this bus's controls on the knobs (again = back to the tracks / DESIGN pages).
         this.fxView = this.fxView === n ? 0 : n;
+        this.arpView = false;
         this.touchedKnob = -1;
       }
+    } else if (id === 'stepedit') {
+      this.toggleStepEdit();
+    } else if (id === 'arp') {
+      this.onArp();
     } else if (id === 'menu') {
       this.menu = { stack: [{ page: 'top', item: 0, pending: new Map() }] };
       this.touchedKnob = -1;
@@ -1244,20 +1307,15 @@ export class App {
       // SAVE PROJECT = name + slot; FUNC + SAVE PROJECT = load another (stopped only).
       if (this.funcHeld) this.funcUsed = true;
       this.openProjectMenu(this.func ? 'load' : 'save');
+    } else if (id === 'slide' && this.forcing && isDrum(this.channel.instrument)) {
+      // PLAY / DESIGN on a drum: ROLL held = the track repeats at ROLL RATE (while playing);
+      // a tap (on release) = every note rolls, on / off.
+      const c = this.channel;
+      this.rollHeldAt = performance.now();
+      this.rollHeldCh = this.selected;
+      this.send({ type: 'holdRoll', channel: this.selected, on: true, note: c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote });
     } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.forcing) {
-      // PLAY / DESIGN: a live effect on the selected track's notes, tap on / tap off.
-      const ch = this.selected;
-      const ring = id === 'ring' ? !this.forceRing[ch] : this.forceRing[ch];
-      const slide = id === 'slide' ? !this.forceSlide[ch] : this.forceSlide[ch];
-      let dyn = this.forceDyn[ch];
-      if (id === 'dyn:accent' || id === 'dyn:ghost') {
-        const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
-        dyn = dyn === d ? 'normal' : d; // ACCENT and GHOST exclude each other
-      }
-      this.setForce(ch, ring, slide, dyn);
-      const on = id === 'ring' ? ring : id === 'slide' ? slide : dyn !== 'normal';
-      const name = id === 'ring' ? 'RING' : id === 'slide' ? this.slideName : id.slice(4).toUpperCase();
-      this.flash(`${name} ALL NOTES ${on ? 'ON' : 'OFF'}`);
+      this.toggleForce(id);
     } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.mode === 'record') {
       // RECORD: tap = place this flag on the strip (one at a time), tap again = back.
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : id === 'dyn:ghost' ? 'ghost' : 'normal';
@@ -1288,13 +1346,16 @@ export class App {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
     } else if ((id === 'cur-' || id === 'cur+') && this.lenHeld) {
-      // STEPS + ◀ / ▶: the pattern one bar shorter / longer.
+      // STEPS + ◀ / ▶: the pattern one step shorter / longer.
       this.changeLength(id === 'cur+' ? 1 : -1);
       this.lenUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
       // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip; ▶ on the last adds one.
       this.changeBar(id === 'cur+' ? 1 : -1, true);
       this.barUsed = true;
+    } else if ((id === 'cur-' || id === 'cur+') && (this.stepEdit || this.autoSteps)) {
+      // STEP EDIT / SONG DESIGN: the primed step one on (not while knobs wait on it).
+      this.stepPrime(id === 'cur+' ? 1 : -1);
     } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
       // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
       this.tie(id === 'cur+' ? 1 : -1);
@@ -1319,6 +1380,69 @@ export class App {
       this.onStrip(Number(m[1]) - 1);
     }
     this.refreshPanel();
+  }
+
+  /** PLAY / DESIGN: RING / SLIDE / ACCENT / GHOST = a live effect on the selected track's notes, tap on / tap off. */
+  private toggleForce(id: string): void {
+    const ch = this.selected;
+    const ring = id === 'ring' ? !this.forceRing[ch] : this.forceRing[ch];
+    const slide = id === 'slide' ? !this.forceSlide[ch] : this.forceSlide[ch];
+    let dyn = this.forceDyn[ch];
+    if (id === 'dyn:accent' || id === 'dyn:ghost') {
+      const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
+      dyn = dyn === d ? 'normal' : d; // ACCENT and GHOST exclude each other
+    }
+    this.setForce(ch, ring, slide, dyn);
+    const on = id === 'ring' ? ring : id === 'slide' ? slide : dyn !== 'normal';
+    const name = id === 'ring' ? 'RING' : id === 'slide' ? this.slideName : id.slice(4).toUpperCase();
+    this.flash(`${name} ALL NOTES ${on ? 'ON' : 'OFF'}`);
+  }
+
+  /** ROLL let go: the repeats stop; a short press was a tap (every note rolls, on / off). */
+  private releaseRoll(): void {
+    const ch = this.rollHeldCh;
+    this.rollHeldCh = -1;
+    this.send({ type: 'holdRoll', channel: ch, on: false, note: 36 });
+    if (performance.now() - this.rollHeldAt < HOLD_TIMES[deviceSettings.holdTime].ms && ch === this.selected && this.forcing) this.toggleForce('slide');
+    this.refreshPanel();
+  }
+
+  /** ARP: on / off for the selected track; FUNC + ARP = its knobs on screen (again = back). */
+  private onArp(): void {
+    if (this.songGrid) return;
+    const c = this.channel;
+    if (this.func) {
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      this.arpView = !this.arpView;
+      if (this.arpView) this.fxView = 0;
+      this.touchedKnob = -1;
+      return;
+    }
+    const arp = (c.arp = { ...(c.arp ?? defaultArp()) });
+    arp.on = !arp.on;
+    this.send({ type: 'setArp', channel: this.selected, id: 'on', value: arp.on ? 1 : 0 });
+    this.save();
+    this.flash(!arp.on ? 'ARP OFF' : arp.mode === 0 ? 'ARP ON, MODE OFF' : `ARP ON: ${ARP_MODES[arp.mode]}`);
+  }
+
+  /** The ARP view: the selected track's ARP MODE / RATE / OCT. */
+  private arpTargets(): (KnobTarget | null)[] {
+    const ch = this.selected;
+    const c = this.channel;
+    const out: (KnobTarget | null)[] = new Array(KNOB_COUNT).fill(null);
+    ARP_PARAMS.forEach((spec, i) => {
+      const id = spec.id as ArpId;
+      out[i] = {
+        label: spec.name, spec, channel: ch, key: `${ch}:arp:${id}`, auto: { key: `a:${ch}:${id}` },
+        get: () => (c.arp ?? defaultArp())[id],
+        base: () => (this.savedChannel(ch)?.arp ?? defaultArp())[id],
+        set: (v) => {
+          c.arp = { ...(c.arp ?? defaultArp()), [id]: Math.round(v) };
+          this.send({ type: 'setArp', channel: ch, id, value: Math.round(v) });
+        },
+      };
+    });
+    return out;
   }
 
   /**
@@ -1361,8 +1485,7 @@ export class App {
       this.resetNotes(keep, kept);
       return;
     }
-    const openId = projectStore.openId();
-    const saved = (openId ? projectStore.load(openId) : null) ?? this.baseline;
+    const saved = this.saved;
     const glides = new Map<string, Glide>();
     const add = (key: string, spec: ParamSpec, current: number, target: number, set: (v: number) => void) => {
       if (Math.abs(current - target) < 1e-9) return;
@@ -1673,6 +1796,10 @@ export class App {
       this.autoStripTap(button);
       return;
     }
+    if (this.stepEdit) {
+      this.stepEditTap(button);
+      return;
+    }
     const ch = this.selected;
     this.stripDown.add(button);
     if (this.clearHeld && this.mode !== 'design') {
@@ -1871,6 +1998,7 @@ export class App {
 
   /** RECORD / PLAY / DESIGN (the mode buttons; in SONG they work on the song). */
   private setMode(mode: Mode): void {
+    this.leaveStepEdit();
     this.unprime();
     this.dropCopyBar();
     this.mode = mode;
@@ -2010,13 +2138,9 @@ export class App {
       const step: Step = JSON.parse(JSON.stringify(s));
       if (plainDrum) step.note = emptyStep().note; // a drum's own pitch (as designed)
       else if (fromDrum) step.note = base;
-      if (from.instrument !== to.instrument) delete step.locks;
-      if (!playsChords(to.instrument) && step.extra?.length) {
-        // One note at a time: the chord's lowest, as a CHORD plays it.
-        step.note = Math.min(step.note, ...step.extra);
-        delete step.extra;
-        delete step.extraGate;
-      }
+      if (from.instrument !== to.instrument) dropSoundLocks(step, fromCh);
+      // One note at a time: the chord's lowest, as a CHORD plays it.
+      if (!playsChords(to.instrument)) lowestNoteOnly(step);
       dst.steps[i] = step;
       this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
     });
@@ -2316,6 +2440,10 @@ export class App {
    */
   /** BAR: the previous / next bar on the strip; BAR + ▶ on the last bar (grow) adds an empty one. */
   private changeBar(delta: number, grow = false): void {
+    if (this.waiting) {
+      this.flash('LOCK OR CANCEL FIRST');
+      return;
+    }
     if (this.song && this.mode === 'design') {
       this.gotoSongBar(this.songBarNumber(this.songRow, this.songStartBar) - 1 + delta);
       return;
@@ -2344,10 +2472,15 @@ export class App {
       this.save();
       pages = this.pageCount();
     } else if (pages <= 1) {
-      this.flash('ONE BAR: BAR + > ADDS ONE');
+      this.flash('BAR + > ADDS A BAR');
       return;
     }
     const page = (this.visiblePage(ch) + delta + pages) % pages;
+    if (this.stepEdit && this.primed) {
+      this.movePrime(Math.min(this.pattern.length - 1, page * 16 + (this.primed.cell % 16)));
+      this.flash(`BAR ${page + 1}/${pages}`);
+      return;
+    }
     this.viewPage[ch] = page;
     if (!stepsOnStrip(this.channel.instrument) && this.mode === 'record' && !this.entry) {
       this.cursor[ch] = page * 16 + (this.cursor[ch] % 16);
@@ -2461,7 +2594,7 @@ export class App {
   private save(): void {
     this.edited = true;
     mirrorToCloud(this.project);
-    saveWorkSoon(this.project);
+    saveWorkSoon(this.project, () => this.flash('STORAGE FULL: NOT KEPT'));
   }
 
   // ---------------------------------------------------------------- projects
@@ -2657,8 +2790,18 @@ export class App {
       if (p !== c.activePattern) setPatchOf(c, p, patch);
       pat.savedPatch = clonePatch(patch);
       pat.patchDirty = true;
-      for (const st of pat.steps) delete st.locks;
-      for (const st of pat.savedNotes?.steps ?? []) delete st.locks;
+      // Locks on the old sound's knobs go (mixer / FX / LFO / ARP locks stay); onto a
+      // one-note type a chord keeps its lowest note.
+      pat.steps.forEach((st, i) => {
+        const before = JSON.stringify(st);
+        dropSoundLocks(st, ch);
+        if (!playsChords(kind)) lowestNoteOnly(st);
+        if (JSON.stringify(st) !== before) this.send({ type: 'setStep', channel: ch, pattern: p, index: i, step: st });
+      });
+      for (const st of pat.savedNotes?.steps ?? []) {
+        dropSoundLocks(st, ch);
+        if (!playsChords(kind)) lowestNoteOnly(st);
+      }
     });
     this.octave[ch] = kind === 'none' ? 36 : INSTRUMENTS[kind].baseNote;
     this.relabel(`TRACK ${ch + 1} TYPE`);
@@ -2681,6 +2824,10 @@ export class App {
     const rows = this.songRows;
     const total = rows.reduce((n, r) => n + r.bars, 0);
     if (total === 0) return;
+    if (this.waiting) {
+      this.flash('LOCK OR CANCEL FIRST');
+      return;
+    }
     let left = ((b % total) + total) % total;
     let row = 0;
     while (left >= rows[row].bars) left -= rows[row++].bars;
@@ -2710,7 +2857,7 @@ export class App {
       get: () => {
         const s = pr.staged.get(key);
         if (s) return s.v;
-        const v = this.laneAt(t, pr.cell);
+        const v = pr.pattern ? this.lockAt(t, pr.pattern.ch, pr.pattern.p, pr.cell) : this.laneAt(t, pr.cell);
         return v === v ? v : t.get();
       },
       set: (v) => {
@@ -2727,8 +2874,22 @@ export class App {
    */
   private onTouch(slot: number): void {
     const t = this.targets[slot];
-    if (!t?.auto || !this.song || this.mode !== 'design') return;
-    if (this.clearHeld) {
+    if (!t?.auto || ((!this.song || this.mode !== 'design') && !this.stepEdit)) return;
+    if (this.clearHeld && this.stepEdit) {
+      // CLEAR + touch: the knob's locks go from every step of the pattern.
+      const key = this.lockKey(t.auto.key, this.selected);
+      let n = 0;
+      this.pattern.steps.forEach((step, i) => {
+        if (step.locks?.[key] === undefined) return;
+        delete step.locks[key];
+        if (Object.keys(step.locks).length === 0) delete step.locks;
+        this.sendStep(i, step);
+        n++;
+      });
+      if (n > 0) this.save();
+      this.flash(n > 0 ? `${t.label}: ${n} CLEARED` : `${t.label}: NO LOCKS`);
+      this.clearUsed = true;
+    } else if (this.clearHeld) {
       const lanes = this.project.song.auto;
       if (lanes?.[t.auto.key]) {
         delete lanes[t.auto.key];
@@ -2768,11 +2929,119 @@ export class App {
       this.lockPrimed(this.func);
       return;
     }
+    this.movePrime(pos);
+  }
+
+  /** Knobs touched on the primed step, not locked yet: nothing moves until LOCK or CANCEL. */
+  private get waiting(): boolean {
+    return !!this.primed && this.primed.staged.size > 0;
+  }
+
+  /** Prime another step / cell (refused while knobs wait on the primed one). */
+  private movePrime(cell: number): boolean {
+    if (this.waiting) {
+      this.flash('LOCK OR CANCEL FIRST');
+      return false;
+    }
     this.unprime();
+    this.primeAt(cell);
+    return true;
+  }
+
+  private primeAt(cell: number): void {
+    const c = this.channel;
     this.primed = {
-      cell: pos, staged: new Map(), orig: new Map(),
-      dirty: this.project.channels.flatMap((c) => c.patterns.map((p) => !!p.patchDirty)),
+      cell, pattern: this.stepEdit ? { ch: this.selected, p: c.activePattern } : undefined,
+      staged: new Map(), orig: new Map(),
+      dirty: this.project.channels.flatMap((ch) => ch.patterns.map((p) => !!p.patchDirty)),
     };
+  }
+
+  /** ◀ ▶ in STEP EDIT / SONG DESIGN: the primed step one on (the song: across bars). */
+  private stepPrime(d: number): void {
+    if (this.waiting) {
+      this.flash('LOCK OR CANCEL FIRST');
+      return;
+    }
+    if (this.stepEdit) {
+      const len = this.pattern.length;
+      this.movePrime((((this.primed?.cell ?? 0) + d) % len + len) % len);
+      return;
+    }
+    const bar = this.songBarNumber(this.songRow, this.songStartBar) - 1;
+    const pos = this.primed ? this.primed.cell + d : bar * CELLS_PER_BAR + (d > 0 ? 0 : CELLS_PER_BAR - 1);
+    const to = Math.floor(pos / CELLS_PER_BAR);
+    if (to !== bar) this.gotoSongBar(to);
+    const now = this.songBarNumber(this.songRow, this.songStartBar) - 1;
+    this.movePrime(now * CELLS_PER_BAR + (((pos % CELLS_PER_BAR) + CELLS_PER_BAR) % CELLS_PER_BAR));
+  }
+
+  /** A pattern step lock's key: the track's own sound params by their bare id (Step.locks). */
+  private lockKey(autoKey: string, ch: number): string {
+    const own = `s:${ch}:`;
+    return autoKey.startsWith(own) ? autoKey.slice(own.length) : autoKey;
+  }
+
+  /** A knob's lock on a pattern step, in its own units; NaN = none. */
+  private lockAt(t: KnobTarget, ch: number, p: number, index: number): number {
+    const v = this.project.channels[ch].patterns[p].steps[index]?.locks?.[this.lockKey(t.auto!.key, ch)];
+    return v === undefined ? NaN : v / (t.auto!.scale ?? 1);
+  }
+
+  /** STEP EDIT strip: tap the yellow step = lock; another = prime it; CLEAR + step = its locks go. */
+  private stepEditTap(button: number): void {
+    const index = this.visiblePage(this.selected) * 16 + button;
+    if (index >= this.pattern.length) return;
+    if (this.clearHeld) {
+      const step = this.pattern.steps[index];
+      this.clearUsed = true;
+      if (!step.locks) {
+        this.flash('NO LOCKS HERE');
+        return;
+      }
+      delete step.locks;
+      this.sendStep(index, step);
+      this.save();
+      this.relabel(`CLEAR LOCKS ${index + 1}`);
+      this.flash(`STEP ${index + 1}: LOCKS CLEARED`);
+      return;
+    }
+    if (this.primed?.cell === index) {
+      if (this.funcHeld) this.funcUsed = true;
+      this.lockPrimed(this.func);
+      return;
+    }
+    this.movePrime(index);
+  }
+
+  /** STEP EDIT on (RECORD, stopped): the other strip modes go, the step entry cursor's step is primed. */
+  private toggleStepEdit(): void {
+    if (this.stepEdit) {
+      this.leaveStepEdit();
+      return;
+    }
+    if (this.mode !== 'record' || this.song || this.playing) {
+      this.flash('RECORD, STOPPED ONLY');
+      return;
+    }
+    this.stepsMode = false;
+    this.ring = false;
+    this.slideArm = false;
+    this.dynamic = 'normal';
+    this.restArm = false;
+    this.dropCopyBar();
+    this.entry = null;
+    const ch = this.selected;
+    const cell = stepsOnStrip(this.channel.instrument) ? this.visiblePage(ch) * 16 : this.cursor[ch];
+    this.stepEdit = true;
+    this.primeAt(Math.min(cell, this.pattern.length - 1));
+    this.flash('STEP EDIT: TOUCH KNOBS');
+  }
+
+  private leaveStepEdit(): void {
+    if (!this.stepEdit) return;
+    this.unprime();
+    this.stepEdit = false;
   }
 
   /** The second tap: each knob touched since priming is locked at its value there. */
@@ -2780,6 +3049,27 @@ export class App {
     const pr = this.primed!;
     if (all) for (const t of this.targets) if (t?.auto && !pr.staged.has(t.auto.key)) pr.staged.set(t.auto.key, { t: t.inner ?? t, v: t.get() });
     const n = pr.staged.size;
+    if (pr.pattern) {
+      // STEP EDIT: the values go on the pattern step (Step.locks).
+      const { ch, p } = pr.pattern;
+      const pat = this.project.channels[ch].patterns[p];
+      const step = pat.steps[pr.cell];
+      const locks = { ...step.locks };
+      for (const [key, { t, v }] of pr.staged) locks[this.lockKey(key, ch)] = v * (t.auto?.scale ?? 1);
+      this.unprime();
+      this.primeAt(pr.cell);
+      if (n === 0) {
+        this.flash('TOUCH KNOBS TO LOCK');
+        return;
+      }
+      step.locks = locks;
+      pat.notesDirty = true;
+      this.send({ type: 'setStep', channel: ch, pattern: p, index: pr.cell, step });
+      this.save();
+      this.relabel(`LOCK STEP ${pr.cell + 1}`);
+      this.flash(`LOCKED ${n} AT STEP ${pr.cell + 1}`);
+      return;
+    }
     const lanes = (this.project.song.auto ??= {});
     for (const [key, { t, v }] of pr.staged) {
       const pts = (lanes[key] ?? []).filter((q) => q[0] !== pr.cell);
@@ -2810,8 +3100,36 @@ export class App {
 
   private primedHint(): string {
     const pr = this.primed!;
-    const step = (pr.cell % CELLS_PER_BAR) + 1;
-    return `TAP ${step} TO LOCK ${pr.staged.size}`;
+    const step = pr.pattern ? pr.cell + 1 : (pr.cell % CELLS_PER_BAR) + 1;
+    return pr.staged.size ? `TAP ${step} TO LOCK ${pr.staged.size}` : `STEP ${step}: TOUCH KNOBS`;
+  }
+
+  /**
+   * STEP EDIT strip: the bar of the selected track's pattern with the primed step; lit = locks
+   * on the step, outlined = a note, × = a step the time signature leaves out, yellow = primed.
+   */
+  private updateStepEditStrip(): void {
+    const pr = this.primed;
+    const page = this.visiblePage(this.selected);
+    const pattern = this.pattern;
+    for (let i = 0; i < STEP_BUTTONS; i++) {
+      const id = `step${i + 1}`;
+      const index = page * 16 + i;
+      const off = index >= pattern.length;
+      const step = pattern.steps[index];
+      const dark = !off && !this.plays(index);
+      const meterOut = dark && !step.flip && !meterPlays(this.project.meter, index);
+      const primed = pr?.cell === index;
+      this.panel.setButtonText(id, meterOut ? '×' : String(index + 1));
+      this.panel.setButtonFlag(id, 'off', off);
+      this.panel.setButtonFlag(id, 'skip', dark);
+      this.panel.setButtonFlag(id, 'lit', !off && !!step.locks);
+      this.panel.setButtonFlag(id, 'note', !off && step.active);
+      this.panel.setButtonFlag(id, 'cursor', primed);
+      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, primed ? 'cursor' : '');
+    }
+    this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
   }
 
   /** SONG DESIGN strip: the bar's 16 steps; lit = something is locked there, yellow = primed. */
@@ -2829,7 +3147,7 @@ export class App {
       this.panel.setButtonFlag(id, 'off', !meterPlays(this.project.meter, i));
       this.panel.setButtonFlag(id, 'lit', locked.has(i));
       this.panel.setButtonFlag(id, 'cursor', primed);
-      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
+      for (const f of ['note', 'black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
       this.panel.setLed(i, primed ? 'cursor' : '');
     }
     const total = this.songRows.reduce((n, r) => n + r.bars, 0);
@@ -2841,8 +3159,10 @@ export class App {
    * CANCEL (dropped); otherwise UNDO, FUNC + UNDO = REDO.
    */
   private cancel(): void {
-    if (this.primed) {
+    if (this.waiting) {
+      const pr = this.primed!;
       this.unprime();
+      if (pr.pattern) this.primeAt(pr.cell);
       this.flash('STEP LEFT UNLOCKED');
     } else if (this.copyBar) {
       this.dropCopyBar();
@@ -2855,7 +3175,7 @@ export class App {
 
   /** The button reads CANCEL where it drops something pending, else UNDO (REDO with FUNC). */
   private get cancelShows(): boolean {
-    return !!(this.menu || this.projMenu || this.primed || this.copyBar);
+    return !!(this.menu || this.projMenu || this.waiting || this.copyBar);
   }
 
   // ---------------------------------------------------------------- UNDO / REDO
@@ -2873,7 +3193,7 @@ export class App {
   private trackGesture(e: ControlEvent): void {
     const inMenu = !!(this.menu || this.projMenu);
     // A primed SONG DESIGN step and COPY BAR are one gesture until locked / pasted (or dropped).
-    const pending = !!(this.primed || this.copyBar);
+    const pending = this.waiting || !!this.copyBar;
     if (e.type === 'button' && e.id !== 'func') {
       if (e.pressed) this.down.add(e.id);
       else this.down.delete(e.id);
@@ -3015,7 +3335,7 @@ export class App {
       this.panel.setButtonFlag(id, 'lit', used);
       this.panel.setButtonFlag(id, 'cursor', i === at.item);
       this.panel.setButtonFlag(id, 'accent', used && at.pending.has(i));
-      for (const f of ['black', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
+      for (const f of ['note', 'black', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
       this.panel.setLed(i, used && at.pending.has(i) ? 'rec' : i === at.item ? 'cursor' : '');
     }
   }
@@ -3090,8 +3410,7 @@ export class App {
     }
     projectStore.setOpen(saved.id);
     this.newSlot = -1;
-    this.baseline = JSON.parse(JSON.stringify(this.project)) as Project;
-    this.savedCache = null;
+    this.saved = this.savedOf(this.project);
     this.closeProjectMenu();
     this.flash(`SAVED ${name} IN ${slot + 1}`);
   }
@@ -3164,8 +3483,7 @@ export class App {
     }
     project.channels.forEach(initPatterns);
     this.project = project;
-    this.baseline = JSON.parse(JSON.stringify(project)) as Project;
-    this.savedCache = null;
+    this.saved = this.savedOf(project);
     this.resetAgainUntil = 0;
     this.entry = null;
     project.channels.forEach((c, i) => { this.octave[i] = c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote; });
@@ -3220,7 +3538,7 @@ export class App {
       this.panel.setButtonFlag(id, 'lit', !!e);
       this.panel.setButtonFlag(id, 'cursor', !!e && e.id === openId);
       // Whatever the strip showed before (steps, ties, dark steps, keys) is cleared.
-      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
+      for (const f of ['note', 'black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
       this.panel.setLed(i, slot === menu.confirm ? 'rec' : '');
     }
     this.panel.setButtonText('steppage', `BANK<small>${menu.bank + 1}/${PROJECT_BANKS}</small>`);
@@ -3325,8 +3643,19 @@ export class App {
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design')));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || !!this.projMenu || !!this.copyBar);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
+    // STEP EDIT: RECORD, stopped, on the pattern it was primed on (else it starts over there).
+    if (this.stepEdit && (!rec || this.song || this.playing)) this.leaveStepEdit();
+    if (this.stepEdit && !this.waiting && (this.primed?.pattern?.ch !== this.selected || this.primed.pattern.p !== this.channel.activePattern)) {
+      const cell = Math.min(this.primed?.cell ?? 0, this.pattern.length - 1);
+      this.unprime();
+      this.primeAt(cell);
+    }
+    this.panel.setButtonEnabled('stepedit', rec && !this.song && !this.playing);
+    this.panel.setButtonLit('stepedit', this.stepEdit);
+    this.panel.setButtonEnabled('arp', !this.songGrid);
+    this.panel.setButtonLit('arp', !!this.channel.arp?.on || this.arpOpen);
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
     // The SAVE / LOAD menu's slots look the same in every mode (never as keys).
@@ -3377,7 +3706,7 @@ export class App {
       this.panel.setButtonFlag(id, 'lit', exists);
       this.panel.setButtonFlag(id, 'head', row === playingRow);
       this.panel.setButtonFlag(id, 'cursor', row === this.songRow);
-      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
+      for (const f of ['note', 'black', 'accent', 'ghost', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
       this.panel.setLed(i, row === playingRow ? 'on' : row === this.songRow ? 'cursor' : '');
     }
     const start = this.songPage * 16 + 1;
@@ -3404,6 +3733,11 @@ export class App {
     }
     if (this.autoSteps) {
       this.updateAutoStrip();
+      return;
+    }
+    if (this.stepEdit) {
+      this.updateStepEditStrip();
+      this.updatePatternButtons(now);
       return;
     }
     if (this.songGrid) {
@@ -3453,7 +3787,7 @@ export class App {
         this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding || under.includes(note));
         this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
-        for (const f of ['accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['note', 'accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
       }
     } else {
       // RING or SLIDE / ROLL armed (or painting): every hit is dim (like a ghost note) and
@@ -3488,7 +3822,7 @@ export class App {
         this.panel.setButtonFlag(id, 'head', head === index);
         this.panel.setButtonFlag(id, 'ring', !view && d !== null && !!step.ring);
         this.panel.setButtonFlag(id, 'rest', !off && !step.active && !!step.rest);
-        for (const f of ['black', 'cursor']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['note', 'black', 'cursor']) this.panel.setButtonFlag(id, f, false);
         if (tie && !meterOut) this.panel.setButtonText(id, String(index + 1));
       }
     }
@@ -3651,6 +3985,29 @@ export class App {
       playingBar: bar,
       footerLeft: playingRow >= 0 ? `ROW ${playingRow + 1} BAR ${bar + 1}/${rows[playingRow]?.bars ?? 0}`
         : `START R${this.songRow + 1} B${this.songStartBar + 1} (BAR ${this.songBarNumber(this.songRow, this.songStartBar)})`,
+      peak: audio.peak,
+      footerRight: f.text,
+      footerAlert: f.alert,
+      blink: Math.floor(now / 400) % 2 === 0,
+    };
+  }
+
+  /** The ARP view (FUNC + ARP): the selected track's ARP knobs on screen, like a bus. */
+  arpScreen(now: number, audio: AudioInfo): DesignView {
+    const f = this.footer(audio);
+    const c = this.channel;
+    const arp = c.arp ?? defaultArp();
+    return {
+      ...this.header(),
+      channelLabel: `ARP ${this.selected + 1} ${this.kindName(c)}`,
+      patternLabel: '',
+      kindLabel: this.mode.toUpperCase(),
+      pages: ['ARP'],
+      page: 0,
+      slots: this.slots(),
+      touchedSlot: this.touchedKnob,
+      liveLabel: !arp.on ? 'ARP OFF' : arp.mode === 0 ? 'ON, MODE OFF' : `ARP ON ${ARP_MODES[arp.mode]}`,
+      chordLabel: 'ARP = ON/OFF',
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,

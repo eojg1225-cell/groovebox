@@ -247,6 +247,9 @@ html, body {
 .step.head { box-shadow: inset 0 0 0 3px var(--hot); }
 .step.lit.head { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
 .step.off { opacity: 0.15; }
+/* STEP EDIT / SONG DESIGN: a note on the step (outline), the primed step (yellow ring). */
+.step.note { border-color: var(--accent); }
+.panel:not(.keyboard) .step.cursor { box-shadow: inset 0 0 0 3px var(--hot); }
 /* A step that does not play (time signature, triplet time, STEPS): dark, dashed. */
 .step.skip { opacity: 0.3; border-style: dashed; }
 .step.skip.lit { opacity: 0.45; }

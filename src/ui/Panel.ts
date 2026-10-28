@@ -46,12 +46,12 @@ export const MODES = [
 
 /**
  * Function row: groups of [id, label] (labels may contain <small> lines); 16 keys, each
- * straight above a strip step. An empty id = a blank key (not wired up yet).
+ * straight above a strip step. An empty id = a blank key (not wired up).
  */
 const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['clear', 'CLEAR<small>HOLD</small>'], ['copy', 'COPY<small>HOLD</small>']],
-  [['speed', 'TIME<small>NORMAL</small>'], ['', ''], ['', ''], ['rest', 'REST']],
+  [['speed', 'TIME<small>NORMAL</small>'], ['stepedit', 'STEP<small>EDIT</small>'], ['arp', 'ARP'], ['rest', 'REST']],
   [['oct-', 'OCT ▼'], ['oct+', 'OCT ▲'], ['cur-', '◀'], ['cur+', '▶']],
 ];
 

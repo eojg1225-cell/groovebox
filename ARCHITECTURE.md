@@ -51,7 +51,7 @@ Main -> worklet:
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern at the next bar line where the loop starts (or now, if `immediate` / stopped); its patch glides in until then (coarse params at the switch); the playing pattern again cancels (glides back) |
 | `setPatch` | `channel`, `pattern`, `sound`, `glide` | A pattern's whole patch (COPY, RESET); `glide` = glide there by the next bar line |
 | `swapNotes` | `channel`, `pattern`, `length`, `steps`, `speed?` | RESET with notes: the saved notes replace the pattern's at the next bar line |
-| `setInstrument` | `channel`, `kind`, `sound` | Change a track's type (clears its locks) and set its full sound |
+| `setInstrument` | `channel`, `kind`, `sound` | Change a track's type and set its full sound |
 | `setChord` | `channel`, `chord` | Chord index (0 = off) |
 | `setNotes` | `channel`, `notes` | NOTES: how many of the chord's tones play |
 | `setForce` | `channel`, `ring`, `slide`, `velocity?` | PLAY's RING / SLIDE (ROLL) / ACCENT / GHOST on every note of the track |
@@ -66,6 +66,8 @@ Main -> worklet:
 | `setBus` | `bus` (0-2 = FX 1-3), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
+| `setArp` | `channel`, `id` (`on` / `mode` / `rate` / `oct`), `value` | A track's ARP (engine/arp.ts): plays when on and MODE is not OFF |
+| `holdRoll` | `channel`, `on`, `note` | ROLL held (PLAY / DESIGN, drums): the track repeats at ROLL RATE, normal velocity, its own hits as set |
 | `transport` | `playing`, `song?`, `fromRow?`, `fromBar?`, `fromChannel?`, `fromStep?`, `countIn?`, `gen?` | Start / stop; `fromBar` = the bar inside row `fromRow` the song starts on (`Engine.startSongAt`); `countIn` = bars of clicks before the music (COUNT-IN: the sequencer, LFO and recording wait); `song` = play the song from row `fromRow`. Patterns: `fromStep` (a bar line of track `fromChannel`'s pattern; absent = the top) = every track starts where it would be had all played from the top until that track reached that step (`Engine.startAt` moves the step counters on silently; notes started earlier don't sound). `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
 | `setSong` | `song` | Replace the song: rows, and the automation lanes (`song.auto`, compiled into `Engine.lanes`, played by `runAuto` while the song plays) |
 | `setClick` | `on`, `level` | METRONOME: click on the beats while playing (`on`), level 0..1 (also the count-in's) |
@@ -139,9 +141,13 @@ line (`pendingMeter`). Pattern switches land on bar lines: where the track's loo
 whose loop drifts against the bar (`offGrid`) at the next one, restarting it. Whole-bar LFO rates scale
 with the bar.
 
-**Parameter locks:** each step can lock sound parameters (`Step.locks`, kept in a NaN-filled typed
-array, `LOCK_SLOTS` per step). A lock is applied just before its step triggers; a parameter locked on
-the previous step but not this one reverts to the pattern's own value.
+**Parameter locks:** each step can lock any knob (`Step.locks`: automation.ts keys, the track's own
+sound params by their bare id; set in STEP EDIT or by live recording). The engine keeps each step's
+locks (`stepLockSrc`) and builds lanes per track pattern (`patLanes`, rebuilt after a message changed
+them: `flushPatLanes`); `runPatAuto` plays them each chunk at the track's position (step + the part
+of it played), gliding from lock to lock (choice knobs jump), holding after the last, letting go
+before the first and when the loop starts again (sound params over the base, `lockApplied`; the
+rest as the SONG's lanes do). A SONG lane holding the same knob wins.
 
 **Pattern patches:** `patchValue` per pattern. `selectPattern` glides from the current patch to the
 next pattern's between the prime and the switch (`startGlide` / `stepPatchGlides` per block; coarse
