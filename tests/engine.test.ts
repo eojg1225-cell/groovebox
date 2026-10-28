@@ -623,10 +623,10 @@ describe('dynamics, locks and motion recording', () => {
     expect(accent.brightness).toBeGreaterThan(ghost.brightness * 1.2);
   });
 
-  it('a step lock applies on its step and reverts on the next', () => {
+  it('a step lock plays from its step on (before the first lock the knob plays as set)', () => {
     const p = kickProject([0, 1]);
-    p.channels[0].sounds.kick = { ...presetSound('kick', 0), t_decay: 1, c_level: 0, t_sweep: 0, t_pitch: 40 };
-    p.channels[0].patterns[0].steps[0].locks = { t_pitch: 120 };
+    p.channels[0].sounds.kick = { ...presetSound('kick', 0), t_decay: 1, c_level: 0, t_sweep: 0, t_pitch: 120 };
+    p.channels[0].patterns[0].steps[1].locks = { t_pitch: 40 };
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
     const { l } = render(e, 0.25); // steps 0 and 1 (6000 frames each)
@@ -638,6 +638,26 @@ describe('dynamics, locks and motion recording', () => {
         // 4000-frame windows (1/12 s): ~10 cycles at 120 Hz vs ~3 at 40 Hz.
     expect(crossings(1000, 5000)).toBeGreaterThanOrEqual(9);
     expect(crossings(7000, 11000)).toBeLessThanOrEqual(4);
+  });
+
+  it('pattern locks on any knob glide from lock to lock and let go when the loop starts again', () => {
+    const p = kickProject([0], { bpm: 120 }); // 6000 frames a step, 16 steps
+    p.channels[0].patterns[0].steps[2].locks = { 'm:0:volume': 0 };
+    p.channels[0].patterns[0].steps[6].locks = { 'm:0:volume': 1 };
+    const e = engineWith(p);
+    const vol = () => (e as unknown as { volumeValue: Float32Array }).volumeValue[0];
+    const was = vol();
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 6000 / SR);
+    expect(vol()).toBeCloseTo(was, 5); // step 1: as set
+    render(e, 18000 / SR); // into step 4: halfway from step 2 to step 6
+    expect(vol()).toBeGreaterThan(0.4);
+    expect(vol()).toBeLessThan(0.6);
+    render(e, 30000 / SR); // step 9: holds the last lock
+    expect(vol()).toBeCloseTo(1, 5);
+    render(e, 48000 / SR); // the next loop's step 1: let go
+    expect(vol()).toBeCloseTo(was, 5);
+    e.handleMessage({ type: 'transport', playing: false });
   });
 
   it('motion-recorded notes land on the nearest step and do not double-trigger', () => {
@@ -1715,9 +1735,8 @@ describe('PLUCK and ARP', () => {
       const p = kickProject([], { bpm: 120 });
       const t = p.channels[7];
       t.chord = CHORDS.findIndex((c) => c.name === chord);
-      // The ARP has no knobs for now; the engine still plays it when told.
       const e = engineWith(p);
-      for (const [id, value] of Object.entries({ arp, arprate: 3, arpoct: 0 })) e.handleMessage({ type: 'setSound', channel: 7, id, value });
+      for (const [id, value] of Object.entries({ on: 1, mode: arp, rate: 3, oct: 0 })) e.handleMessage({ type: 'setArp', channel: 7, id: id as 'on', value });
       const played: number[] = [];
       const inst = (e as unknown as { current: { noteOn(n: number): void }[] }).current[7];
       const orig = inst.noteOn.bind(inst);
@@ -1730,6 +1749,48 @@ describe('PLUCK and ARP', () => {
     expect(notesOf(5, 'MIN11')).toEqual([17, 10, 14, 7, 10, 3, 7, 0]); // 11 7 9 5 7 3 5 1
   });
 
+  it('ROLL held repeats a drum at ROLL RATE: the step\'s own hit as set, the rest at normal velocity', () => {
+    const p = kickProject([0], { bpm: 120 }); // KICK on step 0, 6000 frames a step
+    p.channels[0].patterns[0].steps[0].velocity = 1; // an accent
+    const e = engineWith(p);
+    const hits: number[] = [];
+    const inst = (e as unknown as { current: { noteOn(n: number, v: number): void }[] }).current[0];
+    const orig = inst.noteOn.bind(inst);
+    inst.noteOn = (n: number, v: number, ...rest: unknown[]) => { hits.push(v); (orig as (...a: unknown[]) => void)(n, v, ...rest); };
+    const div = (e as unknown as { rollDiv: Uint8Array }).rollDiv[0];
+    expect(div).toBeGreaterThan(1);
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 100 / SR); // step 0's hit has played
+    e.handleMessage({ type: 'holdRoll', channel: 0, on: true, note: 36 });
+    render(e, (12000 - 200) / SR); // to just before step 2
+    e.handleMessage({ type: 'holdRoll', channel: 0, on: false, note: 36 });
+    render(e, 12000 / SR);
+    expect(hits.length).toBe(2 * div); // two steps of repeats, then nothing
+    expect(hits[0]).toBeCloseTo(1, 5); // the accent as set
+    for (const v of hits.slice(1)) expect(v).toBeCloseTo(0.8, 5);
+  });
+
+  it('ARP plays only when on and its MODE is not OFF; on any track', () => {
+    const count = (on: number, mode: number, ch: number) => {
+      const p = kickProject([], { bpm: 120 });
+      const e = engineWith(p);
+      e.handleMessage({ type: 'setArp', channel: ch, id: 'on', value: on });
+      e.handleMessage({ type: 'setArp', channel: ch, id: 'mode', value: mode });
+      e.handleMessage({ type: 'setArp', channel: ch, id: 'oct', value: 1 });
+      let n = 0;
+      const inst = (e as unknown as { current: { noteOn(...a: unknown[]): void }[] }).current[ch];
+      const orig = inst.noteOn.bind(inst);
+      inst.noteOn = (...a: unknown[]) => { n++; (orig as (...x: unknown[]) => void)(...a); };
+      e.handleMessage({ type: 'trigger', channel: ch, note: 48, velocity: 0.8 });
+      render(e, 0.5);
+      return n;
+    };
+    expect(count(1, 0, 7)).toBe(1); // on, MODE OFF: one plain note
+    expect(count(0, 1, 7)).toBe(1); // off
+    expect(count(1, 1, 7)).toBeGreaterThan(4); // arpeggiates
+    expect(count(1, 1, 0)).toBeGreaterThan(4); // the KICK too (over octaves)
+  });
+
   it('ARP steps through the held chord at its rate', () => {
     const p = kickProject([], { bpm: 120 }); // 1/16 = 6000 frames
     const t = p.channels[7];
@@ -1738,7 +1799,7 @@ describe('PLUCK and ARP', () => {
     t.sounds.pluck = { ...t.sounds.pluck!, decay: 0.03, decay2: 0.03, release: 0.01, release2: 0.01 };
     Object.assign(t.patterns[0].steps[0], { active: true, note: 45, gate: 4 });
     const e = engineWith(p);
-    for (const [id, value] of Object.entries({ arp: 1, arprate: 3 })) e.handleMessage({ type: 'setSound', channel: 7, id, value });
+    for (const [id, value] of Object.entries({ on: 1, mode: 1, rate: 3 })) e.handleMessage({ type: 'setArp', channel: 7, id: id as 'on', value });
     e.handleMessage({ type: 'transport', playing: true });
     const l = render(e, 0.5).l;
     near(onsets(l, 0.005, 1500), [0, 6000, 12000, 18000], 40); // three chord notes, then round again; stops with the gate

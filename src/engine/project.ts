@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 54;
+export const PROJECT_VERSION = 55;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -11,7 +11,6 @@ export const MAX_STEPS = 64;
 /** Length of a new pattern. */
 const DEFAULT_STEPS = 16;
 export const PATTERN_NAMES = ['A', 'B', 'C', 'D'] as const;
-export const STEP_LENGTHS = [16, 32, 48, 64] as const;
 /** Song: up to this many rows, each up to SONG_MAX_BARS bars. */
 export const SONG_MAX_ROWS = 64;
 export const SONG_MAX_BARS = 64;
@@ -32,6 +31,7 @@ export interface Song {
 }
 
 import type { LfoState } from './lfo';
+import type { ArpState } from './arp';
 import { MAX_CHORD_NOTES } from './chords';
 
 export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'perc' | 'bass' | 'pad' | 'lead' | 'pluck';
@@ -253,6 +253,8 @@ export interface ChannelState {
   midCut: number;
   /** The track is modulated by the (shared) LFO. */
   lfoOn: boolean;
+  /** ARP (engine/arp.ts; absent = off, MODE OFF). */
+  arp?: ArpState;
   mute: boolean;
   patterns: Pattern[];
   activePattern: number;

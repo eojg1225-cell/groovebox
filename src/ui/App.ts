@@ -50,7 +50,7 @@ import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
-  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_LENGTHS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
+  DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SettingKey, type SoundKind, type Step,
 } from '../engine/project';
@@ -1269,9 +1269,6 @@ export class App {
       this.dynamic = on ? d : 'normal';
       const name = id === 'ring' ? 'RING' : id === 'slide' ? this.slideName : id.slice(4).toUpperCase();
       if (on && this.flagPaintable) this.flash(`TAP NOTES: ${name}`);
-    } else if (id === 'dyn:accent' || id === 'dyn:ghost') {
-      const d: Dynamic = id === 'dyn:accent' ? 'accent' : 'ghost';
-      this.dynamic = this.dynamic === d ? 'normal' : d;
     } else if (id === 'len') {
       // STEPS: held for ◀ / ▶ (length), a tap (on release) = STEPS mode.
       this.lenHeld = true;
@@ -1295,8 +1292,8 @@ export class App {
       this.changeLength(id === 'cur+' ? 1 : -1);
       this.lenUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
-      // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip.
-      this.changeBar(id === 'cur+' ? 1 : -1);
+      // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip; ▶ on the last adds one.
+      this.changeBar(id === 'cur+' ? 1 : -1, true);
       this.barUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
       // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
@@ -2123,7 +2120,6 @@ export class App {
     this.send({ type: 'setPatternLength', channel: ch, pattern: c.activePattern, length });
   }
 
-  /** CLEAR + channel: empty that track's current pattern (its sound stays). */
   /** CLEAR + channel / A-D: empty a track's pattern (its sound stays). */
   private clearTrack(ch: number, p = this.project.channels[ch].activePattern): void {
     const c = this.project.channels[ch];
@@ -2275,21 +2271,16 @@ export class App {
   }
 
   /** STEPS + ◀ / ▶: the pattern's length one bar (16 steps) down / up. */
+  /** STEPS + ◀ / ▶: the pattern one step shorter / longer (1-64; BAR + ▶ on the last bar adds a bar). */
   private changeLength(delta: number): void {
     const len = this.pattern.length;
-    const next = delta > 0 ? STEP_LENGTHS.find((l) => l > len) : [...STEP_LENGTHS].reverse().find((l) => l < len);
-    if (next === undefined) {
-      this.flash(`${len} STEPS`);
-      return;
+    const next = Math.max(1, Math.min(MAX_STEPS, len + delta));
+    if (next !== len) {
+      this.setLength(this.selected, next);
+      this.clampCursor();
+      this.save();
     }
-    this.pattern.length = Math.min(next, MAX_STEPS);
-    this.flash(`${this.pattern.length} STEPS`);
-    this.pattern.notesDirty = true;
-    this.send({
-      type: 'setPatternLength', channel: this.selected, pattern: this.channel.activePattern, length: this.pattern.length,
-    });
-    this.clampCursor();
-    this.save();
+    this.flash(`${next} STEPS`);
   }
 
   /**
@@ -2323,19 +2314,37 @@ export class App {
    * FUNC + ◀ / ▶: show another bar of the selected track's pattern. In step entry the cursor
    * moves with it (same place in the next bar), so the keyboard writes into the bar shown.
    */
-  private changeBar(delta: number): void {
+  /** BAR: the previous / next bar on the strip; BAR + ▶ on the last bar (grow) adds an empty one. */
+  private changeBar(delta: number, grow = false): void {
     if (this.song && this.mode === 'design') {
       this.gotoSongBar(this.songBarNumber(this.songRow, this.songStartBar) - 1 + delta);
       return;
     }
     const ch = this.selected;
-    const pages = this.pageCount();
-    if (pages <= 1) {
-      this.flash('ONE BAR PATTERN');
-      return;
-    }
     if (this.followsPlayhead && !this.stepsMode) {
       this.flash('THE STRIP FOLLOWS THE PLAYHEAD');
+      return;
+    }
+    let pages = this.pageCount();
+    if (grow && delta > 0 && this.visiblePage(ch) === pages - 1) {
+      const len = this.pattern.length;
+      if (len + 16 > MAX_STEPS) {
+        this.flash('PATTERN FULL (4 BARS)');
+        return;
+      }
+      // The steps it grows over start empty (whatever an earlier length left there goes).
+      for (let i = len; i < len + 16; i++) {
+        const step = this.pattern.steps[i];
+        if (step.active || step.rest || step.locks || step.flip) {
+          this.pattern.steps[i] = emptyStep(step.note);
+          this.sendStep(i, this.pattern.steps[i]);
+        }
+      }
+      this.setLength(ch, len + 16);
+      this.save();
+      pages = this.pageCount();
+    } else if (pages <= 1) {
+      this.flash('ONE BAR: BAR + > ADDS ONE');
       return;
     }
     const page = (this.visiblePage(ch) + delta + pages) % pages;
@@ -2607,11 +2616,10 @@ export class App {
     } else if (id === 'cur+') {
       line.open?.();
     } else if ((m = /^step(\d+)$/.exec(id)) && Number(m[1]) <= lines.length) {
-      at.item = Number(m[1]) - 1;
-      lines[at.item].open?.();
+      at.item = Number(m[1]) - 1; // to the line only: ▶ opens it
     } else if (id === 'play') {
       this.menuSave();
-    } else if (id === 'cancel' || id === 'cur-') {
+    } else if (id === 'cancel') {
       this.menuBack();
     } else if (id === 'menu') {
       this.menu = null;
@@ -3313,7 +3321,7 @@ export class App {
     this.panel.setButtonLit('len', this.stepsMode);
     // BAR: not where the strip follows the playhead (PLAY, DESIGN, live recording). TIME (the
     // pattern's speed) works in every mode but SONG.
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || ((this.stepsMode || !this.followsPlayhead) && this.pageCount() > 1));
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || this.stepsMode || !this.followsPlayhead);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design')));
@@ -3469,7 +3477,9 @@ export class App {
         const d = step.active && !off && !dark && !this.stepsMode ? stepDynamic(step) : null;
         const flagged = d !== null && (view === 'ring' ? !!step.ring : view === 'slide' ? !!step.slide : true);
         const roll = d !== null && step.slide && isDrum(c.instrument) ? this.rollHits(c) : 0;
-        this.panel.setButtonText(id, roll ? `${index + 1}<small>×${roll}</small>` : String(index + 1));
+        // A step the time signature leaves out (not switched back on with STEPS) shows ×.
+        const meterOut = dark && !own.flip && !meterPlays(this.project.meter, index);
+        this.panel.setButtonText(id, meterOut ? '×' : roll ? `${index + 1}<small>×${roll}</small>` : String(index + 1));
         this.panel.setButtonFlag(id, 'off', off);
         // STEPS mode: lit = the step plays.
         this.panel.setButtonFlag(id, 'lit', this.stepsMode ? !off && !dark : d !== null);
@@ -3479,7 +3489,7 @@ export class App {
         this.panel.setButtonFlag(id, 'ring', !view && d !== null && !!step.ring);
         this.panel.setButtonFlag(id, 'rest', !off && !step.active && !!step.rest);
         for (const f of ['black', 'cursor']) this.panel.setButtonFlag(id, f, false);
-        if (tie) this.panel.setButtonText(id, String(index + 1));
+        if (tie && !meterOut) this.panel.setButtonText(id, String(index + 1));
       }
     }
 

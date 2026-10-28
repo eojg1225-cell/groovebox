@@ -5,23 +5,25 @@
  * A position counts strip cells from the song's first bar: bar x 16 + step (0-15, the cell on
  * the strip; a time signature's dark cells are simply never reached). A lane's key names its
  * knob: s:<track>:<sound param>, m:<track>:<mix id>, o:<track>:<live id> (a relative live knob,
- * -1..1), b:<bus 0-2>:<bus param>, l:<lfo param>.
+ * -1..1), b:<bus 0-2>:<bus param>, l:<lfo param>, a:<track>:<ARP setting>.
+ * Pattern step locks (`Step.locks`) use the same keys, except that the pattern's own track's
+ * sound params are stored by their bare id.
  */
 import { toNorm, toValue, type ParamSpec } from './params';
 
 export const CELLS_PER_BAR = 16;
 
-export type AutoKind = 's' | 'm' | 'o' | 'b' | 'l';
+export type AutoKind = 's' | 'm' | 'o' | 'b' | 'l' | 'a';
 
 interface AutoTarget {
   kind: AutoKind;
-  /** Track (s, m, o) or bus (b); 0 for the LFO. */
+  /** Track (s, m, o, a) or bus (b); 0 for the LFO. */
   index: number;
   id: string;
 }
 
 export function parseAutoKey(key: string): AutoTarget | null {
-  const m = /^([smob]):(\d+):(.+)$/.exec(key) ?? /^(l):()(.+)$/.exec(key);
+  const m = /^([smoba]):(\d+):(.+)$/.exec(key) ?? /^(l):()(.+)$/.exec(key);
   if (!m) return null;
   return { kind: m[1] as AutoKind, index: m[2] ? Number(m[2]) : 0, id: m[3] };
 }

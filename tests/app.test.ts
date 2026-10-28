@@ -451,7 +451,9 @@ describe('PROJECT page TRIM, COUNT-IN, METRONOME', () => {
     release('func');
     tap('menu');
     tap('step2'); // PROJECT SETTINGS
+    tap('cur+'); // ▶ opens it
     tap('step1'); // TRACKS
+    tap('cur+'); // ▶ opens it
     tap('step3'); // TRACK 3 (HAT)
     for (let i = 0; i < 3; i++) tap('cur+'); // HAT -> PERC -> BASS -> PAD
     tap('play');
@@ -518,6 +520,7 @@ describe('MENU and CANCEL', () => {
     tap('cur+');
     expect(page(app)?.page).toBe('project');
     tap('step1'); // TRACKS
+    tap('cur+'); // ▶ opens it
     expect(page(app)?.page).toBe('tracks');
     tap('cancel');
     expect(page(app)?.page).toBe('project');
@@ -534,7 +537,9 @@ describe('MENU and CANCEL', () => {
     snare.patterns[0].steps[4].locks = { decay: 0.3 };
     tap('menu');
     tap('step2'); // PROJECT SETTINGS
+    tap('cur+'); // ▶ opens it
     tap('step1'); // TRACKS
+    tap('cur+'); // ▶ opens it
     tap('oct-'); // TRACK 2
     tap('cur+'); // SNARE -> HAT, on screen only
     tap('oct-'); // TRACK 3
@@ -558,7 +563,9 @@ describe('MENU and CANCEL', () => {
     const { app, tap, emit } = makeApp();
     tap('menu');
     tap('step3'); // GLOBAL SETTINGS
+    tap('cur+'); // ▶ opens it
     tap('step6'); // TOUCH SETTINGS
+    tap('cur+'); // ▶ opens it
     expect(page(app)?.page).toBe('touch');
     expect(deviceSettings.knobSpeed).toBe(1);
     tap('cur+'); // KNOB SPEED: FAST (on screen)
@@ -775,6 +782,7 @@ describe('HOLD + RESET and project settings', () => {
     deviceSettings.countIn = 2;
     tap('menu');
     tap('step2'); // PROJECT SETTINGS
+    tap('cur+'); // ▶ opens it
     tap('oct-'); // COUNT-IN
     tap('cur+'); // DEFAULT -> OFF
     tap('play');

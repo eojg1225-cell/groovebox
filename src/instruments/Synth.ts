@@ -23,16 +23,6 @@ import { Reverb } from '../fx/Reverb';
 /** Legacy stepped wave (saves before SHAPE): SAW, SQR, TRI, SINE -> shape position. */
 const LEGACY_WAVE_TO_SHAPE = [2, 3, 1, 0];
 const VOICE_MODES = ['POLY', 'MONO'] as const;
-/**
- * ARP: how the held chord (over ARP OCT octaves) is stepped through. CASCADE goes up (or down)
- * in overlapping skips: 1 5 3 7 5 9 ... (or from the top: 11 7 9 5 7 3 ...).
- */
-const ARP_MODES = ['OFF', 'UP', 'DOWN', 'UP/DN', 'CASC UP', 'CASC DN', 'RANDOM'] as const;
-/** ARP speeds in 16th steps. */
-export const ARP_RATES = [
-  { name: '1/4', steps: 4 }, { name: '1/8', steps: 2 }, { name: '1/8T', steps: 4 / 3 },
-  { name: '1/16', steps: 1 }, { name: '1/16T', steps: 2 / 3 }, { name: '1/32', steps: 0.5 },
-] as const;
 /** OCTAVE: -4 ... +4 (the value is the index). */
 const OCTAVES = ['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4'] as const;
 /** Index of OCTAVE 0 (OCTAVE's value is the index into OCTAVES). */
@@ -143,10 +133,6 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'cfeedback', name: 'CAR FB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // Level of carriers 2 and 3 against carrier 1 (0 = one clear note, 1 = the full stack).
   { id: 'carriers', name: 'CARRIERS', min: 0, max: 1, defaultValue: 0.35, unit: '', curve: 'linear' },
-  // ARP (played by the engine, which reads these two): chord / octave notes in turn while held.
-  choice('arp', 'ARP', ARP_MODES),
-  choice('arprate', 'ARP RATE', ARP_RATES.map((r) => r.name), 3),
-  choice('arpoct', 'ARP OCT', ['1 OCT', '2 OCT', '3 OCT']),
   choice('octave', 'OCTAVE', OCTAVES, OCTAVE_ZERO),
   choice('voice', 'VOICES', VOICE_MODES),
   // SLIDE (id "glide" for old projects): how long a SLIDE note takes to glide into the next;
@@ -224,9 +210,7 @@ export const PAD_FIXED = { voice: 0, sub: 0, algo: 2 };
 export const LEAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 }, SHARED_NAMES);
 /** LEAD: 3 voices, so a note's release rings under the next one (and live chords work). */
 export const LEAD_FIXED = { voice: 0, voices: 3, sub: 0, unison: 0, algo: 1 };
-/** PLUCK: a polyphonic pluck with an ARP. */
-// The ARP's controls are off the PLUCK for now (the engine still plays 'arp' / 'arprate' /
-// 'arpoct' if a type lists them again).
+/** PLUCK: a polyphonic pluck (the ARP is a track setting now: engine/arp.ts). */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1 };
 

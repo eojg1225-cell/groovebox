@@ -4,6 +4,7 @@
  */
 import type { InstrumentKind, PatternSpeed, Project, Song, Step } from './project';
 import type { LfoId } from './lfo';
+import type { ArpId } from './arp';
 
 export type MixParam = 'volume' | 'pan' | 'mute' | 'send' | 'dyn' | 'gate' | 'cut' | 'ring';
 /** meter: the time signature (index into METERS); playing, it changes at the next bar line. */
@@ -63,6 +64,10 @@ export type MainToWorklet =
   | { type: 'setLfo'; id: LfoId; value: number }
   /** Put a track on / off the LFO. */
   | { type: 'setLfoTrack'; channel: number; on: boolean }
+  /** A track's ARP (engine/arp.ts): on (0 / 1), or MODE / RATE / OCT (option indices). */
+  | { type: 'setArp'; channel: number; id: ArpId | 'on'; value: number }
+  /** ROLL held (PLAY / DESIGN, drum tracks): the track repeats at ROLL RATE until released. */
+  | { type: 'holdRoll'; channel: number; on: boolean; note: number }
   /**
    * Start / stop. song = play the song (from row fromRow) instead of the patterns. Patterns:
    * fromStep (a bar line of track fromChannel's pattern, absent = the top) = every track

@@ -7,6 +7,7 @@
  * migrations for v1 - v39 were retired, see docs/HISTORY.md) still loads its notes, mix
  * and FX, but its sounds are taken as stored and may differ (isOldFormat).
  */
+import { ARP_MODES, ARP_RATES, defaultArp } from './arp';
 import {
   MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
   emptyPattern, initPatterns, patchOf,
@@ -45,6 +46,8 @@ interface StoredStep {
   s?: 1;
   k?: number;
   x?: 1;
+  /** v55: no note, only locks. */
+  o?: 1;
   l?: Record<string, number>;
   /** v34: PAD chord, the step's further notes. */
   c?: number[];
@@ -84,7 +87,12 @@ function storeFlips(steps: Step[]): number[] | undefined {
 
 function storeSteps(steps: Step[]): StoredStep[] {
   return steps.flatMap((s, i): StoredStep[] => {
-    if (!s.active) return s.rest ? [{ i, x: 1 }] : [];
+    if (!s.active) {
+      // A step with no note: a REST marker and / or (v55) locks (STEP EDIT can lock any step).
+      const locks = s.locks && Object.keys(s.locks).length ? { l: { ...s.locks } } : null;
+      if (!s.rest && !locks) return [];
+      return [{ i, ...(s.rest ? { x: 1 as const } : { o: 1 as const }), ...locks }];
+    }
     const out: StoredStep = { i, n: s.note, v: s.velocity };
     if (s.gate > 1) out.g = s.gate;
     if (s.accent) out.a = 1;
@@ -140,6 +148,8 @@ interface StoredChannel {
   ringLength?: number;
   midCut?: number;
   lfoOn: boolean;
+  /** v55: ARP (on, mode, rate, oct); absent = off. */
+  arp?: { on: boolean; mode: number; rate: number; oct: number };
   mute: boolean;
   activePattern: number;
   patterns: StoredPattern[];
@@ -195,6 +205,7 @@ export function toStored(p: Project): StoredProject {
       ringLength: c.ringLength,
       midCut: c.midCut,
       lfoOn: c.lfoOn,
+      ...(c.arp && (c.arp.on || c.arp.mode || c.arp.rate !== defaultArp().rate || c.arp.oct) ? { arp: { ...c.arp } } : {}),
       mute: c.mute,
       activePattern: c.activePattern,
       patterns: c.patterns.map((pat, p) => storePattern(c, pat, p)),
@@ -338,8 +349,10 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
   for (const s of sp.steps) {
     if (!isObj(s) || typeof s.i !== 'number' || !Number.isInteger(s.i) || s.i < 0 || s.i >= MAX_STEPS) continue;
     const step = pat.steps[s.i];
-    if (s.x === 1) {
-      step.rest = true;
+    if (s.x === 1 || s.o === 1) {
+      if (s.x === 1) step.rest = true;
+      const locks = numbers(s.l);
+      if (Object.keys(locks).length) step.locks = locks;
       continue;
     }
     step.active = true;
@@ -439,6 +452,16 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;
+  if (isObj(src.arp)) {
+    const a = src.arp;
+    const d = defaultArp();
+    ch.arp = {
+      on: a.on === true,
+      mode: Math.round(num(a.mode, d.mode, 0, ARP_MODES.length - 1)),
+      rate: Math.round(num(a.rate, d.rate, 0, ARP_RATES.length - 1)),
+      oct: Math.round(num(a.oct, d.oct, 0, 2)),
+    };
+  }
   ch.volume = num(src.volume, ch.volume, 0, 1);
   ch.pan = num(src.pan, ch.pan, -1, 1);
   ch.dynamics = num(src.dynamics, 100, 0, 200);

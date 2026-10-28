@@ -4,14 +4,14 @@ import type { ParamSpec } from './params';
 import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
-  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, STEP_NOTES, type Song,
+  DYNAMIC_VELOCITY, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, STEP_NOTES, type Song,
   type InstrumentKind, type Project, type Step, patchOf,
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
 import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS, SOUND_KINDS, linkedParams, liveContribution, liveTargets, playsChords } from '../instruments/registry';
 import { toNorm, toValue } from './params';
-import { ARP_RATES } from '../instruments/Synth';
+import { ARP_PARAMS, ARP_RATES, defaultArp, type ArpId } from './arp';
 import { ROLL_DIVS } from '../instruments/Drum';
 import { Noise, Svf, silent } from '../instruments/dsp';
 import { LFO_PARAMS, LFO_RATES, lfoValue, type LfoId } from './lfo';
@@ -134,8 +134,23 @@ export class Engine {
   private readonly stepExtraN = new Uint8Array(STEP_SLOTS);
   /** Each PAD / PLUCK chord note's own length in steps (Step.extraGate; default the step's gate). */
   private readonly stepExtraGate = new Int16Array(STEP_SLOTS * (STEP_NOTES - 1));
-  /** Parameter locks: [stepSlot * LOCK_SLOTS + paramSlot], NaN = not locked. */
-  private readonly locks = new Float32Array(STEP_SLOTS * LOCK_SLOTS).fill(NaN);
+  /** Each step's locks as set (Step.locks: a key per knob, automation.ts), null = none. */
+  private readonly stepLockSrc: (Record<string, number> | null)[] = new Array<Record<string, number> | null>(STEP_SLOTS).fill(null);
+  /**
+   * Pattern locks as lanes, one per knob (positions = steps): [ch * NUM_PATTERNS + pattern].
+   * They glide from lock to lock as the pattern plays, like the SONG's (rebuilt when a step
+   * changes, outside the audio loop: flushPatLanes).
+   */
+  private readonly patLanes: Lane[][] = Array.from({ length: NUM_CHANNELS * NUM_PATTERNS }, () => []);
+  private readonly patLanesDirty = new Uint8Array(NUM_CHANNELS * NUM_PATTERNS);
+  private patDirty = false;
+  /** The pattern whose lanes each track last ran (-1 = none). */
+  private readonly lanePat = new Int8Array(NUM_CHANNELS).fill(-1);
+  /** Each track's step now: frames played of it, and its length (for gliding between locks). */
+  private readonly chanElapsed = new Float64Array(NUM_CHANNELS);
+  private readonly chanLen = new Float64Array(NUM_CHANNELS).fill(1);
+  /** SONG lanes by key: a pattern lane gives way while the song's holds the same knob. */
+  private songLaneByKey = new Map<string, Lane>();
   /** STEPS: the step is switched the other way from the time signature. */
   private readonly stepFlip = new Uint8Array(STEP_SLOTS);
   /** Whether each step plays (time signature, triplet time, STEPS); others are skipped. */
@@ -202,7 +217,7 @@ export class Engine {
   /** RESET (notes too): a pattern's saved notes, swapped in at the next bar line. */
   private readonly pendingNotes: ({ length: number; steps: Step[]; speed?: PatternSpeed } | null)[] = new Array(NUM_CHANNELS * NUM_PATTERNS).fill(null);
   private notesPending = false;
-  /** Whether a lock is currently applied per channel/param slot. */
+  /** A pattern lock holds this channel / param slot now (base value changes wait). */
   private readonly lockApplied = new Uint8Array(NUM_CHANNELS * LOCK_SLOTS);
   /**
    * Relative LIVE knobs: each channel's offsets (live id -> -1..1), and their summed push
@@ -285,9 +300,15 @@ export class Engine {
   private readonly rollRamp = new Uint16Array(NUM_CHANNELS);
   private readonly rollIndex = new Uint16Array(NUM_CHANNELS);
   private readonly runLeft = new Uint16Array(NUM_CHANNELS);
-  // ARP (sound params "arp" / "arprate"): while a note is held its chord tones are played in
-  // turn. Mode (0 = off), rate in steps, and per track the held root, its velocity, the next
-  // note's index, frames until it, and the arp note sounding now (-1 = none).
+  /** ROLL held down (PLAY / DESIGN, drums): the track repeats at ROLL RATE, and the note it strikes. */
+  private readonly holdRoll = new Uint8Array(NUM_CHANNELS);
+  private readonly holdRollNote = new Float32Array(NUM_CHANNELS).fill(36);
+  // ARP (a track setting, engine/arp.ts): while a note is held its chord tones are played in
+  // turn. On / off (the ARP key) and MODE as set, the mode in use (0 = off: off or MODE OFF),
+  // rate in steps, and per track the held root, its velocity, the next note's index, frames
+  // until it, and the arp note sounding now (-1 = none).
+  private readonly arpOn = new Uint8Array(NUM_CHANNELS);
+  private readonly arpSet = new Uint8Array(NUM_CHANNELS);
   private readonly arpMode = new Uint8Array(NUM_CHANNELS);
   private readonly arpSteps = new Float32Array(NUM_CHANNELS).fill(1);
   private readonly arpOct = new Uint8Array(NUM_CHANNELS).fill(1);
@@ -410,6 +431,8 @@ export class Engine {
       case 'setBus': this.setBusParam(msg.bus, msg.id, msg.value); break;
       case 'setLfo': this.setLfo(msg.id, msg.value); break;
       case 'setLfoTrack': this.lfoOn[msg.channel] = msg.on ? 1 : 0; break;
+      case 'setArp': this.setArp(msg.channel, msg.id, msg.value); break;
+      case 'holdRoll': this.setHoldRoll(msg.channel, msg.on, msg.note); break;
       case 'transport':
         if (msg.playing && !this.playing) {
           this.songOn = msg.song === true && this.songLength > 0;
@@ -451,6 +474,123 @@ export class Engine {
       case 'recordLock': this.recordLock(msg.channel, msg.id, msg.value); break;
       case 'ping': break; // answered by the host
     }
+    if (this.patDirty) this.flushPatLanes();
+  }
+
+  /** A lane for a knob key (automation.ts) and its points, or null for an unknown key. */
+  private makeLane(key: string, points: readonly (readonly [number, number])[]): Lane | null {
+    const t = parseAutoKey(key);
+    if (!t || points.length === 0) return null;
+    const lane = new Lane(key, t.kind, t.index, t.id, points.length);
+    points.forEach(([p, v], i) => { lane.pos[i] = p; lane.val[i] = v; });
+    lane.spec = t.kind === 'm' ? MIX_PARAMS.find((s) => s.id === t.id) ?? null
+      : t.kind === 'b' ? BUS_PARAMS[t.index]?.find((s) => s.id === t.id) ?? null
+      : t.kind === 'l' ? LFO_PARAMS[t.id as LfoId] ?? null
+      : t.kind === 'a' ? ARP_PARAMS.find((s) => s.id === t.id) ?? null : null;
+    return lane;
+  }
+
+  /** Rebuild the lanes of patterns whose steps' locks changed. */
+  private flushPatLanes(): void {
+    this.patDirty = false;
+    for (let k = 0; k < this.patLanes.length; k++) {
+      if (!this.patLanesDirty[k]) continue;
+      this.patLanesDirty[k] = 0;
+      const ch = Math.floor(k / NUM_PATTERNS);
+      for (const lane of this.patLanes[k]) if (lane.active) this.releasePatLane(lane);
+      const points = new Map<string, [number, number][]>();
+      for (let i = 0; i < MAX_STEPS; i++) {
+        const src = this.stepLockSrc[k * MAX_STEPS + i];
+        if (!src) continue;
+        for (const id in src) {
+          // The track's own sound params are stored by their bare id.
+          const key = id.includes(':') ? id : `s:${ch}:${id}`;
+          let pts = points.get(key);
+          if (!pts) points.set(key, (pts = []));
+          pts.push([i, src[id]]);
+        }
+      }
+      const lanes: Lane[] = [];
+      for (const [key, pts] of points) {
+        const lane = this.makeLane(key, pts);
+        if (lane) lanes.push(lane);
+      }
+      this.patLanes[k] = lanes;
+    }
+  }
+
+  /**
+   * Pattern locks for this chunk: each track's lanes at its position in its pattern (step +
+   * the part of it played). A lane lets go before its first lock and when its pattern stops
+   * playing; after its last it holds until the loop starts again.
+   */
+  private runPatAuto(): void {
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      const pat = this.activePattern[ch];
+      if (this.lanePat[ch] !== pat) {
+        this.releasePatLanes(ch);
+        this.lanePat[ch] = pat;
+      }
+      const lanes = this.patLanes[ch * NUM_PATTERNS + pat];
+      if (lanes.length === 0) continue;
+      const idx = this.currentStep[ch];
+      if (idx < 0 || this.songOff[ch] || !this.current[ch]) {
+        for (const lane of lanes) if (lane.active) this.releasePatLane(lane);
+        continue;
+      }
+      const p = idx + Math.min(1, this.chanElapsed[ch] / this.chanLen[ch]);
+      for (const lane of lanes) {
+        if (this.songLaneByKey.get(lane.key)?.active) { lane.active = false; continue; }
+        const spec = lane.kind === 's' ? this.laneSpec(lane) : lane.spec;
+        if (lane.kind === 's' && !spec) continue;
+        const v = valueAt(lane.pos, lane.val, lane.pos.length, p, spec);
+        if (v !== v) {
+          if (lane.active) this.releasePatLane(lane);
+          continue;
+        }
+        if (lane.active && v === lane.last && !(lane.kind === 's' && this.autoStale[lane.index])) continue;
+        lane.active = true;
+        lane.last = v;
+        this.applyPatLane(lane, v);
+      }
+    }
+  }
+
+  /** A pattern lane sets its knob: a sound param over the base (the patch stays), else as the song's. */
+  private applyPatLane(lane: Lane, v: number): void {
+    if (lane.kind !== 's') { this.applyLane(lane, v); return; }
+    const ch = lane.index;
+    const inst = this.current[ch]!;
+    this.applyParam(ch, inst, inst.params[lane.slot].id, this.withOffset(ch, lane.slot, v));
+    this.lockApplied[ch * LOCK_SLOTS + lane.slot] = 1;
+    for (const k of lane.links) {
+      this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, v));
+      this.lockApplied[ch * LOCK_SLOTS + k] = 1;
+    }
+  }
+
+  private releasePatLane(lane: Lane): void {
+    if (lane.kind !== 's') { this.releaseLane(lane); return; }
+    lane.active = false;
+    lane.last = NaN;
+    const ch = lane.index;
+    const inst = this.current[ch];
+    if (!inst || this.laneSpec(lane) === null) return;
+    this.unlockSlot(ch, inst, lane.slot);
+    for (const k of lane.links) this.unlockSlot(ch, inst, k);
+  }
+
+  private unlockSlot(ch: number, inst: Instrument, k: number): void {
+    this.lockApplied[ch * LOCK_SLOTS + k] = 0;
+    this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, this.baseValue[ch * LOCK_SLOTS + k]));
+  }
+
+  /** Let go of the pattern lanes track ch is running. */
+  private releasePatLanes(ch: number): void {
+    const pat = this.lanePat[ch];
+    if (pat < 0) return;
+    for (const lane of this.patLanes[ch * NUM_PATTERNS + pat]) if (lane.active) this.releasePatLane(lane);
+    this.lanePat[ch] = -1;
   }
 
   /** A sound parameter to the instrument; MID FREQ goes to the track's MID CUT. */
@@ -511,6 +651,11 @@ export class Engine {
       this.chord[ch] = c.chord;
       this.notes[ch] = c.notes ?? MAX_CHORD_NOTES;
       this.lfoOn[ch] = c.lfoOn ? 1 : 0;
+      const arp = c.arp ?? defaultArp();
+      this.setArp(ch, 'on', arp.on ? 1 : 0);
+      this.setArp(ch, 'mode', arp.mode);
+      this.setArp(ch, 'rate', arp.rate);
+      this.setArp(ch, 'oct', arp.oct);
       this.setMix(ch, 'volume', c.volume);
       this.setMix(ch, 'mute', c.mute ? 1 : 0);
       this.setMix(ch, 'pan', c.pan);
@@ -575,7 +720,7 @@ export class Engine {
         this.gateAt[ch] = -1;
         this.recNote[ch] = -1;
         this.chordNote.fill(-1, ch * STEP_NOTES, (ch + 1) * STEP_NOTES);
-        this.restoreBase(ch);
+        this.releasePatLanes(ch);
       }
     }
   }
@@ -739,8 +884,13 @@ export class Engine {
         }
         if (n < 1) n = 1;
       }
-      if (this.songOn && this.playing && this.lanes.length > 0 && this.globalStep > 0) this.runAuto();
+      if (this.playing && this.globalStep > 0) {
+        this.runPatAuto();
+        if (this.songOn && this.lanes.length > 0) this.runAuto();
+        else this.autoStale.fill(0);
+      }
       this.renderChunk(outL, outR, pos, n);
+      if (this.playing) for (let ch = 0; ch < NUM_CHANNELS; ch++) this.chanElapsed[ch] += n;
       if (this.click.render(this.clickBuf, pos, n)) this.clicked = true;
       pos += n;
       for (let ch = 0; ch < NUM_CHANNELS; ch++) if (this.arpHeld[ch]) this.arpAt[ch] -= n;
@@ -992,7 +1142,8 @@ export class Engine {
       } else if (this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen); // its last step
     }
     this.stepHolds(ch, stepLen);
-    this.applyLocks(ch, s);
+    this.chanElapsed[ch] = 0;
+    this.chanLen[ch] = stepLen;
     if (hit && !inRun) {
       const ring = this.stepRing[s] === 1 || this.forceRing[ch] === 1;
       const slideFlag = this.stepSlide[s] === 1 || this.forceSlide[ch] === 1;
@@ -1037,6 +1188,11 @@ export class Engine {
         this.sliding[ch] = slide ? 1 : 0;
       }
       if (drumRoll) this.startRollRun(ch, pat, idx, len, vel);
+    }
+    if (this.holdRoll[ch] && this.rollDiv[ch] > 0 && !this.songOff[ch]) {
+      // ROLL held (PLAY): the step's own hit plays as set, every other ROLL RATE hit at normal.
+      if (!hit) this.noteOn(ch, this.holdRollNote[ch], DYNAMIC_VELOCITY.normal);
+      this.holdRollFrom(ch, hit ? this.stepNote[s] : this.holdRollNote[ch], 1);
     }
     this.skipStep[ch] = -1;
     this.currentStep[ch] = idx;
@@ -1127,16 +1283,13 @@ export class Engine {
     // The lanes, anew (any that were playing hand their knobs back first).
     this.releaseLanes();
     this.lanes = [];
+    this.songLaneByKey = new Map();
     for (const key in song.auto ?? {}) {
-      const t = parseAutoKey(key);
       const points = song.auto![key];
-      if (!t || !Array.isArray(points) || points.length === 0) continue;
-      const lane = new Lane(key, t.kind, t.index, t.id, points.length);
-      points.forEach(([p, v], i) => { lane.pos[i] = p; lane.val[i] = v; });
-      lane.spec = t.kind === 'm' ? MIX_PARAMS.find((s) => s.id === t.id) ?? null
-        : t.kind === 'b' ? BUS_PARAMS[t.index]?.find((s) => s.id === t.id) ?? null
-        : t.kind === 'l' ? LFO_PARAMS[t.id as LfoId] ?? null : null;
+      const lane = Array.isArray(points) ? this.makeLane(key, points) : null;
+      if (!lane) continue;
       this.lanes.push(lane);
+      this.songLaneByKey.set(key, lane);
     }
   }
 
@@ -1197,6 +1350,7 @@ export class Engine {
       case 'o': this.setOffset(i, lane.id, v); break;
       case 'b': this.setBusParam(i, lane.id, v); break;
       case 'l': this.setLfo(lane.id as LfoId, v); break;
+      case 'a': this.setArp(i, lane.id as ArpId, v); break;
     }
     this.autoApplying = false;
   }
@@ -1287,11 +1441,45 @@ export class Engine {
     this.rollLeft[ch] = hits - 1;
     this.rollIndex[ch] = 0;
     // Straight (through swing), at the track's own step length (half / double time).
-    this.rollEvery[ch] = ((60 / this.bpm / 4) * this.sampleRate * this.chanRate[ch]) / this.rollDiv[ch];
+    this.rollEvery[ch] = this.rollSpacing(ch);
     this.rollAt[ch] = this.rollEvery[ch];
     this.rollNote[ch] = this.stepNote[pat * MAX_STEPS + idx];
     this.rollVel[ch] = vel;
     this.rollVelEnd[ch] = last;
+  }
+
+  /** ROLL held: on (note: what it strikes) or off; the repeats start at the next ROLL RATE hit. */
+  private setHoldRoll(ch: number, on: boolean, note: number): void {
+    this.holdRoll[ch] = on ? 1 : 0;
+    this.holdRollNote[ch] = note;
+    if (!on) {
+      this.rollLeft[ch] = 0;
+      return;
+    }
+    if (!this.playing || this.currentStep[ch] < 0 || this.rollDiv[ch] === 0) return;
+    const every = this.rollSpacing(ch);
+    const k = Math.floor(this.chanElapsed[ch] / every) + 1;
+    if (k >= this.rollDiv[ch]) return; // the step's next one starts it
+    this.holdRollFrom(ch, note, k);
+    this.rollAt[ch] = k * every - this.chanElapsed[ch];
+  }
+
+  /** Held ROLL: the hits from the k-th of this step to its end, at normal velocity. */
+  private holdRollFrom(ch: number, note: number, k: number): void {
+    this.runLeft[ch] = 0;
+    this.rollLeft[ch] = this.rollDiv[ch] - k;
+    this.rollEvery[ch] = this.rollSpacing(ch);
+    this.rollAt[ch] = this.rollEvery[ch];
+    this.rollNote[ch] = note;
+    this.rollVel[ch] = DYNAMIC_VELOCITY.normal;
+    this.rollVelEnd[ch] = DYNAMIC_VELOCITY.normal;
+    this.rollRamp[ch] = 0;
+    this.rollIndex[ch] = 0;
+  }
+
+  /** Frames between ROLL hits: straight (through swing), at the track's own step length. */
+  private rollSpacing(ch: number): number {
+    return ((60 / this.bpm / 4) * this.sampleRate * this.chanRate[ch]) / this.rollDiv[ch];
   }
 
   /** One ROLL repeat: re-strike the run's note (on its velocity ramp), then schedule the next. */
@@ -1495,8 +1683,8 @@ export class Engine {
   }
 
   private setInstrument(ch: number, kind: InstrumentKind, sound: Record<string, number>): void {
+    this.releasePatLanes(ch);
     if (this.arpHeld[ch]) this.stopArp(ch);
-    this.arpMode[ch] = 0;
     this.rollDiv[ch] = 0;
     this.current[ch]?.noteOff(-1);
     this.clearHolds(ch);
@@ -1509,43 +1697,11 @@ export class Engine {
     this.liveOffsets[ch].clear();
     this.offsetNorm.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
     this.lockApplied.fill(0, ch * LOCK_SLOTS, (ch + 1) * LOCK_SLOTS);
-    // Locks are stored by parameter slot, which means something else on another instrument.
-    const from = ch * NUM_PATTERNS * MAX_STEPS * LOCK_SLOTS;
-    this.locks.fill(NaN, from, from + NUM_PATTERNS * MAX_STEPS * LOCK_SLOTS);
     this.glidePattern[ch] = -1;
     const inst = this.current[ch];
     if (inst) {
       inst.params.forEach((spec, slot) => this.setSound(ch, spec.id, sound[spec.id] ?? spec.defaultValue, slot));
       for (let pat = 0; pat < NUM_PATTERNS; pat++) this.storePatch(ch, pat, sound);
-    }
-  }
-
-  /** Apply the step's locks; params locked on the previous step but not this one revert. */
-  private applyLocks(ch: number, stepSlot: number): void {
-    const inst = this.current[ch];
-    if (!inst) return;
-    const n = Math.min(inst.params.length, LOCK_SLOTS);
-    for (let k = 0; k < n; k++) {
-      const v = this.locks[stepSlot * LOCK_SLOTS + k];
-      const applied = ch * LOCK_SLOTS + k;
-      if (v === v) { // not NaN
-        this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, v));
-        this.lockApplied[applied] = 1;
-      } else if (this.lockApplied[applied]) {
-        this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, this.baseValue[applied]));
-        this.lockApplied[applied] = 0;
-      }
-    }
-  }
-
-  private restoreBase(ch: number): void {
-    const inst = this.current[ch];
-    if (!inst) return;
-    for (let k = 0; k < Math.min(inst.params.length, LOCK_SLOTS); k++) {
-      if (this.lockApplied[ch * LOCK_SLOTS + k]) {
-        this.applyParam(ch, inst, inst.params[k].id, this.withOffset(ch, k, this.baseValue[ch * LOCK_SLOTS + k]));
-        this.lockApplied[ch * LOCK_SLOTS + k] = 0;
-      }
     }
   }
 
@@ -1672,8 +1828,8 @@ export class Engine {
     // The step being heard when the knob moved.
     const { index } = this.nearestStep(ch, false);
     const s = (ch * NUM_PATTERNS + pattern) * MAX_STEPS + index;
-    this.locks[s * LOCK_SLOTS + slot] = value;
-    this.lockApplied[ch * LOCK_SLOTS + slot] = 1;
+    this.stepLockSrc[s] = { ...this.stepLockSrc[s], [id]: value };
+    this.lockChanged(ch, pattern);
     this.onRecorded?.({ type: 'recordedLock', channel: ch, pattern, index, id, value });
   }
 
@@ -2125,16 +2281,19 @@ export class Engine {
     const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
     if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
     this.applyParam(ch, inst, id, slot >= 0 ? this.withOffset(ch, slot, value) : value);
-    if (id === 'arp') {
-      this.arpMode[ch] = Math.max(0, Math.round(value));
-      if (this.arpMode[ch] === 0 && this.arpHeld[ch]) this.stopArp(ch);
-    } else if (id === 'arprate') {
-      this.arpSteps[ch] = ARP_RATES[Math.round(value)]?.steps ?? 1;
-    } else if (id === 'rolldiv') {
-      this.rollDiv[ch] = ROLL_DIVS[Math.round(value)]?.hits ?? 2;
-    } else if (id === 'arpoct') {
-      this.arpOct[ch] = Math.max(1, Math.min(3, Math.round(value) + 1));
-    }
+    if (id === 'rolldiv') this.rollDiv[ch] = ROLL_DIVS[Math.round(value)]?.hits ?? 2;
+  }
+
+  /** ARP: on / off, MODE, RATE, OCT (option indices); it plays when on and MODE is not OFF. */
+  private setArp(ch: number, id: ArpId | 'on', value: number): void {
+    if (!this.autoApplying) this.autoBase.set(`a:${ch}:${id}`, value);
+    const v = Math.max(0, Math.round(value));
+    if (id === 'on') this.arpOn[ch] = v > 0 ? 1 : 0;
+    else if (id === 'mode') this.arpSet[ch] = v;
+    else if (id === 'rate') this.arpSteps[ch] = ARP_RATES[v]?.steps ?? 1;
+    else this.arpOct[ch] = Math.min(3, v + 1);
+    this.arpMode[ch] = this.arpOn[ch] ? this.arpSet[ch] : 0;
+    if (this.arpMode[ch] === 0 && this.arpHeld[ch]) this.stopArp(ch);
   }
 
   private writeStep(ch: number, pattern: number, index: number, step: Step): void {
@@ -2157,15 +2316,15 @@ export class Engine {
       this.stepExtra[s * (STEP_NOTES - 1) + k] = step.extra![k];
       this.stepExtraGate[s * (STEP_NOTES - 1) + k] = Math.max(1, Math.round(step.extraGate?.[k] ?? step.gate));
     }
-    const base = s * LOCK_SLOTS;
-    this.locks.fill(NaN, base, base + LOCK_SLOTS);
-    const inst = this.current[ch];
-    if (step.locks && inst) {
-      for (const id in step.locks) {
-        const slot = this.slotOf(inst, id);
-        if (slot >= 0) this.locks[base + slot] = step.locks[id];
-      }
-    }
+    const had = this.stepLockSrc[s] !== null;
+    const locks = step.locks && Object.keys(step.locks).length > 0 ? { ...step.locks } : null;
+    this.stepLockSrc[s] = locks;
+    if (had || locks) this.lockChanged(ch, pattern);
+  }
+
+  private lockChanged(ch: number, pattern: number): void {
+    this.patLanesDirty[ch * NUM_PATTERNS + pattern] = 1;
+    this.patDirty = true;
   }
 
   private setMix(ch: number, id: MixParam, value: number): void {
