@@ -29,8 +29,12 @@ const HOLDS = 12;
 const CHORD_WINDOW = 0.08;
 /** Largest chunk rendered at once (also the LFO pitch update rate, ~1.3 ms at 48 kHz). */
 const CHUNK = 64;
-/** Max sound parameters per instrument that can be locked per step. */
-export const LOCK_SLOTS = 32;
+/**
+ * Room per track for its sound parameters (base values, patches, offsets, locks), by slot.
+ * Every type must fit (a test checks): a type with more (PAD had 34 at 32) spilled into the
+ * next track's slots.
+ */
+export const LOCK_SLOTS = 48;
 
 const STEP_SLOTS = NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS;
 /** Shortest patch glide (an immediate pattern switch), and the glide back from a cancelled switch, s. */

@@ -37,6 +37,11 @@ const MAX_VOICES = 6;
 function fmEnvGain(env: number): number {
   return 0.6 + 1.8 * env;
 }
+/**
+ * How far the filter follows the note at INT 0 (fading out by INT 50): 0.75 keeps every
+ * sound's INT 0 within about 4 dB of its INT 50 up to A5 (none: up to 30 dB quieter).
+ */
+const KEY_TRACK = 0.75;
 /** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
 /**
@@ -205,7 +210,7 @@ const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
 export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
-export const BASS_FIXED = { voice: 1, envlink: 1 };
+export const BASS_FIXED = { voice: 1, envlink: 1, keyref: 33 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
@@ -351,6 +356,12 @@ export class Synth implements Instrument {
   private readonly releaseMul = new Float64Array(2);
   private ageCounter = 0;
   private pitchMod = 1;
+  /**
+   * Below INT 50 the filter follows the note (fully at INT 0): INT pulls the cutoff towards a
+   * dull floor, and without this a note octaves above the type's home note (keyRef, the note
+   * its sounds are levelled on) lost the rest of itself to it. 0 from INT 50 up.
+   */
+  private keyTrack = 0; private keyRef = 45;
   /** LEAD pitch effects (VIBRATO, BEND); pitchFx = either is on. */
   private vibDepth = 0; private vibRate = 5.5; private vibDelay = 0.3; private bend = 0; private bendTime = 0.08; private pitchFx = false;
   /** envlink: OSC 2 follows OSC 1's envelope (DECAY x dratio). */
@@ -499,6 +510,8 @@ export class Synth implements Instrument {
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
       case 'fm': this.fm = value; this.updateFm(); break;
+      case 'intensity': this.keyTrack = value < 0.5 ? KEY_TRACK * (1 - 2 * value) : 0; break;
+      case 'keyref': this.keyRef = value; break;
       case 'vibrato': this.vibDepth = value; this.pitchFx = this.vibDepth > 0 || this.bend !== 0; break;
       case 'vibrate': this.vibRate = value; break;
       case 'vibdelay': this.vibDelay = value; break;
@@ -916,7 +929,8 @@ export class Synth implements Instrument {
       }
       if (v.counter-- <= 0) {
         v.counter = FILTER_UPDATE;
-        v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv), this.reso, sr);
+        const key = this.keyTrack > 0 && v.note > this.keyRef ? exp2((this.keyTrack * (v.note - this.keyRef)) / 12) : 1;
+        v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv) * key, this.reso, sr);
       }
       v.filter.process(mix * 0.5);
 

@@ -2628,6 +2628,29 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     });
   }, 120_000);
 
+  it('every type\'s sound parameters fit its engine slots (none spill into the next track)', () => {
+    for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.length, k).toBeLessThanOrEqual(LOCK_SLOTS);
+  });
+
+  it('INT 0 is dull, never near-silent: every synth sound stays within 5 dB of its INT 50 up to A5', () => {
+    for (const kind of ['bass', 'pad', 'lead', 'pluck'] as const) {
+      const e = INSTRUMENTS[kind];
+      MACROS[kind].anchors.forEach((a, i) => {
+        const t = anchorPosition(kind, i);
+        const level = (x: number, note: number) => {
+          const inst = e.create(SR);
+          const s: Record<string, number> = { ...presetSound(kind, 0), ...macroSound(kind, t, x, e.params), timbre: t, intensity: x };
+          for (const id in s) inst.setParam(id, s[id]);
+          inst.noteOn(note, 0.8, note, false);
+          const l = new Float32Array(SR / 2), r = new Float32Array(SR / 2);
+          inst.render(l, r, 0, l.length);
+          return gatedLoudness(l, r);
+        };
+        for (const note of [57, 69, 81]) expect(Math.abs(level(0, note) - level(0.5, note)), `${kind} ${a.name} note ${note}`).toBeLessThan(5);
+      });
+    }
+  }, 60_000);
+
   it('PLUCK echoes through its onboard delay; SPACE fully left dries it up', () => {
     const tail = (values: Record<string, number>) => {
       const l = play(synth('pluck', { decay: 0.05, release: 0.02, dtime: 2, dfdbk: 0.3, ...values }), 0.6, 0.02);
@@ -3986,5 +4009,12 @@ describe('fast maths (math.ts, the app) against exact (mathExact.ts)', () => {
     expect(sin).toBeLessThan(3.1e-7);
     expect(tanhErr).toBeLessThan(6e-7);
     expect(exp).toBeLessThan(2e-7);
+  });
+  it('stays finite a hair below a whole number (the table end; a LEAD BEND dying away gave NaN: ENGINE RESTARTED)', async () => {
+    const fast = await import('../src/instruments/math');
+    for (const x of [-1e-17, -5.8e-16 / 12, -1 - 1e-16, 3 - 1e-16, -Number.EPSILON]) {
+      expect(fast.exp2(x), `exp2 ${x}`).toBeCloseTo(Math.pow(2, x), 9);
+      expect(fast.sinTurn(x), `sinTurn ${x}`).toBeCloseTo(Math.sin(2 * Math.PI * x), 9);
+    }
   });
 });
