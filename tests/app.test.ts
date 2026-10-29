@@ -1427,6 +1427,45 @@ describe('STEP EDIT', () => {
   });
 });
 
+describe('locks move the knobs while playing', () => {
+  const status = (steps: number[], extra = {}) => ({ type: 'status' as const, peakL: 0, peakR: 0, frame: 0, playing: true, steps, patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0, countIn: 0, ...extra });
+  const shown = (app: App, i: number) => (app as unknown as { targets: ({ get(): number } | null)[] }).targets[i]!.get();
+
+  it('a pattern lock shows on its knob at the playhead (gliding to the next), the knob as set before the first and when stopped', () => {
+    const { app, tap } = makeApp();
+    const steps = app.project.channels[0].patterns[0].steps;
+    steps[4].locks = { 'm:0:volume': 0.2 };
+    steps[8].locks = { 'm:0:volume': 0.6 };
+    const own = app.project.channels[0].volume;
+    tap('mode:design');
+    tap('dpage1'); // MIX: VOL 1 is knob 1
+    tap('play');
+    app.setStatus(status([2, 0, 0, 0, 0, 0, 0, 0]));
+    expect(shown(app, 0)).toBeCloseTo(own, 5); // before the first lock: as set
+    app.setStatus(status([6, 0, 0, 0, 0, 0, 0, 0]));
+    expect(shown(app, 0)).toBeCloseTo(0.4, 5); // half way from 0.2 to 0.6
+    app.setStatus(status([12, 0, 0, 0, 0, 0, 0, 0]));
+    expect(shown(app, 0)).toBeCloseTo(0.6, 5); // held after the last
+    expect(app.project.channels[0].volume).toBe(own); // only shown, never stored
+    tap('play'); // stopped: the knob's own value
+    expect(shown(app, 0)).toBe(own);
+  });
+
+  it('a SONG lane wins over the pattern lock while the song plays', () => {
+    const { app, tap } = makeApp();
+    app.project.channels[0].patterns[0].steps[0].locks = { 'm:0:volume': 0.2 };
+    app.project.song = { rows: [{ bars: 2, patterns: new Array<number>(8).fill(0) }], auto: { 'm:0:volume': [[0, 0.9]] } };
+    tap('menu');
+    tap('cur+'); // MODE: SONG
+    tap('play');
+    tap('mode:record'); // SONG RECORD: LIVE / SOUND / MIX
+    tap('dpage2'); // MIX
+    tap('play');
+    app.setStatus(status([3, 0, 0, 0, 0, 0, 0, 0], { songRow: 0, songBar: 0, barPhase: 3 / 16 }));
+    expect(shown(app, 0)).toBeCloseTo(0.9, 5);
+  });
+});
+
 describe('ARP key', () => {
   it('tap = on / off for the selected track; FUNC + ARP = its knobs; MODE starts OFF', () => {
     const { app, tap, press, release, sent, emit } = makeApp();

@@ -108,3 +108,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - ROLL RATE as note values (2026-10-29): 1/4, 1/8., 1/8, 1/16 (default), 1/32, 1/32T, 1/64 at the tempo, whatever the pattern's speed (replaces 4:1 ... 1:4 from earlier the same day); held ROLL on the master 16th grid; format v57 (`rollRateV57`): every saved drum rolls at 1/16.
 - ARP view (2026-10-29): ARP tapped while its knobs are open only closes them (it no longer turns ARP on / off there).
 - BASS retrigger click fixed (2026-10-29): a mono note while the last one still sounds starts on a second voice, the old one fading over 3 ms (was: the same voice retriggered, its filter / FM envelopes jumping mid-release). Also a voice silenced by a fade starts its next note from zero.
+- Locks move the knobs (2026-10-29): while playing, knobs with pattern locks or SONG lanes follow them at the playhead on the panel and screen (display only; the engine already played them).
