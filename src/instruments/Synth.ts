@@ -147,6 +147,14 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   // the same curves as the filter's. Each FM algorithm's index swings with it.
   { id: 'fmattack', name: 'FM ATK', min: 0.0005, max: 10, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'fmdecay', name: 'FM DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'power', power: FDECAY_POWER },
+  // LEAD: delayed vibrato (depth in semitones, rate, and how long it takes to swell in after
+  // each note starts) and a pitch envelope (each note bends into its pitch from BEND
+  // semitones away, over BEND TIME).
+  { id: 'vibrato', name: 'VIBRATO', min: 0, max: 1, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 2 },
+  { id: 'vibrate', name: 'VIB RATE', min: 1, max: 12, defaultValue: 5.5, unit: 'HZ', curve: 'exp', decimals: 1 },
+  { id: 'vibdelay', name: 'VIB DELAY', min: 0, max: 2, defaultValue: 0.3, unit: 'S', curve: 'linear', decimals: 2 },
+  { id: 'bend', name: 'BEND', min: -24, max: 24, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 1 },
+  { id: 'bendtime', name: 'BEND TIME', min: 0.005, max: 2, defaultValue: 0.08, unit: 'S', curve: 'exp', decimals: 3 },
   { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
   { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
@@ -204,12 +212,12 @@ export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'gl
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
 export const PAD_FIXED = { voice: 0, sub: 0, algo: 2 };
 /**
- * LEAD: simple waveforms through the 3 CARRIER algorithm (one feedback modulator into three
- * carriers at related ratios): plain mono leads with INTENSITY down, DX7 bite at the top.
+ * LEAD: the BASS / PLUCK engine (SHAPE's waves into an FM pair, OSC 2 detuned, one envelope),
+ * mono with slides, plus what makes a lead: delayed VIBRATO and a pitch envelope (BEND).
  */
-export const LEAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, attack2: 0.004, decay: 0.6, decay2: 0.6, sustain: 0.75, sustain2: 0.75, release: 0.2, release2: 0.2, level: 0.55, detune: 0.08 }, SHARED_NAMES);
-/** LEAD: 3 voices, so a note's release rings under the next one (and live chords work). */
-export const LEAD_FIXED = { voice: 0, voices: 3, sub: 0, unison: 0, algo: 1 };
+export const LEAD_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'vibrato', 'vibrate', 'vibdelay', 'bend', 'bendtime', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, decay: 0.6, sustain: 0.75, release: 0.2, level: 0.55, detune: 0.08 }, SHARED_NAMES);
+/** LEAD: mono (a note while one sounds starts fresh, the old one fading), one envelope. */
+export const LEAD_FIXED = { voice: 1, sub: 0, envlink: 1 };
 /** PLUCK: a polyphonic pluck (the ARP is a track setting now: engine/arp.ts). */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1 };
@@ -275,6 +283,9 @@ class Voice {
   counter = 0;
   /** REST: samples of its fade left (0 = not cut; -1 = faded, silent until its next note). */
   cutLeft = 0;
+  /** Samples since the note started (vibrato swell, pitch envelope), and the vibrato's phase. */
+  noteT = 0;
+  vibPh = 0;
   readonly filter = new Svf();
 }
 
@@ -340,6 +351,8 @@ export class Synth implements Instrument {
   private readonly releaseMul = new Float64Array(2);
   private ageCounter = 0;
   private pitchMod = 1;
+  /** LEAD pitch effects (VIBRATO, BEND); pitchFx = either is on. */
+  private vibDepth = 0; private vibRate = 5.5; private vibDelay = 0.3; private bend = 0; private bendTime = 0.08; private pitchFx = false;
   /** envlink: OSC 2 follows OSC 1's envelope (DECAY x dratio). */
   private envLink = false;
   private decay1 = 0.4; private dRatio = 1;
@@ -437,6 +450,8 @@ export class Synth implements Instrument {
     v.age = ++this.ageCounter;
     v.counter = 0;
     v.cutLeft = 0;
+    v.noteT = 0;
+    v.vibPh = 0;
   }
 
   setPitchMod(semitones: number): void {
@@ -484,6 +499,11 @@ export class Synth implements Instrument {
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
       case 'fm': this.fm = value; this.updateFm(); break;
+      case 'vibrato': this.vibDepth = value; this.pitchFx = this.vibDepth > 0 || this.bend !== 0; break;
+      case 'vibrate': this.vibRate = value; break;
+      case 'vibdelay': this.vibDelay = value; break;
+      case 'bend': this.bend = value; this.pitchFx = this.vibDepth > 0 || this.bend !== 0; break;
+      case 'bendtime': this.bendTime = Math.max(0.001, value); break;
       case 'fm2': this.fm2 = value; this.updateFm(); break;
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
@@ -683,12 +703,21 @@ export class Synth implements Instrument {
   private phases(v: Voice, n: number, det: number): void {
     const sr = this.sr, pitchMod = this.pitchMod, sub = this.sub;
     const fmAttackInc = this.fmAttackInc, fmDecayMul = this.fmDecayMul;
+    // LEAD VIBRATO / BEND: the pitch at the block's start and end, ramped across it.
+    let pm0 = 1, pmStep = 0;
+    if (this.pitchFx) {
+      const ph1 = v.vibPh + (this.vibRate * n) / sr;
+      pm0 = this.notePitch(v.noteT, v.vibPh);
+      pmStep = (this.notePitch(v.noteT + n, ph1) - pm0) / n;
+      v.vibPh = ph1 - Math.floor(ph1);
+    }
+    v.noteT += n;
     for (let j = 0; j < n; j++) {
       if (v.freq !== v.targetFreq) {
         v.freq += (v.targetFreq - v.freq) * v.glide;
         if (Math.abs(v.targetFreq - v.freq) < 1e-3) v.freq = v.targetFreq;
       }
-      const dt1 = (v.freq * pitchMod) / sr;
+      const dt1 = this.pitchFx ? (v.freq * pitchMod * (pm0 + pmStep * j)) / sr : (v.freq * pitchMod) / sr;
       v.p1 += dt1; if (v.p1 >= 1) v.p1 -= 1;
       v.p2 += dt1 * det; if (v.p2 >= 1) v.p2 -= 1;
       v.p3 += dt1 * 0.5; if (v.p3 >= 1) v.p3 -= 1;
@@ -707,7 +736,18 @@ export class Synth implements Instrument {
     }
   }
 
-  /** FM PAIR (algo 0): SHAPE's waves, crossfaded into a sine pair by FM (BASS, PLUCK). */
+  /**
+   * LEAD: the pitch factor t samples into a note (vibrato phase ph): BEND from its start
+   * falling away over BEND TIME, plus VIBRATO swelling in over VIB DELAY.
+   */
+  private notePitch(t: number, ph: number): number {
+    const s = t / this.sr;
+    const swell = this.vibDelay > 0 ? Math.min(1, s / this.vibDelay) : 1;
+    const st = this.bend * Math.exp(-s / this.bendTime) + this.vibDepth * swell * swell * sinTurn(ph);
+    return exp2(st / 12);
+  }
+
+  /** FM PAIR (algo 0): SHAPE's waves, crossfaded into a sine pair by FM (BASS, PLUCK, LEAD). */
   private oscPair(v: Voice, n: number, det: number, w: number, wf: number): void {
     const o1 = this.bO1, o2 = this.bO2;
     waves(w, wf, this.bP1, this.bDt, 1, o1, n);

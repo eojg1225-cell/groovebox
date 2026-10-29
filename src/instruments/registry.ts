@@ -69,11 +69,16 @@ const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
 const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
 const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, 'duck', _], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
+/**
+ * LEAD FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, VIBRATO / VIB RATE (3), BEND / BEND TIME
+ * (7), VIB DELAY / UNISON (8).
+ */
+const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', _, _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
 /** PLUCK FUNC: DECAY / RELEASE, SLIDE (3), UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
 const PLUCK_FUNC = funcPage([_, 'decay', 'glide', 'unison', _, _, 'track:chord', 'dmix'], [_, 'release', _, _, _, _, 'detune', 'verb']);
 
 /**
- * PAD / LEAD FUNC layer: DECAY / SUSTAIN (both oscillators) under module 2, OSC 2's own
+ * PAD FUNC layer: DECAY / SUSTAIN (both oscillators) under module 2, OSC 2's own
  * ATTACK / RELEASE on module 3, the rest as given (columns 1, 4, 7, 8).
  */
 function heldFunc(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
@@ -84,14 +89,14 @@ function heldFunc(top: readonly (string | null)[], bottom: readonly (string | nu
 }
 
 /**
- * PAD / LEAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;
+ * PAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;
  * OSC 2's own ATTACK / RELEASE (FUNC module 3) set it apart afterwards. FM LVL likewise sets
  * the second stack's FM LVL2 (FUNC module 4).
  */
 const BOTH_OSCS: Readonly<Record<string, readonly string[]>> = {
   attack: ['attack2'], decay: ['decay2'], sustain: ['sustain2'], release: ['release2'], fm: ['fm2'],
 };
-const LINKED: Partial<Record<SoundKind, Readonly<Record<string, readonly string[]>>>> = { pad: BOTH_OSCS, lead: BOTH_OSCS };
+const LINKED: Partial<Record<SoundKind, Readonly<Record<string, readonly string[]>>>> = { pad: BOTH_OSCS };
 
 /** Parameters a SOUND page knob on `id` sets along with it (none = just itself). */
 export function linkedParams(kind: InstrumentKind, id: string): readonly string[] {
@@ -192,8 +197,8 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('WIDTH', [['detune', 1], ['unison', 1]]),
   ],
   lead: [
-    macro('GRIT', [['drive', 1], ['fm', 1], ['fm2', 1], ['crush', 1, true]]),
-    macro('LENGTH', LENGTH_SYNTH),
+    macro('GRIT', [['drive', 1], ['fm', 1], ['crush', 1, true]]),
+    macro('LENGTH', [['decay', 1], ['release', 1], ['fdecay', 1]]),
   ],
   pluck: [
     macro('LENGTH', [['decay', 1], ['release', 1], ['fdecay', 1]]),
@@ -296,8 +301,8 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.948, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
-    layout: synthPage(['attack', 'release'], ['glide', 'detune']),
-    funcLayout: trackFunc(heldFunc([_, 'fm2', _, _], [_, _, _, _])),
+    layout: synthPage(['attack', 'decay'], ['glide', 'detune']),
+    funcLayout: trackFunc(LEAD_FUNC),
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: 1.105, live: ['cutoff', 'macro:space'], liveFunc: ['macro:sustain', 'track:notes'], params: PLUCK_PARAMS,

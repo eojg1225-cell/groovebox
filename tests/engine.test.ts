@@ -224,9 +224,13 @@ describe('instruments', () => {
     expect(INSTRUMENTS.pluck.params.some((p) => p.id.startsWith('arp'))).toBe(false);
     expect([INSTRUMENTS.bass.layout[7], INSTRUMENTS.bass.layout[15]]).toEqual(['glide', 'sub']);
     expect([INSTRUMENTS.lead.layout[7], INSTRUMENTS.lead.layout[15]]).toEqual(['glide', 'detune']);
-    // PAD / LEAD: module 2 (and FUNC DECAY / SUSTAIN) move both oscillators.
+    // PAD: module 2 (and FUNC DECAY / SUSTAIN) move both oscillators; LEAD has one envelope.
     expect(linkedParams('pad', 'attack')).toEqual(['attack2']);
-    expect(linkedParams('lead', 'release')).toEqual(['release2']);
+    expect(linkedParams('lead', 'release')).toEqual([]);
+    expect([INSTRUMENTS.lead.layout[1], INSTRUMENTS.lead.layout[9]]).toEqual(['attack', 'decay']);
+    // LEAD FUNC: VIBRATO / VIB RATE (3), BEND / BEND TIME (7), VIB DELAY / UNISON (8).
+    const lf = INSTRUMENTS.lead.funcLayout;
+    expect([lf[2], lf[10], lf[6], lf[14], lf[7], lf[15]]).toEqual(['vibrato', 'vibrate', 'bend', 'bendtime', 'vibdelay', 'unison']);
     expect(linkedParams('bass', 'attack')).toEqual([]);
     expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'glide']);
     expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['drive', 'unison']); // UNISON where CRUSH would be
@@ -235,8 +239,8 @@ describe('instruments', () => {
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) {
       expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || ((k === 'kick' || k === 'snare') && id.startsWith('t_s'))), k).toBe(true);
     }
-    // PAD / LEAD hold their notes: ATTACK / RELEASE on the page, DECAY / SUSTAIN on FUNC.
-    for (const k of ['pad', 'lead'] as const) {
+    // PAD holds its notes: ATTACK / RELEASE on the page, DECAY / SUSTAIN on FUNC.
+    for (const k of ['pad'] as const) {
       const l = INSTRUMENTS[k].layout;
       expect([l[1], l[9]], k).toEqual(['attack', 'release']);
       const f = INSTRUMENTS[k].funcLayout;
@@ -1055,9 +1059,9 @@ describe('TIMBRE and INTENSITY macros', () => {
     expect(rim.t_pitch).toBeGreaterThan(brk.t_pitch);
   });
 
-  it('TIMBRE never changes tail lengths or the CHORD / LEAD amp ADSR: they are the type\'s own', () => {
+  it('TIMBRE never changes tail lengths or the PAD amp ADSR: they are the type\'s own (BASS, PLUCK, LEAD sounds bring theirs)', () => {
     const tails = ['t_decay', 'm_decay', 'detune', 'unison', 'attack', 'attack2', 'decay', 'decay2', 'sustain', 'sustain2', 'release', 'release2'];
-    for (const k of SOUND_KINDS.filter((k) => k !== 'bass' && k !== 'pluck')) {
+    for (const k of SOUND_KINDS.filter((k) => k !== 'bass' && k !== 'pluck' && k !== 'lead')) {
       const ids = macroIds(k, INSTRUMENTS[k].params);
       // The KICK's BD DEC is TIMBRE's, but the same on every sound at INT 50 (TECHNO's extreme shortens it).
       if (k === 'kick') {
@@ -2039,21 +2043,21 @@ describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => 
   });
 
   it('older saves derive trims that reproduce their values exactly', () => {
-    // (On the LEAD: the PAD's engine changed in v32, so its old sounds are rebuilt.)
+    // (On the BASS: the PAD's and the LEAD's engines changed (v32, v58), so their old sounds are rebuilt.)
     const p = createDefaultProject();
-    const sound = { ...p.channels[6].sounds.lead!, cutoff: 333, intensity: 0.2 };
-    p.channels[6].sounds.lead = sound;
-    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 16 };
-    delete old.channels[6].trims;
-    const q = fromStored(old)!.channels[6];
-    expect(q.sounds.lead!.cutoff).toBeCloseTo(333);
-    const trims = q.trims.lead!;
-    const hidden = hiddenSound('lead', q.sounds.lead!, INSTRUMENTS.lead.params);
-    for (const id of macroIds('lead', INSTRUMENTS.lead.params)) {
-      const spec = paramSpec('lead', id)!;
-      expect(applyTrim(spec, hidden[id], trims[id]), id).toBeCloseTo(q.sounds.lead![id], 4);
+    const sound = { ...p.channels[4].sounds.bass!, cutoff: 333, intensity: 0.2 };
+    p.channels[4].sounds.bass = sound;
+    const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 41 };
+    delete old.channels[4].trims;
+    const q = fromStored(old)!.channels[4];
+    expect(q.sounds.bass!.cutoff).toBeCloseTo(333);
+    const trims = q.trims.bass!;
+    const hidden = hiddenSound('bass', q.sounds.bass!, INSTRUMENTS.bass.params);
+    for (const id of macroIds('bass', INSTRUMENTS.bass.params)) {
+      const spec = paramSpec('bass', id)!;
+      expect(applyTrim(spec, hidden[id], trims[id]), id).toBeCloseTo(q.sounds.bass![id], 4);
     }
-    expect(deriveTrims('lead', presetSound('lead', 1), INSTRUMENTS.lead.params)).toEqual({});
+    expect(deriveTrims('bass', presetSound('bass', 1), INSTRUMENTS.bass.params)).toEqual({});
   });
 
   it('live macros only push SOUND page parameters (or ones a page knob moves with it)', () => {
@@ -2101,16 +2105,7 @@ describe('master limiter', () => {
   });
 });
 
-describe('LEAD: 3 carriers on a feedback modulator', () => {
-  const leadAt = (timbre: number, intensity: number, set: Record<string, number> = {}) => {
-    const s = new Synth(SR, LEAD_PARAMS, LEAD_FIXED);
-    const sound = { ...macroSound('lead', timbre, intensity, LEAD_PARAMS), ...set };
-    for (const id in sound) s.setParam(id, id === 'cutoff' ? 20000 : id === 'fenv' ? 0 : sound[id]);
-    s.noteOn(45, 1, 45, false);
-    const l = new Float32Array(SR / 4);
-    s.render(l, new Float32Array(l.length), 0, l.length);
-    return l;
-  };
+describe('LEAD: the FM pair engine (and the DX7 level curve PAD uses)', () => {
   /** High-frequency share: energy of the first difference over the energy. */
   const edge = (l: Float32Array) => {
     let d = 0, e = 0;
@@ -2123,43 +2118,6 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
     expect(dx7Index(0.6)).toBeGreaterThan(0.3);
     expect(dx7Index(0.6)).toBeLessThan(0.6);
     expect(dx7Index(1)).toBeCloseTo(13);
-  });
-
-  it('INTENSITY leaves FM LVL and FEEDBACK as the sound sets them', () => {
-    for (const t of [0, 0.5, 1]) {
-      const mid = macroSound('lead', t, 0.5, LEAD_PARAMS);
-      for (const x of [0, 0.75, 1]) {
-        const s = macroSound('lead', t, x, LEAD_PARAMS);
-        expect([s.fm, s.feedback]).toEqual([mid.fm, mid.feedback]);
-      }
-    }
-  });
-
-  it('every TIMBRE is a plain lead at FM LVL 0 and bites at FM LVL 100', () => {
-    for (const t of [0, 1 / 3, 2 / 3, 1]) {
-      const plain = leadAt(t, 0.5, { fm: 0 });
-      const wild = leadAt(t, 0.5, { fm: 1 });
-      expect(stats(wild).nan).toBe(false);
-      expect(edge(wild), `t=${t}`).toBeGreaterThan(edge(plain) * 1.5);
-    }
-  });
-
-  it('INTENSITY 0 is one clear note (carrier 1 alone); the stack comes in with INTENSITY', () => {
-    const c = (x: number) => macroSound('lead', 0, x, LEAD_PARAMS).carriers;
-    expect(c(0)).toBeLessThan(0.01);
-    expect(c(0.75)).toBeCloseTo(0.6, 2);
-    expect(c(1)).toBeCloseTo(1, 2);
-    // ODD 2:3 (first): at 0 the wave repeats at the note's period; fully up it does not.
-    const period = SR / midiToHz(45 + 12); // OCTAVE +1
-    const repeat = (l: Float32Array) => {
-      const k = Math.round(period * 7); // an odd number of periods (sub-octave content does not line up)
-      let num = 0, den = 0;
-      for (let i = SR / 10; i < l.length - k; i++) { num += l[i] * l[i + k]; den += l[i] * l[i]; }
-      return num / den;
-    };
-    const clean = { fm: 0, feedback: 0 }; // no modulation: the carriers alone
-    expect(repeat(leadAt(0, 0, clean))).toBeGreaterThan(0.95);
-    expect(repeat(leadAt(0, 1, clean))).toBeLessThan(repeat(leadAt(0, 0, clean)) - 0.2);
   });
 
   it('PAD / LEAD: FM ATK / FM DEC shape the modulation (a struck burst settling to FM LVL)', () => {
@@ -2180,7 +2138,7 @@ describe('LEAD: 3 carriers on a feedback modulator', () => {
   it('TIMBRE steps FM ratios through related ratios between sounds', () => {
     for (let t = 0; t <= 1; t += 0.05) {
       const s = macroSound('lead', t, 0.5, LEAD_PARAMS);
-      for (const id of ['fmratio', 'ratio2', 'ratio3']) expect(RATIO_STEPS.some((r) => Math.abs(r - s[id]) < 1e-9), `${id} @${t}`).toBe(true);
+      for (const id of ['fmratio']) expect(RATIO_STEPS.some((r) => Math.abs(r - s[id]) < 1e-9), `${id} @${t}`).toBe(true);
     }
   });
 });
@@ -2231,7 +2189,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
     expect(names('hat')).toEqual(['RIDE', 'HAT', 'SPLASH', 'CRASH', 'CHINA']);
     expect(names('bass')).toEqual(['SINE SUB', 'GROWL', 'ACID', 'SOLID', 'FM 2:3']);
     expect(names('snare')[1]).toBe('PICCOLO');
-    expect(names('lead')[1]).toBe('ORGAN');
+    expect(names('lead')).toEqual(['WHISTLE', 'SQUARE', 'SUPERSAW', 'HOOVER', 'FM BITE']);
     for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
   });
 
@@ -2762,28 +2720,84 @@ describe('MID CUT per track (MIX, FUNC) at the sound\'s MID FREQ', () => {
 
 });
 
+describe('v58: LEAD on the FM pair engine', () => {
+  it('a saved LEAD is rebuilt from the new sounds at its TIMBRE / INT, its SOUND page edits (trims) and envelope kept', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 57;
+    const lead = stored.channels[6];
+    lead.sounds.lead = { ...lead.sounds.lead, timbre: 0.75, intensity: 0.5, ratio2: 1.5, carriers: 0.3, shape: 1.2, release: 1.5 };
+    lead.trims = { lead: { cutoff: 0.5 } }; // the cutoff turned up from its TIMBRE value
+    const q = fromStored(stored)!.channels[6];
+    const s = q.sounds.lead!;
+    const at = macroSound('lead', 0.75, 0.5, LEAD_PARAMS); // HOOVER
+    expect(s.shape).toBe(at.shape);
+    expect(s.bend).toBe(at.bend);
+    expect(s.cutoff).toBeGreaterThan(at.cutoff * 1.2); // the trim kept on top
+    expect(s.release).toBe(1.5); // not TIMBRE's: as saved
+    expect(s.ratio2).toBeUndefined(); // the old engine's settings are gone
+    expect(q.trims.lead).toEqual({ cutoff: 0.5 });
+  });
+});
+
 describe('LEAD voices', () => {
-  it('plays 3 voices: a released note rings on under the next, a 4th steals the oldest', () => {
-    // Each note plays 2000 frames, then is released (long RELEASE); the last window is compared.
-    const lead = (notes: number[], voices = 3, firstVel = 1) => {
-      const s = new Synth(SR, LEAD_PARAMS, { ...LEAD_FIXED, voices });
-      const sound: Record<string, number> = { ...presetSound('lead', 0), sustain: 1, sustain2: 1, release: 2, release2: 2 };
+  it('is mono: a new note takes over (the old one fades out in CUT_FADE), a slide glides one voice', () => {
+    const lead = (notes: number[]) => {
+      const s = new Synth(SR, LEAD_PARAMS, LEAD_FIXED);
+      const sound: Record<string, number> = { ...presetSound('lead', 1), sustain: 1, release: 2, vibrato: 0, bend: 0 };
       for (const id in sound) s.setParam(id, sound[id]);
       const l = new Float32Array(2000 * notes.length + 2000);
       notes.forEach((n, i) => {
-        s.noteOn(n, i === 0 ? firstVel : 1, n, false);
+        s.noteOn(n, 1, n, false);
         s.render(l, new Float32Array(l.length), i * 2000, (i + 1) * 2000);
         s.noteOff(n);
       });
       s.render(l, new Float32Array(l.length), notes.length * 2000, l.length);
       return l.subarray(l.length - 1000);
     };
-    const diff = (a: Float32Array, b: Float32Array) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0);
-    // 3 notes: the first two still ring under the third (unlike one voice).
-    expect(diff(lead([57, 60, 64]), lead([57, 60, 64], 1))).toBeGreaterThan(0.01);
-    // A 4th note takes the oldest voice: the first note no longer matters.
-    expect(diff(lead([57, 60, 64, 67]), lead([57, 60, 64, 67], 3, 0))).toBeLessThan(1e-6);
-    expect(diff(lead([57, 60, 64]), lead([57, 60, 64], 3, 0))).toBeGreaterThan(0.01);
+    const rms = (a: Float32Array) => Math.sqrt(a.reduce((m, v) => m + v * v, 0) / a.length);
+    // The earlier notes no longer sound under the last one: as loud as that note alone.
+    expect(rms(lead([57, 60, 64])) / rms(lead([64]))).toBeCloseTo(1, 1);
+  });
+
+  it('VIBRATO swells in after VIB DELAY; BEND starts each note away from its pitch', () => {
+    /** Zero-crossing frequency (Hz) over [from, to) seconds. */
+    const freq = (l: Float32Array, from: number, to: number) => {
+      const a = Math.floor(from * SR), b = Math.floor(to * SR);
+      let first = -1, last = -1, n = 0;
+      for (let i = a + 1; i < b; i++) if (l[i - 1] < 0 && l[i] >= 0) { if (first < 0) first = i; last = i; n++; }
+      return n > 1 ? ((n - 1) * SR) / (last - first) : 0;
+    };
+    const play = (set: Record<string, number>) => {
+      const s = new Synth(SR, LEAD_PARAMS, LEAD_FIXED);
+      const sound: Record<string, number> = { ...presetSound('lead', 0), fm: 0, cutoff: 20000, fenv: 0, sustain: 1, octave: 4, vibrato: 0, bend: 0, ...set };
+      for (const id in sound) s.setParam(id, sound[id]);
+      s.noteOn(57, 1, 57, false); // A3, 220 Hz
+      const l = new Float32Array(SR);
+      s.render(l, new Float32Array(l.length), 0, l.length);
+      return l;
+    };
+    const plain = play({});
+    expect(freq(plain, 0.1, 0.9)).toBeCloseTo(220, 0);
+    // VIBRATO 1 st at 4 Hz after 0.3 s: steady before, swinging by about a semitone after.
+    const vib = play({ vibrato: 1, vibrate: 4, vibdelay: 0.3 });
+    expect(Math.abs(freq(vib, 0.0, 0.05) - 220)).toBeLessThan(1);
+    const swing = [0.5, 0.56, 0.62, 0.68, 0.74, 0.8].map((t) => freq(vib, t, t + 0.03));
+    expect(Math.max(...swing) - Math.min(...swing)).toBeGreaterThan(15);
+    // BEND -12 over 0.1 s: the note starts an octave down and lands on pitch.
+    const bent = play({ bend: -12, bendtime: 0.1 });
+    expect(freq(bent, 0.0, 0.02)).toBeLessThan(150);
+    expect(freq(bent, 0.7, 0.9)).toBeCloseTo(220, 0);
+  });
+
+  it('INTENSITY leaves the FM, the vibrato and the bend as each sound sets them', () => {
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const mid = macroSound('lead', t, 0.5, LEAD_PARAMS);
+      for (const x of [0, 1]) {
+        const s = macroSound('lead', t, x, LEAD_PARAMS);
+        expect([s.fm, s.vibrato, s.bend, s.fmratio]).toEqual([mid.fm, mid.vibrato, mid.bend, mid.fmratio]);
+      }
+    }
   });
 });
 
@@ -3565,10 +3579,10 @@ describe('PAD / PLUCK chord slides, FM LVL2', () => {
     }
   });
 
-  it('PAD / PLUCK have a SLIDE knob (PAD on its page, PLUCK on FUNC); PAD / LEAD FM LVL2 under FM LVL, set along with it', () => {
+  it('PAD / PLUCK have a SLIDE knob (PAD on its page, PLUCK on FUNC); PAD FM LVL2 under FM LVL, set along with it', () => {
     expect(INSTRUMENTS.pad.layout).toContain('glide');
     expect(INSTRUMENTS.pluck.funcLayout).toContain('glide');
-    for (const k of ['pad', 'lead'] as const) {
+    for (const k of ['pad'] as const) {
       const fmAt = INSTRUMENTS[k].layout.indexOf('fm');
       expect(INSTRUMENTS[k].funcLayout[fmAt]).toBe('fm2');
       expect(linkedParams(k, 'fm')).toEqual(['fm2']);
@@ -3578,7 +3592,7 @@ describe('PAD / PLUCK chord slides, FM LVL2', () => {
   });
 
   it('FM LVL2 sets the second stack\'s modulation on its own', () => {
-    for (const [kind, params, fixed] of [['pad', PAD_PARAMS, PAD_FIXED], ['lead', LEAD_PARAMS, LEAD_FIXED]] as const) {
+    for (const [kind, params, fixed] of [['pad', PAD_PARAMS, PAD_FIXED]] as const) {
       const out = (set: Record<string, number>) => {
         const s = new Synth(SR, params, fixed);
         const sound: Record<string, number> = { ...macroSound(kind, 0.5, 0.5, params), carriers: 1, fm: 0.8, fmdecay: 10, ...set };

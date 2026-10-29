@@ -220,23 +220,25 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   lead: {
-    // DX7-style: one feedback modulator into three carriers at related ratios (carrier 1 :
-    // carrier 2 : carrier 3, modulator). ODD (the most chilled) first. With INTENSITY down
-    // carrier 1 alone plays a simple wave - one clear note; carriers 2 / 3 come in as it
-    // rises, in full in the top quarter. INTENSITY leaves the modulation alone: FM LVL,
-    // FEEDBACK and the FM envelope set it (as on the BASS and PAD).
+    // The BASS / PLUCK engine, mono: SHAPE's waves into an FM pair, OSC 2 detuned, UNISON,
+    // plus each sound's VIBRATO (swelling in after VIB DELAY) and BEND (each note bends into
+    // its pitch). Chilled first. INTENSITY opens the filter, its envelope, DRIVE and the width;
+    // it leaves the FM, the vibrato and the bend alone.
     anchors: [
-      { name: 'ODD 2:3', values: { ogain: 1.124, shape: 0.7, fm: 0.56, fmratio: 1.5, ratio2: 1.5, ratio3: 2.5, feedback: 0.3, carriers: 0.3, glide: 0.06, cutoff: 5000, reso: 0.15, fenv: 0.45, fdecay: 0.5, drive: 1.2 }, hard: { ogain: 1.46 }, soft: { ogain: 0.896 } },
-      // Organ: drawbar-style carriers 1 : 2 : 3 on soft waves, full sustain - a bass or a lead.
-      { name: 'ORGAN', values: { ogain: 1.341, shape: 0.6, fm: 0.4, fmratio: 1, ratio2: 2, ratio3: 3, feedback: 0.15, carriers: 0.6, glide: 0.06, cutoff: 6000, reso: 0.05, fenv: 0.1, fdecay: 0.1, drive: 1.2 }, hard: { ogain: 1.462 }, soft: { ogain: 0.92 } },
-      { name: 'SAW 1:1', values: { ogain: 0.825, shape: 2, fm: 0.52, fmratio: 1, ratio2: 1, ratio3: 1, feedback: 0.5, carriers: 0.35, glide: 0.06, cutoff: 3200, reso: 0.15, fenv: 0.3, fdecay: 0.4, drive: 1.3 }, soft: { ogain: 0.88 } },
-      { name: 'OCT 1:2', values: { ogain: 0.591, shape: 3, fm: 0.54, fmratio: 1, ratio2: 2, ratio3: 0.5, feedback: 0.4, carriers: 0.35, glide: 0.06, cutoff: 2600, reso: 0.25, fenv: 0.35, fdecay: 0.35, drive: 1.4 }, hard: { ogain: 0.722 }, soft: { ogain: 0.454 } },
-      { name: 'FIFTH 3:2', values: { ogain: 1.363, shape: 1.5, fm: 0.55, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.35, carriers: 0.35, glide: 0.06, cutoff: 3800, reso: 0.2, fenv: 0.4, fdecay: 0.4, drive: 1.3 }, hard: { ogain: 1.509 }, soft: { ogain: 1.133 } },
+      // A sine with a slow, late vibrato and a long slide: theremin / dub siren.
+      { name: 'WHISTLE', soft: { ogain: 0.51 }, hard: { ogain: 0.57 }, values: { ogain: 0.5, shape: 0, fm: 0.04, fmratio: 2, cratio: 1, cutoff: 7000, reso: 0, fenv: 0.1, fattack: 0.0005, fdecay: 0.6, fmattack: 0.0005, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, detune: 0, unison: 0, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35, bend: 0, bendtime: 0.08 } },
+      // Hollow square, a touch of vibrato: chiptune / Detroit.
+      { name: 'SQUARE', soft: { ogain: 0.438 }, hard: { ogain: 0.509 }, values: { ogain: 0.466, shape: 3, fm: 0.06, fmratio: 2, cratio: 1, cutoff: 3500, reso: 0.2, fenv: 0.35, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.3, glide: 0.06, decay: 0.8, sustain: 0.8, detune: 0.08, unison: 0, vibrato: 0.12, vibrate: 5.5, vibdelay: 0.5, bend: 0, bendtime: 0.08 } },
+      // Detuned saws, wide: trance / rave.
+      { name: 'SUPERSAW', soft: { ogain: 1.439 }, hard: { ogain: 1.084 }, values: { ogain: 0.947, shape: 2, fm: 0.04, fmratio: 2, cratio: 1, cutoff: 5000, reso: 0.1, fenv: 0.25, fattack: 0.0005, fdecay: 0.6, fmattack: 0.0005, fmdecay: 0.6, drive: 1.2, glide: 0.06, decay: 1, sustain: 0.85, detune: 0.6, unison: 1.2, vibrato: 0.05, vibrate: 5.5, vibdelay: 0.6, bend: 0, bendtime: 0.08 } },
+      // Detuned saws, wide, each note scooping up from an octave below: the rave hoover.
+      { name: 'HOOVER', soft: { ogain: 1.469 }, hard: { ogain: 1.127 }, values: { ogain: 1.229, shape: 2, fm: 0.08, fmratio: 1, cratio: 1, cutoff: 2200, reso: 0.3, fenv: 0.5, fattack: 0.0005, fdecay: 0.25, fmattack: 0.0005, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
+      // The FM pair at 1 : 2 with a fast FM envelope and a quick zap down from above: it bites.
+      { name: 'FM BITE', soft: { ogain: 0.586 }, hard: { ogain: 0.621 }, values: { ogain: 0.641, shape: 0, fm: 0.55, fmratio: 2, cratio: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fattack: 0.0005, fdecay: 0.15, fmattack: 0.0005, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, unison: 0, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
     ],
     excite: [
-      { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
       { id: 'cutoff', floor: 700, high: 1.4 }, { id: 'reso', floor: 0.05, high: 1.15 }, { id: 'drive', floor: 1, high: 1.5 },
-      { id: 'fenv', floor: 0.05, high: 1.3 },
+      { id: 'fenv', floor: 0.05, high: 1.3 }, { id: 'detune', floor: 0.03, high: 1.4 },
     ],
   },
   pluck: {
@@ -329,6 +331,17 @@ const RATIO_SNAP: Partial<Record<SoundKind, Record<string, readonly number[]>>> 
 };
 
 /**
+ * Per type, ratios that take a detour between two sounds instead of blending straight across
+ * (then snapped as above), so the timbre keeps changing on the way, even between sounds on
+ * the same ratio: up by `octaves` x sin(cycles x pi x f) (f = 0 .. 1 between the two; 0 at
+ * both sounds). PAD: the FM RATIO climbs an octave and back, RATIO 3 up then down, twice as
+ * fast, so their steps fall between each other's.
+ */
+const RATIO_ARC: Partial<Record<SoundKind, Record<string, { octaves: number; cycles: number }>>> = {
+  pad: { fmratio: { octaves: 1, cycles: 1 }, ratio3: { octaves: 1, cycles: 2 } },
+};
+
+/**
  * The parameters TIMBRE / INTENSITY set for a type (the hidden layer under the SOUND page):
  * every anchor's values plus the mirrored OSC 2 SUSTAIN / RELEASE and FM LVL2.
  */
@@ -392,8 +405,12 @@ export function macroSoundOf(def: MacroDef, kind: SoundKind, timbre: number, int
     // Blend on the parameter's own curve (log for frequencies and times).
     out[id] = toValue(spec, toNorm(spec, va) + (toNorm(spec, vb) - toNorm(spec, va)) * f);
     // FM ratios step through related ratios between sounds instead of smearing through
-    // inharmonic ones (1 -> 4/3 -> 3/2 -> 2 ...).
-    if (RATIO_IDS.has(id)) out[id] = nearest(RATIO_SNAP[kind]?.[id] ?? RATIO_STEPS, out[id]);
+    // inharmonic ones (1 -> 4/3 -> 3/2 -> 2 ...), some by way of a detour (RATIO_ARC).
+    if (RATIO_IDS.has(id)) {
+      const arc = RATIO_ARC[kind]?.[id];
+      if (arc) out[id] *= Math.pow(2, arc.octaves * Math.sin(arc.cycles * Math.PI * f));
+      out[id] = nearest(RATIO_SNAP[kind]?.[id] ?? RATIO_STEPS, out[id]);
+    }
   }
   const pair = ladderAt(kind, timbre);
   if (pair) {

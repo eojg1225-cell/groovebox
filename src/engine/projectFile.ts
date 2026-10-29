@@ -273,6 +273,16 @@ export function hatV44(kind: SoundKind, sound: Record<string, number>, trims: Re
 }
 
 /**
+ * v58: LEAD moved from the 3 CARRIER engine onto the BASS / PLUCK one (WHISTLE, SQUARE,
+ * SUPERSAW, HOOVER, FM BITE), so a saved LEAD's TIMBRE / INT values are rebuilt from the new
+ * sounds at its TIMBRE / INT under its stored trims (none stored: none kept). Its notes, mix,
+ * envelope ATTACK / RELEASE and other edits stay.
+ */
+export function leadV58(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (kind === 'lead') rebuildMacros(kind, sound, trims);
+}
+
+/**
  * v46: PERC's order before v46 (v45: SYN DRUM became TIMBALE in place) -> now, by sound:
  * LOW TOM, TIMBALE, CONGA, COWBELL, CLAVE -> LOW TOM, CONGA, COWBELL, TIMBALE, CLAVE.
  */
@@ -405,8 +415,8 @@ export function rollRateV57(sound: Record<string, number>): void {
 /** SOUND page trims as stored (derived from the values when absent), pruned to the page. */
 function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, version: number): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
-  // A rebuilt type (v44 HAT, v45 PERC) without stored trims keeps none.
-  const rebuilt = (version < 44 && kind === 'hat') || (version < 46 && kind === 'perc');
+  // A rebuilt type (v44 HAT, v45 PERC, v58 LEAD) without stored trims keeps none.
+  const rebuilt = (version < 44 && kind === 'hat') || (version < 46 && kind === 'perc') || (version < 58 && kind === 'lead');
   const trims = isObj(x) ? numbers(x) : rebuilt ? {} : deriveTrims(kind, sound, specs);
   if (version < 41 && isObj(x)) fmEnvV41(trims);
   // Trims stored without a linked parameter's (FM LVL2, added later): the knob's own.
@@ -415,6 +425,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 44) hatV44(kind, sound, trims);
   if (version < 46) percV46(kind, sound, trims);
   if (version < 47) kickV47(kind, sound, trims);
+  if (version < 58) leadV58(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }

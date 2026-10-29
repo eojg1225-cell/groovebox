@@ -180,12 +180,13 @@ switch (never glide, never on a relative live knob).
   GAIN. Each type uses two elements (`DrumVoice.balance`); PERC adds the metal tuned between them
   (`relative`). The played note retunes the pitched layers. RING adds the type's fixed extension
   (`ringExtra`). A retrigger fades the old hit's last output over 3 ms.
-- **Synth** (`Synth.ts`): up to 6 voices (oldest stolen; `voices` limits it, LEAD 3; `voice: 1` = mono
-  BASS), two polyBLEP oscillators with SHAPE (sine -> triangle -> saw -> square), detune, unison, sine
+- **Synth** (`Synth.ts`): up to 6 voices (oldest stolen; `voices` limits it; `voice: 1` = mono
+  BASS / LEAD: two voices, a new note starting on one while the last fades on the other), two polyBLEP oscillators with SHAPE (sine -> triangle -> saw -> square), detune, unison, sine
   sub, per-voice SVF low-pass with its own envelope, an FM envelope (`fmattack` / `fmdecay`: the FM
   index of every algorithm swings with it), ADSR per oscillator (`envlink` = one for both: BASS,
-  PLUCK), DRIVE / CRUSH / OUT GAIN. `algo` 0 (BASS, PLUCK): an FM pair (BASS: root-locked ratio
-  ladder via `cratio` / `fmratio`). `algo` 1 (LEAD): a sine modulator with DX7-style feedback
+  PLUCK, LEAD), DRIVE / CRUSH / OUT GAIN, per-note pitch effects (LEAD: delayed VIBRATO and BEND,
+  `notePitch`, ramped per block). `algo` 0 (BASS, PLUCK, LEAD): an FM pair (BASS: root-locked ratio
+  ladder via `cratio` / `fmratio`). `algo` 1 (no type now): a sine modulator with DX7-style feedback
   phase-modulating three carriers (1 / RATIO 2 / RATIO 3; `dx7Index` level curve). `algo` 2 (PAD): two
   stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3, mixed in by CARRIERS, which INTENSITY sets; no CRUSH), DC blocker at 8 Hz.
   PLUCK runs an onboard delay + room (`Instrument.post`); BASS ducks from KICK hits
