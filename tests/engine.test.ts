@@ -1285,28 +1285,38 @@ describe('slides and rolls', () => {
     expect(peak(12000)).toBeLessThan(peak(21000));
   });
 
-  it('ROLL RATE runs 4:1 ... 1:4, 1:1 by default; below a hit a step a run plays every few steps', () => {
-    expect(INSTRUMENTS.kick.params.find((x) => x.id === 'rolldiv')?.options).toEqual(['4:1', '3:1', '2:1', '1:1', '1:2', '1:3', '1:4']);
+  it('ROLL RATE is a note value, 1/4 ... 1/64, 1/16 by default; slower than a step a run plays every few steps', () => {
+    expect(INSTRUMENTS.kick.params.find((x) => x.id === 'rolldiv')?.options).toEqual(['1/4', '1/8.', '1/8', '1/16', '1/32', '1/32T', '1/64']);
     for (const kind of ['kick', 'snare', 'hat', 'perc'] as const) {
       expect(INSTRUMENTS[kind].params.find((x) => x.id === 'rolldiv')?.defaultValue).toBe(3);
     }
     const p = kickProject([0, 1, 2, 3, 6], { bpm: 120 });
-    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 2 }; // 2:1
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 2 }; // 1/8
     for (const i of [0, 1, 2, 3]) p.channels[0].patterns[0].steps[i].slide = true;
     const e = engineWith(p);
     e.handleMessage({ type: 'transport', playing: true });
     near(onsets(render(e, 0.8).l, 0.005, 1500), [0, 12000, 36000]); // steps 1 and 3 of the run, then step 7
   });
 
-  it('v55 saves: ROLL RATE keeps its rate on the new list (1:6 / 1:8 become 1:4)', () => {
+  it('saves before v57: every drum rolls at 1/16', () => {
     const p = createDefaultProject();
     const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 55;
-    stored.channels[0].sounds.kick.rolldiv = 1; // 1:2
-    stored.channels[1].sounds.snare.rolldiv = 5; // 1:8
+    stored.version = 56;
+    stored.channels[0].sounds.kick.rolldiv = 6;
+    stored.channels[1].sounds.snare.rolldiv = 0;
     const back = fromStored(stored)!;
-    expect(back.channels[0].sounds.kick!.rolldiv).toBe(4);
-    expect(back.channels[1].sounds.snare!.rolldiv).toBe(6);
+    expect(back.channels[0].sounds.kick!.rolldiv).toBe(3);
+    expect(back.channels[1].sounds.snare!.rolldiv).toBe(3);
+  });
+
+  it('a roll keeps its note value whatever the pattern\'s speed (TIME X2: 1/16 = every other step)', () => {
+    const p = kickProject([0, 1, 2, 3], { bpm: 120 }); // 16ths of 6000 frames; X2 steps of 3000
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 3 }; // 1/16
+    p.channels[0].patterns[0].speed = 'double';
+    for (const i of [0, 1, 2, 3]) p.channels[0].patterns[0].steps[i].slide = true;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 12000 / SR).l, 0.005, 1500), [0, 6000]); // a run of 4 X2 steps = two 16ths
   });
 
   it('a run rolls evenly straight through swing', () => {

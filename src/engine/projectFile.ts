@@ -16,6 +16,7 @@ import {
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { parseAutoKey } from './automation';
 import { macroIds } from '../instruments/macros';
+import { DEFAULT_ROLL_RATE } from '../instruments/Drum';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { BUS_PARAMS, FX_LIVE, NUM_BUSES } from '../fx/buses';
@@ -385,7 +386,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   if (version < 41) fmEnvV41(values);
   const sound = { ...base };
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
-  if (version < 56 && typeof values.rolldiv === 'number') rollRateV56(sound);
+  if (version < 57) rollRateV57(sound);
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
@@ -396,9 +397,9 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   return sound;
 }
 
-/** v56: ROLL RATE's list became 4:1 ... 1:4 (was 1:1, 1:2, 1:3, 1:4, 1:6, 1:8): the same rate, 1:6 / 1:8 as 1:4. */
-export function rollRateV56(sound: Record<string, number>): void {
-  if (sound.rolldiv !== undefined) sound.rolldiv = Math.min(6, Math.round(sound.rolldiv) + 3);
+/** v57: ROLL RATE became a note value (1/4 ... 1/64); every older save's drums roll at 1/16. */
+export function rollRateV57(sound: Record<string, number>): void {
+  if (sound.rolldiv !== undefined) sound.rolldiv = DEFAULT_ROLL_RATE;
 }
 
 /** SOUND page trims as stored (derived from the values when absent), pruned to the page. */

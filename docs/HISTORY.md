@@ -105,3 +105,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - SONG grid display (2026-10-29): pattern letters stay teal under the cursors; no track armed (tap the cursor's own track, or BARS) = the cursor frames the whole row; held CLEAR / COPY shows each affected cell in yellow as it would read after.
 - ARP view fix (2026-10-29): FUNC + ARP lets go of FUNC and the ARP view ignores FUNC, so its knobs show instead of an empty page.
 - ROLL RATE 4:1 ... 1:4 (2026-10-29): from a hit every 4 steps to 4 hits a step, default 1:1 (was 1:1 ... 1:8, default 1:4); format v56 (`rollRateV56`): saved rates kept, 1:6 / 1:8 -> 1:4.
+- ROLL RATE as note values (2026-10-29): 1/4, 1/8., 1/8, 1/16 (default), 1/32, 1/32T, 1/64 at the tempo, whatever the pattern's speed (replaces 4:1 ... 1:4 from earlier the same day); held ROLL on the master 16th grid; format v57 (`rollRateV57`): every saved drum rolls at 1/16.

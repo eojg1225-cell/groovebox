@@ -51,7 +51,7 @@ import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
-  cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf,
+  cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf, speedSteps,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SettingKey, type SoundKind, type Step,
 } from '../engine/project';
 import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
@@ -62,7 +62,7 @@ import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
 import { CLICK_LEVELS, COUNT_INS, HOLD_PATTERNS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
-import { ROLL_DIVS } from '../instruments/Drum';
+import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
@@ -2300,10 +2300,10 @@ export class App {
     this.send({ type: 'setForce', channel: ch, ring, slide, velocity: dyn === 'normal' ? 0 : DYNAMIC_VELOCITY[dyn] });
   }
 
-  /** Hits per step of a ROLL-flagged drum step on this channel (its sound's ROLL DIV). */
+  /** Hits per step of a ROLL-flagged drum step on this channel: ROLL RATE (per 16th) x the pattern's step length. */
   private rollHits(c: ChannelState): number {
-    const v = c.instrument === 'none' ? 0 : c.sounds[c.instrument]?.rolldiv ?? 0;
-    return ROLL_DIVS[Math.round(v)]?.hits ?? 1;
+    const v = c.instrument === 'none' ? DEFAULT_ROLL_RATE : c.sounds[c.instrument]?.rolldiv ?? DEFAULT_ROLL_RATE;
+    return Math.max(1, Math.round((ROLL_DIVS[Math.round(v)]?.hits ?? 1) * speedSteps(c.patterns[c.activePattern].speed)));
   }
 
   /** The SLIDE button's job on this track: ROLL on drums. */
