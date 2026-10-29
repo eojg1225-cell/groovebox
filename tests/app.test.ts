@@ -1355,7 +1355,7 @@ describe('STEP EDIT', () => {
   const targets = (app: App) => (app as unknown as { targets: T[] }).targets;
   const priv = (app: App) => app as unknown as { primed: { cell: number; staged: Map<string, unknown> } | null; message: string };
 
-  it('RECORD only, stopped: primes the cursor step; touched knobs lock on a tap of the yellow step; moving waits for LOCK or CANCEL', () => {
+  it('RECORD only: primes the cursor step; touched knobs lock on a tap of the yellow step; moving waits for LOCK or CANCEL', () => {
     const { app, tap, emit, flags, texts } = makeApp();
     tap('mode:play');
     tap('stepedit'); // PLAY mode: not here
@@ -1385,8 +1385,37 @@ describe('STEP EDIT', () => {
     expect(flags.get('step3')?.has('lit')).toBe(true);
     tap('cancel'); // UNDO: the lock goes
     expect(app.project.channels[4].patterns[0].steps[2].locks).toBeUndefined();
+    tap('play'); // STEP EDIT stays on while playing
+    expect(app.stepEdit).toBe(true);
+    expect(priv(app).primed?.cell).toBe(2);
+  });
+
+  it('works while playing: the strip stays on the primed bar (BAR moves it), the playhead lights, locks are heard at once and undo one by one', () => {
+    const { app, tap, emit, leds, sent } = makeApp();
+    tap('mode:record');
+    tap('ch5'); // BASS
+    app.project.channels[4].patterns[0].length = 32;
     tap('play');
-    expect(app.stepEdit).toBe(false);
+    tap('stepedit');
+    expect(app.stepEdit).toBe(true);
+    app.setStatus({ type: 'status', peakL: 0, peakR: 0, frame: 0, playing: true, steps: [0, 0, 0, 0, 3, 0, 0, 0], patterns: new Array<number>(8).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0, countIn: 0 });
+    app.updateFrame(0);
+    expect(leds[0]).toBe('cursor');
+    expect(leds[3]).toBe('on'); // the playhead
+    tap('steppage'); // BAR: the next bar, playing or not
+    expect(priv(app).primed?.cell).toBe(16);
+    emit({ type: 'touch', id: 'k5' });
+    emit({ type: 'knob', id: 'k5', value: 0.9 });
+    tap('step1'); // lock step 17
+    const first = app.project.channels[4].patterns[0].steps[16].locks!.cutoff;
+    expect(sent.some((m) => m.type === 'setStep' && m.channel === 4 && m.index === 16)).toBe(true);
+    emit({ type: 'touch', id: 'k5' });
+    emit({ type: 'knob', id: 'k5', value: 0.2 });
+    tap('step2'); // prime step 18 ... (knob waits on 17: refused)
+    tap('step1'); // lock again on 17
+    expect(app.project.channels[4].patterns[0].steps[16].locks!.cutoff).not.toBe(first);
+    tap('cancel'); // UNDO: only the last lock (not the whole pass)
+    expect(app.project.channels[4].patterns[0].steps[16].locks?.cutoff).toBe(first);
   });
 
   it('FUNC shows the SOUND page; its own sound params lock by their bare id; CLEAR + step takes a step\'s locks away', () => {

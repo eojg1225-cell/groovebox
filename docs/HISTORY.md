@@ -109,3 +109,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - ARP view (2026-10-29): ARP tapped while its knobs are open only closes them (it no longer turns ARP on / off there).
 - BASS retrigger click fixed (2026-10-29): a mono note while the last one still sounds starts on a second voice, the old one fading over 3 ms (was: the same voice retriggered, its filter / FM envelopes jumping mid-release). Also a voice silenced by a fade starts its next note from zero.
 - Locks move the knobs (2026-10-29): while playing, knobs with pattern locks or SONG lanes follow them at the playhead on the panel and screen (display only; the engine already played them).
+- STEP EDIT while playing (2026-10-29): STEP EDIT works during playback and stays on through PLAY / STOP; the strip keeps the primed bar with the playhead lit; each lock is its own UNDO step.

@@ -1316,8 +1316,8 @@ export class App {
       return;
     }
     if (id === 'play') {
-      this.leaveStepEdit();
-      this.unprime();
+      // STEP EDIT stays on through PLAY / STOP (its primed step and waiting knobs too).
+      if (!this.stepEdit) this.unprime();
       // FUNC + PLAY = from the top (stopping: back to the top for the next PLAY); FUNC lets go.
       const top = this.func;
       if (top) {
@@ -2280,9 +2280,9 @@ export class App {
   }
 
   /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
-  /** The strip shows the bar playing: PLAY, DESIGN and live recording (RECORD while playing). */
+  /** The strip shows the bar playing: PLAY, DESIGN and live recording (RECORD while playing; not in STEP EDIT, which keeps its primed bar). */
   private get followsPlayhead(): boolean {
-    return this.playing && !this.copyBar && (this.mode === 'play' || this.mode === 'design' || this.recording);
+    return this.playing && !this.copyBar && !this.stepEdit && (this.mode === 'play' || this.mode === 'design' || this.recording);
   }
 
   /**
@@ -3327,8 +3327,8 @@ export class App {
       this.leaveStepEdit();
       return;
     }
-    if (this.mode !== 'record' || this.song || this.playing) {
-      this.flash('RECORD, STOPPED ONLY');
+    if (this.mode !== 'record' || this.song) {
+      this.flash('STEP EDIT: RECORD ONLY');
       return;
     }
     this.stepsMode = false;
@@ -3419,6 +3419,9 @@ export class App {
     const pr = this.primed;
     const page = this.visiblePage(this.selected);
     const pattern = this.pattern;
+    // Playing: the step being heard lights (the edited pattern only).
+    const c = this.channel;
+    const head = this.playing && (this.status?.patterns[this.selected] ?? c.activePattern) === c.activePattern ? (this.status?.steps[this.selected] ?? -1) : -1;
     for (let i = 0; i < STEP_BUTTONS; i++) {
       const id = `step${i + 1}`;
       const index = page * 16 + i;
@@ -3434,7 +3437,7 @@ export class App {
       this.panel.setButtonFlag(id, 'note', !off && step.active);
       this.panel.setButtonFlag(id, 'cursor', primed);
       for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie']) this.panel.setButtonFlag(id, f, false);
-      this.panel.setLed(i, primed ? 'cursor' : '');
+      this.panel.setLed(i, primed ? 'cursor' : !off && index === head ? 'on' : '');
     }
     this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
   }
@@ -3489,7 +3492,7 @@ export class App {
 
   /** Live recording: one PLAY -> STOP pass is one step back. */
   private get livePass(): boolean {
-    return this.playing && this.mode === 'record' && !this.song;
+    return this.playing && this.mode === 'record' && !this.song && !this.stepEdit; // STEP EDIT: each lock its own step
   }
 
   /**
@@ -3955,13 +3958,13 @@ export class App {
     for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
     // STEP EDIT: RECORD, stopped, on the pattern it was primed on (else it starts over there).
-    if (this.stepEdit && (!rec || this.song || this.playing)) this.leaveStepEdit();
+    if (this.stepEdit && (!rec || this.song)) this.leaveStepEdit();
     if (this.stepEdit && !this.waiting && (this.primed?.pattern?.ch !== this.selected || this.primed.pattern.p !== this.channel.activePattern)) {
       const cell = Math.min(this.primed?.cell ?? 0, this.pattern.length - 1);
       this.unprime();
       this.primeAt(cell);
     }
-    this.panel.setButtonEnabled('stepedit', rec && !this.song && !this.playing);
+    this.panel.setButtonEnabled('stepedit', rec && !this.song);
     this.panel.setButtonLit('stepedit', this.stepEdit);
     this.panel.setButtonEnabled('arp', !this.songGrid);
     this.panel.setButtonLit('arp', !!this.channel.arp?.on || this.arpOpen);
