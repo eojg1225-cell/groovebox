@@ -1696,8 +1696,8 @@ export class App {
   }
 
   /**
-   * SONG A-D: the cursor row plays this pattern on the selected tracks and nothing on the
-   * others; with no track selected, on every track.
+   * SONG A-D: the cursor row plays this pattern on the selected tracks, the other tracks keep
+   * what they had; with no track selected, on every track.
    */
   private songPattern(pattern: number): void {
     const name = PATTERN_NAMES[pattern];
@@ -1707,7 +1707,7 @@ export class App {
     }
     const row = this.songRows[this.songRow];
     const all = this.songTracks.size === 0;
-    for (let ch = 0; ch < NUM_CHANNELS; ch++) row.patterns[ch] = all || this.songTracks.has(ch) ? pattern : -1;
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) if (all || this.songTracks.has(ch)) row.patterns[ch] = pattern;
     if (this.songAdded === this.songRow) this.songAdded = -1; // filled: it stays
     this.sendSong();
     this.flash(all ? `ROW ${this.songRow + 1}: ALL ${name}` : `ROW ${this.songRow + 1}: ${name} ON ${[...this.songTracks].sort().map((c) => c + 1).join(' ')}`);

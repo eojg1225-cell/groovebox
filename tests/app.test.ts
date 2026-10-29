@@ -633,17 +633,17 @@ describe('SONG grid: rows, track selection, A-D', () => {
     expect(app.project.song.rows.length).toBe(2);
   });
 
-  it('A-D: the pattern on the selected tracks, the rest blank; nothing selected = every track', () => {
+  it('A-D: the pattern on the selected tracks, the rest kept; nothing selected = every track', () => {
     const { app, tap } = song();
     tap('patC');
     expect(rows(app)[0]).toBe('2,2,2,2,2,2,2,2');
     tap('ch1');
     tap('ch5');
     tap('patA');
-    expect(rows(app)[0]).toBe('0,-1,-1,-1,0,-1,-1,-1');
+    expect(rows(app)[0]).toBe('0,2,2,2,0,2,2,2');
     tap('ch5'); // deselected
     tap('patD');
-    expect(rows(app)[0]).toBe('3,-1,-1,-1,-1,-1,-1,-1');
+    expect(rows(app)[0]).toBe('3,2,2,2,0,2,2,2');
     tap('ch1');
     tap('patB');
     expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
