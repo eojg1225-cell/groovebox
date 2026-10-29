@@ -237,7 +237,7 @@ interface KnobTarget {
    * the stored / engine value (x scale; the relative live knobs: % -> -1..1).
    */
   auto?: { key: string; scale?: number };
-  /** SONG DESIGN: touched while a step is primed (locked there on the second tap). */
+  /** SONG RECORD: touched while a step is primed (locked there on the second tap). */
   staged?: boolean;
   /** A primed step's stand-in for this knob: the knob it stands for. */
   inner?: KnobTarget;
@@ -378,8 +378,18 @@ export class App {
   private songPage = 0;
   /** The transport is playing the song (not the patterns). */
   private songPlaying = false;
-  /** SONG: the tracks selected with the channel buttons (A-D fill them; none = every track). */
+  /**
+   * SONG grid: tracks armed with the channel buttons besides the cursor's own (each gets a
+   * cursor; A-D, CLEAR and COPY work on them all); ◀ ▶ disarm them (`songArmed`).
+   */
   private readonly songTracks = new Set<number>();
+  /**
+   * SONG grid, CLEAR / COPY held: the box from where it began (row, column) to the cursor,
+   * over the armed tracks; cleared / copied on release (`songBoxCells`).
+   */
+  private songBox: { kind: 'clear' | 'copy'; row: number; col: number; moved: boolean } | null = null;
+  /** SONG grid COPY: the cells copied (rows x tracks, OFF ones too) and each row's bars; COPY tap = paste. */
+  private songClip: { tracks: number[]; cells: number[][]; bars: number[] } | null = null;
   /** SONG: the empty row ROW ▼ added past the end (taken away again if left empty upward), -1 = none. */
   private songAdded = -1;
   /** Step entry in progress: the key held down and the step it wrote (for ties). */
@@ -430,12 +440,12 @@ export class App {
   /** SONG: the bar inside the cursor row PLAY starts from (BAR + ◀ ▶; 0 = its first). */
   private songStartBar = 0;
   /**
-   * SONG DESIGN step entry: the primed cell (song position), the knobs touched since with the
+   * SONG RECORD step entry: the primed cell (song position), the knobs touched since with the
    * value each will be locked at, and the knobs' own values to put back (auditioned meanwhile).
    */
   private primed: {
     cell: number;
-    /** STEP EDIT: the pattern whose step it is (cell = its step); absent = a SONG DESIGN cell. */
+    /** STEP EDIT: the pattern whose step it is (cell = its step); absent = a SONG RECORD cell. */
     pattern?: { ch: number; p: number };
     staged: Map<string, { t: KnobTarget; v: number }>;
     orig: Map<string, { t: KnobTarget; v: number }>;
@@ -582,6 +592,7 @@ export class App {
    */
   private get keyboard(): boolean {
     if (this.autoSteps || this.copyBar || this.stepEdit) return false;
+    if (this.song) return true; // SONG never edits a pattern's steps
     if (this.clearHeld && this.mode !== 'design') return false;
     if (this.stepsMode) return false;
     if (this.placing && this.mode === 'record') return false;
@@ -629,8 +640,13 @@ export class App {
     return this.mode === 'record' && this.playing && !this.song;
   }
 
-  /** SONG RECORD: the grid takes the strip, knobs, A-D, the function row and the screen. */
+  /** SONG DESIGN: the grid takes the strip, knobs, A-D, the function row and the screen. */
   get songGrid(): boolean {
+    return this.song && this.mode === 'design';
+  }
+
+  /** SONG RECORD: the song's steps (locks; stopped: `autoSteps`), with the LIVE / SOUND / MIX pages. */
+  get songRecord(): boolean {
     return this.song && this.mode === 'record';
   }
 
@@ -972,7 +988,7 @@ export class App {
   private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
     const sound = { name: 'SOUND', targets: () => this.soundTargets(this.func) };
     const mix = { name: 'MIX', targets: () => this.mixTargets() };
-    // SONG DESIGN (automation): the live knobs instead of PROJECT, first.
+    // SONG RECORD (automation): the live knobs instead of PROJECT, first.
     if (this.song) return [{ name: 'LIVE', targets: () => this.liveGrid() }, sound, mix];
     return [sound, mix, { name: 'PROJECT', targets: () => this.projectTargets() }];
   }
@@ -1076,7 +1092,7 @@ export class App {
     // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.songGrid) return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
-    // SONG: a pattern's sound knobs only audition. A primed step (STEP EDIT, SONG DESIGN):
+    // SONG: a pattern's sound knobs only audition. A primed step (STEP EDIT, SONG RECORD):
     // the knobs show and set what will be locked there.
     const step = (t: (KnobTarget | null)[]) => {
       const heard = this.song ? t.map((x) => (x?.patch ? this.auditionTarget(x) : x)) : t;
@@ -1086,7 +1102,7 @@ export class App {
     if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.sendTargets(this.fxView - 1));
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
     if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
-    if (this.mode === 'design') {
+    if (this.mode === 'design' || this.songRecord) {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
       const t = pages[this.designPage].targets();
@@ -1126,6 +1142,11 @@ export class App {
       this.refreshPanel();
       return;
     }
+    if (this.songGrid && (id === 'clear' || id === 'copy')) {
+      this.songHold(id, e.pressed);
+      this.refreshPanel();
+      return;
+    }
     if (!e.pressed) {
       if ((m = /^step(\d+)$/.exec(id))) this.releaseKey(Number(m[1]) - 1);
       if (id === 'slide' && this.rollHeldCh >= 0) this.releaseRoll();
@@ -1140,7 +1161,7 @@ export class App {
             this.selected = this.heldTrack;
             this.fxView = 0;
             this.touchedKnob = -1;
-            if (this.mode === 'design') this.designPage = this.soundPage;
+            if (this.mode === 'design' || this.songRecord) this.designPage = this.soundPage;
           }
         } else if (!this.sendOpen && !this.heldUsed && this.stepEdit && this.waiting && this.heldTrack !== this.selected) {
           this.flash('LOCK OR CANCEL FIRST');
@@ -1148,7 +1169,7 @@ export class App {
           // A plain tap (no A-D meanwhile) selects the track; in DESIGN it opens its SOUND
           // page (MIX and PROJECT are global).
           this.selected = this.heldTrack;
-          if (this.mode === 'design') {
+          if (this.mode === 'design' || this.songRecord) {
             this.designPage = this.soundPage;
             this.touchedKnob = -1;
           }
@@ -1158,7 +1179,7 @@ export class App {
       }
       if (id === 'clear') {
         this.clearHeld = false;
-        if (!this.clearUsed) this.flash(this.songGrid ? 'HOLD CLEAR + TRACK / A-D / ROW' : 'HOLD CLEAR + STEP / TRACK / A-D');
+        if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK / A-D');
         this.refreshPanel();
       }
       if (id === 'steppage' && this.barHeld) {
@@ -1215,9 +1236,9 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.copyHeld && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
+    if (this.copyHeld && !this.songGrid && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
       // COPY + channel: the same pattern slot on that track; COPY + A-D: that pattern of
-      // this track.
+      // this track. (SONG grid: COPY is its own, songHold.)
       if (this.song) {
         this.copyUsed = true;
         this.flash(SONG_KEEPS);
@@ -1236,12 +1257,11 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.clearHeld && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
+    if (this.clearHeld && !this.songGrid && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
       // CLEAR + channel: that track's pattern; + A-D: that pattern of the selected track (the
-      // one playing / edited too). The SONG grid: the cursor row's cells instead (songClear).
+      // one playing / edited too).
       const pat = id.startsWith('pat') ? PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]) : -1;
-      if (this.songGrid) this.songClear(pat < 0 ? Number(m[1]) - 1 : -1, pat);
-      else if (this.song) { this.clearUsed = true; this.flash(SONG_KEEPS); }
+      if (this.song) { this.clearUsed = true; this.flash(SONG_KEEPS); }
       else if (pat < 0) this.clearTrack(Number(m[1]) - 1);
       else this.clearTrack(this.selected, pat);
       this.refreshPanel();
@@ -1285,7 +1305,7 @@ export class App {
     // SONG: the keys that edit a pattern (STEPS, TIME, REST, flag placing, the sound's OCTAVE)
     // do nothing to it.
     const flag = id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost';
-    if (this.song && (id === 'len' || id === 'speed' || id === 'rest' || (flag && this.mode === 'record') || ((id === 'oct-' || id === 'oct+') && this.func))) {
+    if (this.song && (id === 'len' || id === 'speed' || id === 'rest' || (flag && (this.mode === 'record' || this.songGrid)) || ((id === 'oct-' || id === 'oct+') && this.func))) {
       if (this.funcHeld) this.funcUsed = true;
       this.flash(SONG_KEEPS);
       this.refreshPanel();
@@ -1420,7 +1440,7 @@ export class App {
       this.changeBar(id === 'cur+' ? 1 : -1, true);
       this.barUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && (this.stepEdit || this.autoSteps)) {
-      // STEP EDIT / SONG DESIGN: the primed step one on (not while knobs wait on it).
+      // STEP EDIT / SONG RECORD: the primed step one on (not while knobs wait on it).
       this.stepPrime(id === 'cur+' ? 1 : -1);
     } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
       // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
@@ -1710,8 +1730,16 @@ export class App {
       this.barUsed = true;
       this.flash(`START: ROW ${this.songRow + 1} BAR ${this.songStartBar + 1} (SONG BAR ${this.songBarNumber(this.songRow, this.songStartBar)})`);
     } else if (id === 'cur-' || id === 'cur+') {
+      // ◀ ▶: the cursor to the next column; the other armed tracks are disarmed (CLEAR / COPY
+      // held: the box grows instead).
       this.songCol = Math.max(0, Math.min(NUM_CHANNELS, this.songCol + (id === 'cur+' ? 1 : -1)));
       if (this.songCol > 0) this.selected = this.songCol - 1;
+      if (this.songBox) this.songBox.moved = true;
+      else this.songTracks.clear();
+    } else if ((id === 'oct-' || id === 'oct+') && this.songBox) {
+      // CLEAR / COPY held: ROW ▼ / ▲ grow the box (no rows added).
+      moveRow(this.songRow + (id === 'oct-' ? 1 : -1));
+      this.songBox.moved = true;
     } else if (id === 'oct-' && this.songRow === rows.length - 1) {
       // ROW ▼ past the last row: a new, empty row (as long as the last).
       if (rows.length >= SONG_MAX_ROWS) { this.flash('SONG FULL'); return true; }
@@ -1743,22 +1771,26 @@ export class App {
     } else if ((m = /^step(\d+)$/.exec(id))) {
       const row = this.songPage * 16 + Number(m[1]) - 1;
       if (row >= rows.length) return true;
+      const box = this.songBox;
+      if (box && !box.moved) box.row = row; // CLEAR / COPY held: the box starts on the first key
+      if (box) box.moved = true;
       moveRow(row);
-      if (this.clearHeld) {
-        this.songClear(-1, -1);
-        return true;
-      }
-      if (this.songPlaying) {
+      if (!box && this.songPlaying) {
         this.send({ type: 'songJump', row });
         this.flash(`ROW ${row + 1} AT NEXT BAR`);
       }
     } else if ((m = /^ch(\d)$/.exec(id))) {
-      // A channel tap selects / deselects the track for A-D (and puts the cursor on it).
+      // A channel tap arms / disarms the track (another cursor in the row); the cursor's own
+      // track stays armed. The cursor on BARS: it goes to that track.
       const ch = Number(m[1]) - 1;
-      if (this.songTracks.has(ch)) this.songTracks.delete(ch);
-      else this.songTracks.add(ch);
-      this.songCol = ch + 1;
-      this.selected = ch;
+      if (this.songCol === 0) {
+        this.songCol = ch + 1;
+        this.selected = ch;
+        this.songTracks.clear();
+      } else if (ch !== this.songCol - 1) {
+        if (this.songTracks.has(ch)) this.songTracks.delete(ch);
+        else this.songTracks.add(ch);
+      }
       this.heldTrack = -1;
     } else {
       return false;
@@ -1767,8 +1799,8 @@ export class App {
   }
 
   /**
-   * SONG A-D: the cursor row plays this pattern on the selected tracks, the other tracks keep
-   * what they had; with no track selected, on every track.
+   * SONG A-D: the cursor row plays this pattern on the armed tracks (the cursor on BARS: every
+   * track); the other tracks keep what they had.
    */
   private songPattern(pattern: number): void {
     const name = PATTERN_NAMES[pattern];
@@ -1777,36 +1809,94 @@ export class App {
       this.songRow = 0;
     }
     const row = this.songRows[this.songRow];
-    const all = this.songTracks.size === 0;
-    for (let ch = 0; ch < NUM_CHANNELS; ch++) if (all || this.songTracks.has(ch)) row.patterns[ch] = pattern;
+    const armed = this.songArmed();
+    for (const ch of armed) row.patterns[ch] = pattern;
     if (this.songAdded === this.songRow) this.songAdded = -1; // filled: it stays
     this.sendSong();
-    this.flash(all ? `ROW ${this.songRow + 1}: ALL ${name}` : `ROW ${this.songRow + 1}: ${name} ON ${[...this.songTracks].sort().map((c) => c + 1).join(' ')}`);
+    this.flash(armed.length === NUM_CHANNELS ? `ROW ${this.songRow + 1}: ALL ${name}` : `ROW ${this.songRow + 1}: ${name} ON ${armed.map((c) => c + 1).join(' ')}`);
+  }
+
+  /** SONG grid: the armed tracks, the cursor's first (on BARS: every track). */
+  private songArmed(): number[] {
+    if (this.songCol === 0) return Array.from({ length: NUM_CHANNELS }, (_, i) => i);
+    const cur = this.songCol - 1;
+    return [cur, ...[...this.songTracks].filter((t) => t !== cur).sort((x, y) => x - y)];
+  }
+
+  /** The CLEAR / COPY box: its rows (first, last) and tracks (the armed ones and those it spans). */
+  private songBoxCells(): { from: number; to: number; tracks: number[] } | null {
+    const box = this.songBox;
+    if (!box) return null;
+    const tracks = new Set(this.songArmed());
+    if (box.col === 0 || this.songCol === 0) for (let t = 0; t < NUM_CHANNELS; t++) tracks.add(t);
+    else for (let t = Math.min(box.col, this.songCol) - 1; t < Math.max(box.col, this.songCol); t++) tracks.add(t);
+    return { from: Math.min(box.row, this.songRow), to: Math.max(box.row, this.songRow), tracks: [...tracks].sort((x, y) => x - y) };
   }
 
   /**
-   * SONG grid CLEAR (the patterns themselves are never touched): + channel = that track's
-   * cell in the cursor row OFF; + A-D (pattern) = the cursor row's cells playing it OFF (only
-   * the selected tracks', if any); + a strip key (both -1) = that row empty, kept in place.
+   * SONG grid CLEAR / COPY: held = a box from the cursor (◀ ▶, ROW ▼ / ▲ and strip keys grow it,
+   * over the armed tracks); on release CLEAR sets its cells OFF, COPY copies them (OFF ones
+   * too). A COPY tap with something copied pastes it at the cursor. Patterns never change.
    */
-  private songClear(ch: number, pattern: number): void {
-    this.clearUsed = true;
-    const row = this.songRows[this.songRow];
-    if (!row) return;
-    const n = this.songRow + 1;
-    if (ch >= 0) {
-      row.patterns[ch] = -1;
-      this.flash(`ROW ${n}: ${ch + 1} OFF`);
-    } else if (pattern >= 0) {
-      const only = this.songTracks.size > 0;
-      for (let c = 0; c < NUM_CHANNELS; c++) if (row.patterns[c] === pattern && (!only || this.songTracks.has(c))) row.patterns[c] = -1;
-      this.flash(`ROW ${n}: ${PATTERN_NAMES[pattern]} CLEARED`);
-    } else {
-      row.patterns.fill(-1);
-      this.flash(`ROW ${n} CLEARED`);
+  private songHold(id: 'clear' | 'copy', pressed: boolean): void {
+    if (pressed) {
+      if (this.songBox || this.songRows.length === 0) return;
+      this.songBox = { kind: id, row: this.songRow, col: this.songCol, moved: false };
+      if (id === 'clear') this.clearHeld = true;
+      else this.copyHeld = true;
+      return;
     }
-    this.relabel(`CLEAR ROW ${n}`);
+    const box = this.songBox;
+    if (box?.kind !== id) return;
+    const cells = this.songBoxCells()!;
+    this.songBox = null;
+    this.clearHeld = false;
+    this.copyHeld = false;
+    const rows = this.songRows;
+    const n = cells.to - cells.from + 1;
+    const span = `${n} ROW${n > 1 ? 'S' : ''} x ${cells.tracks.length}`;
+    if (id === 'clear') {
+      for (let r = cells.from; r <= cells.to; r++) for (const t of cells.tracks) rows[r].patterns[t] = -1;
+      this.relabel(`CLEAR ${span}`);
+      this.sendSong();
+      this.flash(`CLEARED ${span}`);
+    } else if (!box.moved && this.songClip) {
+      this.songPaste();
+    } else {
+      this.songClip = {
+        tracks: cells.tracks,
+        cells: rows.slice(cells.from, cells.to + 1).map((r) => cells.tracks.map((t) => r.patterns[t])),
+        bars: rows.slice(cells.from, cells.to + 1).map((r) => r.bars),
+      };
+      this.flash(`COPIED ${span}: COPY = PASTE`);
+    }
+  }
+
+  /**
+   * Paste the copied cells with their first row on the cursor row: every track copied lands
+   * where it was (the cursor on BARS, or all eight copied), else the first one on the cursor's
+   * track. Rows past the end are added, with the bars copied.
+   */
+  private songPaste(): void {
+    const clip = this.songClip!;
+    const rows = this.songRows;
+    const shift = this.songCol === 0 || clip.tracks.length === NUM_CHANNELS ? 0 : this.songCol - 1 - clip.tracks[0];
+    let pasted = 0;
+    clip.cells.forEach((cells, k) => {
+      const r = this.songRow + k;
+      if (r >= SONG_MAX_ROWS) return;
+      if (r >= rows.length) rows.push({ bars: clip.bars[k], patterns: new Array<number>(NUM_CHANNELS).fill(-1) });
+      clip.tracks.forEach((t, i) => {
+        const to = t + shift;
+        if (to >= 0 && to < NUM_CHANNELS) rows[r].patterns[to] = cells[i];
+      });
+      if (clip.tracks.length === NUM_CHANNELS) rows[r].bars = clip.bars[k];
+      pasted++;
+    });
+    this.songAdded = -1;
+    this.relabel(`PASTE ROW ${this.songRow + 1}`);
     this.sendSong();
+    this.flash(`PASTED ${pasted} ROW${pasted > 1 ? 'S' : ''} AT ROW ${this.songRow + 1}`);
   }
 
   /** Bar `bar` of row `row` counted from the song's first bar (1 = the first). */
@@ -2102,6 +2192,8 @@ export class App {
     this.leaveStepEdit();
     this.unprime();
     this.endAudition();
+    this.songBox = null;
+    this.songClip = null;
     this.dropCopyBar();
     this.mode = mode;
     this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
@@ -2128,7 +2220,7 @@ export class App {
       this.ring = false;
       this.slideArm = false;
       this.dynamic = 'normal';
-      this.setMode('record');
+      this.setMode('design');
       if (this.project.song.rows.length === 0) {
         // A first row from what the tracks play now.
         this.project.song.rows.push({ bars: 4, patterns: this.project.channels.map((c) => c.activePattern) });
@@ -2552,7 +2644,7 @@ export class App {
       this.flash('LOCK OR CANCEL FIRST');
       return;
     }
-    if (this.song && this.mode === 'design') {
+    if (this.songRecord) {
       this.gotoSongBar(this.songBarNumber(this.songRow, this.songStartBar) - 1 + delta);
       return;
     }
@@ -2923,9 +3015,9 @@ export class App {
 
   // ---------------------------------------------------------------- SONG step entry
 
-  /** SONG DESIGN stopped: the strip is one bar of the song, for locking knob values on its steps. */
+  /** SONG RECORD stopped: the strip is one bar of the song, for locking knob values on its steps. */
   private get autoSteps(): boolean {
-    return this.song && this.mode === 'design' && !this.playing && this.songRows.length > 0;
+    return this.songRecord && !this.playing && this.songRows.length > 0;
   }
 
   /** Go to song bar b (from 0; wraps): the strip shows it and PLAY starts there. */
@@ -2978,12 +3070,12 @@ export class App {
   }
 
   /**
-   * A knob touched. SONG DESIGN: a primed step takes it (locked at the value it shows, even
+   * A knob touched. SONG RECORD: a primed step takes it (locked at the value it shows, even
    * unturned); with CLEAR held, all its locks in the song go.
    */
   private onTouch(slot: number): void {
     const t = this.targets[slot];
-    if (!t?.auto || ((!this.song || this.mode !== 'design') && !this.stepEdit)) return;
+    if (!t?.auto || (!this.songRecord && !this.stepEdit)) return;
     if (this.clearHeld && this.stepEdit) {
       // CLEAR + touch: the knob's locks go from every step of the pattern.
       const key = this.lockKey(t.auto.key, this.selected);
@@ -3013,7 +3105,7 @@ export class App {
     this.refreshPanel();
   }
 
-  /** SONG DESIGN strip: tap = prime the step, again = lock (FUNC: every knob on the page); CLEAR + step = its locks go. */
+  /** SONG RECORD strip: tap = prime the step, again = lock (FUNC: every knob on the page); CLEAR + step = its locks go. */
   private autoStripTap(cell: number): void {
     if (!meterPlays(this.project.meter, cell)) return;
     const bar = this.songBarNumber(this.songRow, this.songStartBar) - 1;
@@ -3067,7 +3159,7 @@ export class App {
     };
   }
 
-  /** ◀ ▶ in STEP EDIT / SONG DESIGN: the primed step one on (the song: across bars). */
+  /** ◀ ▶ in STEP EDIT / SONG RECORD: the primed step one on (the song: across bars). */
   private stepPrime(d: number): void {
     if (this.waiting) {
       this.flash('LOCK OR CANCEL FIRST');
@@ -3242,7 +3334,7 @@ export class App {
     this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
   }
 
-  /** SONG DESIGN strip: the bar's 16 steps; lit = something is locked there, yellow = primed. */
+  /** SONG RECORD strip: the bar's 16 steps; lit = something is locked there, yellow = primed. */
   private updateAutoStrip(): void {
     const bar = this.songBarNumber(this.songRow, this.songStartBar) - 1;
     const from = bar * CELLS_PER_BAR;
@@ -3265,7 +3357,7 @@ export class App {
   }
 
   /**
-   * The CANCEL / UNDO button outside the menus: a primed SONG DESIGN step or COPY BAR =
+   * The CANCEL / UNDO button outside the menus: a primed SONG RECORD step or COPY BAR =
    * CANCEL (dropped); otherwise UNDO, FUNC + UNDO = REDO.
    */
   private cancel(): void {
@@ -3302,7 +3394,7 @@ export class App {
    */
   private trackGesture(e: ControlEvent): void {
     const inMenu = !!(this.menu || this.projMenu);
-    // A primed SONG DESIGN step and COPY BAR are one gesture until locked / pasted (or dropped).
+    // A primed SONG RECORD step and COPY BAR are one gesture until locked / pasted (or dropped).
     const pending = this.waiting || !!this.copyBar;
     if (e.type === 'button' && e.id !== 'func') {
       if (e.pressed) this.down.add(e.id);
@@ -3695,8 +3787,8 @@ export class App {
       const c = this.project.channels[ch];
       // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
       const sendView = this.sendOpen;
-      // SONG: lit = selected for A-D.
-      const lit = sendView ? this.onBus(c, this.fxView) : this.songGrid ? this.songTracks.has(ch) : ch === this.selected;
+      // SONG grid: lit = armed (the cursor's track and those armed with it).
+      const lit = sendView ? this.onBus(c, this.fxView) : this.songGrid ? this.songArmed().includes(ch) : ch === this.selected;
       this.panel.setButtonLit(`ch${ch + 1}`, lit);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
@@ -3715,7 +3807,7 @@ export class App {
     const current = this.mode === 'play' ? this.playPage : this.designPage;
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
       const name = names[i];
-      const usable = !!name && (this.mode === 'design' || i < PLAY_PAGES);
+      const usable = !!name && (this.mode === 'design' || this.songRecord || i < PLAY_PAGES);
       this.panel.setButtonText(`dpage${i}`, name ?? '');
       this.panel.setButtonEnabled(`dpage${i}`, usable);
       this.panel.setButtonLit(`dpage${i}`, usable && i === current && this.fxView === 0);
@@ -3727,9 +3819,9 @@ export class App {
     this.panel.setButtonText('menu', this.song ? 'MENU<small>SONG</small>' : 'MENU');
     // SAVE PROJECT doubles as LOAD (FUNC): the label says which one a tap opens.
     this.panel.setButtonText('saveproject', this.func ? 'LOAD<small>PROJECT</small>' : 'SAVE/LOAD<small>PROJECT</small>');
-    this.panel.setButtonEnabled('clear', this.mode !== 'design');
+    this.panel.setButtonEnabled('clear', this.mode !== 'design' || this.songGrid);
     this.panel.setButtonLit('copy', this.copyHeld || !!this.copyBar);
-    this.panel.setButtonEnabled('copy', this.mode !== 'design');
+    this.panel.setButtonEnabled('copy', this.mode !== 'design' || this.songGrid);
     this.panel.setButtonLit('play', this.playing);
     this.panel.setButtonText('play', this.playing ? 'STOP' : 'PLAY');
 
@@ -3794,10 +3886,14 @@ export class App {
       for (const id of ['oct-', 'oct+', 'cur-', 'cur+']) this.panel.setButtonEnabled(id, true);
       this.panel.root.classList.toggle('keyboard', false);
     } else {
-      this.panel.setButtonEnabled('dyn:accent', true);
-      this.panel.setButtonEnabled('dyn:ghost', true);
-      this.panel.setButtonEnabled('len', true);
-      this.panel.setButtonEnabled('speed', true);
+      // SONG RECORD / PLAY: the keys that edit a pattern are off (SONG_KEEPS).
+      const off = this.song;
+      this.panel.setButtonEnabled('dyn:accent', !off || this.forcing);
+      this.panel.setButtonEnabled('dyn:ghost', !off || this.forcing);
+      if (off && !this.forcing) for (const id of ['ring', 'slide']) this.panel.setButtonEnabled(id, false);
+      this.panel.setButtonEnabled('len', !off);
+      this.panel.setButtonEnabled('speed', !off);
+      if (off) this.panel.setButtonEnabled('rest', false);
     }
     if (this.menu) {
       for (const id of ['oct-', 'oct+', 'cur-', 'cur+']) this.panel.setButtonEnabled(id, true);
@@ -3808,6 +3904,7 @@ export class App {
   /** SONG: the strip = 16 rows (lit = row exists, head = playing row, cursor row marked). */
   private updateSongFrame(): void {
     const rows = this.songRows.length;
+    const box = this.songBoxCells();
     const playingRow = this.songPlaying ? (this.status?.songRow ?? -1) : -1;
     for (let i = 0; i < STEP_BUTTONS; i++) {
       const id = `step${i + 1}`;
@@ -3817,7 +3914,8 @@ export class App {
       this.panel.setButtonFlag(id, 'off', !exists);
       this.panel.setButtonFlag(id, 'lit', exists);
       this.panel.setButtonFlag(id, 'head', row === playingRow);
-      this.panel.setButtonFlag(id, 'cursor', row === this.songRow);
+      const boxed = box && row >= box.from && row <= box.to;
+      this.panel.setButtonFlag(id, 'cursor', row === this.songRow || !!boxed);
       for (const f of ['note', 'black', 'accent', 'ghost', 'ring', 'rest']) this.panel.setButtonFlag(id, f, false);
       this.panel.setLed(i, row === playingRow ? 'on' : row === this.songRow ? 'cursor' : '');
     }
@@ -4080,12 +4178,14 @@ export class App {
     const first = Math.max(0, Math.min(rows.length - visible, this.songRow - Math.floor(visible / 2)));
     const totalBars = rows.reduce((n, r) => n + r.bars, 0);
     const bar = this.status?.songBar ?? 0;
+    const armed = this.songArmed();
+    const box = this.songBoxCells();
     return {
       ...this.header(),
       channelLabel: 'SONG',
       patternLabel: `${rows.length} ROWS ${totalBars} BARS`,
       tracks: this.project.channels.map((c, i) => `${i + 1}${this.kindName(c).slice(0, 3)}`),
-      selectedTracks: this.project.channels.map((_, i) => this.songTracks.has(i)),
+      armed: this.project.channels.map((_, i) => armed.includes(i)),
       rows: rows.slice(first, first + visible).map((r, k) => ({
         index: first + k,
         bars: r.bars,
@@ -4093,6 +4193,7 @@ export class App {
       })),
       cursorRow: this.songRow,
       cursorCol: this.songCol,
+      box: box && { from: box.from, to: box.to, tracks: this.project.channels.map((_, i) => box.tracks.includes(i)) },
       playingRow,
       playingBar: bar,
       footerLeft: playingRow >= 0 ? `ROW ${playingRow + 1} BAR ${bar + 1}/${rows[playingRow]?.bars ?? 0}`
@@ -4152,7 +4253,7 @@ export class App {
 
   /** The page buttons' names in this mode (none in RECORD / SONG). */
   private pageNames(): string[] {
-    return this.mode === 'design' || this.mode === 'play' ? this.designPages().map((p) => p.name) : [];
+    return this.mode === 'design' || this.mode === 'play' || this.songRecord ? this.designPages().map((p) => p.name) : [];
   }
 
   /** PLAY with its MIX page open (and no bus open): the knobs and screen are the MIX page. */

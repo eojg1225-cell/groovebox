@@ -254,12 +254,14 @@ export function drawDesignView(s: PixelScreen, v: DesignView): void {
 export interface SongView extends HeaderView, FooterView {
   /** Column titles, one per track. */
   tracks: string[];
-  /** Tracks selected for A-D (underlined). */
-  selectedTracks: boolean[];
+  /** Armed tracks: each has a cursor (yellow) in the cursor row. */
+  armed: boolean[];
   rows: { index: number; bars: number; cells: string[] }[];
   cursorRow: number;
   /** 0 = BARS, 1-8 = tracks. */
   cursorCol: number;
+  /** CLEAR / COPY held: the rows and tracks its box covers (shaded, yellow). */
+  box: { from: number; to: number; tracks: boolean[] } | null;
   playingRow: number;
   playingBar: number;
   footerLeft: string;
@@ -271,35 +273,41 @@ const SONG_BARS_X = 18;
 const SONG_TRACK_X = 40;
 const SONG_COL_W = 27;
 
-/** SONG: a tracker-style grid, one row per line: number, bars, a pattern (or -) per track. */
+/**
+ * SONG: a tracker-style grid, one row per line: number, bars, a pattern (or -) per track. The
+ * cursors (one per armed track) and a CLEAR / COPY box are yellow, everything else teal.
+ */
 export function drawSongView(s: PixelScreen, v: SongView): void {
   s.clear();
   drawHeader(s, v, '', INK.mid);
   s.text(2, 12, 'ROW', INK.mid);
-  s.text(SONG_BARS_X, 12, 'BAR', v.cursorCol === 0 ? INK.hi : INK.mid);
+  s.text(SONG_BARS_X, 12, 'BAR', v.cursorCol === 0 ? INK.warn : INK.mid);
   v.tracks.forEach((t, i) => {
-    s.text(SONG_TRACK_X + i * SONG_COL_W, 12, t, v.cursorCol === i + 1 ? INK.hi : INK.mid);
-    if (v.selectedTracks[i]) s.rect(SONG_TRACK_X + i * SONG_COL_W, 17, SONG_COL_W - 4, 1, INK.warn);
+    const armed = v.cursorCol > 0 && v.armed[i];
+    s.text(SONG_TRACK_X + i * SONG_COL_W, 12, t, armed ? INK.warn : INK.mid);
+    if (armed) s.rect(SONG_TRACK_X + i * SONG_COL_W, 17, SONG_COL_W - 4, 1, INK.warn);
   });
   s.rect(0, SONG_Y - 2, SCREEN_W, 1, INK.dim);
   v.rows.forEach((r, k) => {
     const y = SONG_Y + k * SONG_ROW_H;
     const playing = r.index === v.playingRow;
     const cursor = r.index === v.cursorRow;
+    const boxed = !!v.box && r.index >= v.box.from && r.index <= v.box.to;
     if (playing) s.rect(0, y - 1, SCREEN_W, SONG_ROW_H - 1, INK.dim);
-    const ink = cursor ? INK.hi : INK.mid;
-    s.text(2, y, String(r.index + 1).padStart(2, '0'), playing ? INK.warn : ink);
-    s.text(SONG_BARS_X, y, String(r.bars), ink);
-    r.cells.forEach((c, i) => s.text(SONG_TRACK_X + i * SONG_COL_W + 4, y, c, c === '-' ? INK.dim : ink));
-    if (cursor) {
-      // The cursor cell.
-      const x = v.cursorCol === 0 ? SONG_BARS_X - 2 : SONG_TRACK_X + (v.cursorCol - 1) * SONG_COL_W + 2;
-      s.frame(x, y - 2, v.cursorCol === 0 ? 14 : 9, SONG_ROW_H + 1, INK.warn);
-      if (playing) {
-        // Bar progress within the playing row, under the row number.
-        s.rect(2, y + 6, 7, 1, INK.warn);
-      }
-    }
+    s.text(2, y, String(r.index + 1).padStart(2, '0'), cursor ? INK.warn : playing ? INK.hi : INK.mid);
+    const barsCursor = cursor && v.cursorCol === 0;
+    s.text(SONG_BARS_X, y, String(r.bars), barsCursor ? INK.warn : INK.mid);
+    if (barsCursor) s.frame(SONG_BARS_X - 2, y - 2, 14, SONG_ROW_H + 1, INK.warn);
+    r.cells.forEach((c, i) => {
+      const x = SONG_TRACK_X + i * SONG_COL_W;
+      const inBox = boxed && v.box!.tracks[i];
+      const isCursor = cursor && v.cursorCol > 0 && v.armed[i];
+      if (inBox) s.rect(x, y - 1, SONG_COL_W - 4, SONG_ROW_H - 1, INK.shade);
+      if (isCursor) s.frame(x + 2, y - 2, 9, SONG_ROW_H + 1, INK.warn);
+      s.text(x + 4, y, c, inBox || isCursor ? INK.warn : c === '-' ? INK.dim : INK.mid);
+    });
+    // Bar progress within the playing row, under the row number.
+    if (cursor && playing) s.rect(2, y + 6, 7, 1, INK.warn);
   });
   drawFooter(s, v, v.footerLeft, '');
 }
