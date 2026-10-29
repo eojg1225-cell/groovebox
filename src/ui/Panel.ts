@@ -223,7 +223,7 @@ export class Panel implements ControlSurface {
     k.setEnabled(slot !== null);
     k.setLabel(slot?.label ?? '');
     k.el.classList.toggle('highlight', !!slot?.highlight);
-    // SONG DESIGN: a knob that will be locked on the primed step.
+    // SONG RECORD: a knob that will be locked on the primed step.
     k.el.classList.toggle('staged', !!slot?.staged);
     if (slot) {
       k.defaultValue = slot.defaultValue;

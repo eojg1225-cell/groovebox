@@ -201,7 +201,7 @@ const frame = (now: number) => {
   else if (app.songGrid) drawSongView(screen, app.songView(now, audio));
   else if (app.arpOpen) drawDesignView(screen, app.arpScreen(now, audio));
   else if (app.sendOpen) drawDesignView(screen, app.sendView(now, audio));
-  else if (app.mode === 'design' || app.playMix) drawDesignView(screen, app.designView(now, audio));
+  else if (app.mode === 'design' || app.songRecord || app.playMix) drawDesignView(screen, app.designView(now, audio));
   else drawLiveView(screen, app.liveView(now, audio));
   screen.end();
   perf.frameMs += (performance.now() - t0 - perf.frameMs) * 0.05;

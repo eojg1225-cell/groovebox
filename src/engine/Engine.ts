@@ -277,7 +277,13 @@ export class Engine {
   /** The held note came from a SLIDE step: the next note glides out of it. */
   private readonly sliding = new Uint8Array(NUM_CHANNELS);
   /** Drum tracks: hits per step of a ROLL step (ROLL DIV; the SLIDE flag). 0 = not a drum. */
-  private readonly rollDiv = new Uint8Array(NUM_CHANNELS);
+  /** ROLL RATE: hits per 16th at the tempo (below 1: a hit every few 16ths); 0 = not a drum. */
+  private readonly rollDiv = new Float64Array(NUM_CHANNELS);
+  /** ROLL held below a hit a 16th: 16ths since it began (every 1 / rate-th plays). */
+  private readonly holdRollCount = new Uint32Array(NUM_CHANNELS);
+  /** The master step a track's own hit last started on (-1 = none), and its note: held ROLL plays over it. */
+  private readonly hitStep = new Float64Array(NUM_CHANNELS).fill(-1);
+  private readonly hitNote = new Uint8Array(NUM_CHANNELS);
   /** MUTE: the sequencer starts no new notes on the track (sounding ones play out). */
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
@@ -701,6 +707,7 @@ export class Engine {
     this.currentStep.fill(-1);
     this.skipStep.fill(-1);
     this.rollLeft.fill(0);
+    this.hitStep.fill(-1);
     this.runLeft.fill(0);
     this.subAt.fill(-1);
     this.subLeft.fill(0);
@@ -1071,6 +1078,7 @@ export class Engine {
       } else {
         this.stepChannel(ch, stepLen, g);
       }
+      if (this.holdRoll[ch] && this.rollDiv[ch] > 0 && !this.songOff[ch]) this.heldRollStep(ch, g);
     }
     this.lastStepFrames = this.stepFrames(this.globalStep);
     this.framesToStep += this.lastStepFrames;
@@ -1115,7 +1123,7 @@ export class Engine {
     // Inside a roll run its hits are already scheduled; otherwise a roll ends here.
     const inRun = this.runLeft[ch] > 0;
     if (inRun) this.runLeft[ch]--;
-    else this.rollLeft[ch] = 0;
+    else if (!this.holdRoll[ch]) this.rollLeft[ch] = 0; // held ROLL keeps its own hits going
     // REST: everything sounding on the track stops (held, ringing, tied, releasing) over
     // CUT_FADE; a muted track's notes play out.
     const rest = this.stepRest[s] === 1 && this.skipStep[ch] !== idx && this.songOff[ch] === 0 && this.muted[ch] === 0;
@@ -1187,12 +1195,11 @@ export class Engine {
         if (!ring && !slide && this.gateSteps[ch] === 1) this.gateEarly(ch, stepLen);
         this.sliding[ch] = slide ? 1 : 0;
       }
-      if (drumRoll) this.startRollRun(ch, pat, idx, len, vel);
+      if (drumRoll && !this.holdRoll[ch]) this.startRollRun(ch, pat, idx, len, vel);
     }
-    if (this.holdRoll[ch] && this.rollDiv[ch] > 0 && !this.songOff[ch]) {
-      // ROLL held (PLAY): the step's own hit plays as set, every other ROLL RATE hit at normal.
-      if (!hit) this.noteOn(ch, this.holdRollNote[ch], DYNAMIC_VELOCITY.normal);
-      this.holdRollFrom(ch, hit ? this.stepNote[s] : this.holdRollNote[ch], 1);
+    if (hit) {
+      this.hitStep[ch] = at;
+      this.hitNote[ch] = this.stepNote[s];
     }
     this.skipStep[ch] = -1;
     this.currentStep[ch] = idx;
@@ -1434,14 +1441,16 @@ export class Engine {
       if (steps === 1) return;
       steps--;
     }
-    const hits = steps * this.rollDiv[ch];
+    // Below a hit a step, the hits that start inside the run (a run of 3 at 2:1: 2).
+    // The hits that start inside the run, at the tempo's note value (a run of 3 at 1/8: 2).
+    const hits = Math.ceil(steps * this.chanRate[ch] * this.rollDiv[ch] - 1e-9);
     // Stored runs end on their last hit; a forced roll ramps on into the hit that ends it.
     this.rollRamp[ch] = forced ? hits : hits - 1;
     this.runLeft[ch] = steps - 1;
     this.rollLeft[ch] = hits - 1;
     this.rollIndex[ch] = 0;
-    // Straight (through swing), at the track's own step length (half / double time).
-    this.rollEvery[ch] = this.rollSpacing(ch);
+    // Straight (through swing), at the tempo whatever the pattern's speed.
+    this.rollEvery[ch] = this.rollSpacing() / this.rollDiv[ch];
     this.rollAt[ch] = this.rollEvery[ch];
     this.rollNote[ch] = this.stepNote[pat * MAX_STEPS + idx];
     this.rollVel[ch] = vel;
@@ -1452,23 +1461,38 @@ export class Engine {
   private setHoldRoll(ch: number, on: boolean, note: number): void {
     this.holdRoll[ch] = on ? 1 : 0;
     this.holdRollNote[ch] = note;
+    this.holdRollCount[ch] = 0;
     if (!on) {
       this.rollLeft[ch] = 0;
       return;
     }
-    if (!this.playing || this.currentStep[ch] < 0 || this.rollDiv[ch] === 0) return;
-    const every = this.rollSpacing(ch);
-    const k = Math.floor(this.chanElapsed[ch] / every) + 1;
-    if (k >= this.rollDiv[ch]) return; // the step's next one starts it
+    if (!this.playing || this.globalStep === 0 || this.rollDiv[ch] < 1) return; // the next 16th starts it
+    const every = this.rollSpacing() / this.rollDiv[ch];
+    const elapsed = this.lastStepFrames - this.framesToStep;
+    const k = Math.floor(elapsed / every) + 1;
+    if (k >= this.rollDiv[ch]) return;
     this.holdRollFrom(ch, note, k);
-    this.rollAt[ch] = k * every - this.chanElapsed[ch];
+    this.rollAt[ch] = k * every - elapsed;
+  }
+
+  /**
+   * ROLL held, at master step g (the 16th grid, straight): a hit at normal velocity unless the
+   * track's own hit starts here (it plays as set), then the rest of ROLL RATE's hits in this
+   * 16th; below a hit a 16th, every 1 / rate-th 16th from the press.
+   */
+  private heldRollStep(ch: number, g: number): void {
+    const rate = this.rollDiv[ch];
+    const own = this.hitStep[ch] === g;
+    if (rate < 1 && this.holdRollCount[ch]++ % Math.round(1 / rate) !== 0) return;
+    if (!own) this.noteOn(ch, this.holdRollNote[ch], DYNAMIC_VELOCITY.normal);
+    if (rate > 1) this.holdRollFrom(ch, own ? this.hitNote[ch] : this.holdRollNote[ch], 1);
   }
 
   /** Held ROLL: the hits from the k-th of this step to its end, at normal velocity. */
   private holdRollFrom(ch: number, note: number, k: number): void {
     this.runLeft[ch] = 0;
     this.rollLeft[ch] = this.rollDiv[ch] - k;
-    this.rollEvery[ch] = this.rollSpacing(ch);
+    this.rollEvery[ch] = this.rollSpacing() / this.rollDiv[ch];
     this.rollAt[ch] = this.rollEvery[ch];
     this.rollNote[ch] = note;
     this.rollVel[ch] = DYNAMIC_VELOCITY.normal;
@@ -1477,9 +1501,9 @@ export class Engine {
     this.rollIndex[ch] = 0;
   }
 
-  /** Frames between ROLL hits: straight (through swing), at the track's own step length. */
-  private rollSpacing(ch: number): number {
-    return ((60 / this.bpm / 4) * this.sampleRate * this.chanRate[ch]) / this.rollDiv[ch];
+  /** A straight 16th at the tempo, in frames (ROLL hits are this / ROLL RATE apart). */
+  private rollSpacing(): number {
+    return (60 / this.bpm / 4) * this.sampleRate;
   }
 
   /** One ROLL repeat: re-strike the run's note (on its velocity ramp), then schedule the next. */
@@ -2281,7 +2305,7 @@ export class Engine {
     const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
     if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
     this.applyParam(ch, inst, id, slot >= 0 ? this.withOffset(ch, slot, value) : value);
-    if (id === 'rolldiv') this.rollDiv[ch] = ROLL_DIVS[Math.round(value)]?.hits ?? 2;
+    if (id === 'rolldiv') this.rollDiv[ch] = ROLL_DIVS[Math.round(value)]?.hits ?? 1;
   }
 
   /** ARP: on / off, MODE, RATE, OCT (option indices); it plays when on and MODE is not OFF. */

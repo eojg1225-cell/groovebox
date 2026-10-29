@@ -497,9 +497,9 @@ describe('MENU and CANCEL', () => {
     expect(app.song).toBe(false);
     tap('menu');
     tap('cur+');
-    tap('play'); // saved: SONG, the menu closes (the top page); SONG opens on RECORD (the grid)
+    tap('play'); // saved: SONG, the menu closes (the top page); SONG opens on DESIGN (the grid)
     expect(app.song).toBe(true);
-    expect(app.mode).toBe('record');
+    expect(app.mode).toBe('design');
     expect(app.menu).toBeNull();
     expect(app.playing).toBe(false); // PLAY in the menu is SAVE, not the transport
     app.updateFrame(0);
@@ -633,20 +633,194 @@ describe('SONG grid: rows, track selection, A-D', () => {
     expect(app.project.song.rows.length).toBe(2);
   });
 
-  it('A-D: the pattern on the selected tracks, the rest blank; nothing selected = every track', () => {
+  const armed = (app: App) => (app as unknown as { songArmed(): number[] }).songArmed().join(',');
+
+  it('the cursor track is armed; channel taps arm more (A-D on them all); ◀ ▶ leave only the next one; BARS = every track', () => {
     const { app, tap } = song();
+    expect(armed(app)).toBe('0');
     tap('patC');
-    expect(rows(app)[0]).toBe('2,2,2,2,2,2,2,2');
-    tap('ch1');
+    expect(rows(app)[0]).toBe('2,0,0,0,0,0,0,0');
     tap('ch5');
+    tap('ch7');
+    expect(armed(app)).toBe('0,4,6');
     tap('patA');
-    expect(rows(app)[0]).toBe('0,-1,-1,-1,0,-1,-1,-1');
-    tap('ch5'); // deselected
+    expect(rows(app)[0]).toBe('0,0,0,0,0,0,0,0');
+    tap('ch7'); // disarmed
     tap('patD');
-    expect(rows(app)[0]).toBe('3,-1,-1,-1,-1,-1,-1,-1');
-    tap('ch1');
+    expect(rows(app)[0]).toBe('3,0,0,0,3,0,0,0');
+    tap('ch1'); // the cursor's own: disarmed, the cursor on the next armed track
+    expect(armed(app)).toBe('4');
+    tap('ch5'); // none left: the whole row (BARS)
+    expect((app as unknown as { songCol: number }).songCol).toBe(0);
+    expect(armed(app)).toBe('0,1,2,3,4,5,6,7');
+    tap('cur+');
+    tap('ch5');
+    expect(armed(app)).toBe('0,4');
+    tap('cur+'); // to track 2: only it
+    expect(armed(app)).toBe('1');
+    tap('oct-'); // a new row: the armed tracks go along
+    tap('ch4');
+    tap('oct+');
+    expect(armed(app)).toBe('1,3');
+    tap('cur-');
+    tap('cur-'); // BARS: every track
+    expect(armed(app)).toBe('0,1,2,3,4,5,6,7');
     tap('patB');
     expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
+  });
+
+  it('CLEAR: a tap = the cursors\' cells OFF; held, ◀ ▶ / ROW / strip keys grow a box, cleared on release; notes stay', () => {
+    const { app, tap, press, release } = song();
+    const kick = app.project.channels[0].patterns[0];
+    kick.steps[0].active = true;
+    tap('cur-'); // BARS
+    tap('patA');
+    tap('oct-');
+    tap('patB');
+    tap('oct-');
+    tap('patC');
+    tap('oct+');
+    tap('oct+'); // row 1, BARS
+    tap('cur+'); // track 1
+    tap('ch3');
+    tap('clear'); // tracks 1 and 3, row 1
+    expect(rows(app)).toEqual(['-1,0,-1,0,0,0,0,0', '1,1,1,1,1,1,1,1', '2,2,2,2,2,2,2,2']);
+    tap('cur+'); // track 2 alone
+    press('clear');
+    tap('cur+'); // tracks 2-3
+    tap('oct-'); // rows 1-2
+    expect((app as unknown as { songBoxCells(): unknown }).songBoxCells()).toEqual({ from: 0, to: 1, tracks: [1, 2] });
+    release('clear');
+    expect(rows(app)).toEqual(['-1,-1,-1,0,0,0,0,0', '1,-1,-1,1,1,1,1,1', '2,2,2,2,2,2,2,2']);
+    tap('cur-');
+    tap('cur-');
+    tap('cur-'); // BARS: whole rows
+    press('clear');
+    tap('step2');
+    tap('step3'); // a drag over the strip: rows 2-3
+    release('clear');
+    expect(rows(app)).toEqual(['-1,-1,-1,0,0,0,0,0', '-1,-1,-1,-1,-1,-1,-1,-1', '-1,-1,-1,-1,-1,-1,-1,-1']);
+    expect(app.project.song.rows).toHaveLength(3); // rows stay
+    expect(kick.steps[0].active).toBe(true);
+    tap('cancel'); // UNDO
+    expect(rows(app)[2]).toBe('2,2,2,2,2,2,2,2');
+  });
+
+  it('held CLEAR / COPY: the screen shows each cell it would change as it would read after', () => {
+    const { app, tap, press, release } = song();
+    const pending = () => app.songView(0, { peak: 0 } as never).pending;
+    tap('cur-'); // BARS
+    tap('patB');
+    tap('cur+'); // track 1
+    press('clear');
+    tap('cur+');
+    expect(pending()).toEqual({ 0: ['-', '-'] });
+    release('clear');
+    tap('cur+'); // track 3
+    press('copy');
+    tap('cur+');
+    expect(pending()).toEqual({ 0: [undefined, undefined, 'B', 'B'] }); // a copy: as they are
+    release('copy');
+    tap('cur-');
+    tap('cur-');
+    tap('cur-'); // track 1
+    press('copy'); // a tap with something copied: the paste
+    expect(pending()).toEqual({ 0: ['B', 'B'] });
+    release('copy');
+    expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
+    expect(app.songView(0, { peak: 0 } as never).rows[0].cells.join('')).toBe('BBBBBBBB');
+  });
+
+  it('COPY: held = a box (empty cells too), released = copied; a COPY tap pastes at the cursor, rows added past the end', () => {
+    const { app, tap, press, release } = song();
+    tap('cur-'); // BARS
+    tap('patA');
+    tap('cur+'); // track 1
+    tap('patC');
+    tap('ch2');
+    tap('clear'); // row 1: tracks 1, 2 OFF
+    tap('cur+');
+    tap('patB'); // track 2 = B
+    expect(rows(app)[0]).toBe('-1,1,0,0,0,0,0,0');
+    tap('cur-'); // track 1
+    press('copy');
+    tap('cur+');
+    tap('cur+'); // tracks 1-3
+    release('copy');
+    tap('cur+'); // track 4
+    tap('copy'); // paste: tracks 4-6
+    expect(rows(app)[0]).toBe('-1,1,0,-1,1,0,0,0');
+    tap('oct-'); // row 2 added (empty), the cursor on track 4
+    tap('copy'); // paste again
+    expect(rows(app)[1]).toBe('-1,-1,-1,-1,1,0,-1,-1');
+    tap('cur-');
+    tap('cur-');
+    tap('cur-');
+    tap('cur-'); // BARS
+    tap('oct+'); // row 1
+    press('copy');
+    tap('step1'); // whole row 1
+    release('copy');
+    tap('oct-');
+    tap('oct-'); // row 3 (added)
+    tap('copy');
+    expect(rows(app)[2]).toBe(rows(app)[0]);
+    expect(app.project.channels[1].patterns[0].steps.every((st) => !st.active)).toBe(true);
+  });
+});
+
+describe('SONG never changes a pattern', () => {
+  const songMode = (mode: string) => {
+    const r = makeApp();
+    r.tap('menu');
+    r.tap('cur+'); // MODE: SONG
+    r.tap('play');
+    r.tap(mode);
+    return r;
+  };
+
+  it('CLEAR, COPY, TIME, STEPS and FUNC + OCT leave the patterns alone in SONG PLAY / DESIGN', () => {
+    for (const mode of ['mode:play', 'mode:record']) {
+      const { app, tap, press, release } = songMode(mode);
+      const c = app.project.channels[4];
+      tap('ch5');
+      c.patterns[0].steps[2].active = true;
+      const before = JSON.stringify(app.project.channels.map((x) => [x.patterns, x.sounds]));
+      press('clear');
+      tap('ch5');
+      tap('patA');
+      tap('step3');
+      release('clear');
+      press('copy');
+      tap('ch6');
+      tap('patB');
+      tap('steppage');
+      release('copy');
+      tap('speed');
+      press('len');
+      tap('cur+');
+      release('len');
+      press('func');
+      tap('oct+');
+      release('func');
+      expect(JSON.stringify(app.project.channels.map((x) => [x.patterns, x.sounds]))).toBe(before);
+    }
+  });
+
+  it('SONG RECORD SOUND knobs are heard, not kept: the pattern keeps its patch, which comes back on a mode change', () => {
+    const { app, tap, emit, sent } = songMode('mode:record');
+    tap('ch5'); // BASS SOUND page
+    const c = app.project.channels[4];
+    const ts = (app as unknown as { targets: ({ label: string; get(): number } | null)[] }).targets;
+    const k = ts.findIndex((t) => t?.label === 'CUTOFF');
+    const was = c.sounds.bass!.cutoff;
+    emit({ type: 'knob', id: `k${k + 1}`, value: 0.1 });
+    expect(c.sounds.bass!.cutoff).toBe(was);
+    expect(c.patterns[0].patchDirty).toBeFalsy();
+    expect(ts[k]!.get()).not.toBe(was); // the knob shows what is heard
+    expect(sent.filter((m) => m.type === 'setSound' && m.channel === 4 && m.id === 'cutoff').pop()).toMatchObject({ value: ts[k]!.get() });
+    tap('mode:play');
+    expect(sent.filter((m) => m.type === 'setPatch' && m.channel === 4).pop()).toMatchObject({ sound: { cutoff: was } });
   });
 });
 
@@ -813,10 +987,10 @@ describe('SONG over RECORD / PLAY / DESIGN', () => {
   };
   const lastTransport = (sent: MainToWorklet[]) => sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
 
-  it('RECORD is the grid; PLAY and DESIGN play the song with their usual pages', () => {
+  it('DESIGN is the grid; PLAY and RECORD play the song with their usual pages', () => {
     const { app, tap, sent } = song();
     expect(app.songGrid).toBe(true);
-    tap('mode:design');
+    tap('mode:record');
     expect(app.songGrid).toBe(false);
     tap('play');
     expect(lastTransport(sent)).toMatchObject({ playing: true, song: true, fromRow: 0, fromBar: 0 });
@@ -859,18 +1033,18 @@ describe('SONG over RECORD / PLAY / DESIGN', () => {
   });
 });
 
-describe('SONG DESIGN step entry', () => {
+describe('SONG RECORD step entry', () => {
   const songDesign = () => {
     const r = makeApp();
     r.tap('menu');
     r.tap('cur+'); // MODE: SONG
     r.tap('play');
-    r.tap('mode:design');
+    r.tap('mode:record');
     return r;
   };
   const targets = (app: App) => (app as unknown as { targets: ({ label: string; get(): number; staged?: boolean; auto?: { key: string } } | null)[] }).targets;
 
-  it('SONG DESIGN pages are LIVE / SOUND / MIX; a channel tap opens SOUND', () => {
+  it('SONG RECORD pages are LIVE / SOUND / MIX; a channel tap opens SOUND', () => {
     const { app, tap } = songDesign();
     expect((app as unknown as { pageNames(): string[] }).pageNames()).toEqual(['LIVE', 'SOUND', 'MIX']);
     tap('ch5');
@@ -1234,12 +1408,12 @@ describe('STEP EDIT', () => {
     expect(app.project.channels[4].patterns[0].steps[0].locks).toBeUndefined();
   });
 
-  it('SONG DESIGN works the same: no moving while knobs wait; ◀ ▶ move the primed step', () => {
+  it('SONG RECORD works the same: no moving while knobs wait; ◀ ▶ move the primed step', () => {
     const { app, tap, emit } = makeApp();
     tap('menu');
     tap('cur+'); // MODE: SONG
     tap('play');
-    tap('mode:design');
+    tap('mode:record');
     tap('dpage2');
     tap('step1');
     tap('cur+');
@@ -1276,6 +1450,18 @@ describe('ARP key', () => {
     expect(app.project.channels[0].arp?.on).toBe(false);
     const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;
     expect(back.channels[0].arp).toEqual({ on: false, mode: 1, rate: 3, oct: 0 });
+  });
+
+  it('FUNC + ARP lets go of FUNC (latched or held): the ARP knobs show, not an empty page', () => {
+    const { app, tap, press } = makeApp();
+    const t = () => (app as unknown as { targets: ({ label: string } | null)[] }).targets;
+    tap('func'); // latched
+    tap('arp');
+    expect(app.arpOpen).toBe(true);
+    expect((app as unknown as { func: boolean }).func).toBe(false);
+    expect(t()[0]?.label).toBe('ARP MODE');
+    press('func'); // held again: still the ARP knobs
+    expect(t()[0]?.label).toBe('ARP MODE');
   });
 });
 
