@@ -37,6 +37,18 @@ const MAX_VOICES = 6;
 function fmEnvGain(env: number): number {
   return 0.6 + 1.8 * env;
 }
+/**
+ * BASS FM pair: above FM LVL 60 its depth curves up to 3x at the top (index 15 on the strike,
+ * 1.5 settled; was 5 / 0.5), for a proper squelch. Up to 60 (every TIMBRE sound) unchanged.
+ */
+const SQUELCH_FROM = 0.6;
+const SQUELCH_TOP = 3;
+function squelch(fm: number): number {
+  if (fm <= SQUELCH_FROM) return fm;
+  const x = (fm - SQUELCH_FROM) / (1 - SQUELCH_FROM);
+  return fm * (1 + (SQUELCH_TOP - 1) * x * x);
+}
+
 /** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
 /**
@@ -197,7 +209,7 @@ const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
 export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
-export const BASS_FIXED = { voice: 1, envlink: 1 };
+export const BASS_FIXED = { voice: 1, envlink: 1, squelch: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
@@ -297,6 +309,8 @@ export class Synth implements Instrument {
    * 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three
    * carriers), 2 = 2 STACKS (two modulator -> carrier pairs).
    */
+  /** FM pair depth (algo 0): FM LVL, or with `squelch` (BASS) its curve above 60. */
+  private pairFm = 0; private squelchOn = false;
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private fm2 = 0; private fm2Index = 0; private carriers = 0.35;
   /** DC blocker state (renderDcBlock) and its pole. */
   private dcXL = 0; private dcYL = 0; private dcXR = 0; private dcYR = 0; private dcR = 1;
@@ -456,6 +470,7 @@ export class Synth implements Instrument {
   private updateFm(): void {
     const f = this.fm + this.fmMod;
     this.fmEff = f < 0 ? 0 : f > 1 ? 1 : f;
+    this.pairFm = this.squelchOn ? squelch(this.fmEff) : this.fmEff;
     this.fmIndex = dx7Index(this.fmEff);
     const f2 = this.fm2 + this.fmMod;
     this.fm2Index = dx7Index(f2 < 0 ? 0 : f2 > 1 ? 1 : f2);
@@ -484,6 +499,7 @@ export class Synth implements Instrument {
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
       case 'fm': this.fm = value; this.updateFm(); break;
+      case 'squelch': this.squelchOn = value === 1; this.updateFm(); break;
       case 'fm2': this.fm2 = value; this.updateFm(); break;
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
@@ -715,11 +731,11 @@ export class Synth implements Instrument {
     const fm = this.fmEff;
     if (fm <= 0) return;
     // The index rises with FM and with the FM envelope (a struck clang).
-    const fmRatio = this.fmRatio, cRatio = this.cRatio;
+    const fmRatio = this.fmRatio, cRatio = this.cRatio, depth = this.pairFm;
     for (let j = 0; j < n; j++) {
       const dt1 = this.bDt[j];
       v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
-      const index = fm * (0.5 + 4.5 * this.bEnv[j]);
+      const index = depth * (0.5 + 4.5 * this.bEnv[j]);
       let carrier = this.bP1[j];
       if (cRatio !== 1) {
         v.p5 += dt1 * cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);

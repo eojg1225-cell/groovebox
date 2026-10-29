@@ -12,7 +12,9 @@ const INV_TWO_PI = 1 / (2 * Math.PI);
 /** sin(2 pi t): a phase in turns. */
 export function sinTurn(t: number): number {
   const x = (t - Math.floor(t)) * SIN_N;
-  const i = x | 0;
+  // A phase a hair below a whole turn (t = -1e-17) rounds t - floor(t) to exactly 1: the
+  // last interval then (its end is the value), never one past the table.
+  const i = x < SIN_N ? x | 0 : SIN_N - 1;
   const a = SIN[i];
   return a + (SIN[i + 1] - a) * (x - i);
 }
@@ -51,7 +53,8 @@ export function exp2(x: number): number {
   if (n < WHOLE_MIN) return 0;
   if (n > 1023) return Infinity;
   const p = (x - n) * EXP_N;
-  const i = p | 0;
+  // As in sinTurn: x a hair below a whole number rounds x - n to exactly 1.
+  const i = p < EXP_N ? p | 0 : EXP_N - 1;
   return WHOLE[n - WHOLE_MIN] * (EXP[i] + (EXP[i + 1] - EXP[i]) * (p - i));
 }
 const LOG2_10 = Math.log2(10);

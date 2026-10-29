@@ -2670,6 +2670,47 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     });
   }, 120_000);
 
+  it('BASS squelch: above FM LVL 60 the FM pair goes much deeper; every TIMBRE sound (FM 60 and under) plays as before', () => {
+    const play = (fixed: Record<string, number>, set: Record<string, number>) => {
+      const s = new Synth(SR, INSTRUMENTS.bass.params, fixed);
+      const sound: Record<string, number> = { ...presetSound('bass', 4), cutoff: 20000, fenv: 0, ...set };
+      for (const id in sound) s.setParam(id, sound[id]);
+      s.noteOn(33, 1, 33, false);
+      const l = new Float32Array(SR / 4);
+      s.render(l, new Float32Array(l.length), 0, l.length);
+      return l;
+    };
+    const plain = { ...BASS_FIXED, squelch: 0 };
+    for (let i = 0; i < 5; i++) {
+      const own = { ...presetSound('bass', i) };
+      const a = play(BASS_FIXED, own), b = play(plain, own);
+      expect(a.every((x, k) => x === b[k]), `sound ${i}`).toBe(true);
+    }
+    // FM 2:3 at FM LVL 100: the strike much brighter than before (spectral centroid, Hz).
+    const centroid = (l: Float32Array, from: number, len: number) => {
+      let num = 0, den = 0;
+      for (let k = 1; k < 200; k++) {
+        let re = 0, im = 0;
+        for (let i = 0; i < len; i++) {
+          const w = l[from + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / len));
+          re += w * Math.cos((2 * Math.PI * k * i) / len);
+          im -= w * Math.sin((2 * Math.PI * k * i) / len);
+        }
+        const m = Math.hypot(re, im);
+        num += ((k * SR) / len) * m;
+        den += m;
+      }
+      return num / den;
+    };
+    const full = (fixed: Record<string, number>) => play(fixed, { fm: 1, fmdecay: 0.3 });
+    expect(centroid(full(BASS_FIXED), 0, 2400)).toBeGreaterThan(centroid(full(plain), 0, 2400) * 2);
+    expect(stats(play(BASS_FIXED, { fm: 1, fmdecay: 0.3 })).nan).toBe(false);
+  });
+
+  it('every type\'s sound parameters fit its engine slots (none spill into the next track)', () => {
+    for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.length, k).toBeLessThanOrEqual(LOCK_SLOTS);
+  });
+
   it('PLUCK echoes through its onboard delay; SPACE fully left dries it up', () => {
     const tail = (values: Record<string, number>) => {
       const l = play(synth('pluck', { decay: 0.05, release: 0.02, dtime: 2, dfdbk: 0.3, ...values }), 0.6, 0.02);
@@ -3972,5 +4013,12 @@ describe('fast maths (math.ts, the app) against exact (mathExact.ts)', () => {
     expect(sin).toBeLessThan(3.1e-7);
     expect(tanhErr).toBeLessThan(6e-7);
     expect(exp).toBeLessThan(2e-7);
+  });
+  it('stays finite a hair below a whole number (the table end; it gave NaN: ENGINE RESTARTED)', async () => {
+    const fast = await import('../src/instruments/math');
+    for (const x of [-1e-17, -5.8e-16 / 12, -1 - 1e-16, 3 - 1e-16, -Number.EPSILON]) {
+      expect(fast.exp2(x), `exp2 ${x}`).toBeCloseTo(Math.pow(2, x), 9);
+      expect(fast.sinTurn(x), `sinTurn ${x}`).toBeCloseTo(Math.sin(2 * Math.PI * x), 9);
+    }
   });
 });
