@@ -243,6 +243,8 @@ interface KnobTarget {
   inner?: KnobTarget;
   /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "bus:k:id" ... */
   key?: string;
+  /** Part of the edited pattern's patch (a SOUND param, PRESET): SONG only auditions it. */
+  patch?: boolean;
 }
 
 /** One parameter gliding back to its saved value (RESET). */
@@ -255,6 +257,8 @@ interface Glide {
 }
 
 const MIX_PREFIX = 'mix:';
+/** SONG never changes a pattern (its notes, steps, length, speed, sound). */
+const SONG_KEEPS = 'SONG: EDIT PATTERNS IN JAM';
 /** DSP load from which the footer shows it in alert (the audio is about to break up). */
 const DSP_ALERT = 0.8;
 type GlobalId = 'bpm' | 'swing' | 'master';
@@ -338,6 +342,11 @@ export class App {
    * `saved` = the steps an added bar covered (put back if the bar is left again).
    */
   private copyBar: { from: number; to: number; length: number; saved: Map<number, Step> } | null = null;
+  /**
+   * SONG never changes a pattern: its sound knobs are heard through a copy of the patch per
+   * track (the project keeps the pattern's own), dropped at STOP, a mode change etc. (endAudition).
+   */
+  private readonly audition = new Map<number, { kind: SoundKind; pattern: number; sound: Record<string, number>; trims: Record<string, number> }>();
   /** UNDO / REDO (history.ts): the steps back and forward, the project as of the last gesture. */
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
@@ -791,7 +800,7 @@ export class App {
     if (id === 'track:preset' && c.instrument !== 'none') {
       const kind = c.instrument;
       return {
-        label: label ?? 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch, highlight,
+        label: label ?? 'PRESET', spec: choice('preset', 'PRESET', this.presetNames(kind)), channel: ch, highlight, patch: true,
         get: () => c.presets[kind] ?? 0,
         base: () => c.patterns[c.activePattern].savedPatch?.preset ?? 0,
         set: (v) => this.loadPreset(ch, kind, v),
@@ -843,7 +852,7 @@ export class App {
     const spec = paramSpec(kind, id);
     if (!spec) return null;
     return {
-      label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`,
+      label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`, patch: true,
       // Coarse settings (TIMBRE, waves, presets) aren't automated; the rest are.
       auto: spec.coarse && id !== 'timbre' ? undefined : { key: `s:${ch}:${id}` },
       get: () => c.sounds[kind]?.[id] ?? spec.defaultValue,
@@ -864,12 +873,14 @@ export class App {
    */
   private setSoundParam(ch: number, kind: SoundKind, id: string, v: number, recompute = true): void {
     const c = this.project.channels[ch];
-    const sound = (c.sounds[kind] ??= {});
-    const trims = (c.trims[kind] ??= {});
+    c.patterns[c.activePattern].patchDirty = true;
+    this.writeSound(ch, kind, c.activePattern, (c.sounds[kind] ??= {}), (c.trims[kind] ??= {}), id, v, recompute);
+  }
+
+  /** setSoundParam on a given sound / trims (the edited pattern's, or a SONG audition's). */
+  private writeSound(ch: number, kind: SoundKind, pattern: number, sound: Record<string, number>, trims: Record<string, number>, id: string, v: number, recompute = true): void {
     const specs = INSTRUMENTS[kind].params;
-    const pattern = c.activePattern;
     sound[id] = v;
-    c.patterns[pattern].patchDirty = true;
     this.send({ type: 'setSound', channel: ch, pattern, id, value: v });
     if (id === 'timbre' || id === 'intensity') {
       if (!recompute) return;
@@ -889,6 +900,39 @@ export class App {
       if (t) trims[id] = t;
       else delete trims[id];
     }
+  }
+
+  /** SONG: a pattern's sound knob is heard (on a copy of the patch), never kept in the pattern. */
+  private auditionTarget(t: KnobTarget): KnobTarget {
+    const ch = t.channel;
+    const c = this.project.channels[ch];
+    const id = t.spec.id;
+    if (id === 'preset') return { ...t, set: () => this.flash(SONG_KEEPS) };
+    return {
+      ...t,
+      get: () => this.audition.get(ch)?.sound[id] ?? t.get(),
+      set: (v) => {
+        if (c.instrument === 'none') return;
+        const kind = c.instrument;
+        let a = this.audition.get(ch);
+        if (!a || a.kind !== kind || a.pattern !== c.activePattern) {
+          if (this.audition.size === 0) this.flash('SONG: HEARD, NOT KEPT');
+          a = { kind, pattern: c.activePattern, sound: { ...c.sounds[kind] }, trims: { ...c.trims[kind] } };
+          this.audition.set(ch, a);
+        }
+        this.writeSound(ch, kind, a.pattern, a.sound, a.trims, id, v);
+        for (const other of linkedParams(kind, id)) this.writeSound(ch, kind, a.pattern, a.sound, a.trims, other, v);
+      },
+    };
+  }
+
+  /** The SONG auditions end: each track's pattern sounds as it is again. */
+  private endAudition(): void {
+    for (const [ch, a] of this.audition) {
+      const c = this.project.channels[ch];
+      if (c.instrument === a.kind) this.send({ type: 'setPatch', channel: ch, pattern: a.pattern, sound: { ...patchOf(c, a.pattern).sound }, glide: this.playing });
+    }
+    this.audition.clear();
   }
 
   /**
@@ -1032,8 +1076,12 @@ export class App {
     // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.songGrid) return this.func ? new Array(KNOB_COUNT).fill(null) : this.songTargets();
-    // SONG DESIGN with a step primed: the knobs show and set what will be locked there.
-    const step = (t: (KnobTarget | null)[]) => (this.primed ? t.map((x) => (x?.auto ? this.primedTarget(x) : x)) : t);
+    // SONG: a pattern's sound knobs only audition. A primed step (STEP EDIT, SONG DESIGN):
+    // the knobs show and set what will be locked there.
+    const step = (t: (KnobTarget | null)[]) => {
+      const heard = this.song ? t.map((x) => (x?.patch ? this.auditionTarget(x) : x)) : t;
+      return this.primed ? heard.map((x) => (x?.auto ? this.primedTarget(x) : x)) : heard;
+    };
     if (this.arpOpen) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.arpTargets());
     if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.sendTargets(this.fxView - 1));
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
@@ -1045,7 +1093,7 @@ export class App {
       return step(Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null));
     }
     if (this.playMix) return this.mixTargets();
-    return this.liveGrid();
+    return step(this.liveGrid());
   }
 
   // ---------------------------------------------------------------- controls
@@ -1110,7 +1158,7 @@ export class App {
       }
       if (id === 'clear') {
         this.clearHeld = false;
-        if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK / A-D');
+        if (!this.clearUsed) this.flash(this.songGrid ? 'HOLD CLEAR + TRACK / A-D / ROW' : 'HOLD CLEAR + STEP / TRACK / A-D');
         this.refreshPanel();
       }
       if (id === 'steppage' && this.barHeld) {
@@ -1154,7 +1202,7 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.copyHeld && id === 'steppage' && !this.songGrid && !this.autoSteps) {
+    if (this.copyHeld && id === 'steppage' && !this.song) {
       this.leaveStepEdit();
       this.startCopyBar();
       this.copyUsed = true;
@@ -1170,6 +1218,12 @@ export class App {
     if (this.copyHeld && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
       // COPY + channel: the same pattern slot on that track; COPY + A-D: that pattern of
       // this track.
+      if (this.song) {
+        this.copyUsed = true;
+        this.flash(SONG_KEEPS);
+        this.refreshPanel();
+        return;
+      }
       const c = this.channel;
       if (id.startsWith('ch')) this.copyPattern(this.selected, c.activePattern, Number(m[1]) - 1, c.activePattern);
       else this.copyPattern(this.selected, c.activePattern, this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
@@ -1182,14 +1236,14 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.clearHeld && (m = /^ch(\d)$/.exec(id))) {
-      this.clearTrack(Number(m[1]) - 1);
-      this.refreshPanel();
-      return;
-    }
-    if (this.clearHeld && (m = /^pat([A-D])$/.exec(id))) {
-      // CLEAR + A-D: that pattern of the selected track (the one playing / edited too).
-      this.clearTrack(this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
+    if (this.clearHeld && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
+      // CLEAR + channel: that track's pattern; + A-D: that pattern of the selected track (the
+      // one playing / edited too). The SONG grid: the cursor row's cells instead (songClear).
+      const pat = id.startsWith('pat') ? PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]) : -1;
+      if (this.songGrid) this.songClear(pat < 0 ? Number(m[1]) - 1 : -1, pat);
+      else if (this.song) { this.clearUsed = true; this.flash(SONG_KEEPS); }
+      else if (pat < 0) this.clearTrack(Number(m[1]) - 1);
+      else this.clearTrack(this.selected, pat);
       this.refreshPanel();
       return;
     }
@@ -1228,6 +1282,15 @@ export class App {
       this.refreshPanel();
       return;
     }
+    // SONG: the keys that edit a pattern (STEPS, TIME, REST, flag placing, the sound's OCTAVE)
+    // do nothing to it.
+    const flag = id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost';
+    if (this.song && (id === 'len' || id === 'speed' || id === 'rest' || (flag && this.mode === 'record') || ((id === 'oct-' || id === 'oct+') && this.func))) {
+      if (this.funcHeld) this.funcUsed = true;
+      this.flash(SONG_KEEPS);
+      this.refreshPanel();
+      return;
+    }
     if (id === 'play') {
       this.leaveStepEdit();
       this.unprime();
@@ -1238,7 +1301,10 @@ export class App {
         this.funcLatched = false;
         this.funcUsed = true;
       }
-      if (this.playing) this.keepBars(top);
+      if (this.playing) {
+        this.keepBars(top);
+        this.endAudition();
+      }
       if (this.playing && this.songPlaying) {
         // STOP in SONG: the next PLAY carries on from the row and bar playing (FUNC: the top).
         const row = top ? 0 : (this.status?.songRow ?? -1);
@@ -1452,6 +1518,7 @@ export class App {
    * once. Tapped again soon after: unsaved notes too.
    */
   private startReset(): void {
+    this.endAudition();
     const now = performance.now();
     // Track / FX 1-3 / LFO buttons held down: HOLD + RESET = KEEP HELD keeps them out of it,
     // RESET HELD resets only them. A held track takes along the FX / LFO knobs its live knobs
@@ -1677,6 +1744,10 @@ export class App {
       const row = this.songPage * 16 + Number(m[1]) - 1;
       if (row >= rows.length) return true;
       moveRow(row);
+      if (this.clearHeld) {
+        this.songClear(-1, -1);
+        return true;
+      }
       if (this.songPlaying) {
         this.send({ type: 'songJump', row });
         this.flash(`ROW ${row + 1} AT NEXT BAR`);
@@ -1711,6 +1782,31 @@ export class App {
     if (this.songAdded === this.songRow) this.songAdded = -1; // filled: it stays
     this.sendSong();
     this.flash(all ? `ROW ${this.songRow + 1}: ALL ${name}` : `ROW ${this.songRow + 1}: ${name} ON ${[...this.songTracks].sort().map((c) => c + 1).join(' ')}`);
+  }
+
+  /**
+   * SONG grid CLEAR (the patterns themselves are never touched): + channel = that track's
+   * cell in the cursor row OFF; + A-D (pattern) = the cursor row's cells playing it OFF (only
+   * the selected tracks', if any); + a strip key (both -1) = that row empty, kept in place.
+   */
+  private songClear(ch: number, pattern: number): void {
+    this.clearUsed = true;
+    const row = this.songRows[this.songRow];
+    if (!row) return;
+    const n = this.songRow + 1;
+    if (ch >= 0) {
+      row.patterns[ch] = -1;
+      this.flash(`ROW ${n}: ${ch + 1} OFF`);
+    } else if (pattern >= 0) {
+      const only = this.songTracks.size > 0;
+      for (let c = 0; c < NUM_CHANNELS; c++) if (row.patterns[c] === pattern && (!only || this.songTracks.has(c))) row.patterns[c] = -1;
+      this.flash(`ROW ${n}: ${PATTERN_NAMES[pattern]} CLEARED`);
+    } else {
+      row.patterns.fill(-1);
+      this.flash(`ROW ${n} CLEARED`);
+    }
+    this.relabel(`CLEAR ROW ${n}`);
+    this.sendSong();
   }
 
   /** Bar `bar` of row `row` counted from the song's first bar (1 = the first). */
@@ -1802,6 +1898,11 @@ export class App {
     }
     const ch = this.selected;
     this.stripDown.add(button);
+    if (this.clearHeld && this.song) {
+      this.clearUsed = true;
+      this.flash(SONG_KEEPS);
+      return;
+    }
     if (this.clearHeld && this.mode !== 'design') {
       const index = this.visiblePage(ch) * 16 + button;
       if (index < this.pattern.length) this.clearStep(index);
@@ -2000,6 +2101,7 @@ export class App {
   private setMode(mode: Mode): void {
     this.leaveStepEdit();
     this.unprime();
+    this.endAudition();
     this.dropCopyBar();
     this.mode = mode;
     this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
@@ -2020,6 +2122,12 @@ export class App {
     if (on === this.song) return;
     this.song = on;
     if (on) {
+      // Pattern-editing strip modes stay in JAM.
+      this.stepsMode = false;
+      this.restArm = false;
+      this.ring = false;
+      this.slideArm = false;
+      this.dynamic = 'normal';
       this.setMode('record');
       if (this.project.song.rows.length === 0) {
         // A first row from what the tracks play now.
@@ -2454,7 +2562,7 @@ export class App {
       return;
     }
     let pages = this.pageCount();
-    if (grow && delta > 0 && this.visiblePage(ch) === pages - 1) {
+    if (grow && delta > 0 && this.visiblePage(ch) === pages - 1 && !this.song) {
       const len = this.pattern.length;
       if (len + 16 > MAX_STEPS) {
         this.flash('PATTERN FULL (4 BARS)');
@@ -2586,7 +2694,7 @@ export class App {
     t.set(value);
     this.touchedKnob = slot;
     this.touchedAt = performance.now();
-    this.save();
+    if (!(this.song && t.patch)) this.save(); // a SONG audition is not kept
     // Discrete choices can change what other knobs mean (type, preset, live assignment).
     if (t.spec.options) this.refreshPanel();
   }
@@ -2604,6 +2712,7 @@ export class App {
       this.flash(kind === 'save' ? 'STOP TO SAVE' : 'STOP TO LOAD');
       return;
     }
+    this.endAudition();
     void syncSlots(); // the slots as saved on other devices too (claude.ai)
     this.funcLatched = false;
     const slots = projectStore.slots();
@@ -2949,6 +3058,7 @@ export class App {
   }
 
   private primeAt(cell: number): void {
+    this.endAudition(); // the step locks against the patterns as they are
     const c = this.channel;
     this.primed = {
       cell, pattern: this.stepEdit ? { ch: this.selected, p: c.activePattern } : undefined,
@@ -3261,6 +3371,7 @@ export class App {
 
   /** UNDO: back one step (REDO: forward one), playing or not. */
   private undo(redo = false): void {
+    this.endAudition();
     this.commitGesture(); // a live-recording pass so far is a step too
     const from = redo ? this.redoStack : this.undoStack;
     const to = redo ? this.undoStack : this.redoStack;
@@ -3492,6 +3603,7 @@ export class App {
     this.cursor.fill(0);
     this.soloed.fill(false);
     this.glides.clear();
+    this.audition.clear(); // the new project's patches go to the engine whole
     this.fxView = 0;
     for (const msg of this.syncMessages()) this.send(msg);
     this.save();

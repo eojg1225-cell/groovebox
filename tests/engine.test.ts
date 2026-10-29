@@ -660,6 +660,26 @@ describe('dynamics, locks and motion recording', () => {
     e.handleMessage({ type: 'transport', playing: false });
   });
 
+  it('a SONG lock on the same knob wins over the pattern lock while the song plays; the pattern keeps its own', () => {
+    const p = kickProject([0], { bpm: 120 }); // 6000 frames a step
+    p.channels[0].patterns[0].steps[2].locks = { 'm:0:volume': 0.2 };
+    p.song = { rows: [{ bars: 2, patterns: [0, -1, -1, -1, -1, -1, -1, -1] }], auto: { 'm:0:volume': [[8, 0.9]] } };
+    const e = engineWith(p);
+    const vol = () => (e as unknown as { volumeValue: Float32Array }).volumeValue[0];
+    e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 0 });
+    render(e, 30000 / SR); // step 5: the pattern's lock (no SONG lock yet)
+    expect(vol()).toBeCloseTo(0.2, 5);
+    render(e, 30000 / SR); // step 10: the SONG lock
+    expect(vol()).toBeCloseTo(0.9, 5);
+    render(e, 72000 / SR); // bar 2, step 7: the SONG lane holds over the pattern's lock
+    expect(vol()).toBeCloseTo(0.9, 5);
+    e.handleMessage({ type: 'transport', playing: false });
+    e.handleMessage({ type: 'transport', playing: true }); // the patterns alone: their own lock again
+    render(e, 30000 / SR);
+    expect(vol()).toBeCloseTo(0.2, 5);
+    expect(p.channels[0].patterns[0].steps[2].locks).toEqual({ 'm:0:volume': 0.2 });
+  });
+
   it('motion-recorded notes land on the nearest step and do not double-trigger', () => {
     const p = kickProject([]);
     const e = engineWith(p);

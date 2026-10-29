@@ -648,6 +648,91 @@ describe('SONG grid: rows, track selection, A-D', () => {
     tap('patB');
     expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
   });
+
+  it('CLEAR: + channel = its cell OFF, + A-D = that pattern out of the row, + strip = the row emptied; the patterns keep their notes', () => {
+    const { app, tap, press, release } = song();
+    const kick = app.project.channels[0].patterns[0];
+    kick.steps[0].active = true;
+    tap('patA');
+    press('clear');
+    tap('ch2');
+    release('clear');
+    expect(rows(app)[0]).toBe('0,-1,0,0,0,0,0,0');
+    tap('ch3'); // selected: CLEAR + A-D takes A out of its cell only
+    press('clear');
+    tap('patA');
+    release('clear');
+    expect(rows(app)[0]).toBe('0,-1,-1,0,0,0,0,0');
+    tap('ch3');
+    press('clear');
+    tap('patA'); // none selected: every A in the row
+    release('clear');
+    expect(rows(app)[0]).toBe('-1,-1,-1,-1,-1,-1,-1,-1');
+    tap('patB');
+    press('clear');
+    tap('step1');
+    release('clear');
+    expect(rows(app)[0]).toBe('-1,-1,-1,-1,-1,-1,-1,-1');
+    expect(app.project.song.rows).toHaveLength(1); // kept in place
+    expect(kick.steps[0].active).toBe(true);
+    tap('cancel'); // UNDO
+    expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
+  });
+});
+
+describe('SONG never changes a pattern', () => {
+  const songMode = (mode: string) => {
+    const r = makeApp();
+    r.tap('menu');
+    r.tap('cur+'); // MODE: SONG
+    r.tap('play');
+    r.tap(mode);
+    return r;
+  };
+
+  it('CLEAR, COPY, TIME, STEPS and FUNC + OCT leave the patterns alone in SONG PLAY / DESIGN', () => {
+    for (const mode of ['mode:play', 'mode:design']) {
+      const { app, tap, press, release } = songMode(mode);
+      const c = app.project.channels[4];
+      tap('ch5');
+      c.patterns[0].steps[2].active = true;
+      const before = JSON.stringify(app.project.channels.map((x) => [x.patterns, x.sounds]));
+      press('clear');
+      tap('ch5');
+      tap('patA');
+      tap('step3');
+      release('clear');
+      press('copy');
+      tap('ch6');
+      tap('patB');
+      tap('steppage');
+      release('copy');
+      tap('speed');
+      press('len');
+      tap('cur+');
+      release('len');
+      press('func');
+      tap('oct+');
+      release('func');
+      expect(JSON.stringify(app.project.channels.map((x) => [x.patterns, x.sounds]))).toBe(before);
+    }
+  });
+
+  it('SONG DESIGN SOUND knobs are heard, not kept: the pattern keeps its patch, which comes back on a mode change', () => {
+    const { app, tap, emit, sent } = songMode('mode:design');
+    tap('ch5'); // BASS SOUND page
+    const c = app.project.channels[4];
+    const ts = (app as unknown as { targets: ({ label: string; get(): number } | null)[] }).targets;
+    const k = ts.findIndex((t) => t?.label === 'CUTOFF');
+    const was = c.sounds.bass!.cutoff;
+    emit({ type: 'knob', id: `k${k + 1}`, value: 0.1 });
+    expect(c.sounds.bass!.cutoff).toBe(was);
+    expect(c.patterns[0].patchDirty).toBeFalsy();
+    expect(ts[k]!.get()).not.toBe(was); // the knob shows what is heard
+    expect(sent.filter((m) => m.type === 'setSound' && m.channel === 4 && m.id === 'cutoff').pop()).toMatchObject({ value: ts[k]!.get() });
+    tap('mode:play');
+    expect(sent.filter((m) => m.type === 'setPatch' && m.channel === 4).pop()).toMatchObject({ sound: { cutoff: was } });
+  });
 });
 
 describe('A-D', () => {
