@@ -1098,7 +1098,7 @@ export class App {
       const heard = this.song ? t.map((x) => (x?.patch ? this.auditionTarget(x) : x)) : t;
       return this.primed ? heard.map((x) => (x?.auto ? this.primedTarget(x) : x)) : heard;
     };
-    if (this.arpOpen) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.arpTargets());
+    if (this.arpOpen) return step(this.arpTargets()); // no FUNC layer: FUNC (still held) leaves it showing
     if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.sendTargets(this.fxView - 1));
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
     if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
@@ -1498,7 +1498,9 @@ export class App {
     if (this.songGrid) return;
     const c = this.channel;
     if (this.func) {
+      // FUNC + ARP: the ARP view on / off; FUNC lets go (held or latched), the view has no FUNC layer.
       if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      this.funcLatched = false;
       this.arpView = !this.arpView;
       if (this.arpView) this.fxView = 0;
       this.touchedKnob = -1;

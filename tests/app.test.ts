@@ -1448,6 +1448,18 @@ describe('ARP key', () => {
     const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;
     expect(back.channels[0].arp).toEqual({ on: false, mode: 1, rate: 3, oct: 0 });
   });
+
+  it('FUNC + ARP lets go of FUNC (latched or held): the ARP knobs show, not an empty page', () => {
+    const { app, tap, press } = makeApp();
+    const t = () => (app as unknown as { targets: ({ label: string } | null)[] }).targets;
+    tap('func'); // latched
+    tap('arp');
+    expect(app.arpOpen).toBe(true);
+    expect((app as unknown as { func: boolean }).func).toBe(false);
+    expect(t()[0]?.label).toBe('ARP MODE');
+    press('func'); // held again: still the ARP knobs
+    expect(t()[0]?.label).toBe('ARP MODE');
+  });
 });
 
 describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
