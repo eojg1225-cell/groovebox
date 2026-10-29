@@ -277,7 +277,10 @@ export class Engine {
   /** The held note came from a SLIDE step: the next note glides out of it. */
   private readonly sliding = new Uint8Array(NUM_CHANNELS);
   /** Drum tracks: hits per step of a ROLL step (ROLL DIV; the SLIDE flag). 0 = not a drum. */
-  private readonly rollDiv = new Uint8Array(NUM_CHANNELS);
+  /** ROLL RATE: hits per step (below 1: a hit every few steps); 0 = not a drum. */
+  private readonly rollDiv = new Float64Array(NUM_CHANNELS);
+  /** ROLL held at a rate below a hit a step: steps since it began (every 1 / rate-th plays). */
+  private readonly holdRollCount = new Uint32Array(NUM_CHANNELS);
   /** MUTE: the sequencer starts no new notes on the track (sounding ones play out). */
   private readonly muted = new Uint8Array(NUM_CHANNELS);
   // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
@@ -1190,9 +1193,14 @@ export class Engine {
       if (drumRoll) this.startRollRun(ch, pat, idx, len, vel);
     }
     if (this.holdRoll[ch] && this.rollDiv[ch] > 0 && !this.songOff[ch]) {
-      // ROLL held (PLAY): the step's own hit plays as set, every other ROLL RATE hit at normal.
-      if (!hit) this.noteOn(ch, this.holdRollNote[ch], DYNAMIC_VELOCITY.normal);
-      this.holdRollFrom(ch, hit ? this.stepNote[s] : this.holdRollNote[ch], 1);
+      // ROLL held (PLAY): the step's own hit plays as set, every other ROLL RATE hit at normal
+      // (below a hit a step: on every 1 / rate-th step from the press).
+      if (this.rollDiv[ch] >= 1) {
+        if (!hit) this.noteOn(ch, this.holdRollNote[ch], DYNAMIC_VELOCITY.normal);
+        this.holdRollFrom(ch, hit ? this.stepNote[s] : this.holdRollNote[ch], 1);
+      } else if (this.holdRollCount[ch]++ % Math.round(1 / this.rollDiv[ch]) === 0 && !hit) {
+        this.noteOn(ch, this.holdRollNote[ch], DYNAMIC_VELOCITY.normal);
+      }
     }
     this.skipStep[ch] = -1;
     this.currentStep[ch] = idx;
@@ -1434,7 +1442,8 @@ export class Engine {
       if (steps === 1) return;
       steps--;
     }
-    const hits = steps * this.rollDiv[ch];
+    // Below a hit a step, the hits that start inside the run (a run of 3 at 2:1: 2).
+    const hits = Math.ceil(steps * this.rollDiv[ch] - 1e-9);
     // Stored runs end on their last hit; a forced roll ramps on into the hit that ends it.
     this.rollRamp[ch] = forced ? hits : hits - 1;
     this.runLeft[ch] = steps - 1;
@@ -1452,6 +1461,7 @@ export class Engine {
   private setHoldRoll(ch: number, on: boolean, note: number): void {
     this.holdRoll[ch] = on ? 1 : 0;
     this.holdRollNote[ch] = note;
+    this.holdRollCount[ch] = 0;
     if (!on) {
       this.rollLeft[ch] = 0;
       return;
@@ -2281,7 +2291,7 @@ export class Engine {
     const slot = knownSlot >= 0 ? knownSlot : this.slotOf(inst, id);
     if (slot >= 0) this.baseValue[ch * LOCK_SLOTS + slot] = value;
     this.applyParam(ch, inst, id, slot >= 0 ? this.withOffset(ch, slot, value) : value);
-    if (id === 'rolldiv') this.rollDiv[ch] = ROLL_DIVS[Math.round(value)]?.hits ?? 2;
+    if (id === 'rolldiv') this.rollDiv[ch] = ROLL_DIVS[Math.round(value)]?.hits ?? 1;
   }
 
   /** ARP: on / off, MODE, RATE, OCT (option indices); it plays when on and MODE is not OFF. */

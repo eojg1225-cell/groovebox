@@ -2303,7 +2303,7 @@ export class App {
   /** Hits per step of a ROLL-flagged drum step on this channel (its sound's ROLL DIV). */
   private rollHits(c: ChannelState): number {
     const v = c.instrument === 'none' ? 0 : c.sounds[c.instrument]?.rolldiv ?? 0;
-    return ROLL_DIVS[Math.round(v)]?.hits ?? 2;
+    return ROLL_DIVS[Math.round(v)]?.hits ?? 1;
   }
 
   /** The SLIDE button's job on this track: ROLL on drums. */

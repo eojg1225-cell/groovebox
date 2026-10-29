@@ -385,6 +385,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   if (version < 41) fmEnvV41(values);
   const sound = { ...base };
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
+  if (version < 56 && typeof values.rolldiv === 'number') rollRateV56(sound);
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
@@ -393,6 +394,11 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
     for (const id of linkedParams(kind, spec.id)) if (typeof values[id] !== 'number' && typeof values[spec.id] === 'number') sound[id] = sound[spec.id];
   }
   return sound;
+}
+
+/** v56: ROLL RATE's list became 4:1 ... 1:4 (was 1:1, 1:2, 1:3, 1:4, 1:6, 1:8): the same rate, 1:6 / 1:8 as 1:4. */
+export function rollRateV56(sound: Record<string, number>): void {
+  if (sound.rolldiv !== undefined) sound.rolldiv = Math.min(6, Math.round(sound.rolldiv) + 3);
 }
 
 /** SOUND page trims as stored (derived from the values when absent), pruned to the page. */

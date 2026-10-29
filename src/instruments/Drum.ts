@@ -35,11 +35,15 @@ import { AirRoom } from './airRoom';
 const T_WAVES = ['SINE', 'TRI', 'SAW', 'SQR'];
 const ATTACK = { min: 0.0005, max: 2, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 } as const;
 
-/** ROLL RATE: hits per step (1:n) of a ROLL run (ids 'rolldiv'; before v30 the list began at 1:2). */
+/**
+ * ROLL RATE, steps : hits of a ROLL run, from a hit every 4 steps to 4 hits a step (id
+ * 'rolldiv'; before v56 the list ran 1:1, 1:2, 1:3, 1:4, 1:6, 1:8: rollRateV56).
+ */
 export const ROLL_DIVS = [
-  { name: '1:1', hits: 1 }, { name: '1:2', hits: 2 }, { name: '1:3', hits: 3 }, { name: '1:4', hits: 4 }, { name: '1:6', hits: 6 }, { name: '1:8', hits: 8 },
+  { name: '4:1', hits: 1 / 4 }, { name: '3:1', hits: 1 / 3 }, { name: '2:1', hits: 1 / 2 },
+  { name: '1:1', hits: 1 }, { name: '1:2', hits: 2 }, { name: '1:3', hits: 3 }, { name: '1:4', hits: 4 },
 ] as const;
-/** ROLL RATE 1:4: a plain ROLL sounds like a roll, not a double. */
+/** ROLL RATE 1:1: a hit a step. */
 const DEFAULT_ROLL_RATE = 3;
 
 /** Every drum parameter; each drum type exposes a subset with its own defaults. */
