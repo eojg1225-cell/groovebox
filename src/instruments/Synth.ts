@@ -303,6 +303,8 @@ export class Synth implements Instrument {
   private fmMod = 0; private fmEff = 0; private detune = 0; private sub = 0; private octave = 0; private mono = false;
   private unison = 0;
   private polyLimit = MAX_VOICES; private voiceCount = MAX_VOICES;
+  /** MONO: the voice playing now (of two: the other fades the last note out). */
+  private monoVoice = 0;
   private cFeedback = 0;
   /** UNISON copies' pitch ratios (around OSC 1: two below, two above). */
   private readonly uRatio = new Float64Array(4);
@@ -393,8 +395,23 @@ export class Synth implements Instrument {
     }
     let v: Voice;
     if (this.mono) {
-      v = this.voices[0];
-      if (!sounding(v)) v.freq = freq;
+      // MONO: a note while the last one still sounds (held or releasing) starts fresh on the
+      // other voice, and the old one fades out over CUT_FADE: retriggering it in place made
+      // its filter / FM envelopes jump while it was still heard (a click).
+      const old = this.voices[this.monoVoice];
+      if (sounding(old)) {
+        if (old.cutLeft === 0) old.cutLeft = this.cutLen;
+        old.hold = false;
+        this.monoVoice ^= 1;
+      }
+      v = this.voices[this.monoVoice];
+      if (sounding(v)) {
+        // Still fading from the note before last (notes under CUT_FADE apart): silent now.
+        v.stage.fill(STAGE_OFF);
+        v.amp.fill(0);
+        v.filter.reset();
+      }
+      v.freq = freq;
     } else {
       v = this.allocate();
       v.freq = freq;
@@ -882,9 +899,9 @@ export class Synth implements Instrument {
     }
   }
 
-  /** Voices in use: 1 (MONO), else the type's limit (PLUCK / PAD 6, LEAD 3); the rest fall silent. */
+  /** Voices in use: 2 (MONO: one plays, one fades the last note out), else the type's limit (PLUCK / PAD 6, LEAD 3); the rest fall silent. */
   private updateVoiceCount(): void {
-    this.voiceCount = this.mono ? 1 : this.polyLimit;
+    this.voiceCount = this.mono ? 2 : this.polyLimit;
     for (let i = this.voiceCount; i < MAX_VOICES; i++) this.voices[i].stage.fill(STAGE_OFF);
   }
 

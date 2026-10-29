@@ -1437,6 +1437,29 @@ describe('slides and rolls', () => {
     near(o2, [0, 3000, 24000]);
   });
 
+  it('BASS: a note during the last one\'s release starts cleanly (no click): the old one fades out under it', () => {
+    for (const t of [0, 1]) { // SINE SUB, FM 2:3
+      const run = (retrig: boolean) => {
+        const inst = INSTRUMENTS.bass.create(SR);
+        const snd = macroSound('bass', t, 0.5, INSTRUMENTS.bass.params);
+        for (const k in snd) inst.setParam(k, snd[k]);
+        const l = new Float32Array(12000), r = new Float32Array(12000);
+        if (retrig) {
+          inst.noteOn(36, 0.8, 36, false);
+          inst.render(l, r, 0, 4800);
+          inst.noteOff(36);
+          inst.render(l, r, 4800, 5760); // 20 ms into the release
+        }
+        inst.noteOn(43, 0.8, 43, false);
+        inst.render(l, r, 5760, 12000);
+        let peak = 0;
+        for (let i = 5761; i < 5810; i++) peak = Math.max(peak, Math.abs(l[i + 1] - 2 * l[i] + l[i - 1]));
+        return peak;
+      };
+      expect(run(true)).toBeLessThan(run(false) * 2 + 1e-4); // about a note from silence
+    }
+  });
+
   it('a mono note that is not a SLIDE starts on pitch (SLIDE time only applies to slides)', () => {
     const slow = bass();
     slow.setParam('glide', 0.5);
