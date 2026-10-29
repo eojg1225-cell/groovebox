@@ -1790,6 +1790,13 @@ export class App {
       } else if (ch !== this.songCol - 1) {
         if (this.songTracks.has(ch)) this.songTracks.delete(ch);
         else this.songTracks.add(ch);
+      } else {
+        // The cursor's own track: disarmed; the cursor goes to the next armed one, or with
+        // none left to BARS (no track armed: the whole row).
+        const next = this.songArmed().slice(1);
+        this.songTracks.delete(next[0]);
+        this.songCol = next.length > 0 ? next[0] + 1 : 0;
+        if (this.songCol > 0) this.selected = this.songCol - 1;
       }
       this.heldTrack = -1;
     } else {
@@ -1880,23 +1887,51 @@ export class App {
   private songPaste(): void {
     const clip = this.songClip!;
     const rows = this.songRows;
-    const shift = this.songCol === 0 || clip.tracks.length === NUM_CHANNELS ? 0 : this.songCol - 1 - clip.tracks[0];
-    let pasted = 0;
-    clip.cells.forEach((cells, k) => {
+    const n = Math.min(clip.cells.length, SONG_MAX_ROWS - this.songRow);
+    for (let k = 0; k < n; k++) {
       const r = this.songRow + k;
-      if (r >= SONG_MAX_ROWS) return;
       if (r >= rows.length) rows.push({ bars: clip.bars[k], patterns: new Array<number>(NUM_CHANNELS).fill(-1) });
-      clip.tracks.forEach((t, i) => {
-        const to = t + shift;
-        if (to >= 0 && to < NUM_CHANNELS) rows[r].patterns[to] = cells[i];
-      });
       if (clip.tracks.length === NUM_CHANNELS) rows[r].bars = clip.bars[k];
-      pasted++;
-    });
+    }
+    for (const { row, track, value } of this.pasteTargets()) rows[row].patterns[track] = value;
+    const pasted = n;
     this.songAdded = -1;
     this.relabel(`PASTE ROW ${this.songRow + 1}`);
     this.sendSong();
     this.flash(`PASTED ${pasted} ROW${pasted > 1 ? 'S' : ''} AT ROW ${this.songRow + 1}`);
+  }
+
+  /** Where a paste at the cursor puts each copied cell (rows past the end included). */
+  private pasteTargets(): { row: number; track: number; value: number }[] {
+    const clip = this.songClip;
+    if (!clip) return [];
+    const shift = this.songCol === 0 || clip.tracks.length === NUM_CHANNELS ? 0 : this.songCol - 1 - clip.tracks[0];
+    const out: { row: number; track: number; value: number }[] = [];
+    clip.cells.forEach((cells, k) => {
+      const row = this.songRow + k;
+      if (row >= SONG_MAX_ROWS) return;
+      clip.tracks.forEach((t, i) => {
+        const track = t + shift;
+        if (track >= 0 && track < NUM_CHANNELS) out.push({ row, track, value: cells[i] });
+      });
+    });
+    return out;
+  }
+
+  /**
+   * CLEAR / COPY held: each cell the release would touch and its value after it (CLEAR: OFF;
+   * a COPY box: as it is; a COPY tap with something copied: the paste), for the screen.
+   */
+  private songPending(): { row: number; track: number; value: number }[] {
+    const box = this.songBox;
+    if (!box) return [];
+    if (box.kind === 'copy' && !box.moved && this.songClip) return this.pasteTargets();
+    const cells = this.songBoxCells()!;
+    const out: { row: number; track: number; value: number }[] = [];
+    for (let row = cells.from; row <= cells.to; row++) {
+      for (const track of cells.tracks) out.push({ row, track, value: box.kind === 'clear' ? -1 : this.songRows[row].patterns[track] });
+    }
+    return out;
   }
 
   /** Bar `bar` of row `row` counted from the song's first bar (1 = the first). */
@@ -3788,7 +3823,7 @@ export class App {
       // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
       const sendView = this.sendOpen;
       // SONG grid: lit = armed (the cursor's track and those armed with it).
-      const lit = sendView ? this.onBus(c, this.fxView) : this.songGrid ? this.songArmed().includes(ch) : ch === this.selected;
+      const lit = sendView ? this.onBus(c, this.fxView) : this.songGrid ? this.songCol > 0 && this.songArmed().includes(ch) : ch === this.selected;
       this.panel.setButtonLit(`ch${ch + 1}`, lit);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
@@ -4179,7 +4214,8 @@ export class App {
     const totalBars = rows.reduce((n, r) => n + r.bars, 0);
     const bar = this.status?.songBar ?? 0;
     const armed = this.songArmed();
-    const box = this.songBoxCells();
+    const pending: Record<number, string[]> = {};
+    for (const { row, track, value } of this.songPending()) (pending[row] ??= [])[track] = value < 0 ? '-' : PATTERN_NAMES[value];
     return {
       ...this.header(),
       channelLabel: 'SONG',
@@ -4193,7 +4229,7 @@ export class App {
       })),
       cursorRow: this.songRow,
       cursorCol: this.songCol,
-      box: box && { from: box.from, to: box.to, tracks: this.project.channels.map((_, i) => box.tracks.includes(i)) },
+      pending,
       playingRow,
       playingBar: bar,
       footerLeft: playingRow >= 0 ? `ROW ${playingRow + 1} BAR ${bar + 1}/${rows[playingRow]?.bars ?? 0}`

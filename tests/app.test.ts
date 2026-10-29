@@ -648,7 +648,13 @@ describe('SONG grid: rows, track selection, A-D', () => {
     tap('ch7'); // disarmed
     tap('patD');
     expect(rows(app)[0]).toBe('3,0,0,0,3,0,0,0');
-    tap('ch1'); // the cursor's own: stays armed
+    tap('ch1'); // the cursor's own: disarmed, the cursor on the next armed track
+    expect(armed(app)).toBe('4');
+    tap('ch5'); // none left: the whole row (BARS)
+    expect((app as unknown as { songCol: number }).songCol).toBe(0);
+    expect(armed(app)).toBe('0,1,2,3,4,5,6,7');
+    tap('cur+');
+    tap('ch5');
     expect(armed(app)).toBe('0,4');
     tap('cur+'); // to track 2: only it
     expect(armed(app)).toBe('1');
@@ -698,6 +704,31 @@ describe('SONG grid: rows, track selection, A-D', () => {
     expect(kick.steps[0].active).toBe(true);
     tap('cancel'); // UNDO
     expect(rows(app)[2]).toBe('2,2,2,2,2,2,2,2');
+  });
+
+  it('held CLEAR / COPY: the screen shows each cell it would change as it would read after', () => {
+    const { app, tap, press, release } = song();
+    const pending = () => app.songView(0, { peak: 0 } as never).pending;
+    tap('cur-'); // BARS
+    tap('patB');
+    tap('cur+'); // track 1
+    press('clear');
+    tap('cur+');
+    expect(pending()).toEqual({ 0: ['-', '-'] });
+    release('clear');
+    tap('cur+'); // track 3
+    press('copy');
+    tap('cur+');
+    expect(pending()).toEqual({ 0: [undefined, undefined, 'B', 'B'] }); // a copy: as they are
+    release('copy');
+    tap('cur-');
+    tap('cur-');
+    tap('cur-'); // track 1
+    press('copy'); // a tap with something copied: the paste
+    expect(pending()).toEqual({ 0: ['B', 'B'] });
+    release('copy');
+    expect(rows(app)[0]).toBe('1,1,1,1,1,1,1,1');
+    expect(app.songView(0, { peak: 0 } as never).rows[0].cells.join('')).toBe('BBBBBBBB');
   });
 
   it('COPY: held = a box (empty cells too), released = copied; a COPY tap pastes at the cursor, rows added past the end', () => {
