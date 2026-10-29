@@ -1269,6 +1269,9 @@ describe('ARP key', () => {
     expect(t[0]?.label).toBe('ARP MODE');
     emit({ type: 'knob', id: 'k1', value: 1 / 6 }); // UP
     expect(app.project.channels[0].arp?.mode).toBe(1);
+    tap('arp'); // in the view: only back, still on
+    expect(app.arpOpen).toBe(false);
+    expect(app.project.channels[0].arp?.on).toBe(true);
     tap('arp');
     expect(app.project.channels[0].arp?.on).toBe(false);
     const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;

@@ -1407,10 +1407,19 @@ export class App {
     this.refreshPanel();
   }
 
-  /** ARP: on / off for the selected track; FUNC + ARP = its knobs on screen (again = back). */
+  /**
+   * ARP: on / off for the selected track; FUNC + ARP = its knobs on screen. With them open, ARP
+   * (with FUNC or not) only goes back: on / off waits until the view is closed.
+   */
   private onArp(): void {
     if (this.songGrid) return;
     const c = this.channel;
+    if (this.arpView) {
+      if (this.funcHeld) this.funcUsed = true;
+      this.arpView = false;
+      this.touchedKnob = -1;
+      return;
+    }
     if (this.func) {
       if (this.funcHeld) this.funcUsed = true; // not a latching tap
       this.arpView = !this.arpView;
