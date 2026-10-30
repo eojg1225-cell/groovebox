@@ -1052,6 +1052,41 @@ describe('SONG strip (preview)', () => {
   });
 });
 
+describe('STRIP key: keys / steps on the strip', () => {
+  const steps = (app: App, ch: number) => app.project.channels[ch].patterns[app.project.channels[ch].activePattern].steps;
+
+  it('a keyboard track shows steps: a tap paints a note at the pitch before it, a tie over it ends there, a tap again erases', () => {
+    const { app, tap, press, release, texts } = makeApp();
+    tap('mode:record');
+    tap('ch5');
+    press('step8'); // BASS: a note at step 1, tied over 8 steps
+    for (let i = 1; i < 8; i++) tap('cur+');
+    release('step8');
+    const note = steps(app, 4)[0].note;
+    tap('view');
+    expect(texts.get('view')).toContain('STEPS');
+    tap('step5');
+    expect(steps(app, 4)[4]).toMatchObject({ active: true, note, gate: 1 });
+    expect(steps(app, 4)[0].gate).toBe(4);
+    tap('step5');
+    expect(steps(app, 4)[4].active).toBe(false);
+    tap('view');
+    expect(texts.get('view')).toContain('KEYS');
+  });
+
+  it('a drum track shows keys: tuned hits at the cursor, which moves on', () => {
+    const { app, tap } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    tap('view');
+    tap('step3');
+    tap('step1');
+    const s = steps(app, 0);
+    expect(s[0].active && s[1].active).toBe(true);
+    expect(s[0].note - s[1].note).toBe(2);
+  });
+});
+
 describe('SONG over RECORD / PLAY / DESIGN', () => {
   const song = () => {
     const r = makeApp();

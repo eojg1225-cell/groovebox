@@ -120,3 +120,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Side keys, take 2 (2026-10-30): the middle row is CLEAR / COPY / CANCEL; the function row runs STEPS, BAR, TIME, STEP EDIT | ARP, two free keys, REST.
 - SONG strip preview (2026-10-30, branch only): `npm run build:preview` builds SONG DESIGN as a lane of clips per track, one strip step = one bar (`ui/songClips.ts`); format v59 adds a song row's `keep` (`k`: the track's pattern runs on from the row before; missing = restart, no migration).
 - Side keys, take 3 (2026-10-30): the middle row is CANCEL / COPY / CLEAR.
+- STRIP key (2026-10-30): function key 11 switches the selected track's RECORD strip between keys and steps (drums: tuned hits from keys; keyboard tracks: rhythms painted as steps).
