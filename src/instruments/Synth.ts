@@ -38,11 +38,11 @@ function fmEnvGain(env: number): number {
   return 0.6 + 1.8 * env;
 }
 /**
- * BASS FM pair: above FM LVL 60 its depth curves up to 4x at the top (index 20 on the strike,
- * 2 settled; was 5 / 0.5), for a proper squelch. Up to 60 (every TIMBRE sound) unchanged.
+ * BASS FM pair: above FM LVL 60 its depth curves up to 8x at the top (index 40 on the strike,
+ * 4 settled; was 5 / 0.5), for a proper squelch. Up to 60 (every TIMBRE sound) unchanged.
  */
 const SQUELCH_FROM = 0.6;
-const SQUELCH_TOP = 4;
+const SQUELCH_TOP = 8;
 function squelch(fm: number): number {
   if (fm <= SQUELCH_FROM) return fm;
   const x = (fm - SQUELCH_FROM) / (1 - SQUELCH_FROM);

@@ -112,3 +112,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - STEP EDIT while playing (2026-10-29): STEP EDIT works during playback and stays on through PLAY / STOP; the strip keeps the primed bar with the playhead lit; each lock is its own UNDO step.
 - BASS squelch + engine fixes (2026-10-29): BASS FM pair deepens above FM LVL 60 (up to 3x at the top: index 15 on the strike, 1.5 settled; the TIMBRE sounds unchanged); math.ts sinTurn / exp2 read one past their table for inputs a hair below a whole number (NaN -> ENGINE RESTARTED), now guarded; LOCK_SLOTS 32 -> 48 (PAD's 34 params spilled into the next track's slots).
 - BASS squelch to 4x (2026-10-29): the FM pair's depth at FM LVL 100 is 4x (index 20 on the strike, 2 settled; was 3x).
+- BASS squelch to 8x (2026-10-30): the FM pair's depth at FM LVL 100 is 8x (index 40 on the strike, 4 settled; was 4x).
