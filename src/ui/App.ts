@@ -142,6 +142,8 @@ function noteName(n: number): string {
   return `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
 }
 const isBlackKey = (n: number) => NOTE_NAMES[n % 12].length > 1;
+/** SCALE: the natural minor's steps from the root (the strip's keys when not CHROMATIC). */
+const MINOR = [0, 2, 3, 5, 7, 8, 10];
 
 type Status = Extract<WorkletToMain, { type: 'status' }>;
 
@@ -412,6 +414,9 @@ export class App {
   private barUsed = false;
   /** STEPS held (+ ◀ / ▶ = pattern length; a tap on release = STEPS mode on / off). */
   private lenHeld = false;
+  /** SCALE held (+ ◀ ▶ = the root a semitone down / up; released unused = minor / chromatic). */
+  private scaleHeld = false;
+  private scaleUsed = false;
   private lenUsed = false;
   /** STEPS mode (RECORD / PLAY): the strip shows which steps play; a tap switches one on / off. */
   private stepsMode = false;
@@ -609,6 +614,27 @@ export class App {
    */
   private stripSteps(ch = this.selected): boolean {
     return stepsOnStrip(this.project.channels[ch].instrument) !== this.stripFlip[ch];
+  }
+
+  /** SCALE's root (pitch class; A unless set). */
+  private get root(): number {
+    return this.project.root ?? 9;
+  }
+
+  /** SCALE as named on its key and screen: A MIN / A CHR. */
+  private scaleName(): string {
+    return `${NOTE_NAMES[this.root]} ${this.project.chromatic ? 'CHR' : 'MIN'}`;
+  }
+
+  /**
+   * The note strip key `button` plays on track ch: up from SCALE's root (within a fifth or so
+   * of the track's octave, `octave` = an A: the root moves the keys a semitone at a time,
+   * jumping an octave between D and D#), along the minor scale or every semitone (CHROMATIC).
+   */
+  private keyNote(ch: number, button: number): number {
+    const first = this.octave[ch] + ((this.root - 9 + 6 + 12) % 12) - 6;
+    if (this.project.chromatic) return first + button;
+    return first + 12 * Math.floor(button / MINOR.length) + MINOR[button % MINOR.length];
   }
 
   /** The ARP view open (FUNC + ARP): knobs and screen show the selected track's ARP. */
@@ -1214,6 +1240,17 @@ export class App {
         }
         this.refreshPanel();
       }
+      if (id === 'scale' && this.scaleHeld) {
+        // SCALE tapped (no ◀ / ▶ meanwhile): minor keys / chromatic keys.
+        this.scaleHeld = false;
+        if (!this.scaleUsed) {
+          if (this.project.chromatic) delete this.project.chromatic;
+          else this.project.chromatic = true;
+          this.flash(`SCALE: ${this.scaleName()}`);
+          this.save();
+        }
+        this.refreshPanel();
+      }
       if (id === 'len' && this.lenHeld) {
         // STEPS tapped (no ◀ / ▶ meanwhile): STEPS mode on / off.
         this.lenHeld = false;
@@ -1458,6 +1495,15 @@ export class App {
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
+    } else if (id === 'scale') {
+      this.scaleHeld = true;
+      this.scaleUsed = false;
+    } else if ((id === 'cur-' || id === 'cur+') && this.scaleHeld) {
+      // SCALE + ◀ / ▶: the root a semitone down / up (the strip's keys follow).
+      this.project.root = (this.root + (id === 'cur+' ? 1 : 11)) % 12;
+      this.scaleUsed = true;
+      this.flash(`SCALE: ${this.scaleName()}`);
+      this.save();
     } else if ((id === 'cur-' || id === 'cur+') && this.lenHeld) {
       // STEPS + ◀ / ▶: the pattern one step shorter / longer.
       this.changeLength(id === 'cur+' ? 1 : -1);
@@ -2102,7 +2148,7 @@ export class App {
     }
     if (this.keyboard) {
       this.stopPreview(); // a played key never gets cut off by a preview's release
-      const note = this.octave[ch] + button;
+      const note = this.keyNote(ch, button);
       const vel = this.velocity();
       // Played legato (a key still held), BASS / LEAD and chord-mode PAD / PLUCK slide into the new note.
       let heldNote = -1;
@@ -2217,7 +2263,7 @@ export class App {
         this.sendStep(j, s);
       }
     }
-    step.note = note < 0 ? this.octave[this.selected] : note;
+    step.note = note < 0 ? this.keyNote(this.selected, 0) : note;
     step.gate = 1;
     delete step.extra;
     delete step.extraGate;
@@ -4021,8 +4067,12 @@ export class App {
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && this.stripSteps()) || (this.clearHeld && this.mode !== 'design')));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
+    // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
+    this.panel.setButtonEnabled('scale', !this.songGrid);
+    this.panel.setButtonText('scale', `SCALE<small>${this.scaleName()}</small>`);
+    this.panel.setButtonLit('scale', this.scaleHeld);
     // STRIP: keys / steps on the strip, the selected track's (RECORD); lit = not its type's own.
     this.panel.setButtonEnabled('view', rec && !this.song);
     this.panel.setButtonText('view', `STRIP<small>${this.mode === 'record' && this.stripSteps() ? 'STEPS' : 'KEYS'}</small>`);
@@ -4175,9 +4225,9 @@ export class App {
       }
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
-        const note = this.octave[ch] + i;
+        const note = this.keyNote(ch, i);
         this.panel.setButtonText(id, noteName(note));
-        this.panel.setButtonFlag(id, 'black', isBlackKey(note));
+        this.panel.setButtonFlag(id, 'black', !!this.project.chromatic && isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding || under.includes(note));
         this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
         for (const f of ['note', 'accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
@@ -4342,7 +4392,7 @@ export class App {
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
-      keyboardLabel: this.keyboard ? `KEYS ${noteName(this.octave[ch])}` : '',
+      keyboardLabel: this.keyboard ? `KEYS ${noteName(this.keyNote(ch, 0))} ${this.project.chromatic ? 'CHR' : 'MIN'}` : '',
       dynamicLabel: this.dynamic === 'normal' ? '' : this.dynamic.toUpperCase(),
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
