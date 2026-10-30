@@ -72,6 +72,7 @@ describe('PAD step entry: every note with its own tie', () => {
   const padApp = () => {
     const r = makeApp();
     r.app.project.channels[5].chord = 0;
+    r.app.project.chromatic = true; // the notes below count semitones
     return r;
   };
 
@@ -192,6 +193,7 @@ describe('PAD step entry: every note with its own tie', () => {
 
   it('BASS still replaces the note on a step', () => {
     const { app, tap } = makeApp();
+    app.project.chromatic = true;
     tap('mode:record');
     tap('ch5');
     tap('step1');
@@ -238,6 +240,7 @@ describe('PAD / PLUCK with a CHORD: one root at a time, legato slides', () => {
 
   it('step entry with a CHORD: a key while another is held goes on the next step', () => {
     const { app, press, tap } = makeApp();
+    app.project.chromatic = true;
     tap('mode:record');
     tap('ch6');
     press('step1');
@@ -1083,7 +1086,31 @@ describe('STRIP key: keys / steps on the strip', () => {
     tap('step1');
     const s = steps(app, 0);
     expect(s[0].active && s[1].active).toBe(true);
-    expect(s[0].note - s[1].note).toBe(2);
+    expect(s[0].note - s[1].note).toBe(3); // the third key of A minor: C
+  });
+});
+
+describe('SCALE key', () => {
+  const notes = (app: App) => app.project.channels[4].patterns[0].steps.map((st) => st.note);
+
+  it('the strip starts in A minor; SCALE + ◀ ▶ moves the root a semitone, a tap = chromatic', () => {
+    const { app, tap, press, release, texts } = makeApp();
+    tap('mode:record');
+    tap('ch5'); // BASS, octave A1 (33)
+    for (const k of [1, 2, 3, 8]) tap(`step${k}`);
+    expect(notes(app).slice(0, 4)).toEqual([33, 35, 36, 45]); // A B C, A an octave up
+    app.updateFrame(0);
+    expect(texts.get('scale')).toContain('A MIN');
+    press('scale');
+    tap('cur+');
+    release('scale');
+    expect(app.project.root).toBe(10);
+    tap('step1');
+    expect(notes(app)[4]).toBe(34); // A#
+    tap('scale'); // a tap: chromatic
+    tap('step2');
+    expect(notes(app)[5]).toBe(35);
+    expect(fromStored(toStored(app.project))).toMatchObject({ root: 10, chromatic: true });
   });
 });
 

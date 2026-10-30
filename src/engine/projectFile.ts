@@ -171,6 +171,9 @@ interface StoredProject {
   meter?: number;
   /** v52: the project's own GLOBAL settings (option indices; absent = DEFAULT). */
   settings?: Record<string, number>;
+  /** v59: SCALE's root (pitch class; absent = A) and chromatic keys (absent = minor). */
+  root?: number;
+  chromatic?: boolean;
   channels: StoredChannel[];
 }
 
@@ -182,6 +185,8 @@ export function toStored(p: Project): StoredProject {
     swing: p.swing,
     master: p.master,
     meter: p.meter,
+    ...(p.root !== undefined ? { root: p.root } : {}),
+    ...(p.chromatic ? { chromatic: true } : {}),
     settings: { ...p.settings },
     lfo: { ...p.lfo },
     song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns], ...(r.keep?.some((k) => k) ? { k: [...r.keep] } : {}) })), ...(p.song.auto ? { a: JSON.parse(JSON.stringify(p.song.auto)) as Record<string, [number, number][]> } : {}) },
@@ -592,6 +597,8 @@ export function fromStored(data: unknown): Project | null {
   p.swing = num(data.swing, p.swing, 50, 75);
   p.master = num(data.master, p.master, 0, 1);
   p.meter = Math.round(num(data.meter, 0, 0, METERS.length - 1));
+  if (typeof data.root === 'number') p.root = Math.round(num(data.root, 9, 0, 11));
+  if (data.chromatic === true) p.chromatic = true;
   p.settings = {};
   if (isObj(data.settings)) {
     for (const k of SETTING_KEYS) {

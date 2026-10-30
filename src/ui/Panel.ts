@@ -51,8 +51,7 @@ export const MODES = [
 const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['speed', 'TIME<small>NORMAL</small>'], ['stepedit', 'STEP<small>EDIT</small>']],
-  // CLEAR and COPY moved beside the screen (the middle row of three); 10 is free.
-  [['arp', 'ARP'], ['', ''], ['view', 'STRIP<small>KEYS</small>'], ['rest', 'REST']],
+  [['arp', 'ARP'], ['view', 'STRIP<small>KEYS</small>'], ['scale', 'SCALE<small>A MIN</small>'], ['rest', 'REST']],
   [['oct-', 'OCT ▼'], ['oct+', 'OCT ▲'], ['cur-', '◀'], ['cur+', '▶']],
 ];
 
