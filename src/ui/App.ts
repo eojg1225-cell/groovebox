@@ -67,7 +67,8 @@ import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
-import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongView } from './views';
+import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongStripView, SongView } from './views';
+import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, songBars, songClips, type Clip } from './songClips';
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
 import { ARP_MODES, ARP_PARAMS, defaultArp, type ArpId } from '../engine/arp';
@@ -378,6 +379,16 @@ export class App {
   private songRow = 0;
   private songCol = 1;
   private songPage = 0;
+  /**
+   * SONG strip (the preview build, VITE_SONG_STRIP=1): SONG DESIGN shows the song as a lane of
+   * clips per track, one strip step = one bar (`songPage` = which 16), instead of the grid.
+   * `stripBar` = the cursor (selected track); STEP EDIT = ◀ ▶ change the length of the cursor's
+   * clip; `stripStart` = the bar PLAY starts from.
+   */
+  songStrip = import.meta.env.VITE_SONG_STRIP === '1';
+  private stripBar = 0;
+  private stripEdit = false;
+  private stripStart = 0;
   /** The transport is playing the song (not the patterns). */
   private songPlaying = false;
   /**
@@ -1199,7 +1210,8 @@ export class App {
         // BAR tapped (no ◀ / ▶ meanwhile): the next bar (SONG grid: the next page of rows).
         this.barHeld = false;
         if (!this.barUsed) {
-          if (this.songGrid) this.songPage = (this.songPage + 1) % Math.max(1, Math.ceil(this.songRows.length / 16));
+          if (this.songGrid && this.songStrip) this.stripPage((this.songPage + 1) % this.stripPages());
+          else if (this.songGrid) this.songPage = (this.songPage + 1) % Math.max(1, Math.ceil(this.songRows.length / 16));
           else this.changeBar(1);
         }
         this.refreshPanel();
@@ -1345,12 +1357,22 @@ export class App {
           this.songRow = Math.min(row, this.songRows.length - 1);
           this.songStartBar = top ? 0 : Math.max(0, this.status?.songBar ?? 0);
           this.songPage = Math.floor(this.songRow / 16);
+          if (this.songStrip) {
+            this.stripStart = this.songBarNumber(this.songRow, this.songStartBar) - 1;
+            this.songPage = Math.floor(this.stripStart / 16);
+          }
         }
       }
       this.playing = !this.playing;
       // PLAY in SONG mode plays the song from the cursor row; elsewhere the patterns, from
       // the bar the strip shows for the selected track (every track where it would be then).
       this.songPlaying = this.playing && this.song && this.project.song.rows.length > 0;
+      if (this.songPlaying && this.songStrip) {
+        // The strip: from `stripStart` (FUNC: the top), in whichever row holds it.
+        const at = top ? { row: 0, bar: 0 } : rowOfBar(this.songRows, Math.min(this.stripStart, songBars(this.songRows) - 1));
+        this.songRow = at.row;
+        this.songStartBar = at.bar;
+      }
       this.send({
         type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: top ? 0 : this.songRow, fromBar: top ? 0 : this.songStartBar,
         fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16,
@@ -1737,6 +1759,7 @@ export class App {
 
   /** SONG mode buttons; true when handled. */
   private onSongButton(id: string): boolean {
+    if (this.songStrip) return this.onStripButton(id);
     const rows = this.songRows;
     let m: RegExpExecArray | null;
     const moveRow = (row: number) => {
@@ -1838,6 +1861,10 @@ export class App {
    * track); the other tracks keep what they had.
    */
   private songPattern(pattern: number): void {
+    if (this.songStrip) {
+      this.stripPattern(pattern);
+      return;
+    }
     const name = PATTERN_NAMES[pattern];
     if (this.songRows.length === 0) {
       this.project.song.rows.push({ bars: 4, patterns: new Array<number>(NUM_CHANNELS).fill(-1) });
@@ -1849,6 +1876,198 @@ export class App {
     if (this.songAdded === this.songRow) this.songAdded = -1; // filled: it stays
     this.sendSong();
     this.flash(armed.length === NUM_CHANNELS ? `ROW ${this.songRow + 1}: ALL ${name}` : `ROW ${this.songRow + 1}: ${name} ON ${armed.map((c) => c + 1).join(' ')}`);
+  }
+
+  /** SONG strip: every track's clips (a copy: change it, then `setClips`). */
+  private clips(): Clip[][] {
+    return songClips(this.songRows, (ch, p) => patternBars(this.project.channels[ch], p));
+  }
+
+  /** SONG strip: the song becomes these clips (false = it would not fit: SONG FULL). */
+  private setClips(clips: Clip[][]): boolean {
+    const rows = clipRows(clips);
+    if (!rows || songBars(rows) > STRIP_MAX_BARS) {
+      this.flash('SONG FULL');
+      return false;
+    }
+    this.project.song.rows = rows;
+    this.songRow = Math.max(0, Math.min(this.songRow, rows.length - 1));
+    this.songStartBar = 0;
+    this.sendSong();
+    return true;
+  }
+
+  /** SONG strip: pages of 16 bars, up to the one after the song's last bar. */
+  private stripPages(): number {
+    return Math.min(STRIP_MAX_BARS / 16, Math.floor(songBars(this.songRows) / 16) + 1);
+  }
+
+  /** SONG strip: show page n (PLAY starts from its first bar; the cursor goes there too). */
+  private stripPage(n: number): void {
+    this.songPage = Math.max(0, Math.min(STRIP_MAX_BARS / 16 - 1, n));
+    this.stripStart = this.songPage * 16;
+    if (Math.floor(this.stripBar / 16) !== this.songPage) this.stripBar = this.songPage * 16;
+  }
+
+  /** SONG strip: the cursor to bar `bar` (the page follows it). */
+  private stripCursor(bar: number): void {
+    this.stripBar = Math.max(0, Math.min(STRIP_MAX_BARS - 1, bar));
+    if (Math.floor(this.stripBar / 16) !== this.songPage) this.stripPage(Math.floor(this.stripBar / 16));
+  }
+
+  private trackName(ch: number): string {
+    return `${ch + 1} ${this.kindName(this.project.channels[ch])}`;
+  }
+
+  /**
+   * SONG strip A-D: the pattern goes on the cursor's bar of the selected track, as long as it
+   * plays (what it covers goes), and the cursor moves on past it, as notes in step entry.
+   */
+  private stripPattern(pattern: number): void {
+    const ch = this.selected;
+    const bars = patternBars(this.project.channels[ch], pattern);
+    const at = this.stripBar;
+    if (at + bars > STRIP_MAX_BARS) {
+      this.flash('SONG FULL');
+      return;
+    }
+    const clips = this.clips();
+    clips[ch] = placeClip(clips[ch], { at, pattern, bars });
+    if (!this.setClips(clips)) return;
+    this.flash(`${this.trackName(ch)} ${PATTERN_NAMES[pattern]}: BAR ${at + 1}${bars > 1 ? `-${at + bars}` : ''}`);
+    if (!this.stripEdit) this.stripCursor(at + bars);
+  }
+
+  /** SONG strip: CLEAR held + step = that bar's clip goes, + channel = the whole lane; COPY: not yet. */
+  private stripHold(id: 'clear' | 'copy', pressed: boolean): void {
+    if (id === 'copy') {
+      if (pressed) this.flash('SONG STRIP: NO COPY YET');
+      return;
+    }
+    if (pressed) {
+      this.clearHeld = true;
+      this.clearUsed = false;
+      return;
+    }
+    this.clearHeld = false;
+    if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK');
+  }
+
+  /** SONG strip buttons; true when handled. */
+  private onStripButton(id: string): boolean {
+    let m: RegExpExecArray | null;
+    const ch = this.selected;
+    if (id === 'stepedit') {
+      this.stripEdit = !this.stripEdit;
+      const clip = clipAt(this.clips()[ch], this.stripBar);
+      if (this.stripEdit && clip) this.stripBar = clip.at;
+      this.flash(this.stripEdit ? 'STEP EDIT: ◀ ▶ = LENGTH' : 'STEP EDIT OFF');
+    } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
+      this.stripPage(this.songPage + (id === 'cur+' ? 1 : -1));
+      this.barUsed = true;
+    } else if ((id === 'cur-' || id === 'cur+') && this.stripEdit) {
+      // STEP EDIT: the cursor's clip a bar shorter / longer (at most its pattern's length).
+      const d = id === 'cur+' ? 1 : -1;
+      const clips = this.clips();
+      const clip = clipAt(clips[ch], this.stripBar);
+      if (!clip) { this.flash('NO PATTERN HERE'); return true; }
+      const most = patternBars(this.project.channels[ch], clip.pattern);
+      const bars = clip.bars + d;
+      if (bars < 1) { this.flash('1 BAR AT LEAST'); return true; }
+      if (bars > most) { this.flash(`${PATTERN_NAMES[clip.pattern]} LASTS ${most} BAR${most > 1 ? 'S' : ''}`); return true; }
+      if (d > 0 && clipAt(clips[ch], clip.at + clip.bars)) { this.flash('NEXT PATTERN IN THE WAY'); return true; }
+      if (d > 0 && clip.at + bars > STRIP_MAX_BARS) { this.flash('SONG FULL'); return true; }
+      clip.bars = bars;
+      if (this.setClips(clips)) this.flash(`${PATTERN_NAMES[clip.pattern]}: ${bars} OF ${most} BAR${most > 1 ? 'S' : ''}`);
+    } else if (id === 'cur-' || id === 'cur+') {
+      this.stripCursor(this.stripBar + (id === 'cur+' ? 1 : -1));
+    } else if (id === 'oct-' || id === 'oct+') {
+      // TRK ▼ / ▲: the next / previous track (the screen's lanes, top to bottom).
+      this.selected = Math.max(0, Math.min(NUM_CHANNELS - 1, ch + (id === 'oct-' ? 1 : -1)));
+    } else if (id === 'rest') {
+      // REST: the cursor's bar is left empty (a clip from before ends there), the cursor moves on.
+      const clips = this.clips();
+      const clip = clipAt(clips[ch], this.stripBar);
+      if (clip) {
+        if (clip.at === this.stripBar) clips[ch] = clips[ch].filter((c) => c !== clip);
+        else clip.bars = this.stripBar - clip.at;
+        if (!this.setClips(clips)) return true;
+      }
+      this.stripCursor(this.stripBar + 1);
+    } else if (id === 'steppage') {
+      this.barHeld = true;
+      this.barUsed = false;
+    } else if ((m = /^step(\d+)$/.exec(id))) {
+      const bar = this.songPage * 16 + Number(m[1]) - 1;
+      if (this.clearHeld) {
+        const clips = this.clips();
+        const clip = clipAt(clips[ch], bar);
+        this.clearUsed = true;
+        if (!clip) return true;
+        clips[ch] = clips[ch].filter((c) => c !== clip);
+        if (this.setClips(clips)) this.flash(`${this.trackName(ch)}: ${PATTERN_NAMES[clip.pattern]} CLEARED`);
+        return true;
+      }
+      const clip = this.stripEdit ? clipAt(this.clips()[ch], bar) : undefined;
+      this.stripBar = clip ? clip.at : bar;
+    } else if ((m = /^ch(\d)$/.exec(id))) {
+      const t = Number(m[1]) - 1;
+      this.heldTrack = -1;
+      if (this.clearHeld) {
+        const clips = this.clips();
+        this.clearUsed = true;
+        if (clips[t].length === 0) return true;
+        clips[t] = [];
+        if (this.setClips(clips)) this.flash(`${this.trackName(t)}: LANE CLEARED`);
+        return true;
+      }
+      this.selected = t;
+    } else if (id === 'ring' || id === 'dyn:accent' || id === 'dyn:ghost' || id === 'len' || id === 'speed') {
+      this.flash('SONG: EDIT PATTERNS IN JAM');
+    } else {
+      return false;
+    }
+    if (this.stripEdit) {
+      const clip = clipAt(this.clips()[this.selected], this.stripBar);
+      if (clip) this.stripBar = clip.at;
+    }
+    return true;
+  }
+
+  /** SONG strip: the selected track's clips over the page's 16 bars (a clip = a note tied over its bars). */
+  private updateStripFrame(): void {
+    const lane = this.clips()[this.selected];
+    const playing = this.songPlaying ? this.playingSongBar() : -1;
+    const cur = this.stripEdit ? clipAt(lane, this.stripBar) : undefined;
+    const end = songBars(this.songRows);
+    for (let i = 0; i < STEP_BUTTONS; i++) {
+      const id = `step${i + 1}`;
+      const bar = this.songPage * 16 + i;
+      const clip = clipAt(lane, bar);
+      const start = !!clip && clip.at === bar;
+      this.panel.setButtonText(id, start ? `${bar + 1}<small>${PATTERN_NAMES[clip.pattern]}</small>` : String(bar + 1));
+      this.panel.setButtonFlag(id, 'lit', start);
+      this.panel.setButtonFlag(id, 'tie', !!clip && !start);
+      this.panel.setButtonFlag(id, 'head', bar === playing);
+      this.panel.setButtonFlag(id, 'cursor', cur ? bar >= cur.at && bar < cur.at + cur.bars : bar === this.stripBar);
+      this.panel.setButtonFlag(id, 'off', bar >= end && !clip && bar !== this.stripBar);
+      for (const f of ['note', 'black', 'accent', 'ghost', 'ring', 'rest', 'skip']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, bar === playing ? 'on' : bar === this.stripBar ? 'cursor' : '');
+    }
+    const first = this.songPage * 16 + 1;
+    this.panel.setButtonText('steppage', `BAR<small>${first}-${first + 15}</small>`);
+    const at = clipAt(lane, this.stripBar);
+    PATTERN_NAMES.forEach((name, p) => {
+      this.panel.setButtonFlag(`pat${name}`, 'lit', at?.pattern === p);
+      this.panel.setButtonFlag(`pat${name}`, 'playing', false);
+      this.panel.setButtonFlag(`pat${name}`, 'dirty', false);
+    });
+  }
+
+  /** The song bar playing (0 = the first), -1 when the song is not playing. */
+  private playingSongBar(): number {
+    const row = this.status?.songRow ?? -1;
+    return row < 0 ? -1 : this.songBarNumber(row, Math.max(0, this.status?.songBar ?? 0)) - 1;
   }
 
   /** SONG grid: the armed tracks, the cursor's first (on BARS: every track). */
@@ -1874,6 +2093,10 @@ export class App {
    * too). A COPY tap with something copied pastes it at the cursor. Patterns never change.
    */
   private songHold(id: 'clear' | 'copy', pressed: boolean): void {
+    if (this.songStrip) {
+      this.stripHold(id, pressed);
+      return;
+    }
     if (pressed) {
       if (this.songBox || this.songRows.length === 0) return;
       this.songBox = { kind: id, row: this.songRow, col: this.songCol, moved: false };
@@ -1981,7 +2204,7 @@ export class App {
   private songTargets(): (KnobTarget | null)[] {
     const out: (KnobTarget | null)[] = new Array(KNOB_COUNT).fill(null);
     const row = this.songRows[this.songRow];
-    if (!row) return out;
+    if (!row || this.songStrip) return out;
     const cell = choice('cell', 'PAT', ['OFF', ...PATTERN_NAMES]);
     this.project.channels.forEach((c, ch) => {
       out[ch] = {
@@ -3099,6 +3322,10 @@ export class App {
     this.songRow = row;
     this.songStartBar = left;
     this.songPage = Math.floor(row / 16);
+    if (this.songStrip) {
+      this.stripStart = this.songBarNumber(row, left) - 1;
+      this.songPage = Math.floor(this.stripStart / 16);
+    }
     this.flash(`BAR ${this.songBarNumber(row, left)} = R${row + 1} B${left + 1}`);
   }
 
@@ -3987,6 +4214,7 @@ export class App {
     this.panel.root.classList.toggle('keyboard', kb && !this.projMenu);
     // SONG: the function row edits the grid.
     const song = this.songGrid;
+    if (!song) this.stripEdit = false;
     this.panel.setButtonText('ring', song ? 'INSERT<small>ROW</small>' : 'RING');
     this.panel.setButtonText('dyn:accent', song ? 'DELETE<small>ROW</small>' : 'ACCENT');
     // The same arrows in every mode: ▼ (oct-) = octave down / the next row down the grid.
@@ -4009,6 +4237,20 @@ export class App {
       this.panel.setButtonEnabled('steppage', this.songRows.length > 16 || !!this.projMenu);
       for (const id of ['oct-', 'oct+', 'cur-', 'cur+']) this.panel.setButtonEnabled(id, true);
       this.panel.root.classList.toggle('keyboard', false);
+      if (this.songStrip) {
+        // The strip: no rows to insert / delete; REST = an empty bar, STEP EDIT = clip lengths,
+        // ▼ ▲ = the next / previous track.
+        this.panel.setButtonText('ring', 'RING');
+        this.panel.setButtonText('dyn:accent', 'ACCENT');
+        this.panel.setButtonEnabled('ring', false);
+        this.panel.setButtonEnabled('dyn:accent', false);
+        this.panel.setButtonEnabled('rest', true);
+        this.panel.setButtonEnabled('steppage', true);
+        this.panel.setButtonEnabled('stepedit', true);
+        this.panel.setButtonLit('stepedit', this.stripEdit);
+        this.panel.setButtonText('oct-', 'TRK ▼');
+        this.panel.setButtonText('oct+', 'TRK ▲');
+      }
     } else {
       // SONG RECORD / PLAY: the keys that edit a pattern are off (SONG_KEEPS).
       const off = this.song;
@@ -4027,6 +4269,10 @@ export class App {
 
   /** SONG: the strip = 16 rows (lit = row exists, head = playing row, cursor row marked). */
   private updateSongFrame(): void {
+    if (this.songStrip) {
+      this.updateStripFrame();
+      return;
+    }
     const rows = this.songRows.length;
     const box = this.songBoxCells();
     const playingRow = this.songPlaying ? (this.status?.songRow ?? -1) : -1;
@@ -4289,6 +4535,36 @@ export class App {
       dynamicLabel: this.dynamic === 'normal' ? '' : this.dynamic.toUpperCase(),
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
+      peak: audio.peak,
+      footerRight: f.text,
+      footerAlert: f.alert,
+      blink: Math.floor(now / 400) % 2 === 0,
+    };
+  }
+
+  /** SONG strip: every track's lane over the page's 16 bars. */
+  songStripView(now: number, audio: AudioInfo): SongStripView {
+    const f = this.footer(audio);
+    const clips = this.clips();
+    const lane = clips[this.selected];
+    const cur = this.stripEdit ? clipAt(lane, this.stripBar) : undefined;
+    const end = songBars(this.songRows);
+    const playing = this.songPlaying ? this.playingSongBar() : -1;
+    const at = clipAt(lane, this.stripBar);
+    return {
+      ...this.header(),
+      channelLabel: 'SONG',
+      patternLabel: `${end} BARS`,
+      tracks: this.project.channels.map((c, i) => `${i + 1}${this.kindName(c).slice(0, 3)}`),
+      selected: this.selected,
+      firstBar: this.songPage * 16,
+      lanes: clips.map((l) => l.map((c) => ({ at: c.at, bars: c.bars, name: PATTERN_NAMES[c.pattern] }))),
+      cursorFrom: cur ? cur.at : this.stripBar,
+      cursorTo: cur ? cur.at + cur.bars - 1 : this.stripBar,
+      playingBar: playing,
+      endBar: end,
+      footerLeft: playing >= 0 ? `BAR ${playing + 1}/${end}`
+        : `${this.stripEdit ? 'EDIT ' : ''}BAR ${this.stripBar + 1}${at ? ` ${PATTERN_NAMES[at.pattern]} ${at.bars}/${patternBars(this.project.channels[this.selected], at.pattern)}` : ''} START ${Math.min(this.stripStart, Math.max(0, end - 1)) + 1}`,
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,

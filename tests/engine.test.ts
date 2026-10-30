@@ -1764,6 +1764,18 @@ describe('song mode', () => {
     expect(e.songRow).toBe(0);
   });
 
+  it('a track kept from the row before carries on through its pattern (the SONG strip), also when PLAY starts there', () => {
+    const p = songProject([{ bars: 1, patterns: [0] }, { bars: 1, patterns: [0] }]);
+    const a = p.channels[0].patterns[0];
+    a.length = 32; // two bars: step 1, then step 5 of bar 2
+    a.steps[20].active = true;
+    near(onsets(play(p, 4.1).l, 0.005, 1000), [0, BAR, 2 * BAR], 8); // no keep: row 2 restarts it
+    p.song.rows[1].keep = [1, 0, 0, 0, 0, 0, 0, 0];
+    near(onsets(play(p, 4.1).l, 0.005, 1000), [0, BAR + 24000, 2 * BAR], 8);
+    near(onsets(play(p, 1.1, 1).l, 0.005, 1000), [24000], 8); // from row 2: as far into it
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.song).toEqual(p.song);
+  });
+
   it('pattern mode ignores the song; songs survive the stored format', () => {
     const p = songProject([{ bars: 1, patterns: [1] }]);
     const e = engineWith(p);

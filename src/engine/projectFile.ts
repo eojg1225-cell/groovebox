@@ -11,7 +11,7 @@ import { ARP_MODES, ARP_RATES, defaultArp } from './arp';
 import {
   MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
   emptyPattern, initPatterns, patchOf,
-  type ChannelState, type Patch, type Pattern, type Project, type SoundKind, type Step,
+  type ChannelState, type Patch, type Pattern, type Project, type SongRow, type SoundKind, type Step,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { parseAutoKey } from './automation';
@@ -164,7 +164,7 @@ interface StoredProject {
   master: number;
   lfo: LfoState;
   /** v53: `a` = the song's automation (key -> [position, value] pairs). */
-  song: { rows: { b: number; p: number[] }[]; a?: Record<string, [number, number][]> };
+  song: { rows: { b: number; p: number[]; k?: number[] }[]; a?: Record<string, [number, number][]> };
   /** v41: FX 1-3 settings (BUS_PARAMS ids). */
   buses: Record<string, number>[];
   /** v36: time signature (index into METERS; absent = 4/4). */
@@ -184,7 +184,7 @@ export function toStored(p: Project): StoredProject {
     meter: p.meter,
     settings: { ...p.settings },
     lfo: { ...p.lfo },
-    song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns] })), ...(p.song.auto ? { a: JSON.parse(JSON.stringify(p.song.auto)) as Record<string, [number, number][]> } : {}) },
+    song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns], ...(r.keep?.some((k) => k) ? { k: [...r.keep] } : {}) })), ...(p.song.auto ? { a: JSON.parse(JSON.stringify(p.song.auto)) as Record<string, [number, number][]> } : {}) },
     buses: p.buses.map((b) => ({ ...b })),
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
@@ -618,7 +618,10 @@ export function fromStored(data: unknown): Project | null {
       if (!isObj(r)) continue;
       const pats = Array.isArray(r.p) ? r.p : [];
       const patterns = Array.from({ length: NUM_CHANNELS }, (_, i) => Math.round(num(pats[i], -1, -1, NUM_PATTERNS - 1)));
-      p.song.rows.push({ bars: Math.round(num(r.b, 4, 1, SONG_MAX_BARS)), patterns });
+      const row: SongRow = { bars: Math.round(num(r.b, 4, 1, SONG_MAX_BARS)), patterns };
+      const keep = Array.isArray(r.k) ? (r.k as unknown[]) : [];
+      if (keep.length > 0) row.keep = Array.from({ length: NUM_CHANNELS }, (_, i) => (keep[i] === 1 && patterns[i] >= 0 ? 1 : 0));
+      p.song.rows.push(row);
     }
     const auto = readAuto(data.song.a);
     if (Object.keys(auto).length > 0) p.song.auto = auto;

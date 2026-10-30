@@ -10,6 +10,7 @@
     "preview": "vite preview --host",
     "test": "vitest run",
     "build:artifact": "npm run build && node scripts/build-artifact.mjs",
+    "build:preview": "VITE_SONG_STRIP=1 npm run build:artifact",
     "unused": "knip",
     "lab:level": "vitest run --config tools/lab/vite.config.ts",
     "build:lab": "vite build --config tools/lab/vite.config.ts && node tools/lab/pack.mjs"

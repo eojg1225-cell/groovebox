@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 58;
+export const PROJECT_VERSION = 59;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -22,6 +22,8 @@ export const SONG_MAX_BARS = 64;
 export interface SongRow {
   bars: number;
   patterns: number[];
+  /** Per track, 1 = its pattern runs on from the row before instead of restarting (the SONG strip). */
+  keep?: number[];
 }
 
 export interface Song {

@@ -314,6 +314,74 @@ export function drawSongView(s: PixelScreen, v: SongView): void {
   drawFooter(s, v, v.footerLeft, '');
 }
 
+export interface SongStripView extends HeaderView, FooterView {
+  /** One label per track. */
+  tracks: string[];
+  selected: number;
+  /** The page's first bar (0 = the song's first). */
+  firstBar: number;
+  /** Per track, its clips (absolute bars; the drawing keeps to the page). */
+  lanes: { at: number; bars: number; name: string }[][];
+  /** The cursor on the selected lane: bars `from`-`to` (yellow). */
+  cursorFrom: number;
+  cursorTo: number;
+  playingBar: number;
+  /** Bars the song lasts (the end shows as a line). */
+  endBar: number;
+  footerLeft: string;
+}
+
+const STRIP_Y = 20;
+const STRIP_ROW = 11;
+const STRIP_X = 34;
+const STRIP_CELL = 12;
+
+/** Left edge of page cell i (groups of four, a gap between them). */
+const stripCellX = (i: number) => STRIP_X + i * (STRIP_CELL + 1) + Math.floor(i / 4) * 2;
+
+/**
+ * SONG (strip preview): a lane per track over the page's 16 bars, each clip a bar as long as
+ * it plays with its pattern's letter at its start; the cursor yellow, the bar playing shaded.
+ */
+export function drawSongStripView(s: PixelScreen, v: SongStripView): void {
+  s.clear();
+  drawHeader(s, v, '', INK.mid);
+  const last = STRIP_Y + v.tracks.length * STRIP_ROW - 2;
+  for (let i = 0; i < 16; i++) {
+    const bar = v.firstBar + i;
+    const x = stripCellX(i);
+    if (bar === v.playingBar) s.rect(x - 1, STRIP_Y - 2, STRIP_CELL + 2, last - STRIP_Y + 3, INK.shade);
+    if (i % 4 === 0 || bar === v.playingBar) s.text(x, 12, String(bar + 1), bar === v.playingBar ? INK.hi : INK.mid);
+    if (bar === v.endBar) s.rect(x - 2, STRIP_Y - 2, 1, last - STRIP_Y + 3, INK.mid);
+  }
+  v.tracks.forEach((t, ch) => {
+    const y = STRIP_Y + ch * STRIP_ROW;
+    const sel = ch === v.selected;
+    s.text(2, y + 2, t, sel ? INK.warn : INK.mid);
+    for (let i = 0; i < 16; i++) s.rect(stripCellX(i), y + 4, STRIP_CELL, 1, INK.shade);
+    for (const c of v.lanes[ch]) {
+      const from = Math.max(c.at, v.firstBar) - v.firstBar;
+      const to = Math.min(c.at + c.bars, v.firstBar + 16) - v.firstBar - 1;
+      if (to < 0 || from > 15) continue;
+      const x0 = stripCellX(from);
+      s.rect(x0, y, stripCellX(to) + STRIP_CELL - x0, STRIP_ROW - 2, sel ? INK.mid : INK.dim);
+      if (c.at >= v.firstBar) {
+        s.rect(x0, y, 1, STRIP_ROW - 2, INK.hi);
+        s.text(x0 + 3, y + 2, c.name, sel ? INK.bg : INK.hi);
+      }
+    }
+    if (sel) {
+      const from = Math.max(v.cursorFrom, v.firstBar) - v.firstBar;
+      const to = Math.min(v.cursorTo, v.firstBar + 15) - v.firstBar;
+      if (to >= 0 && from <= 15) {
+        const x0 = stripCellX(from) - 1;
+        s.frame(x0, y - 1, stripCellX(to) + STRIP_CELL + 1 - x0, STRIP_ROW, INK.warn);
+      }
+    }
+  });
+  drawFooter(s, v, v.footerLeft, '');
+}
+
 export interface ProjectView {
   kind: 'save' | 'load';
   bank: number;

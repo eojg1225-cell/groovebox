@@ -293,6 +293,10 @@ export class Engine {
   // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
   private readonly songBars = new Uint8Array(SONG_MAX_ROWS);
   private readonly songPatterns = new Int8Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  /** 1 = the track's pattern runs on from the row before (SongRow.keep): not restarted. */
+  private readonly songKeep = new Uint8Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  /** startSongAt: bars each track chases before the row (its pattern began rows earlier). */
+  private readonly chaseBack = new Int32Array(NUM_CHANNELS);
   private songLength = 0;
   private songOn = false;
   private songJumpTo = -1;
@@ -450,7 +454,7 @@ export class Engine {
           this.songBar = -1; // the row is entered on the first step
           this.setPlaying(true);
           if (!this.songOn && msg.fromStep) this.startAt(msg.fromChannel ?? 0, msg.fromStep);
-          if (this.songOn && msg.fromBar) this.startSongAt(Math.max(0, Math.min(this.songBars[this.songRow] - 1, Math.round(msg.fromBar))));
+          if (this.songOn) this.startSongAt(Math.max(0, Math.min(this.songBars[this.songRow] - 1, Math.round(msg.fromBar ?? 0))));
           this.countTotal = this.countLeft = Math.max(0, Math.round(msg.countIn ?? 0)) * this.barLen;
           this.autoSnap = this.songOn;
           this.lfoStartClock = this.lfoClock;
@@ -757,21 +761,35 @@ export class Engine {
 
   /**
    * SONG from a bar inside a row: the row is entered and every track's counters move on,
-   * silently, through its first `bar` bars (each row starts its patterns from the top).
+   * silently, through its first `bar` bars (each row starts its patterns from the top, but a
+   * track whose pattern runs on from earlier rows starts as far into it).
    */
   private startSongAt(bar: number): void {
     this.enterRow(this.songRow);
+    // A track whose pattern began rows earlier (keep) chases those bars too.
+    let most = 0;
+    for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+      let back = 0;
+      for (let r = this.songRow; r > 0 && this.songKeep[r * NUM_CHANNELS + ch]; r--) back += this.songBars[r - 1];
+      this.chaseBack[ch] = back;
+      if (back > most) most = back;
+    }
     const steps = bar * this.barLen;
-    for (let g = 0; g < steps; g++) this.chaseMasterStep(g);
+    const lead = most * this.barLen;
+    for (let g = -lead; g < steps; g++) this.chaseMasterStep(g, -g);
     this.songBar = bar - 1; // the first bar line moves it on to `bar`
     this.startClockAt(steps);
   }
 
-  /** startAt / startSongAt: one master step of every track, counters only. */
-  private chaseMasterStep(g: number): void {
+  /**
+   * startAt / startSongAt: one master step of every track, counters only. `ahead` > 0: the
+   * step is that many before the row starts; only tracks with that much chaseBack take it.
+   */
+  private chaseMasterStep(g: number, ahead = 0): void {
     const pos = this.barPos(g);
     for (let c = 0; c < NUM_CHANNELS; c++) {
       if (!this.current[c] || !this.callsAt(c, pos)) continue;
+      if (ahead > 0 && this.chaseBack[c] * this.barLen < ahead) continue;
       const rate = this.patternRate[c * NUM_PATTERNS + this.activePattern[c]];
       this.chaseStep(c, g);
       if (rate < 1) this.chaseStep(c, g + 0.5);
@@ -1220,14 +1238,14 @@ export class Engine {
   /** Song: a bar line. Move on to the next row (or a queued jump) when this row is done. */
   private songBarLine(): void {
     if (this.songBar < 0) {
-      this.enterRow(this.songRow);
+      this.enterRow(this.songRow, true); // tracks startSongAt chased into a running pattern carry on
     } else {
       this.songBar++;
       if (this.songJumpTo >= 0) {
         this.enterRow(this.songJumpTo);
         this.songJumpTo = -1;
       } else if (this.songBar >= this.songBars[this.songRow]) {
-        this.enterRow((this.songRow + 1) % this.songLength); // the end loops to the top
+        this.enterRow((this.songRow + 1) % this.songLength, true); // the end loops to the top
       }
     }
     // The row's last bar: each track's sound glides over it to the next row's patch.
@@ -1253,12 +1271,16 @@ export class Engine {
     }
   }
 
-  /** Song: start a row. Every track restarts its row pattern (or falls silent). */
-  private enterRow(row: number): void {
+  /**
+   * Song: start a row. Every track restarts its row pattern (or falls silent), but one whose
+   * pattern runs on from the row before (keep) carries on, when the song got there in order.
+   */
+  private enterRow(row: number, inOrder = false): void {
     this.songRow = row;
     this.songBar = 0;
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const p = this.songPatterns[row * NUM_CHANNELS + ch];
+      if (inOrder && this.songKeep[row * NUM_CHANNELS + ch] && !this.songOff[ch] && p === this.activePattern[ch]) continue;
       this.pendingPattern[ch] = -1;
       this.glideWait[ch] = 0;
       this.position[ch] = 0;
@@ -1284,6 +1306,8 @@ export class Engine {
       for (let ch = 0; ch < NUM_CHANNELS; ch++) {
         const p = r.patterns[ch];
         this.songPatterns[i * NUM_CHANNELS + ch] = typeof p === 'number' && p >= 0 && p < NUM_PATTERNS ? p : -1;
+        const prev = i > 0 ? this.songPatterns[(i - 1) * NUM_CHANNELS + ch] : -1;
+        this.songKeep[i * NUM_CHANNELS + ch] = r.keep?.[ch] === 1 && prev >= 0 && prev === this.songPatterns[i * NUM_CHANNELS + ch] ? 1 : 0;
       }
     });
     if (this.songOn && this.songLength === 0) { this.songOn = false; this.songRow = -1; this.songOff.fill(0); }

@@ -981,6 +981,77 @@ describe('HOLD + RESET and project settings', () => {
   });
 });
 
+describe('SONG strip (preview)', () => {
+  const strip = () => {
+    const r = makeApp();
+    r.app.songStrip = true;
+    r.app.project.channels[0].patterns[1].length = 48; // KICK B: 3 bars
+    r.tap('menu');
+    r.tap('cur+'); // MODE: SONG
+    r.tap('play');
+    r.app.project.song.rows = []; // (SONG starts with a row of A on every track)
+    r.tap('ch1');
+    return r;
+  };
+  const rows = (app: App) => app.project.song.rows.map((r) => ({ bars: r.bars, p: r.patterns[0], q: r.patterns[1], k: r.keep ? [r.keep[0], r.keep[1]] : undefined }));
+
+  it('A-D put a pattern on the cursor bar as long as it lasts (a tie), the cursor moving past it', () => {
+    const { app, tap, flags } = strip();
+    expect(app.songGrid).toBe(true);
+    tap('patB');
+    tap('patA');
+    expect(rows(app)).toEqual([{ bars: 3, p: 1, q: -1, k: undefined }, { bars: 1, p: 0, q: -1, k: undefined }]);
+    app.updateFrame(0);
+    expect([...flags.get('step1')!]).toContain('lit');
+    expect([...flags.get('step2')!]).toContain('tie');
+    expect([...flags.get('step3')!]).toContain('tie');
+    expect([...flags.get('step4')!]).toContain('lit');
+    expect([...flags.get('step5')!]).toContain('cursor');
+  });
+
+  it('another track\'s clip across a row line keeps playing (keep); STEP EDIT ◀ ▶ = length, never past the pattern', () => {
+    const { app, tap } = strip();
+    tap('patB'); // 1: B over bars 1-3
+    tap('ch2');
+    tap('cur-'); tap('cur-');
+    tap('patA'); // 2: A on bar 2 (1 bar)
+    expect(rows(app)).toEqual([
+      { bars: 1, p: 1, q: -1, k: undefined },
+      { bars: 1, p: 1, q: 0, k: [1, 0] },
+      { bars: 1, p: 1, q: -1, k: [1, 0] },
+    ]);
+    tap('ch1');
+    tap('stepedit');
+    tap('step2'); // the clip under it
+    tap('cur-');
+    expect(rows(app)).toEqual([{ bars: 1, p: 1, q: -1, k: undefined }, { bars: 1, p: 1, q: 0, k: [1, 0] }]);
+    tap('cur+');
+    tap('cur+'); // 3 bars is all B has
+    expect(rows(app).reduce((n, r) => n + r.bars, 0)).toBe(3);
+  });
+
+  it('REST and CLEAR + step empty bars; PLAY starts from the page shown', () => {
+    const { app, tap, press, release, sent } = strip();
+    tap('patB');
+    tap('step2');
+    tap('rest'); // B now ends after bar 1
+    expect(rows(app)).toEqual([{ bars: 1, p: 1, q: -1, k: undefined }]);
+    press('clear');
+    tap('step1');
+    release('clear');
+    expect(app.project.song.rows).toEqual([]);
+    tap('step1');
+    for (let i = 0; i < 17; i++) tap('patA'); // bars 1-17: the cursor on bar 18, page 2
+    tap('play');
+    const t = sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
+    expect(t).toMatchObject({ playing: true, song: true, fromRow: 16, fromBar: 0 }); // one row per clip
+    tap('play');
+    tap('steppage'); // page 1 again
+    tap('play');
+    expect(sent.filter((m) => m.type === 'transport').pop()).toMatchObject({ fromRow: 0, fromBar: 0 });
+  });
+});
+
 describe('SONG over RECORD / PLAY / DESIGN', () => {
   const song = () => {
     const r = makeApp();

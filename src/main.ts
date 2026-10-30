@@ -7,7 +7,7 @@ import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
 import { PixelScreen } from './ui/screen';
-import { drawDesignView, drawLiveView, drawMenuView, drawProjectView, drawSongView, drawTitleView } from './ui/views';
+import { drawDesignView, drawLiveView, drawMenuView, drawProjectView, drawSongStripView, drawSongView, drawTitleView } from './ui/views';
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
@@ -198,6 +198,7 @@ const frame = (now: number) => {
   if (!titleDone) titleFrame(now);
   else if (app.projMenu) drawProjectView(screen, app.projectView());
   else if (app.menu) drawMenuView(screen, app.menuView());
+  else if (app.songGrid && app.songStrip) drawSongStripView(screen, app.songStripView(now, audio));
   else if (app.songGrid) drawSongView(screen, app.songView(now, audio));
   else if (app.arpOpen) drawDesignView(screen, app.arpScreen(now, audio));
   else if (app.sendOpen) drawDesignView(screen, app.sendView(now, audio));
