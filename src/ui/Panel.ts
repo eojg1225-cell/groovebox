@@ -128,9 +128,9 @@ export class Panel implements ControlSurface {
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
     // The middle row of three: CLEAR, COPY (both held), CANCEL.
-    q('.tool-buttons').appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn save'));
-    q('.tool-buttons').appendChild(this.makeButton('copy', 'COPY<small>HOLD</small>', 'btn save'));
     q('.tool-buttons').appendChild(this.makeButton('cancel', 'CANCEL', 'btn save'));
+    q('.tool-buttons').appendChild(this.makeButton('copy', 'COPY<small>HOLD</small>', 'btn save'));
+    q('.tool-buttons').appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn save'));
     for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
     for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
