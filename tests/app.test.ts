@@ -582,19 +582,23 @@ describe('MENU and CANCEL', () => {
     deviceSettings.touchDelay = 3;
   });
 
-  it('CANCEL leaves the SAVE / LOAD screen; elsewhere the button is UNDO (REDO with FUNC) and leaves views alone', () => {
+  it('CANCEL (lit when something is pending) leaves the SAVE / LOAD screen; UNDO is its own key (REDO with FUNC); neither touches views', () => {
     const { app, tap, texts } = makeApp();
-    const priv = app as unknown as { fxView: number };
+    const priv = app as unknown as { fxView: number; message: string; cancelShows: boolean };
     tap('saveproject');
-    expect(texts.get('cancel')).toBe('CANCEL');
+    expect(priv.cancelShows).toBe(true); // CANCEL lit
     tap('cancel');
     expect(app.projMenu).toBeNull();
-    expect(texts.get('cancel')).toBe('UNDO');
+    expect(priv.cancelShows).toBe(false);
+    tap('cancel'); // nothing pending
+    expect(priv.message).toBe('NOTHING TO CANCEL');
+    expect(texts.get('undo')).toBe('UNDO');
     tap('func'); // latched
-    expect(texts.get('cancel')).toBe('REDO');
+    expect(texts.get('undo')).toBe('REDO');
     tap('func');
     tap('fx2');
     tap('cancel');
+    tap('undo');
     expect(priv.fxView).toBe(2);
   });
 
@@ -702,7 +706,7 @@ describe('SONG grid: rows, track selection, A-D', () => {
     expect(rows(app)).toEqual(['-1,-1,-1,0,0,0,0,0', '-1,-1,-1,-1,-1,-1,-1,-1', '-1,-1,-1,-1,-1,-1,-1,-1']);
     expect(app.project.song.rows).toHaveLength(3); // rows stay
     expect(kick.steps[0].active).toBe(true);
-    tap('cancel'); // UNDO
+    tap('undo'); // UNDO
     expect(rows(app)[2]).toBe('2,2,2,2,2,2,2,2');
   });
 
@@ -1245,26 +1249,26 @@ describe('UNDO / REDO', () => {
     emit({ type: 'knob', id: 'k2', value: 0.95 });
     expect(t.get()).not.toBe(was);
     sent.length = 0;
-    tap('cancel'); // the knob turn
+    tap('undo'); // the knob turn
     expect(t.get()).toBe(was);
     expect(lastFlash(app)).toBe(`UNDO: ${t.label}`);
     expect(app.project.channels[0].volume).toBe(before);
-    tap('cancel'); // the CLEAR (both steps)
+    tap('undo'); // the CLEAR (both steps)
     expect(lastFlash(app)).toBe('UNDO: CLEAR KICK A');
     expect(kick(app).steps[0].active).toBe(true);
     expect(kick(app).steps[4].active).toBe(true);
     expect(sent.some((m) => m.type === 'setStep' && m.index === 0 && m.step.active)).toBe(true);
-    tap('cancel'); // step 5
+    tap('undo'); // step 5
     expect(kick(app).steps[4].active).toBe(false);
     expect(kick(app).steps[0].active).toBe(true);
     press('func');
-    tap('cancel'); // REDO step 5
+    tap('undo'); // REDO step 5
     release('func');
     expect(kick(app).steps[4].active).toBe(true);
     expect(lastFlash(app)).toBe('REDO: NOTES KICK A');
-    tap('cancel');
-    tap('cancel');
-    tap('cancel');
+    tap('undo');
+    tap('undo');
+    tap('undo');
     expect(lastFlash(app)).toBe('NOTHING TO UNDO');
     expect(kick(app).steps[0].active).toBe(false);
   });
@@ -1274,16 +1278,16 @@ describe('UNDO / REDO', () => {
     tap('mode:record');
     tap('ch1');
     tap('step1');
-    tap('cancel');
+    tap('undo');
     tap('step2');
     tap('func');
-    tap('cancel'); // FUNC latched: REDO, nothing there
+    tap('undo'); // FUNC latched: REDO, nothing there
     tap('func');
     expect(lastFlash(app)).toBe('NOTHING TO REDO');
     tap('step3'); // on pattern A
     tap('mute1');
     tap('patB');
-    tap('cancel'); // undoes step 3 on A, stays on B, still muted
+    tap('undo'); // undoes step 3 on A, stays on B, still muted
     const c = app.project.channels[0];
     expect(c.activePattern).toBe(1);
     expect(c.mute).toBe(true);
@@ -1299,7 +1303,7 @@ describe('UNDO / REDO', () => {
     menu.setTrackType(0, 'bass');
     expect(app.project.channels[0].instrument).toBe('bass');
     sent.length = 0;
-    tap('cancel');
+    tap('undo');
     expect(lastFlash(app)).toBe('UNDO: TRACK 1 TYPE');
     expect(app.project.channels[0].instrument).toBe('kick');
     expect(sent.some((m) => m.type === 'setInstrument' && m.kind === 'kick')).toBe(true);
@@ -1316,7 +1320,7 @@ describe('UNDO / REDO', () => {
     app.onRecorded({ type: 'recordedNote', channel: 4, pattern: 0, index: 6, note: 41, velocity: 0.8, accent: false, gate: 1, slide: false, start: true });
     tap('play'); // STOP
     expect(c.patterns[0].steps[2].active).toBe(true);
-    tap('cancel');
+    tap('undo');
     expect(lastFlash(app)).toBe('UNDO: RECORDING');
     expect(c.patterns[0].steps[2].active).toBe(false);
     expect(c.patterns[0].steps[6].active).toBe(false);
@@ -1372,7 +1376,7 @@ describe('STEP EDIT', () => {
     expect(flags.get('step3')?.has('cursor')).toBe(true);
     emit({ type: 'touch', id: 'k5' }); // BASS LIVE 1
     emit({ type: 'knob', id: 'k5', value: 0.9 });
-    expect(texts.get('cancel')).toBe('CANCEL');
+    expect(texts.get('undo')).toBe('UNDO');
     tap('cur+'); // refused while a knob waits
     expect(priv(app).primed?.cell).toBe(2);
     expect(priv(app).message).toBe('LOCK OR CANCEL FIRST');
@@ -1380,10 +1384,9 @@ describe('STEP EDIT', () => {
     const step = app.project.channels[4].patterns[0].steps[2];
     expect(Object.keys(step.locks ?? {})).toEqual(['cutoff']); // BASS LIVE 1 = CUTOFF, stored by its bare id
     expect(priv(app).primed?.cell).toBe(2); // still primed there
-    expect(texts.get('cancel')).toBe('UNDO');
     app.updateFrame(0);
     expect(flags.get('step3')?.has('lit')).toBe(true);
-    tap('cancel'); // UNDO: the lock goes
+    tap('undo'); // UNDO: the lock goes
     expect(app.project.channels[4].patterns[0].steps[2].locks).toBeUndefined();
     tap('play'); // STEP EDIT stays on while playing
     expect(app.stepEdit).toBe(true);
@@ -1414,7 +1417,7 @@ describe('STEP EDIT', () => {
     tap('step2'); // prime step 18 ... (knob waits on 17: refused)
     tap('step1'); // lock again on 17
     expect(app.project.channels[4].patterns[0].steps[16].locks!.cutoff).not.toBe(first);
-    tap('cancel'); // UNDO: only the last lock (not the whole pass)
+    tap('undo'); // UNDO: only the last lock (not the whole pass)
     expect(app.project.channels[4].patterns[0].steps[16].locks?.cutoff).toBe(first);
   });
 

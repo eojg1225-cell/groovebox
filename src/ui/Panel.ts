@@ -51,7 +51,8 @@ export const MODES = [
 const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
   [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['clear', 'CLEAR<small>HOLD</small>'], ['copy', 'COPY<small>HOLD</small>']],
-  [['speed', 'TIME<small>NORMAL</small>'], ['stepedit', 'STEP<small>EDIT</small>'], ['arp', 'ARP'], ['rest', 'REST']],
+  // STEP EDIT and ARP moved beside the screen (the middle row of three); 10 and 11 are free.
+  [['speed', 'TIME<small>NORMAL</small>'], ['', ''], ['', ''], ['rest', 'REST']],
   [['oct-', 'OCT ▼'], ['oct+', 'OCT ▲'], ['cur-', '◀'], ['cur+', '▶']],
 ];
 
@@ -96,6 +97,7 @@ export class Panel implements ControlSurface {
           <div class="lower">
             <div class="lower-rows">
               <div class="row patterns"><div class="save-buttons"></div></div>
+              <div class="row tools"><div class="tool-buttons"></div></div>
               <div class="row pages"><div class="page-buttons"></div></div>
             </div>
             <div class="master-knobs"></div>
@@ -122,9 +124,13 @@ export class Panel implements ControlSurface {
 
     for (const m of MODES) q('.modes').appendChild(this.makeButton(`mode:${m.id}`, m.label, 'btn mode'));
     q('.modes').appendChild(this.makeButton('menu', 'MENU', 'btn mode'));
-    q('.save-buttons').appendChild(this.makeButton('cancel', 'CANCEL', 'btn save'));
+    q('.save-buttons').appendChild(this.makeButton('undo', 'UNDO', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
+    // The middle row of three: ARP, STEP EDIT, CANCEL.
+    q('.tool-buttons').appendChild(this.makeButton('arp', 'ARP', 'btn save'));
+    q('.tool-buttons').appendChild(this.makeButton('stepedit', 'STEP EDIT', 'btn save'));
+    q('.tool-buttons').appendChild(this.makeButton('cancel', 'CANCEL', 'btn save'));
     for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
     for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
@@ -417,7 +423,7 @@ export class Panel implements ControlSurface {
   }
 
   /**
-   * Space: play. Z: FUNC (hold). Escape: CANCEL. 1-8: select channel, Shift+1-8: mute, Alt+1-8: solo.
+   * Space: play. Z: FUNC (hold). Escape: CANCEL. Backspace: UNDO. 1-8: select channel, Shift+1-8: mute, Alt+1-8: solo.
    * Q..I: strip buttons 1-8, A..K: strip buttons 9-16.
    */
   private installKeyboard(): void {
@@ -426,6 +432,7 @@ export class Panel implements ControlSurface {
       if (e.code === 'Space') return 'play';
       if (e.code === 'KeyZ') return 'func';
       if (e.code === 'Escape') return 'cancel';
+      if (e.code === 'Backspace') return 'undo';
       const digit = /^Digit([1-8])$/.exec(e.code);
       if (digit) return e.shiftKey ? `mute${digit[1]}` : e.altKey ? `solo${digit[1]}` : `ch${digit[1]}`;
       const key = /^Key([A-Z])$/.exec(e.code);
