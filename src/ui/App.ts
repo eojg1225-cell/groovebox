@@ -1400,6 +1400,10 @@ export class App {
       this.touchedKnob = -1;
     } else if (id === 'cancel') {
       this.cancel();
+    } else if (id === 'undo') {
+      // UNDO; FUNC + UNDO = REDO.
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      this.undo(this.func);
     } else if (id === 'reset') {
       this.startReset();
     } else if (id === 'saveproject') {
@@ -3474,8 +3478,8 @@ export class App {
   }
 
   /**
-   * The CANCEL / UNDO button outside the menus: a primed SONG RECORD step or COPY BAR =
-   * CANCEL (dropped); otherwise UNDO, FUNC + UNDO = REDO.
+   * CANCEL outside the menus: knobs waiting on a primed step (STEP EDIT / SONG RECORD) are left
+   * unlocked, COPY BAR copies nothing; with nothing pending it says so (UNDO is its own key).
    */
   private cancel(): void {
     if (this.waiting) {
@@ -3487,12 +3491,11 @@ export class App {
       this.dropCopyBar();
       this.flash('NOTHING COPIED');
     } else {
-      if (this.funcHeld) this.funcUsed = true; // not a latching tap
-      this.undo(this.func);
+      this.flash('NOTHING TO CANCEL');
     }
   }
 
-  /** The button reads CANCEL where it drops something pending, else UNDO (REDO with FUNC). */
+  /** Something CANCEL would drop (the CANCEL key lights). */
   private get cancelShows(): boolean {
     return !!(this.menu || this.projMenu || this.waiting || this.copyBar);
   }
@@ -3523,7 +3526,7 @@ export class App {
     } else if (e.type === 'knob' || e.type === 'encoder') {
       if (this.gesture?.key !== e.id) this.beginGesture(e.id, this.knobLabel(e.id), inMenu);
     } else if (e.type === 'button' && e.pressed && e.id !== 'func' && this.down.size === 1) {
-      this.beginGesture(e.id, this.pressLabel(e.id), inMenu || e.id === 'cancel');
+      this.beginGesture(e.id, this.pressLabel(e.id), inMenu || e.id === 'cancel' || e.id === 'undo');
     }
   }
 
@@ -3932,7 +3935,8 @@ export class App {
     this.panel.setButtonLit('clear', this.clearHeld);
     this.panel.setButtonLit('reset', this.glides.size > 0 || performance.now() < this.resetLitUntil);
     this.panel.setButtonLit('menu', !!this.menu);
-    this.panel.setButtonText('cancel', this.cancelShows ? 'CANCEL' : this.func ? 'REDO' : 'UNDO');
+    this.panel.setButtonLit('cancel', this.cancelShows);
+    this.panel.setButtonText('undo', this.func ? 'REDO' : 'UNDO');
     this.panel.setButtonText('menu', this.song ? 'MENU<small>SONG</small>' : 'MENU');
     // SAVE PROJECT doubles as LOAD (FUNC): the label says which one a tap opens.
     this.panel.setButtonText('saveproject', this.func ? 'LOAD<small>PROJECT</small>' : 'SAVE/LOAD<small>PROJECT</small>');
