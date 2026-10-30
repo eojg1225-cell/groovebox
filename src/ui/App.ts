@@ -4473,7 +4473,7 @@ export class App {
         const id = `step${i + 1}`;
         const note = this.keyNote(ch, i);
         this.panel.setButtonText(id, noteName(note));
-        this.panel.setButtonFlag(id, 'black', !!this.project.chromatic && isBlackKey(note));
+        this.panel.setButtonFlag(id, 'black', isBlackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding || under.includes(note));
         this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
         for (const f of ['note', 'accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
