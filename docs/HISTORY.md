@@ -119,3 +119,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Side keys (2026-10-30): a middle row of three beside the screen, ARP / STEP EDIT / CANCEL (moved off the function row: keys 10 / 11 free); UNDO is its own key (FUNC = REDO, Backspace), CANCEL only cancels (lit when something is pending, Escape); FX / PATTERN keys 56 px tall (the channel buttons'); TEMPO / MASTER knobs 72 px (the live knobs').
 - Side keys, take 2 (2026-10-30): the middle row is CLEAR / COPY / CANCEL; the function row runs STEPS, BAR, TIME, STEP EDIT | ARP, two free keys, REST.
 - Side keys, take 3 (2026-10-30): the middle row is CANCEL / COPY / CLEAR.
+- STRIP key (2026-10-30): function key 11 switches the selected track's RECORD strip between keys and steps (drums: tuned hits from keys; keyboard tracks: rhythms painted as steps).

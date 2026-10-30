@@ -318,6 +318,8 @@ export class App {
   playing = false;
   private readonly viewPage: number[] = new Array(NUM_CHANNELS).fill(0);
   private readonly cursor: number[] = new Array(NUM_CHANNELS).fill(0);
+  /** RECORD: the track's strip the other way round from its type's (drums: keys; the others: steps). Not saved. */
+  private readonly stripFlip: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private readonly octave: number[];
   /** Strip button -> note being held (keyboard), so release ends the right note. */
   private readonly heldNotes = new Map<number, number>();
@@ -598,7 +600,15 @@ export class App {
     if (this.clearHeld && this.mode !== 'design') return false;
     if (this.stepsMode) return false;
     if (this.placing && this.mode === 'record') return false;
-    return !stepsOnStrip(this.channel.instrument) || this.mode !== 'record';
+    return !this.stripSteps() || this.mode !== 'record';
+  }
+
+  /**
+   * RECORD: track ch's strip shows steps (painted like a drum lane), not keys. Drums (KICK,
+   * SNARE, HAT) by default, the others with the STRIP key (`stripFlip`).
+   */
+  private stripSteps(ch = this.selected): boolean {
+    return stepsOnStrip(this.project.channels[ch].instrument) !== this.stripFlip[ch];
   }
 
   /** The ARP view open (FUNC + ARP): knobs and screen show the selected track's ARP. */
@@ -715,7 +725,7 @@ export class App {
     const following = this.playing && (ch !== this.selected || (this.followsPlayhead && !this.stepsMode));
     let page: number;
     if (following) page = head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : this.viewPage[ch];
-    else if (!stepsOnStrip(c.instrument) && this.mode === 'record' && !this.stepsMode) {
+    else if (!this.stripSteps(ch) && this.mode === 'record' && !this.stepsMode) {
       // Step entry: the cursor's block, or while a note is being tied, the block its end is in
       // (a tie runs on past the bar line into the next block, and round past the loop end).
       const at = this.entry && ch === this.selected ? (this.entry.index + this.entryLength() - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
@@ -1465,6 +1475,15 @@ export class App {
     } else if (id === 'cur-' || id === 'cur+') {
       this.moveCursor(id === 'cur+' ? 1 : -1);
       this.previewCursor();
+    } else if (id === 'view') {
+      // STRIP: the selected track's strip shows keys / steps (RECORD; held notes let go first).
+      const ch = this.selected;
+      this.leaveStepEdit();
+      this.entry = null;
+      this.stroke = null;
+      this.restArm = false;
+      this.stripFlip[ch] = !this.stripFlip[ch];
+      this.flash(`${ch + 1} ${this.kindName(this.channel)}: ${this.stripSteps() ? 'STEPS' : 'KEYS'} ON THE STRIP`);
     } else if (id === 'rest' && !this.keyboard) {
       // Drum steps: arm REST, then tap steps to place / remove rest markers.
       this.restArm = !this.restArm;
@@ -2163,11 +2182,45 @@ export class App {
         : this.flagsOn(step) ? 'flags-off' : 'flags-on';
       this.stroke = { kind };
     }
+    if (!stepsOnStrip(this.channel.instrument)) this.paintNote(index, this.stroke.kind);
     if (this.paintDrumStep(step, this.stroke.kind) && !this.playing) {
       this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
     }
     this.sendStep(index, step);
     this.save();
+  }
+
+  /**
+   * A keyboard track's strip showing steps (STRIP): a painted step gets a one-step note at
+   * the pitch of the note before it (none: the keyboard's lowest key), and a note tied over
+   * it ends there; an erased one loses its chord notes too.
+   */
+  private paintNote(index: number, kind: StrokeKind): void {
+    const pat = this.pattern;
+    const step = pat.steps[index];
+    if (kind === 'erase' || kind === 'rest-on' || kind === 'rest-off') {
+      delete step.extra;
+      delete step.extraGate;
+      return;
+    }
+    if (kind !== 'add' || step.active) return;
+    const len = pat.length;
+    let note = -1;
+    for (let d = 1; d < len; d++) {
+      const j = (index - d + len) % len;
+      const s = pat.steps[j];
+      if (!s.active) continue;
+      if (note < 0) note = s.note;
+      if (s.gate > d || (s.extraGate ?? []).some((g) => g > d)) {
+        s.gate = Math.min(s.gate, d);
+        if (s.extraGate) s.extraGate = s.extraGate.map((g) => Math.min(g, d));
+        this.sendStep(j, s);
+      }
+    }
+    step.note = note < 0 ? this.octave[this.selected] : note;
+    step.gate = 1;
+    delete step.extra;
+    delete step.extraGate;
   }
 
   /** The armed flags are all already on this hit (so a stroke from it takes them off). */
@@ -2225,7 +2278,7 @@ export class App {
 
   /** RECORD on a keyboard track: placing a flag shows the steps instead of the keys. */
   private get flagPaintable(): boolean {
-    return this.mode === 'record' && !stepsOnStrip(this.channel.instrument);
+    return this.mode === 'record' && !this.stripSteps();
   }
 
   /** Paint flags onto the note on a step. */
@@ -2745,7 +2798,7 @@ export class App {
       return;
     }
     this.viewPage[ch] = page;
-    if (!stepsOnStrip(this.channel.instrument) && this.mode === 'record' && !this.entry) {
+    if (!this.stripSteps() && this.mode === 'record' && !this.entry) {
       this.cursor[ch] = page * 16 + (this.cursor[ch] % 16);
     }
     this.flash(`BAR ${page + 1}/${pages}`);
@@ -3352,7 +3405,7 @@ export class App {
     this.dropCopyBar();
     this.entry = null;
     const ch = this.selected;
-    const cell = stepsOnStrip(this.channel.instrument) ? this.visiblePage(ch) * 16 : this.cursor[ch];
+    const cell = this.stripSteps() ? this.visiblePage(ch) * 16 : this.cursor[ch];
     this.stepEdit = true;
     this.primeAt(Math.min(cell, this.pattern.length - 1));
     this.flash('STEP EDIT: TOUCH KNOBS');
@@ -3967,9 +4020,13 @@ export class App {
     this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || this.stepsMode || !this.followsPlayhead);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
-    this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && stepsOnStrip(this.channel.instrument)) || (this.clearHeld && this.mode !== 'design')));
+    this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && this.stripSteps()) || (this.clearHeld && this.mode !== 'design')));
     for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
+    // STRIP: keys / steps on the strip, the selected track's (RECORD); lit = not its type's own.
+    this.panel.setButtonEnabled('view', rec && !this.song);
+    this.panel.setButtonText('view', `STRIP<small>${this.mode === 'record' && this.stripSteps() ? 'STEPS' : 'KEYS'}</small>`);
+    this.panel.setButtonLit('view', this.stripFlip[this.selected]);
     // STEP EDIT: RECORD, stopped, on the pattern it was primed on (else it starts over there).
     if (this.stepEdit && (!rec || this.song)) this.leaveStepEdit();
     if (this.stepEdit && !this.waiting && (this.primed?.pattern?.ch !== this.selected || this.primed.pattern.p !== this.channel.activePattern)) {
