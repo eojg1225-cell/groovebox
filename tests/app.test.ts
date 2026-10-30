@@ -1337,7 +1337,7 @@ describe('OCT and FUNC + OCT', () => {
     expect(priv.octave[4]).toBe(kb + 12);
     tap('mode:play');
     press('func');
-    expect(texts.get('oct+')).toBe('SND ▲');
+    expect(texts.get('oct+')).toBe('SND ▲<small>OCT 0</small>'); // its value under it
     tap('oct+');
     release('func');
     expect(bass()).toBe(was + 1);
@@ -1492,6 +1492,26 @@ describe('locks move the knobs while playing', () => {
     tap('play');
     app.setStatus(status([3, 0, 0, 0, 0, 0, 0, 0], { songRow: 0, songBar: 0, barPhase: 3 / 16 }));
     expect(shown(app, 0)).toBeCloseTo(0.9, 5);
+  });
+});
+
+describe('the sound\'s OCTAVE in sight', () => {
+  it('shows beside the track name on the screen and on the SND keys with FUNC; drums have none', () => {
+    const { app, tap, press, release, texts } = makeApp();
+    const label = () => app.liveView(0, { peak: 0 } as never).channelLabel;
+    tap('ch5'); // BASS
+    expect(label()).toBe('CH5 BASS OCT 0');
+    press('func');
+    tap('oct+');
+    expect(label()).toBe('CH5 BASS OCT+1');
+    expect(texts.get('oct+')).toBe('SND ▲<small>OCT+1</small>');
+    tap('oct-');
+    tap('oct-');
+    expect(label()).toBe('CH5 BASS OCT-1');
+    release('func');
+    expect(texts.get('oct+')).toBe('OCT ▲');
+    tap('ch1'); // KICK: no OCTAVE
+    expect(label()).toBe('CH1 KICK');
   });
 });
 
