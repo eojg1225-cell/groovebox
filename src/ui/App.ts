@@ -953,6 +953,15 @@ export class App {
     this.audition.clear();
   }
 
+  /** The sound's OCTAVE as shown ('OCT+1', 'OCT 0'); '' on a type without one (drums, PERC). */
+  private soundOctave(c: ChannelState): string {
+    if (c.instrument === 'none') return '';
+    const spec = INSTRUMENTS[c.instrument].params.find((p) => p.id === 'octave');
+    if (!spec?.options) return '';
+    const name = spec.options[Math.round(c.sounds[c.instrument]?.octave ?? spec.defaultValue)] ?? '0';
+    return name === '0' ? 'OCT 0' : `OCT${name}`;
+  }
+
   /**
    * FUNC + OCT ▼ / ▲: step the selected synth's OCTAVE parameter (part of its patch) instead
    * of the keyboard's octave. False when the track has no OCTAVE (drums, PERC).
@@ -3978,8 +3987,11 @@ export class App {
     this.panel.setButtonText('dyn:accent', song ? 'DELETE<small>ROW</small>' : 'ACCENT');
     // The same arrows in every mode: ▼ (oct-) = octave down / the next row down the grid.
     // FUNC: the sound's OCTAVE (SND), else the keyboard's.
-    this.panel.setButtonText('oct-', song ? 'ROW ▼' : this.func && !this.menu ? 'SND ▼' : 'OCT ▼');
-    this.panel.setButtonText('oct+', song ? 'ROW ▲' : this.func && !this.menu ? 'SND ▲' : 'OCT ▲');
+    // FUNC: the sound's OCTAVE keys, showing where it is now.
+    const snd = this.soundOctave(this.channel);
+    const sndSmall = snd ? `<small>${snd}</small>` : '';
+    this.panel.setButtonText('oct-', song ? 'ROW ▼' : this.func && !this.menu ? `SND ▼${sndSmall}` : 'OCT ▼');
+    this.panel.setButtonText('oct+', song ? 'ROW ▲' : this.func && !this.menu ? `SND ▲${sndSmall}` : 'OCT ▲');
     if (song) {
       this.panel.setButtonLit('ring', false);
       this.panel.setButtonLit('dyn:accent', false);
@@ -4212,7 +4224,8 @@ export class App {
     const c = this.channel;
     const playingPattern = this.status?.patterns[ch] ?? c.activePattern;
     return {
-      channelLabel: `CH${ch + 1} ${this.kindName(c)}`,
+      // The sound's OCTAVE beside the name (synths), so it is always in sight.
+      channelLabel: `CH${ch + 1} ${this.kindName(c)}${this.soundOctave(c) ? ' ' + this.soundOctave(c) : ''}`,
       patternLabel: (this.playing && playingPattern !== c.activePattern
         ? `PAT ${PATTERN_NAMES[playingPattern]}>${PATTERN_NAMES[c.activePattern]}`
         : `PAT ${PATTERN_NAMES[c.activePattern]}`) + (this.dirty(c) ? '*' : ''),
