@@ -50,9 +50,9 @@ export const MODES = [
  */
 const FUNCTION_ROW: readonly (readonly [string, string])[][] = [
   [['ring', 'RING'], ['slide', 'SLIDE'], ['dyn:accent', 'ACCENT'], ['dyn:ghost', 'GHOST']],
-  [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['clear', 'CLEAR<small>HOLD</small>'], ['copy', 'COPY<small>HOLD</small>']],
-  // STEP EDIT and ARP moved beside the screen (the middle row of three); 10 and 11 are free.
-  [['speed', 'TIME<small>NORMAL</small>'], ['', ''], ['', ''], ['rest', 'REST']],
+  [['len', '16<small>STEPS</small>'], ['steppage', 'BAR<small>1/1</small>'], ['speed', 'TIME<small>NORMAL</small>'], ['stepedit', 'STEP<small>EDIT</small>']],
+  // CLEAR and COPY moved beside the screen (the middle row of three); 10 and 11 are free.
+  [['arp', 'ARP'], ['', ''], ['', ''], ['rest', 'REST']],
   [['oct-', 'OCT ▼'], ['oct+', 'OCT ▲'], ['cur-', '◀'], ['cur+', '▶']],
 ];
 
@@ -127,9 +127,9 @@ export class Panel implements ControlSurface {
     q('.save-buttons').appendChild(this.makeButton('undo', 'UNDO', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
-    // The middle row of three: ARP, STEP EDIT, CANCEL.
-    q('.tool-buttons').appendChild(this.makeButton('arp', 'ARP', 'btn save'));
-    q('.tool-buttons').appendChild(this.makeButton('stepedit', 'STEP EDIT', 'btn save'));
+    // The middle row of three: CLEAR, COPY (both held), CANCEL.
+    q('.tool-buttons').appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn save'));
+    q('.tool-buttons').appendChild(this.makeButton('copy', 'COPY<small>HOLD</small>', 'btn save'));
     q('.tool-buttons').appendChild(this.makeButton('cancel', 'CANCEL', 'btn save'));
     for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));

@@ -117,3 +117,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - BASS squelch to 8x (2026-10-30): the FM pair's depth at FM LVL 100 is 8x (index 40 on the strike, 4 settled; was 4x).
 - Sound OCTAVE in sight (2026-10-30): the screen header shows a synth's OCTAVE beside its name (CH5 BASS OCT+1), and the SND ▼ / ▲ keys show it under them with FUNC held.
 - Side keys (2026-10-30): a middle row of three beside the screen, ARP / STEP EDIT / CANCEL (moved off the function row: keys 10 / 11 free); UNDO is its own key (FUNC = REDO, Backspace), CANCEL only cancels (lit when something is pending, Escape); FX / PATTERN keys 56 px tall (the channel buttons'); TEMPO / MASTER knobs 72 px (the live knobs').
+- Side keys, take 2 (2026-10-30): the middle row is CLEAR / COPY / CANCEL; the function row runs STEPS, BAR, TIME, STEP EDIT | ARP, two free keys, REST.

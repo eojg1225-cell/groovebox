@@ -91,7 +91,7 @@ html, body {
 .lower { display: flex; gap: 16px; flex: 1; min-height: 0; padding-bottom: 10px; border-bottom: 2px solid var(--panel-edge); }
 /* SAVE / pages over the FX keys, TEMPO / MASTER over the PATTERN keys: 288 px each. */
 .lower-rows { flex: none; width: 288px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-/* Three rows of three, 38 px with 6 px gaps (126 px): UNDO / SAVE/LOAD / RESET, ARP / STEP EDIT /
+/* Three rows of three, 38 px with 6 px gaps (126 px): UNDO / SAVE/LOAD / RESET, CLEAR / COPY /
    CANCEL, the page buttons. */
 .lower-rows { gap: 6px; }
 .lower-rows > .row { flex: none; height: 38px; min-height: 0; }
