@@ -121,3 +121,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Side keys, take 3 (2026-10-30): the middle row is CANCEL / COPY / CLEAR.
 - STRIP key (2026-10-30): function key 11 switches the selected track's RECORD strip between keys and steps (drums: tuned hits from keys; keyboard tracks: rhythms painted as steps).
 - SCALE key (2026-10-30): function key 11 (STRIP moved to 10) sets the strip keyboard's key: A minor to start, held + ◀ ▶ = root by semitones, tap = minor / chromatic; saved in the project (format v59).
+- SCALE keys coloured (2026-10-30): the strip's keys show black / white as on a piano in MINOR too (A minor: all white).
