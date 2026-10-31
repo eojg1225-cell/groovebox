@@ -20,6 +20,7 @@
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
  * bottom row; module i holds k(i+1) and k(i+9)); master knobs mtempo, mmaster.
  */
+import { NEUTRAL, dimOf } from './colours';
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
 import { setRotated } from './orientation';
@@ -222,9 +223,10 @@ export class Panel implements ControlSurface {
   }
 
   /** Configure knob slot i (0-based): label, value and default, or null to disable it. */
-  configureKnob(i: number, slot: { label: string; value: number; defaultValue: number; highlight?: boolean; staged?: boolean } | null): void {
+  configureKnob(i: number, slot: { label: string; value: number; defaultValue: number; highlight?: boolean; staged?: boolean; colour?: string } | null): void {
     const k = this.knobs[i];
     if (!k) return;
+    if (slot?.colour) k.el.style.setProperty('--accent', slot.colour);
     k.setEnabled(slot !== null);
     k.setLabel(slot?.label ?? '');
     k.el.classList.toggle('highlight', !!slot?.highlight);
@@ -253,6 +255,19 @@ export class Panel implements ControlSurface {
       led.dataset.state = state;
       led.className = state ? `led ${state}` : 'led';
     }
+  }
+
+  /**
+   * Track colours: the panel takes the selected track's (strip, LEDs, lit keys), each
+   * channel button its own track's.
+   */
+  setTrackColours(colours: string[], selected: string): void {
+    if (this.root.style.getPropertyValue('--accent') !== selected) {
+      this.root.style.setProperty('--accent', selected);
+      this.root.style.setProperty('--accent-dim', dimOf(selected));
+    }
+    colours.forEach((c, i) => this.buttons.get(`ch${i + 1}`)?.style.setProperty('--accent', c));
+    for (const k of this.masterKnobs.values()) k.el.style.setProperty('--accent', NEUTRAL); // no track's
   }
 
   setButtonLit(id: string, lit: boolean): void {

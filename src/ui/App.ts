@@ -72,6 +72,7 @@ import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, son
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
 import { ARP_MODES, ARP_PARAMS, defaultArp, type ArpId } from '../engine/arp';
+import { NEUTRAL, TRACK_COLOURS, inkOf } from './colours';
 
 type Mode = 'record' | 'play' | 'design';
 
@@ -248,6 +249,8 @@ interface KnobTarget {
   inner?: KnobTarget;
   /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "bus:k:id" ... */
   key?: string;
+  /** Belongs to no track (FX bus, LFO, project): drawn neutral grey, not in a track colour. */
+  neutral?: boolean;
   /** Part of the edited pattern's patch (a SOUND param, PRESET): SONG only auditions it. */
   patch?: boolean;
   /** Playing: shows what its locks give at the playhead (`heardTarget`), updated every frame. */
@@ -1127,7 +1130,7 @@ export class App {
    */
   private projectTargets(): (KnobTarget | null)[] {
     const top: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
-      label: spec.name, spec, channel: this.selected, key: `global:${spec.id}`,
+      label: spec.name, spec, channel: this.selected, key: `global:${spec.id}`, neutral: true,
       base: () => this.savedProject()[spec.id as GlobalId | 'meter'],
       get: () => this.getGlobal(spec.id as GlobalId),
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
@@ -1160,7 +1163,7 @@ export class App {
       return this.playing ? heard.map((x, i) => (x?.auto ? this.heardTarget(x, i) : x)) : heard;
     };
     if (this.arpOpen) return step(this.arpTargets()); // no FUNC layer: FUNC (still held) leaves it showing
-    if (this.fxView > 0) return step(this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1));
+    if (this.fxView > 0) return step(this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1).map((t) => t && { ...t, neutral: true }));
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
     if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
     if (this.mode === 'design' || this.songRecord) {
@@ -4033,9 +4036,10 @@ export class App {
     this.targets.forEach((t, i) => {
       this.panel.configureKnob(
         i,
-        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight, staged: t.staged } : null,
+        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight, staged: t.staged, colour: this.knobColour(t) } : null,
       );
     });
+    this.panel.setTrackColours(this.project.channels.map((c) => TRACK_COLOURS[c.instrument]), this.trackColour(this.selected));
 
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -4332,7 +4336,18 @@ export class App {
       valueText: this.valueText(t),
       norm: toNorm(t.spec, t.get()),
       highlight: !!t.highlight,
+      ink: inkOf(this.knobColour(t)),
     } : null));
+  }
+
+  /** A track's colour (by its type). */
+  private trackColour(ch: number): string {
+    return TRACK_COLOURS[this.project.channels[ch]?.instrument ?? 'none'];
+  }
+
+  /** A knob's colour: its track's, neutral for FX / LFO / project knobs and MENU / name entry. */
+  private knobColour(t: KnobTarget): string {
+    return t.neutral || this.menu || this.projMenu ? NEUTRAL : this.trackColour(t.channel);
   }
 
   private header() {
@@ -4347,6 +4362,7 @@ export class App {
         : `PAT ${PATTERN_NAMES[c.activePattern]}`) + (this.dirty(c) ? '*' : ''),
       bpmText: this.project.bpm.toFixed(0),
       playing: this.playing,
+      ink: inkOf(this.fxView > 0 && !this.arpOpen ? NEUTRAL : this.trackColour(ch)),
       message: performance.now() < this.messageUntil ? this.message : this.primed ? this.primedHint()
         : this.copyBar ? `COPY BAR ${this.copyBar.from + 1} > ${this.copyBar.to + 1}` : '',
     };
@@ -4386,6 +4402,7 @@ export class App {
         cursor: i === ch && pitched && this.mode === 'record' && Math.floor(this.cursor[i] / 16) === page ? this.cursor[i] % 16 : -1,
         muted: this.silenced(i),
         selected: i === ch,
+        ink: inkOf(this.trackColour(i)),
       };
     });
     const page = this.visiblePage(ch);
@@ -4422,6 +4439,7 @@ export class App {
       channelLabel: 'SONG',
       patternLabel: `${end} BARS`,
       tracks: this.project.channels.map((c, i) => `${i + 1}${this.kindName(c).slice(0, 3)}`),
+      inks: this.project.channels.map((_, i) => inkOf(this.trackColour(i))),
       selected: this.selected,
       firstBar: this.songPage * 16,
       lanes: clips.map((l) => l.map((c) => ({ at: c.at, bars: c.bars, name: PATTERN_NAMES[c.pattern] }))),

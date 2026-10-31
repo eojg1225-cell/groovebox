@@ -5,6 +5,7 @@
  */
 import { INK, PixelScreen, SCREEN_W } from './screen';
 import { textWidth } from './font';
+import type { Ink } from './colours';
 
 export interface LaneCell {
   /** none = beyond the pattern length. */
@@ -34,6 +35,8 @@ export interface LaneView {
   cursor: number; // cell index or -1 (step entry)
   muted: boolean;
   selected: boolean;
+  /** The track's colour. */
+  ink: Ink;
 }
 
 export interface KnobSlotView {
@@ -41,6 +44,8 @@ export interface KnobSlotView {
   valueText: string;
   norm: number;
   highlight: boolean;
+  /** The knob's track's colour (neutral for FX / project knobs). */
+  ink: Ink;
 }
 
 interface HeaderView {
@@ -50,6 +55,8 @@ interface HeaderView {
   playing: boolean;
   /** Short confirmation (e.g. "PROJECT SAVED") shown in place of the middle text. */
   message: string;
+  /** The selected track's colour (its name, the page tabs). */
+  ink: Ink;
 }
 
 interface FooterView {
@@ -102,7 +109,8 @@ function fit(text: string, width: number): string {
 
 function drawHeader(s: PixelScreen, v: HeaderView, middle: string, middleColor: string): void {
   s.rect(0, 0, SCREEN_W, 9, INK.dim);
-  s.text(2, 2, `${v.channelLabel}  ${v.patternLabel}`, INK.hi);
+  s.text(2, 2, v.channelLabel, v.ink.hi);
+  s.text(2 + textWidth(v.channelLabel) + 8, 2, v.patternLabel, INK.hi);
   if (v.message) {
     const w = textWidth(v.message) + 4;
     s.rect(110, 1, w, 7, INK.warn);
@@ -135,34 +143,35 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
 
   // Step lanes
   v.lanes.forEach((lane, li) => {
+    const k = lane.ink;
     const y = LANE_Y + li * (LANE_H + LANE_GAP);
-    if (lane.selected) s.rect(0, y - 1, GRID_X - 3, LANE_H + 2, INK.mid);
-    s.text(2, y + 1, lane.name, lane.selected ? INK.bg : lane.muted ? INK.dim : INK.mid);
+    if (lane.selected) s.rect(0, y - 1, GRID_X - 3, LANE_H + 2, k.mid);
+    s.text(2, y + 1, lane.name, lane.selected ? INK.bg : lane.muted ? k.dim : k.mid);
     lane.cells.forEach((cell, i) => {
       const x = GRID_X + i * (CELL + CELL_GAP) + Math.floor(i / 4) * GROUP_GAP;
       if (cell.state === 'none') return;
       if (cell.skip) {
-        s.rect(x + (CELL >> 1), y + (LANE_H >> 1), 1, 1, INK.dim);
+        s.rect(x + (CELL >> 1), y + (LANE_H >> 1), 1, 1, k.dim);
         return;
       }
       const head = lane.playhead === i;
       if (cell.rest) {
         // Rest marker: a small square at the bottom.
-        s.rect(x + 4, y + LANE_H - 3, 4, 3, head ? INK.warn : INK.mid);
+        s.rect(x + 4, y + LANE_H - 3, 4, 3, head ? INK.warn : k.mid);
         return;
       }
       if (cell.state === 'off' && cell.tie) {
         // Note held over from an earlier step: a bar joining it to the note.
-        s.rect(x - CELL_GAP - (i % 4 === 0 ? GROUP_GAP : 0), y + 1, CELL + CELL_GAP + (i % 4 === 0 ? GROUP_GAP : 0), 3, head ? INK.warn : INK.mid);
+        s.rect(x - CELL_GAP - (i % 4 === 0 ? GROUP_GAP : 0), y + 1, CELL + CELL_GAP + (i % 4 === 0 ? GROUP_GAP : 0), 3, head ? INK.warn : k.mid);
       } else if (cell.state === 'off') {
-        s.rect(x, y + LANE_H - 1, CELL, 1, head ? INK.hi : INK.dim);
+        s.rect(x, y + LANE_H - 1, CELL, 1, head ? k.hi : k.dim);
       } else if (cell.note) {
-        const color = head ? INK.warn : cell.state === 'ghost' ? INK.mid : INK.hi;
+        const color = head ? INK.warn : cell.state === 'ghost' ? k.mid : k.hi;
         s.rect(x, y - 1, CELL, LANE_H + 1, color);
         s.text(x + 1, y, cell.note, INK.bg);
       } else {
         const h = DYN_HEIGHT[cell.state];
-        s.rect(x, y + LANE_H - h, CELL, h, head ? INK.warn : lane.muted ? INK.mid : INK.hi);
+        s.rect(x, y + LANE_H - h, CELL, h, head ? INK.warn : lane.muted ? k.mid : k.hi);
       }
       if (cell.locked) s.rect(x + CELL - 2, y - 1, 2, 1, INK.warn);
       // ROLL: the cell split into its hits.
@@ -170,7 +179,7 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
       // SLIDE: a low bar from this note on into the next cell (it glides into the next note).
       if (cell.slide) {
         const gap = CELL_GAP + ((i + 1) % 4 === 0 ? GROUP_GAP : 0);
-        s.rect(x + CELL - 1, y + LANE_H - 1, gap + 4, 2, head ? INK.warn : INK.hi);
+        s.rect(x + CELL - 1, y + LANE_H - 1, gap + 4, 2, head ? INK.warn : k.hi);
       }
       // RING: a tail running to the right edge of the cell.
       if (cell.ring) s.rect(x + CELL - 1, y + 1, 2, LANE_H - 2, INK.warn);
@@ -189,30 +198,31 @@ export function drawLiveView(s: PixelScreen, v: LiveView): void {
     const x = 2 + (i % COLS) * SLOT_W;
     const y = ky + Math.floor(i / COLS) * 18;
     const touched = i === v.touchedSlot;
-    if (touched || slot?.highlight) s.rect(x - 1, y - 1, SLOT_W - 1, 18, touched ? INK.dim : INK.shade);
+    if (touched || slot?.highlight) s.rect(x - 1, y - 1, SLOT_W - 1, 18, touched ? (slot?.ink ?? INK).dim : (slot?.ink ?? INK).shade);
     if (!slot) continue;
-    s.text(x, y + 1, fit(slot.name, SLOT_W - 3), touched ? INK.hi : INK.mid);
-    s.text(x, y + 7, fit(slot.valueText, SLOT_W - 3), INK.hi);
-    s.rect(x, y + 14, SLOT_W - 5, 2, INK.dim);
-    s.rect(x, y + 14, Math.round((SLOT_W - 5) * slot.norm), 2, touched ? INK.hi : INK.mid);
+    const k = slot.ink;
+    s.text(x, y + 1, fit(slot.name, SLOT_W - 3), touched ? INK.warn : k.mid);
+    s.text(x, y + 7, fit(slot.valueText, SLOT_W - 3), k.hi);
+    s.rect(x, y + 14, SLOT_W - 5, 2, k.dim);
+    s.rect(x, y + 14, Math.round((SLOT_W - 5) * slot.norm), 2, touched ? INK.warn : k.mid);
   }
 
   drawFooter(s, v, `${v.modeLabel} ${v.keyboardLabel}`, v.dynamicLabel);
 }
 
 /** Pixel knob: 270-degree ring with the value arc and a pointer. */
-function drawKnob(s: PixelScreen, cx: number, cy: number, r: number, norm: number, active: boolean): void {
+function drawKnob(s: PixelScreen, cx: number, cy: number, r: number, norm: number, active: boolean, ink: Ink): void {
   const steps = 28;
   for (let k = 0; k <= steps; k++) {
     const t = k / steps;
     const a = (-135 + t * 270) * (Math.PI / 180);
     const x = Math.round(cx + r * Math.sin(a));
     const y = Math.round(cy - r * Math.cos(a));
-    s.rect(x, y, 1, 1, t <= norm ? (active ? INK.hi : INK.mid) : INK.dim);
+    s.rect(x, y, 1, 1, t <= norm ? (active ? INK.warn : ink.mid) : ink.dim);
   }
   const a = (-135 + norm * 270) * (Math.PI / 180);
   for (let d = 0; d <= r - 2; d++) {
-    s.rect(Math.round(cx + d * Math.sin(a)), Math.round(cy - d * Math.cos(a)), 1, 1, INK.hi);
+    s.rect(Math.round(cx + d * Math.sin(a)), Math.round(cy - d * Math.cos(a)), 1, 1, active ? INK.warn : ink.hi);
   }
 }
 
@@ -224,9 +234,9 @@ export function drawDesignView(s: PixelScreen, v: DesignView): void {
   let tx = 2;
   v.pages.forEach((name, i) => {
     const w = textWidth(name) + 6;
-    if (i === v.page) s.rect(tx, 11, w, 8, INK.mid);
-    else s.frame(tx, 11, w, 8, INK.dim);
-    s.text(tx + 3, 12, name, i === v.page ? INK.bg : INK.mid);
+    if (i === v.page) s.rect(tx, 11, w, 8, v.ink.mid);
+    else s.frame(tx, 11, w, 8, v.ink.dim);
+    s.text(tx + 3, 12, name, i === v.page ? INK.bg : v.ink.mid);
     tx += w + 3;
   });
 
@@ -236,16 +246,17 @@ export function drawDesignView(s: PixelScreen, v: DesignView): void {
     const x = 2 + (i % COLS) * SLOT_W;
     const y = 22 + Math.floor(i / COLS) * 47;
     const touched = i === v.touchedSlot;
-    if (touched) s.rect(x - 1, y - 1, SLOT_W - 1, 45, INK.dim);
+    if (touched) s.rect(x - 1, y - 1, SLOT_W - 1, 45, (slot?.ink ?? INK).shade);
     if (!slot) {
       s.text(x + 13, y + 18, '-', INK.dim);
       continue;
     }
-    s.text(x, y + 1, fit(slot.name, SLOT_W - 2), touched ? INK.hi : INK.mid);
-    drawKnob(s, x + 14, y + 19, 9, slot.norm, touched);
+    const k = slot.ink;
+    s.text(x, y + 1, fit(slot.name, SLOT_W - 2), touched ? INK.warn : k.mid);
+    drawKnob(s, x + 14, y + 19, 9, slot.norm, touched, k);
     const big = textWidth(slot.valueText, 2) <= SLOT_W - 3;
-    if (big) s.text(x, y + 32, slot.valueText, INK.hi, 2);
-    else s.text(x, y + 35, fit(slot.valueText, SLOT_W - 2), INK.hi);
+    if (big) s.text(x, y + 32, slot.valueText, k.hi, 2);
+    else s.text(x, y + 35, fit(slot.valueText, SLOT_W - 2), k.hi);
   }
 
   drawFooter(s, v, v.liveLabel, v.chordLabel);
@@ -254,6 +265,8 @@ export function drawDesignView(s: PixelScreen, v: DesignView): void {
 export interface SongStripView extends HeaderView, FooterView {
   /** One label per track. */
   tracks: string[];
+  /** Each track's colour. */
+  inks: Ink[];
   selected: number;
   /** The page's first bar (0 = the song's first). */
   firstBar: number;
@@ -294,17 +307,18 @@ export function drawSongStripView(s: PixelScreen, v: SongStripView): void {
   v.tracks.forEach((t, ch) => {
     const y = STRIP_Y + ch * STRIP_ROW;
     const sel = ch === v.selected;
-    s.text(2, y + 2, t, sel ? INK.warn : INK.mid);
+    const k = v.inks[ch];
+    s.text(2, y + 2, t, sel ? INK.warn : k.mid);
     for (let i = 0; i < 16; i++) s.rect(stripCellX(i), y + 4, STRIP_CELL, 1, INK.shade);
     for (const c of v.lanes[ch]) {
       const from = Math.max(c.at, v.firstBar) - v.firstBar;
       const to = Math.min(c.at + c.bars, v.firstBar + 16) - v.firstBar - 1;
       if (to < 0 || from > 15) continue;
       const x0 = stripCellX(from);
-      s.rect(x0, y, stripCellX(to) + STRIP_CELL - x0, STRIP_ROW - 2, sel ? INK.mid : INK.dim);
+      s.rect(x0, y, stripCellX(to) + STRIP_CELL - x0, STRIP_ROW - 2, sel ? k.mid : k.dim);
       if (c.at >= v.firstBar) {
-        s.rect(x0, y, 1, STRIP_ROW - 2, INK.hi);
-        s.text(x0 + 3, y + 2, c.name, sel ? INK.bg : INK.hi);
+        s.rect(x0, y, 1, STRIP_ROW - 2, k.hi);
+        s.text(x0 + 3, y + 2, c.name, sel ? INK.bg : k.hi);
       }
     }
     if (sel) {
