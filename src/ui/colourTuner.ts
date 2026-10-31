@@ -1,13 +1,16 @@
 /**
  * Colour tuner (test builds only, `VITE_COLOUR_TUNER=1`): hue / saturation / lightness
  * sliders per track type over the panel, heard nowhere, seen at once. Kept on the device
- * (localStorage); the hex list can be copied out to set `TRACK_COLOURS` for real.
+ * (localStorage); KEEP marks a combination, RESET goes back to it, DEFAULTS to the built-in
+ * one; the hex list can be copied out to set `TRACK_COLOURS` for real.
  */
 import type { SoundKind } from '../engine/project';
 import { TRACK_COLOURS } from './colours';
 
 const KINDS: SoundKind[] = ['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck'];
 const STORE = 'groovebox.colours';
+/** The combination RESET goes back to (KEEP sets it). */
+const KEPT = 'groovebox.colours.kept';
 
 function toHsl(hex: string): [number, number, number] {
   const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -119,14 +122,29 @@ export function mountColourTuner(redraw: () => void): void {
   const copy = document.createElement('button');
   copy.textContent = 'COPY LIST';
   copy.addEventListener('click', () => { out.select(); void navigator.clipboard?.writeText(out.value).catch(() => {}); });
-  const reset = document.createElement('button');
-  reset.textContent = 'RESET ALL';
-  reset.addEventListener('click', () => {
-    Object.assign(TRACK_COLOURS, defaults);
+  // KEEP = this combination is the one RESET goes back to (kept on the device too).
+  const load = (colours: Partial<Record<string, string>>) => {
+    for (const k of KINDS) TRACK_COLOURS[k] = colours[k] ?? defaults[k];
     KINDS.forEach(setSliders);
     apply();
+  };
+  let kept: Record<string, string> = { ...TRACK_COLOURS };
+  try { kept = { ...kept, ...(JSON.parse(localStorage.getItem(KEPT) ?? '{}') as Record<string, string>) }; } catch { /* none */ }
+  const keep = document.createElement('button');
+  keep.textContent = 'KEEP';
+  keep.addEventListener('click', () => {
+    kept = Object.fromEntries(KINDS.map((k) => [k, TRACK_COLOURS[k]]));
+    try { localStorage.setItem(KEPT, JSON.stringify(kept)); } catch { /* not kept */ }
+    keep.textContent = 'KEPT';
+    setTimeout(() => { keep.textContent = 'KEEP'; }, 1000);
   });
-  box.append(out, copy, reset);
+  const reset = document.createElement('button');
+  reset.textContent = 'RESET';
+  reset.addEventListener('click', () => load(kept));
+  const defs = document.createElement('button');
+  defs.textContent = 'DEFAULTS';
+  defs.addEventListener('click', () => load(defaults));
+  box.append(out, copy, keep, reset, defs);
   document.body.append(btn, box);
   KINDS.forEach(setSliders);
   apply();
