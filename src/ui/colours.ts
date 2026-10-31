@@ -11,9 +11,9 @@ export const TRACK_COLOURS: Record<InstrumentKind, string> = {
   snare: '#f58a2c',
   hat: '#e8b53a',
   perc: '#4cc35a',
-  bass: '#3f8ef2',
-  pad: '#a070f4',
-  lead: '#3cc8b4',
+  bass: '#3cc8b4',
+  pad: '#3f8ef2',
+  lead: '#a070f4',
   pluck: '#f26aac',
 };
 

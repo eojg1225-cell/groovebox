@@ -132,3 +132,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Held knobs (2026-10-31): a knob held down keeps its job through FUNC / page / view changes until released (new `release` control event).
 - Sound copy (2026-10-31): FUNC + COPY held + channel / A-D copies only the pattern's patch (same type only); patches stay tied to patterns (no patch memory).
 - Track colours (2026-10-31, preview): a colour per track type on panel and screen, white as the second colour.
+- Track colours reordered (2026-10-31, preview): BASS teal, PAD blue, LEAD purple; a colour tuner overlay for test builds.

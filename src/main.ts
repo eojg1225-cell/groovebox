@@ -3,6 +3,7 @@
  * booting, and zooms out once the sound engine is running. Audio cannot start without a user
  * gesture, so the screen asks for a tap; the first touch / click / key anywhere unlocks it.
  */
+import { mountColourTuner } from './ui/colourTuner';
 import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
@@ -50,6 +51,8 @@ const screen = new PixelScreen(panel.screenCanvas);
 let host: AudioHost | null = null;
 const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 0, dspLoad: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
+// Test builds: the colour tuner (sliders per track type over the panel).
+if (import.meta.env.VITE_COLOUR_TUNER) mountColourTuner(() => app.refreshPanel());
 // On claude.ai the 64 project slots are kept in the artifact's db too: the same on every device.
 startSlotSync(() => app.notify('PROJECTS SYNCED'));
 
