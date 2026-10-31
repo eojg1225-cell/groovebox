@@ -1107,6 +1107,28 @@ describe('CHORD knob', () => {
   });
 });
 
+describe('STEP EDIT: COPY', () => {
+  it('COPY held + taps = copies of the primed step (notes, flags, locks); the primed step stays primed', () => {
+    const { app, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch5');
+    const steps = app.project.channels[4].patterns[0].steps;
+    Object.assign(steps[0], { active: true, note: 40, gate: 2, slide: true, locks: { cutoff: 900 } });
+    steps[5].flip = true;
+    tap('stepedit'); // primes step 1 (the cursor's)
+    press('copy');
+    tap('step4');
+    tap('step6');
+    release('copy');
+    for (const i of [3, 5]) expect(steps[i]).toMatchObject({ active: true, note: 40, gate: 2, slide: true, locks: { cutoff: 900 } });
+    expect(steps[5].flip).toBe(true); // STEPS on / off stays the target's
+    expect(steps[3].flip).toBeUndefined();
+    expect(steps[3]).not.toBe(steps[0]);
+    tap('step8'); // COPY let go: a tap primes again
+    expect(steps[7].active).toBe(false);
+  });
+});
+
 describe('SCALE key', () => {
   const notes = (app: App) => app.project.channels[4].patterns[0].steps.map((st) => st.note);
   const black = (flags: Map<string, Set<string>>, k: number) => flags.get(`step${k}`)!.has('black');
