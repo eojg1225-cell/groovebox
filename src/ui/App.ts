@@ -1549,6 +1549,8 @@ export class App {
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
+      // Shown, as the strip may be on steps: the keyboard's lowest key.
+      this.flash(`KEYS FROM ${noteName(this.keyNote(this.selected, 0))}`);
     } else if (id === 'scale') {
       this.scaleHeld = true;
       this.scaleUsed = false;
@@ -4143,7 +4145,9 @@ export class App {
     // BAR: not where the strip follows the playhead (PLAY, DESIGN, live recording). TIME (the
     // pattern's speed) works in every mode but SONG.
     this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || this.stepsMode || !this.followsPlayhead);
-    for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
+    // OCT ▼ / ▲: every track and strip view (on steps they set the octave painted notes and a
+    // later keyboard use).
+    for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, true);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && (this.stripSteps() || (this.clearHeld && this.mode !== 'design')));
     for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || this.stepsMode || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);

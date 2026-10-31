@@ -138,3 +138,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Looks (2026-10-31, preview): THEME COLOUR / CLASSIC / MONO / REVERSE, SATURATION LOW / MEDIUM / HIGH, INVERT.
 - Looks on main (2026-10-31): THEME CLASSIC (default) / COLOUR / MONO / REVERSE, SATURATION (default HIGH), INVERT; a pick shows at once, CANCEL goes back.
 - ACCENT bar full height on beat steps too (2026-10-31): the beat marker's rule had cut it to 4 px.
+- OCT ▼ / ▲ work on every track and strip view (2026-10-31): they were off unless the strip showed keys; the screen shows KEYS FROM <note>.

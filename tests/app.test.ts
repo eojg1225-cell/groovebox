@@ -1416,6 +1416,21 @@ describe('OCT and FUNC + OCT', () => {
   });
 });
 
+describe('OCT keys', () => {
+  it('work on a drum track and with the strip on steps: the keyboard octave moves, the screen says where', () => {
+    const { app, tap } = makeApp();
+    const priv = app as unknown as { octave: number[]; message: string };
+    tap('mode:record');
+    tap('ch1'); // KICK: the strip shows steps
+    const before = priv.octave[0];
+    tap('oct+');
+    expect(priv.octave[0]).toBe(before + 12);
+    expect(priv.message).toMatch(/^KEYS FROM /);
+    tap('oct-');
+    expect(priv.octave[0]).toBe(before);
+  });
+});
+
 describe('held knobs', () => {
   it('a held knob keeps its job through FUNC and page changes until it is let go', () => {
     const { app, tap, emit } = makeApp();
