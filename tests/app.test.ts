@@ -10,6 +10,8 @@ import type { ControlEvent } from '../src/controls/ControlSurface';
 import type { Panel } from '../src/ui/Panel';
 import type { MainToWorklet } from '../src/engine/protocol';
 import { deviceSettings } from '../src/storage/settings';
+import { INK } from '../src/ui/screen';
+import { applyTheme } from '../src/ui/colours';
 import { changes, restore, snapshot } from '../src/ui/history';
 import { initPatterns } from '../src/engine/project';
 import start from '../src/engine/startProject.json';
@@ -564,6 +566,30 @@ describe('MENU and CANCEL', () => {
     expect(JSON.parse(localStorage.getItem('groovebox.device') ?? '{}').knobSpeed).toBe(2);
     deviceSettings.knobSpeed = 1;
     deviceSettings.touchDelay = 3;
+  });
+
+  it('GLOBAL SETTINGS > THEME: CLASSIC = the teal / gold look; TRACKS = a colour per track, FX knobs in alternating pairs', () => {
+    const { app, tap } = makeApp();
+    const colour = (slot: number) => (app as unknown as { knobColour(t: unknown): string; targets: unknown[] }).knobColour((app as unknown as { targets: unknown[] }).targets[slot]);
+    tap('fx2'); // FX 2's knobs: modules 1-2 one colour, 3-4 the other, 5-6 the first again
+    expect(colour(0)).toBe(colour(1));
+    expect(colour(2)).not.toBe(colour(0));
+    expect(colour(4)).toBe(colour(0));
+    expect(colour(14)).toBe(colour(2));
+    tap('fx2');
+    tap('menu');
+    tap('step3'); // GLOBAL SETTINGS
+    tap('cur+');
+    tap('step7'); // THEME
+    tap('cur+'); // CLASSIC
+    tap('play');
+    expect(deviceSettings.theme).toBe(1);
+    expect(INK.warn).toBe('#e8b53a');
+    tap('menu');
+    expect(colour(0)).toBe(colour(4 + 8)); // one colour everywhere
+    applyTheme(0);
+    deviceSettings.theme = 0;
+    expect(INK.warn).toBe('#ffffff');
   });
 
   it('CANCEL (lit when something is pending) leaves the SAVE / LOAD screen; UNDO is its own key (REDO with FUNC); neither touches views', () => {

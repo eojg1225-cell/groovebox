@@ -72,7 +72,7 @@ import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, son
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
 import { ARP_MODES, ARP_PARAMS, defaultArp, type ArpId } from '../engine/arp';
-import { NEUTRAL, TRACK_COLOURS, inkOf } from './colours';
+import { THEMES, applyTheme, fxColour, inkOf, neutralColour, trackColour } from './colours';
 
 type Mode = 'record' | 'play' | 'design';
 
@@ -249,8 +249,10 @@ interface KnobTarget {
   inner?: KnobTarget;
   /** Identity of the parameter (for RESET glides): "ch:id", "lfo:id", "bus:k:id" ... */
   key?: string;
-  /** Belongs to no track (FX bus, LFO, project): drawn neutral grey, not in a track colour. */
+  /** Belongs to no track (LFO, project): drawn neutral grey, not in a track colour. */
   neutral?: boolean;
+  /** Its own colour (an FX bus's knob pairs), over its track's. */
+  colour?: string;
   /** Part of the edited pattern's patch (a SOUND param, PRESET): SONG only auditions it. */
   patch?: boolean;
   /** Playing: shows what its locks give at the playhead (`heardTarget`), updated every frame. */
@@ -1163,7 +1165,11 @@ export class App {
       return this.playing ? heard.map((x, i) => (x?.auto ? this.heardTarget(x, i) : x)) : heard;
     };
     if (this.arpOpen) return step(this.arpTargets()); // no FUNC layer: FUNC (still held) leaves it showing
-    if (this.fxView > 0) return step(this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1).map((t) => t && { ...t, neutral: true }));
+    if (this.fxView > 0) {
+      const bus = this.fxView;
+      return step(this.func ? new Array(KNOB_COUNT).fill(null)
+        : this.sendTargets(bus - 1).map((t, i) => t && (bus <= 3 ? { ...t, colour: fxColour(bus, i % KNOBS_PER_ROW) } : { ...t, neutral: true })));
+    }
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
     if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
     if (this.mode === 'design' || this.songRecord) {
@@ -3081,6 +3087,7 @@ export class App {
         device('HOLD + RESET', 'holdReset', HOLD_RESETS),
         device('HOLD + PATTERN', 'holdPattern', HOLD_PATTERNS),
         { label: 'TOUCH SETTINGS', open: () => this.openPage('touch') },
+        { ...device('THEME', 'theme', THEMES), set: (i) => { deviceSettings.theme = i; saveDeviceSettings(); applyTheme(i); } },
       ];
     }
     if (page === 'touch') {
@@ -4041,7 +4048,7 @@ export class App {
     });
     // STEPS mode: the track buttons are the selected track's bars, so they take its colour.
     const sel = this.trackColour(this.selected);
-    this.panel.setTrackColours(this.project.channels.map((c) => (this.stepsMode ? sel : TRACK_COLOURS[c.instrument])), sel);
+    this.panel.setTrackColours(this.project.channels.map((c) => (this.stepsMode ? sel : trackColour(c.instrument))), sel, neutralColour());
 
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -4344,12 +4351,13 @@ export class App {
 
   /** A track's colour (by its type). */
   private trackColour(ch: number): string {
-    return TRACK_COLOURS[this.project.channels[ch]?.instrument ?? 'none'];
+    return trackColour(this.project.channels[ch]?.instrument ?? 'none');
   }
 
   /** A knob's colour: its track's, neutral for FX / LFO / project knobs and MENU / name entry. */
   private knobColour(t: KnobTarget): string {
-    return t.neutral || this.menu || this.projMenu ? NEUTRAL : this.trackColour(t.channel);
+    if (this.menu || this.projMenu || t.neutral) return neutralColour();
+    return t.colour ?? this.trackColour(t.channel);
   }
 
   private header() {
@@ -4364,7 +4372,7 @@ export class App {
         : `PAT ${PATTERN_NAMES[c.activePattern]}`) + (this.dirty(c) ? '*' : ''),
       bpmText: this.project.bpm.toFixed(0),
       playing: this.playing,
-      ink: inkOf(this.fxView > 0 && !this.arpOpen ? NEUTRAL : this.trackColour(ch)),
+      ink: inkOf(this.fxView > 0 && !this.arpOpen ? neutralColour() : this.trackColour(ch)),
       message: performance.now() < this.messageUntil ? this.message : this.primed ? this.primedHint()
         : this.copyBar ? `COPY BAR ${this.copyBar.from + 1} > ${this.copyBar.to + 1}` : '',
     };

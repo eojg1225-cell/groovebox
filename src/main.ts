@@ -4,6 +4,7 @@
  * gesture, so the screen asks for a tap; the first touch / click / key anywhere unlocks it.
  */
 import { mountColourTuner } from './ui/colourTuner';
+import { applyTheme } from './ui/colours';
 import './style.css';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
@@ -42,6 +43,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 // their working copies) stay in their slots for LOAD (FUNC + SAVE PROJECT).
 projectStore.setOpen(null);
 const project = createDefaultProject();
+applyTheme(deviceSettings.theme); // GLOBAL SETTINGS > THEME
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
   channels: NUM_CHANNELS,
   patterns: PATTERN_NAMES,

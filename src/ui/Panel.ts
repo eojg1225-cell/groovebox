@@ -20,7 +20,7 @@
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
  * bottom row; module i holds k(i+1) and k(i+9)); master knobs mtempo, mmaster.
  */
-import { NEUTRAL, dimOf } from './colours';
+import { dimOf } from './colours';
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
 import { setRotated } from './orientation';
@@ -261,13 +261,13 @@ export class Panel implements ControlSurface {
    * Track colours: the panel takes the selected track's (strip, LEDs, lit keys), each
    * channel button its own track's.
    */
-  setTrackColours(colours: string[], selected: string): void {
+  setTrackColours(colours: string[], selected: string, neutral: string): void {
     if (this.root.style.getPropertyValue('--accent') !== selected) {
       this.root.style.setProperty('--accent', selected);
       this.root.style.setProperty('--accent-dim', dimOf(selected));
     }
     colours.forEach((c, i) => this.buttons.get(`ch${i + 1}`)?.style.setProperty('--accent', c));
-    for (const k of this.masterKnobs.values()) k.el.style.setProperty('--accent', NEUTRAL); // no track's
+    for (const k of this.masterKnobs.values()) k.el.style.setProperty('--accent', neutral); // no track's
   }
 
   setButtonLit(id: string, lit: boolean): void {

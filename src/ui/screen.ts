@@ -7,7 +7,7 @@ import { ADVANCE, GLYPH_H, GLYPH_W, glyphBits, textWidth } from './font';
 export const SCREEN_W = 256;
 const SCREEN_H = 128;
 
-/** Neutral greys; each track's own colour comes from colours.ts; warn = white (the second colour). */
+/** The screen's inks; the theme sets them (colours.ts applyTheme): warn = the second colour. */
 export const INK = {
   bg: '#0b0e10',
   dim: '#2b3238',
@@ -15,7 +15,7 @@ export const INK = {
   hi: '#e9eef2',
   warn: '#ffffff',
   shade: '#161b1f',
-} as const;
+};
 
 /** Recorded draw commands: 'c' color | 'r' x y w h color | 't' x y text color scale mixed. */
 type Op = string | number;
