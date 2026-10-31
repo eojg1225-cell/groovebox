@@ -53,6 +53,7 @@ Main -> worklet:
 | `swapNotes` | `channel`, `pattern`, `length`, `steps`, `speed?` | RESET with notes: the saved notes replace the pattern's at the next bar line |
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's type and set its full sound |
 | `setChord` | `channel`, `chord` | Chord index (0 = off) |
+| `setRoot` | `root` | SCALE's root (pitch class) for the KEY chords |
 | `setNotes` | `channel`, `notes` | NOTES: how many of the chord's tones play |
 | `setForce` | `channel`, `ring`, `slide`, `velocity?` | PLAY's RING / SLIDE (ROLL) / ACCENT / GHOST on every note of the track |
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |

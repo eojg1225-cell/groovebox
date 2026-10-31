@@ -2399,6 +2399,36 @@ describe('PLAY mode RING / SLIDE (all notes)', () => {
     // Steps 1-2 roll (2 hits each), step 3 ends it with one hit; step 7 has nothing after it.
     near(run(true), [0, 3000, 6000, 9000, 12000, 36000]);
   });
+
+  it('ROLL in PLAY carries on past the loop end: step 16 rolls into step 1 (or 17), which ends it', () => {
+    const run = (steps: number[], len: number) => {
+      const p = kickProject(steps, { bpm: 120 });
+      p.channels[0].patterns[0].length = len;
+      p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 4 }; // 1:2
+      const e = engineWith(p);
+      e.handleMessage({ type: 'setForce', channel: 0, ring: false, slide: true });
+      e.handleMessage({ type: 'transport', playing: true });
+      return onsets(render(e, 2.2).l, 0.005, 1500);
+    };
+    // 16 steps (6000 frames each): 1 and 16 hit. Step 1 is lone at first; 16 rolls into the next 1.
+    near(run([0, 15], 16), [0, 90000, 93000, 96000]);
+    // 32 steps: 16 rolls into 17, which ends it.
+    near(run([15, 16], 32), [90000, 93000, 96000]);
+  });
+});
+
+describe('KEY chords', () => {
+  it('stack thirds along SCALE\'s minor from the note played, and follow the root', () => {
+    const key7 = CHORD_LIST.indexOf('KEY7');
+    expect(chordVoicing(key7, 6, 45)).toEqual([0, 3, 7, 10]); // A: Am7
+    expect(chordVoicing(key7, 6, 48)).toEqual([0, 4, 7, 11]); // C: Cmaj7
+    expect(chordVoicing(key7, 6, 52)).toEqual([0, 3, 7, 10]); // E: Em7
+    expect(chordVoicing(key7, 6, 47)).toEqual([0, 3, 6, 10]); // B: Bm7b5
+    expect(chordVoicing(key7, 2, 48)).toEqual([0, 7]); // NOTES 2: root and 5th
+    expect(chordVoicing(key7, 6, 46, 10)).toEqual([0, 3, 7, 10]); // A# minor: A#m7
+    expect(chordVoicing(CHORD_LIST.indexOf('KEY9'), 6, 50)).toEqual([0, 3, 7, 10, 14]); // D: Dm9
+    expect(chordVoicing(CHORD_LIST.indexOf('MIN7'), 6, 48)).toEqual([0, 3, 7, 10]); // fixed chords as before
+  });
 });
 
 describe('DRIVE level compensation', () => {

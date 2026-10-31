@@ -4,6 +4,7 @@ import { App } from '../src/ui/App';
 import { createDefaultProject } from '../src/engine/defaultProject';
 import { stepNotes } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
+import { CHORD_KNOB, CHORD_NAMES } from '../src/engine/chords';
 import { projectStore } from '../src/storage/projects';
 import type { ControlEvent } from '../src/controls/ControlSurface';
 import type { Panel } from '../src/ui/Panel';
@@ -1015,6 +1016,50 @@ describe('STRIP key: keys / steps on the strip', () => {
     const s = steps(app, 0);
     expect(s[0].active && s[1].active).toBe(true);
     expect(s[0].note - s[1].note).toBe(2);
+  });
+});
+
+describe('STEPS length', () => {
+  it('STEPS + FUNC + ◀ ▶ = a bar at a time, to the bar line', () => {
+    const { app, press, release, tap } = makeApp();
+    tap('mode:record');
+    const len = () => app.project.channels[0].patterns[0].length;
+    press('len');
+    for (let i = 0; i < 4; i++) tap('cur+');
+    expect(len()).toBe(20);
+    press('func');
+    tap('cur+');
+    expect(len()).toBe(32);
+    tap('cur+');
+    tap('cur+');
+    tap('cur+');
+    expect(len()).toBe(64);
+    tap('cur-');
+    tap('cur-');
+    expect(len()).toBe(32);
+    release('func');
+    tap('cur-');
+    expect(len()).toBe(31);
+    press('func');
+    tap('cur-');
+    expect(len()).toBe(16);
+    tap('cur-');
+    expect(len()).toBe(16);
+    release('func');
+    release('len');
+  });
+});
+
+describe('CHORD knob', () => {
+  it('runs in groups, KEY last in each: MIN7, then DOM7, then KEY7', () => {
+    const { app, tap, emit } = makeApp();
+    tap('mode:design');
+    tap('ch6'); // PAD: CHORD on module 8's top knob
+    const at = (name: string) => CHORD_KNOB.indexOf(CHORD_NAMES.indexOf(name)) / (CHORD_KNOB.length - 1);
+    emit({ type: 'knob', id: 'k8', value: at('KEY7') });
+    expect(CHORD_NAMES[app.project.channels[5].chord]).toBe('KEY7');
+    emit({ type: 'knob', id: 'k8', value: at('DOM7') });
+    expect(CHORD_NAMES[app.project.channels[5].chord]).toBe('DOM7');
   });
 });
 

@@ -48,7 +48,7 @@ import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/
 import { GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
 import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
-import { CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
+import { CHORD_KNOB, CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf, speedSteps,
@@ -136,6 +136,8 @@ const SPEED_MARK = { normal: '', double: ' X2', half: ' /2', triplet: ' T' } as 
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
 /** A relative live knob: -100..+100 % around the sound as set (centre). */
 const OFFSET_SPEC: ParamSpec = { id: 'offset', name: 'OFFSET', min: -100, max: 100, defaultValue: 0, unit: '%', curve: 'linear', decimals: 0 };
+/** CHORD's knob: the chords in CHORD_KNOB's order (the value is a place on the knob, not the stored index). */
+const CHORD_SPEC = choice('chord', 'CHORD', CHORD_KNOB.map((i) => CHORD_NAMES[i]));
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 function noteName(n: number): string {
@@ -786,7 +788,7 @@ export class App {
       const entry = INSTRUMENTS[c.instrument];
       for (const id of [...entry.layout, ...entry.funcLayout]) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
-        if (id === 'track:chord' && !list.some((x) => x.id === id)) list.push({ id, spec: choice('chord', 'CHORD', CHORD_NAMES) });
+        if (id === 'track:chord' && !list.some((x) => x.id === id)) list.push({ id, spec: CHORD_SPEC });
         if (spec && !list.some((x) => x.id === spec.id)) list.push({ id: spec.id, spec });
       }
     }
@@ -883,10 +885,14 @@ export class App {
     }
     if (id === 'track:chord') {
       return {
-        label: label ?? 'CHORD', spec: choice('chord', 'CHORD', CHORD_NAMES), channel: ch, highlight, key: `${ch}:${id}`,
-        get: () => c.chord,
-        base: () => this.savedChannel(ch)?.chord ?? 0,
-        set: (v) => { c.chord = v; this.send({ type: 'setChord', channel: ch, chord: v }); },
+        // The knob runs in CHORD_KNOB's order (chords are stored by index).
+        label: label ?? 'CHORD', spec: CHORD_SPEC, channel: ch, highlight, key: `${ch}:${id}`,
+        get: () => Math.max(0, CHORD_KNOB.indexOf(c.chord)),
+        base: () => Math.max(0, CHORD_KNOB.indexOf(this.savedChannel(ch)?.chord ?? 0)),
+        set: (v) => {
+          c.chord = CHORD_KNOB[Math.round(v)] ?? 0;
+          this.send({ type: 'setChord', channel: ch, chord: c.chord });
+        },
       };
     }
     if (id.startsWith(MIX_PREFIX)) {
@@ -1504,12 +1510,19 @@ export class App {
     } else if ((id === 'cur-' || id === 'cur+') && this.scaleHeld) {
       // SCALE + ◀ / ▶: the root a semitone down / up (the strip's keys follow).
       this.project.root = (this.root + (id === 'cur+' ? 1 : 11)) % 12;
+      this.send({ type: 'setRoot', root: this.project.root });
       this.scaleUsed = true;
       this.flash(`SCALE: ${this.scaleName()}`);
       this.save();
     } else if ((id === 'cur-' || id === 'cur+') && this.lenHeld) {
-      // STEPS + ◀ / ▶: the pattern one step shorter / longer.
-      this.changeLength(id === 'cur+' ? 1 : -1);
+      // STEPS + ◀ / ▶: the pattern one step shorter / longer; with FUNC a bar (to the bar line).
+      const d = id === 'cur+' ? 1 : -1;
+      if (this.func) {
+        const len = this.pattern.length;
+        const to = d > 0 ? (Math.floor(len / 16) + 1) * 16 : Math.max(16, (Math.ceil(len / 16) - 1) * 16);
+        this.changeLength(to - len);
+        if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      } else this.changeLength(d);
       this.lenUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
       // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip; ▶ on the last adds one.
@@ -1685,7 +1698,7 @@ export class App {
         fromTarget(this.paramTarget(ch, MIX_PREFIX + spec.id), s[MIX_FIELD[spec.id as MixId]] ?? spec.defaultValue, true);
       }
       if (!isDrum(c.instrument)) {
-        fromTarget(this.paramTarget(ch, 'track:chord'), s.chord, true);
+        fromTarget(this.paramTarget(ch, 'track:chord'), Math.max(0, CHORD_KNOB.indexOf(s.chord)), true); // a place on the knob
         fromTarget(this.paramTarget(ch, 'track:notes'), s.notes - 1, true);
       }
       // Relative live knobs glide back to the centre (the sound as set).
