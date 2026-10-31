@@ -1272,7 +1272,7 @@ export class App {
       }
       if (id === 'copy') {
         this.copyHeld = false;
-        if (!this.copyUsed) this.flash('HOLD COPY + TRACK / A-D');
+        if (!this.copyUsed) this.flash(this.stepEdit ? 'HOLD COPY + TAP STEPS' : 'HOLD COPY + TRACK / A-D');
         this.refreshPanel();
       }
       return;
@@ -3453,12 +3453,38 @@ export class App {
       this.flash(`STEP ${index + 1}: LOCKS CLEARED`);
       return;
     }
+    if (this.copyHeld && this.primed?.cell !== index) {
+      this.copyPrimed(index);
+      return;
+    }
     if (this.primed?.cell === index) {
       if (this.funcHeld) this.funcUsed = true;
       this.lockPrimed(this.func);
       return;
     }
     this.movePrime(index);
+  }
+
+  /**
+   * STEP EDIT, COPY held: the primed step (its notes, flags and locks) onto step `index`; more
+   * taps place more copies until COPY is let go. Whether a step plays (STEPS) stays the target's.
+   */
+  private copyPrimed(index: number): void {
+    this.copyUsed = true;
+    if (this.waiting) {
+      this.flash('LOCK OR CANCEL FIRST');
+      return;
+    }
+    const steps = this.pattern.steps;
+    const from = this.primed!.cell;
+    const copy = JSON.parse(JSON.stringify(steps[from])) as Step;
+    if (steps[index].flip) copy.flip = true;
+    else delete copy.flip;
+    steps[index] = copy;
+    this.sendStep(index, copy);
+    this.save();
+    this.relabel(`COPY STEP ${from + 1}`);
+    this.flash(`STEP ${from + 1} COPIED TO ${index + 1}`);
   }
 
   /** STEP EDIT on (RECORD, stopped): the other strip modes go, the step entry cursor's step is primed. */
