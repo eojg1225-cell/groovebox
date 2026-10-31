@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../src/ui/App';
 import { createDefaultProject } from '../src/engine/defaultProject';
-import { stepNotes } from '../src/engine/project';
+import { patchOf, stepNotes } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { CHORD_KNOB, CHORD_NAMES } from '../src/engine/chords';
 import { projectStore } from '../src/storage/projects';
@@ -1159,6 +1159,42 @@ describe('COPY BAR', () => {
     tap('cur+');
     app.updateFrame(0);
     expect(flags.get('step3')?.has('lit')).toBe(true);
+  });
+});
+
+describe('FUNC + COPY: the sound only', () => {
+  it('copies the patch onto another pattern of the same type, keeps its notes, lets go of FUNC, and UNDO brings the old sound back', () => {
+    const { app, press, release, tap, sent } = makeApp();
+    tap('mode:record');
+    tap('ch6'); // PAD, editing A
+    const c = app.project.channels[5];
+    c.sounds.pad!.cutoff = 0.123;
+    const notesB = JSON.stringify(c.patterns[1].steps);
+    const before = patchOf(c, 1).sound.cutoff;
+    press('copy');
+    tap('func');
+    tap('patB');
+    release('copy');
+    expect(patchOf(c, 1).sound.cutoff).toBe(0.123);
+    expect(JSON.stringify(c.patterns[1].steps)).toBe(notesB);
+    expect(c.patterns[1].patchDirty).toBe(true);
+    expect(sent.some((m) => m.type === 'setPatch' && m.channel === 5 && m.pattern === 1)).toBe(true);
+    expect((app as unknown as { func: boolean }).func).toBe(false);
+    tap('undo');
+    expect(patchOf(c, 1).sound.cutoff).toBe(before);
+  });
+
+  it('refuses another type and leaves both tracks as they were', () => {
+    const { app, press, release, tap } = makeApp();
+    tap('mode:record');
+    tap('ch6');
+    const kick = JSON.stringify(patchOf(app.project.channels[0], 0));
+    press('copy');
+    tap('func');
+    tap('ch1');
+    release('copy');
+    expect(JSON.stringify(patchOf(app.project.channels[0], 0))).toBe(kick);
+    expect((app as unknown as { message: string }).message).toContain('SAME TYPE');
   });
 });
 

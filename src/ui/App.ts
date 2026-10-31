@@ -1327,8 +1327,15 @@ export class App {
         return;
       }
       const c = this.channel;
-      if (id.startsWith('ch')) this.copyPattern(this.selected, c.activePattern, Number(m[1]) - 1, c.activePattern);
-      else this.copyPattern(this.selected, c.activePattern, this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
+      const [toCh, toPat] = id.startsWith('ch') ? [Number(m[1]) - 1, c.activePattern]
+        : [this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number])];
+      // FUNC + COPY = the sound only (FUNC lets go, held or latched).
+      if (this.func) {
+        this.funcHeld = false;
+        this.funcLatched = false;
+        this.funcUsed = true;
+        this.copyPatch(this.selected, c.activePattern, toCh, toPat);
+      } else this.copyPattern(this.selected, c.activePattern, toCh, toPat);
       this.refreshPanel();
       return;
     }
@@ -2472,6 +2479,31 @@ export class App {
     this.copyUsed = true;
     this.flash(`COPIED ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${PATTERN_NAMES[toPat]}`);
     this.relabel(`COPY > ${this.kindName(to)} ${PATTERN_NAMES[toPat]}`);
+    this.save();
+  }
+
+  /**
+   * FUNC + COPY: only the sound (the whole patch: TIMBRE, trims, PRESET) onto another pattern
+   * slot of a track of the same type; the target keeps its notes. Playing, the engine glides it
+   * in by the next bar line. An unsaved edit there (RESET / UNDO bring the old one back).
+   */
+  private copyPatch(fromCh: number, fromPat: number, toCh: number, toPat: number): void {
+    this.copyUsed = true;
+    if (fromCh === toCh && fromPat === toPat) {
+      this.flash('PICK ANOTHER TRACK / PATTERN');
+      return;
+    }
+    const from = this.project.channels[fromCh];
+    const to = this.project.channels[toCh];
+    if (from.instrument === 'none' || from.instrument !== to.instrument) {
+      this.flash('SOUND: SAME TYPE ONLY');
+      return;
+    }
+    setPatchOf(to, toPat, patchOf(from, fromPat));
+    to.patterns[toPat].patchDirty = true;
+    this.send({ type: 'setPatch', channel: toCh, pattern: toPat, sound: { ...patchOf(to, toPat).sound }, glide: this.playing });
+    this.flash(`SOUND ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${PATTERN_NAMES[toPat]}`);
+    this.relabel(`SOUND > ${this.kindName(to)} ${PATTERN_NAMES[toPat]}`);
     this.save();
   }
 
