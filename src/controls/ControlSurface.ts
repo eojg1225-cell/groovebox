@@ -13,6 +13,8 @@ export type ControlEvent =
   | { type: 'fader'; id: string; value: number } // value normalised 0..1
   /** A knob touched (finger / mouse down on it), before or without any turn. */
   | { type: 'touch'; id: string }
+  /** A touched knob let go (after `touch`; a held knob keeps its job until then). */
+  | { type: 'release'; id: string }
   | { type: 'button'; id: string; pressed: boolean }
   | { type: 'joystick'; id: string; x: number; y: number }; // -1..1
 

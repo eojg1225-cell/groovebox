@@ -464,6 +464,13 @@ export class App {
   /** RESET lit until (the patches' glide to the bar line). */
   private resetLitUntil = 0;
   private targets: (KnobTarget | null)[] = [];
+  /**
+   * Knobs held down (slot -> the job it had when touched): a held knob keeps that job through
+   * FUNC, page and view changes until it is let go (MENU / name entry take it over).
+   */
+  private readonly heldKnobs = new Map<number, KnobTarget | null>();
+  /** The knobs' jobs before the SONG / primed / playhead wrappers (what a held knob keeps). */
+  private rawTargets: (KnobTarget | null)[] = [];
   /** The click setting last sent to the engine. */
   private clickSent = '';
 
@@ -1142,16 +1149,18 @@ export class App {
     // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
     if (this.songGrid) return new Array(KNOB_COUNT).fill(null);
-    // SONG: a pattern's sound knobs only audition. A primed step (STEP EDIT, SONG RECORD):
-    // the knobs show and set what will be locked there.
-    // Playing: knobs with locks show what the locks give at the playhead.
-    const step = (t: (KnobTarget | null)[]) => {
+    // A held knob keeps its job (as touched), wrapped afresh below. SONG: a pattern's sound
+    // knobs only audition. A primed step (STEP EDIT, SONG RECORD): the knobs show and set what
+    // will be locked there. Playing: knobs with locks show what the locks give at the playhead.
+    const step = (layer: (KnobTarget | null)[]) => {
+      const t = layer.map((x, i) => (this.heldKnobs.has(i) ? this.heldKnobs.get(i) ?? null : x));
+      this.rawTargets = t;
       const heard = this.song ? t.map((x) => (x?.patch ? this.auditionTarget(x) : x)) : t;
       if (this.primed) return heard.map((x) => (x?.auto ? this.primedTarget(x) : x));
       return this.playing ? heard.map((x, i) => (x?.auto ? this.heardTarget(x, i) : x)) : heard;
     };
     if (this.arpOpen) return step(this.arpTargets()); // no FUNC layer: FUNC (still held) leaves it showing
-    if (this.fxView > 0) return this.func ? new Array(KNOB_COUNT).fill(null) : step(this.sendTargets(this.fxView - 1));
+    if (this.fxView > 0) return step(this.func ? new Array(KNOB_COUNT).fill(null) : this.sendTargets(this.fxView - 1));
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
     if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
     if (this.mode === 'design' || this.songRecord) {
@@ -1171,7 +1180,16 @@ export class App {
     if (e.type === 'encoder') return this.onEncoder(e.id, e.delta);
     if (e.type === 'knob' && e.id.startsWith('m')) return this.onMasterKnob(e.id, e.value);
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
-    if (e.type === 'touch') return this.onTouch(Number(e.id.slice(1)) - 1);
+    if (e.type === 'touch') {
+      const slot = Number(e.id.slice(1)) - 1;
+      if (!e.id.startsWith('m') && !this.menu && !this.projMenu && !this.songGrid) this.heldKnobs.set(slot, this.rawTargets[slot] ?? null);
+      return this.onTouch(slot);
+    }
+    if (e.type === 'release') {
+      // Let go: the knob takes the job the panel now gives it.
+      if (this.heldKnobs.delete(Number(e.id.slice(1)) - 1)) this.refreshPanel();
+      return;
+    }
     if (e.type !== 'button') return;
     const id = e.id;
     let m: RegExpExecArray | null;
@@ -3979,6 +3997,7 @@ export class App {
   refreshPanel(): void {
     this.syncClick();
     this.targets = this.computeTargets();
+    if (this.menu || this.projMenu || this.songGrid) this.heldKnobs.clear();
     this.targets.forEach((t, i) => {
       this.panel.configureKnob(
         i,

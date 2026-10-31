@@ -129,3 +129,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - STEPS rework, 8 bars (2026-10-31): patterns up to 128 steps (format v60); STEPS mode = steps on / off, ◀ ▶ through the bars, track buttons = the bars (add / take out); BAR only moves (no adding); the app and MENU > MODE open on PLAY.
 - STEP EDIT copy (2026-10-31): COPY held + tapping steps places copies of the primed step until COPY is let go.
 - Song strip on main (2026-10-31): SONG DESIGN is the song strip (one lane of pattern clips per track, a strip step = a bar); the row grid and its code are gone; the modes read DESIGN / RECORD / PLAY.
+- Held knobs (2026-10-31): a knob held down keeps its job through FUNC / page / view changes until released (new `release` control event).

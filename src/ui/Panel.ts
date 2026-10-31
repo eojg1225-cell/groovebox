@@ -71,7 +71,7 @@ export class Panel implements ControlSurface {
   private readonly masterKnobs = new Map<string, Knob>();
   private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
-  private readonly touchEmit = (id: string) => this.emitter.emit({ type: 'touch', id });
+  private readonly touchEmit = (id: string, down: boolean) => this.emitter.emit({ type: down ? 'touch' : 'release', id });
 
   private stripSlide = false;
   private zoom = 0;
@@ -336,6 +336,7 @@ export class Panel implements ControlSurface {
 
   /** Let go of every held step, button and key (focus lost, app in the background). */
   releaseAll(): void {
+    for (const k of this.knobs) k.release();
     for (const [pointer, id] of [...this.stripPointers]) {
       this.stripPointers.delete(pointer);
       this.press(id, false);

@@ -47,7 +47,7 @@ export class Knob {
     private readonly onChange: (id: string, value: number) => void,
     private readonly onTurn: (id: string, delta: number) => void,
     readonly steps = 127,
-    private readonly onTouch: (id: string) => void = () => {},
+    private readonly onTouch: (id: string, down: boolean) => void = () => {},
   ) {
     this.pos = Math.round(defaultNorm * steps);
     const el = document.createElement('div');
@@ -96,7 +96,7 @@ export class Knob {
     this.enabled = enabled;
     this.el.classList.toggle('disabled', !enabled);
     this.markChanged();
-    if (!enabled) this.dragPointer = null;
+    if (!enabled) this.release();
   }
 
   get(): number {
@@ -127,11 +127,12 @@ export class Knob {
   private onDown(e: PointerEvent, body: HTMLElement): void {
     if (!this.enabled || this.dragPointer !== null) return; // one finger per knob
     e.preventDefault();
-    this.onTouch(this.id);
+    this.onTouch(this.id, true);
     const now = performance.now();
     if (now - this.lastTap < DOUBLE_TAP_MS) {
       this.lastTap = -Infinity;
       this.moveTo(this.defaultValue * this.steps);
+      this.onTouch(this.id, false);
       return;
     }
     this.lastTap = now;
@@ -164,8 +165,15 @@ export class Knob {
 
   private onUp(e: PointerEvent): void {
     if (e.pointerId !== this.dragPointer) return;
+    this.release();
+  }
+
+  /** Let go of the knob (finger up, or the panel letting go of everything). */
+  release(): void {
+    if (this.dragPointer === null) return;
     this.dragPointer = null;
     this.el.classList.remove('active');
+    this.onTouch(this.id, false);
   }
 
   private onWheel(e: WheelEvent): void {

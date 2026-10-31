@@ -1335,6 +1335,25 @@ describe('OCT and FUNC + OCT', () => {
   });
 });
 
+describe('held knobs', () => {
+  it('a held knob keeps its job through FUNC and page changes until it is let go', () => {
+    const { app, tap, emit } = makeApp();
+    const label = (slot: number) => (app as unknown as { targets: ({ label: string } | null)[] }).targets[slot]?.label;
+    tap('mode:design');
+    tap('ch6'); // PAD SOUND page
+    const held = label(5);
+    const other = label(13);
+    emit({ type: 'touch', id: 'k6' });
+    tap('func'); // FUNC latched: the other knobs take the FUNC layer
+    expect(label(5)).toBe(held);
+    expect(label(13)).not.toBe(other);
+    tap('dpage1'); // MIX page
+    expect(label(5)).toBe(held);
+    emit({ type: 'release', id: 'k6' });
+    expect(label(5)).not.toBe(held);
+  });
+});
+
 describe('STEP EDIT', () => {
   type T = { label: string; get(): number; staged?: boolean; auto?: { key: string } } | null;
   const targets = (app: App) => (app as unknown as { targets: T[] }).targets;
