@@ -31,6 +31,7 @@ export type MainToWorklet =
   | { type: 'setInstrument'; channel: number; kind: InstrumentKind; sound: Record<string, number> }
   /** Chord mode index (0 = off). */
   | { type: 'setChord'; channel: number; chord: number }
+  | { type: 'setRoot'; root: number }
   /** NOTES: how many of the chord's tones play (1..MAX_CHORD_NOTES). */
   | { type: 'setNotes'; channel: number; notes: number }
   /**

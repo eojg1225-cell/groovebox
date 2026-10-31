@@ -242,6 +242,8 @@ export class Engine {
   private readonly typeGain = new Float32Array(NUM_CHANNELS).fill(1);
   /** Chord mode per channel (index into CHORDS). */
   private readonly chord = new Uint8Array(NUM_CHANNELS);
+  /** SCALE's root (pitch class): the KEY chords follow its natural minor. */
+  private scaleRoot = 9;
   private readonly notes = new Uint8Array(NUM_CHANNELS).fill(MAX_CHORD_NOTES);
   /**
    * PAD / PLUCK: sequenced notes held each by its own length (each its own voice group), so a note
@@ -475,6 +477,7 @@ export class Engine {
       case 'release': this.release(msg.channel, msg.note); break;
       case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
       case 'setChord': this.chord[msg.channel] = msg.chord; break;
+      case 'setRoot': this.scaleRoot = msg.root; break;
       case 'setNotes': this.notes[msg.channel] = msg.notes; break;
       case 'setForce':
         this.forceRing[msg.channel] = msg.ring ? 1 : 0;
@@ -646,6 +649,7 @@ export class Engine {
       bus.settle();
     });
     this.setSong(p.song ?? { rows: [] });
+    this.scaleRoot = p.root ?? 9;
     this.pendingMeter = -1;
     this.applyMeter(Math.max(0, Math.min(METERS.length - 1, Math.round(p.meter ?? 0))));
     for (const id in p.lfo) this.setLfo(id as LfoId, p.lfo[id as LfoId]);
@@ -1070,9 +1074,10 @@ export class Engine {
         if (!this.loopStart[ch]) {
           this.position[ch] = 0;
           this.loopStart[ch] = 1;
-          this.runLeft[ch] = 0;
-          this.rollLeft[ch] = 0;
         }
+        // A forced roll running on past the loop end stops: the new pattern starts afresh.
+        this.runLeft[ch] = 0;
+        this.rollLeft[ch] = 0;
         this.landPattern(ch);
       }
       const rate = this.patternRate[ch * NUM_PATTERNS + this.activePattern[ch]];
@@ -1437,7 +1442,7 @@ export class Engine {
       this.arpIndex[ch] = 0;
       this.arpStep(ch);
     } else {
-      const intervals = chordVoicing(this.chord[ch], this.notes[ch]);
+      const intervals = chordVoicing(this.chord[ch], this.notes[ch], note, this.scaleRoot);
       for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note, ring, slideFrom, slide);
     }
     // RETRIG NOTE: the LFO restarts with each new note (not on slides).
@@ -1450,7 +1455,8 @@ export class Engine {
    * ROLL RATE hits per step from the start of the first step to the end of the last, evenly
    * (straight through swing). Velocity ramps hit by hit from the first step's to the last's.
    * Forced ROLL (PLAY) rolls through runs of consecutive hits instead: from the first hit up
-   * to the last one, which plays plainly as the roll's end (the ramp leads into it); a hit
+   * to the last one, which plays plainly as the roll's end (the ramp leads into it), on past
+   * the loop end into the pattern's first steps when it plays on (no switch waiting); a hit
    * with no hit right after it does not roll.
    */
   private startRollRun(ch: number, pat: number, idx: number, len: number, vel: number): void {
@@ -1458,11 +1464,16 @@ export class Engine {
     let steps = 1;
     let last = vel;
     const base = pat * MAX_STEPS;
-    for (let i = this.nextOn(base, idx + 1, len); i >= 0; i = this.nextOn(base, i + 1, len)) {
-      const s = base + i;
+    const wraps = forced && this.pendingPattern[ch] < 0;
+    for (let i = idx, n = 1; n < len; n++) {
+      let next = this.nextOn(base, i + 1, len);
+      if (next < 0 && wraps) next = this.nextOn(base, 0, len);
+      if (next < 0 || next === idx) break;
+      const s = base + next;
       if (this.stepActive[s] !== 1 || (!forced && this.stepSlide[s] !== 1)) break;
       steps++;
       last = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
+      i = next;
     }
     if (forced) {
       // The last consecutive hit ends the roll: it fires on its own step.
@@ -1542,7 +1553,7 @@ export class Engine {
     const k = ++this.rollIndex[ch];
     if (!inst) return;
     const note = this.rollNote[ch];
-    const intervals = chordVoicing(this.chord[ch], this.notes[ch]);
+    const intervals = chordVoicing(this.chord[ch], this.notes[ch], note, this.scaleRoot);
     const v0 = this.rollVel[ch];
     const ramp = this.rollRamp[ch] > 0 ? Math.min(1, k / this.rollRamp[ch]) : 0;
     const vel = dynVelocity(v0 + (this.rollVelEnd[ch] - v0) * ramp, this.dynDepth[ch]);
@@ -1555,7 +1566,7 @@ export class Engine {
     const inst = this.current[ch];
     if (!inst) return;
     if (this.arpNote[ch] >= 0) inst.noteOff(this.arpNote[ch]);
-    const intervals = chordVoicing(this.chord[ch], this.notes[ch]);
+    const intervals = chordVoicing(this.chord[ch], this.notes[ch], this.arpRoot[ch], this.scaleRoot);
     const mode = this.arpMode[ch];
     const count = intervals.length * this.arpOct[ch]; // chord tones over ARP OCT octaves
     const i = this.arpIndex[ch]++;
