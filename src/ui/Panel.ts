@@ -39,9 +39,9 @@ const MASTER_KNOBS = [
 ] as const;
 
 export const MODES = [
+  { id: 'design', label: 'DESIGN' },
   { id: 'record', label: 'RECORD' },
   { id: 'play', label: 'PLAY' },
-  { id: 'design', label: 'DESIGN' },
 ] as const;
 
 /**
