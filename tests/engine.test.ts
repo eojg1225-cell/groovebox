@@ -261,7 +261,7 @@ describe('instruments', () => {
     d.setParam('drive', 30);
     d.setParam('crush', 1);
     const l = new Float32Array(SR);
-    d.noteOn(36, 1, 36);
+    d.noteOn(33, 1, 33);
     d.render(l, new Float32Array(SR), 0, SR);
     const st = stats(l);
     expect(st.nan).toBe(false);
@@ -1024,7 +1024,7 @@ describe('TIMBRE and INTENSITY macros', () => {
           const sound = macroSound(kind, t, x, entry.params);
           for (const id in sound) inst.setParam(id, sound[id]);
           const l = new Float32Array(SR / 2);
-          inst.noteOn(entry.drum ? 36 : 45, 1, 45, false);
+          inst.noteOn(entry.drum ? (entry.pitched ? 36 : 33) : 45, 1, 45, false);
           inst.render(l, new Float32Array(l.length), 0, l.length);
           const st = stats(l);
           expect(st.nan, `${kind} t=${t} i=${x}`).toBe(false);
@@ -1044,7 +1044,7 @@ describe('TIMBRE and INTENSITY macros', () => {
           const sound = macroSound(kind, t, x, entry.params);
           for (const id in sound) inst.setParam(id, sound[id]);
           const l = new Float32Array(SR / 10);
-          inst.noteOn(entry.drum ? 36 : 45, 1, 45, false);
+          inst.noteOn(entry.drum ? (entry.pitched ? 36 : 33) : 45, 1, 45, false);
           inst.render(l, new Float32Array(l.length), 0, l.length);
           return stats(l).peak;
         };
@@ -1254,7 +1254,7 @@ describe('drum element envelopes', () => {
     const base = presetSound('kick', 1);
     for (const id in base) d.setParam(id, base[id]);
     for (const id in sound) d.setParam(id, sound[id]);
-    d.noteOn(36, 1, 36);
+    d.noteOn(33, 1, 33);
     const l = new Float32Array(SR * 2);
     d.render(l, new Float32Array(SR * 2), 0, l.length);
     return l;
@@ -1441,6 +1441,20 @@ describe('slides and rolls', () => {
     near(o2, [0, 3000, 24000]);
   });
 
+  it('v62 load: KICK / SNARE / HAT notes move down three semitones (now A = as designed), PERC and synths stay', () => {
+    const p = createDefaultProject();
+    p.channels[0].patterns[0].steps[0] = { ...p.channels[0].patterns[0].steps[0], active: true, note: 36 };
+    p.channels[3].patterns[0].steps[0] = { ...p.channels[3].patterns[0].steps[0], active: true, note: 40 };
+    p.channels[4].patterns[0].steps[0] = { ...p.channels[4].patterns[0].steps[0], active: true, note: 45 };
+    const stored = toStored(p) as { version: number };
+    stored.version = 61;
+    const back = fromStored(stored)!;
+    expect(back.channels[0].patterns[0].steps[0].note).toBe(33);
+    expect(back.channels[3].patterns[0].steps[0].note).toBe(40);
+    expect(back.channels[4].patterns[0].steps[0].note).toBe(45);
+    expect(fromStored(toStored(p))!.channels[0].patterns[0].steps[0].note).toBe(36); // a v62 save as stored
+  });
+
   it('drum OCTAVE (FUNC + OCT) moves the pitched layers by whole octaves; 0 = as before', () => {
     const run = (octave?: number) => {
       const inst = INSTRUMENTS.perc.create(SR);
@@ -1577,7 +1591,7 @@ describe('hat head and RING', () => {
     const d = new Drum(SR, HAT_PARAMS, HAT_VOICE);
     const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === name)), c_level: 0, ...extra };
     for (const id in sound) d.setParam(id, sound[id]);
-    d.noteOn(36, 1, 36, ring);
+    d.noteOn(33, 1, 33, ring);
     const l = new Float32Array(SR * 2);
     d.render(l, new Float32Array(SR * 2), 0, l.length);
     return l;
@@ -1811,7 +1825,7 @@ describe('drum RING follows the decay knobs', () => {
       const d = new Drum(SR, HAT_PARAMS, HAT_VOICE);
       const sound: Record<string, number> = { ...presetSound('hat', INSTRUMENTS.hat.presets.findIndex((p) => p.name === 'HAT')), c_level: 0, m_decay: mDecay };
       for (const id in sound) d.setParam(id, sound[id]);
-      d.noteOn(36, 1, 36, true);
+      d.noteOn(33, 1, 33, true);
       const l = new Float32Array(SR * 3);
       d.render(l, new Float32Array(SR * 3), 0, l.length);
       return stats(l.subarray(SR * 1.2, SR * 1.3)).peak;
@@ -2350,7 +2364,7 @@ describe('drum BALANCE', () => {
     const d = new Drum(SR, KICK_PARAMS, KICK_VOICE);
     const sound: Record<string, number> = { ...presetSound('kick', 2), ...layers, balance };
     for (const id in sound) d.setParam(id, sound[id]);
-    d.noteOn(36, 1, 36);
+    d.noteOn(33, 1, 33);
     const l = new Float32Array(SR / 4);
     d.render(l, new Float32Array(l.length), 0, l.length);
     return l.reduce((a, v) => a + v * v, 0);
@@ -2474,7 +2488,7 @@ describe('DRIVE level compensation', () => {
           const s: Record<string, number> = { ...presetSound(k, pi), drive: d, crush: 0 };
           if (!e.drum) { s.sustain = 0.7; s.sustain2 = 0.7; }
           for (const id in s) inst.setParam(id, s[id]);
-          inst.noteOn(e.drum ? 36 : 48, 0.8, e.drum ? 36 : 48, false);
+          inst.noteOn(e.drum ? (e.pitched ? 36 : 33) : 48, 0.8, e.drum ? (e.pitched ? 36 : 33) : 48, false);
           const l = new Float32Array(SR / 4);
           inst.render(l, new Float32Array(l.length), 0, l.length);
           return Math.sqrt(l.reduce((a, v) => a + v * v, 0) / l.length);
@@ -2931,13 +2945,13 @@ describe('drum retrigger', () => {
     const n = 4000;
     const l = new Float32Array(n);
     const r = new Float32Array(n);
-    kick.noteOn(36, 1, 36);
+    kick.noteOn(33, 1, 33);
     // Play on to a loud moment, then hit it again (a roll hit while the first still sounds).
     let at = 1500;
     kick.render(l, r, 0, at);
     while (Math.abs(l[at - 1]) < 0.1 && at < 3000) { kick.render(l, r, at, at + 1); at++; }
     expect(Math.abs(l[at - 1])).toBeGreaterThan(0.1);
-    kick.noteOn(36, 1, 36);
+    kick.noteOn(33, 1, 33);
     kick.render(l, r, at, n);
     // No sample-to-sample jump at the retrigger bigger than the kick's own movement.
     let ownMax = 0;
@@ -3778,7 +3792,7 @@ describe('v43: KICK TIMBRE sounds run soft -> extreme', () => {
     const hit = (sweep: number) => {
       const d = new Drum(SR, KICK_PARAMS, KICK_VOICE);
       for (const [id, v] of Object.entries({ ...presetSound('kick', 0), t_pitch: 1000, t_sweep: sweep, t_stime: 2, t_decay: 2, c_level: 0, drive: 1 })) d.setParam(id, v);
-      d.noteOn(36, 1, 36, false);
+      d.noteOn(33, 1, 33, false);
       const l = new Float32Array(2400), r = new Float32Array(2400);
       d.render(l, r, 0, 2400);
       return l;
@@ -3817,7 +3831,7 @@ describe('AIR (KICK, SNARE)', () => {
   const hit = (kind: 'kick' | 'snare', values: Record<string, number>) => {
     const d = kind === 'kick' ? new Drum(SR, KICK_PARAMS, KICK_VOICE) : new Drum(SR, SNARE_PARAMS, SNARE_VOICE);
     for (const [id, v] of Object.entries({ ...presetSound(kind, 2), ...values })) d.setParam(id, v);
-    d.noteOn(36, 0.8, 36, false);
+    d.noteOn(33, 0.8, 33, false);
     const n = SR * 2, l = new Float32Array(n), r = new Float32Array(n);
     for (let o = 0; o < n; o += BLOCK) d.render(l, r, o, o + BLOCK);
     const dry = l.slice();
@@ -3869,7 +3883,7 @@ describe('HAT BELL and RATTLE', () => {
     const d = new Drum(SR, HAT_PARAMS, HAT_VOICE);
     const plain = { m_level: 1, m_pitch: 600, m_noise: 0, m_tone: 30, m_mode: 0, m_decay: 1, h_time: 0, c_level: 0, drive: 1 };
     for (const [id, v] of Object.entries({ ...plain, ...values })) d.setParam(id, v);
-    d.noteOn(36, 1, 36, false);
+    d.noteOn(33, 1, 33, false);
     const n = Math.floor(SR * seconds), l = new Float32Array(n), r = new Float32Array(n);
     d.render(l, r, 0, n);
     return l;

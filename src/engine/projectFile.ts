@@ -354,6 +354,15 @@ function liveIdValid(kind: InstrumentKind, id: string): boolean {
   return INSTRUMENTS[kind].params.some((p) => p.id === id);
 }
 
+/**
+ * v62: KICK / SNARE / HAT play as designed on A (note 33, `DRUM_ROOT`), not C (36), so the
+ * default A minor keys hit them on their own pitch: older notes on those tracks move three
+ * semitones down and sound as they did (PERC is tuned by note name and stays).
+ */
+function drumRootV62(kind: InstrumentKind, note: number): number {
+  return kind === 'kick' || kind === 'snare' || kind === 'hat' ? Math.max(0, note - 3) : note;
+}
+
 /** A stored pattern's length, speed, flips and notes into `pat` (its steps start empty). */
 function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, version: number, kind: InstrumentKind): void {
   pat.length = Math.round(num(sp.len, pat.length, 1, MAX_STEPS));
@@ -373,6 +382,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     }
     step.active = true;
     step.note = num(s.n, 36, 0, 127);
+    if (version < 62) step.note = drumRootV62(kind, step.note);
     step.velocity = num(s.v, 0.8, 0, 1);
     step.gate = Math.round(num(s.g, 1, 1, MAX_STEPS));
     step.accent = s.a === 1;

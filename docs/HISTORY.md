@@ -140,3 +140,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - ACCENT bar full height on beat steps too (2026-10-31): the beat marker's rule had cut it to 4 px.
 - OCT ▼ / ▲ work on every track and strip view (2026-10-31): they were off unless the strip showed keys; the screen shows KEYS FROM <note>.
 - Drum OCTAVE and painted pitch (2026-10-31): FUNC + OCT moves a drum's pitched layers by octaves (new `octave` sound param on every drum, default 0, no save change); a painted step on any track, drums too, takes the strip keys' lowest note (SCALE's root).
+- Format v62 (2026-10-31): KICK / SNARE / HAT play as designed on A (DRUM_ROOT 33, was C 36), so A minor's bottom key hits them on their own pitch; load migration `drumRootV62` moves older notes on those tracks down three semitones (sound unchanged).

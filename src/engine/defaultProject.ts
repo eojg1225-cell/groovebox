@@ -59,8 +59,8 @@ export function createDefaultProject(): Project {
   const channels = Array.from({ length: NUM_CHANNELS }, (_, i) => {
     const c = emptyChannel();
     trackDefaults(c, kinds[i]);
-    // Drum steps play at the designed pitch (note 36); pitched steps start on the keyboard's A.
-    const base = INSTRUMENTS[kinds[i]].drum ? 36 : INSTRUMENTS[kinds[i]].baseNote;
+    // Steps start on the keyboard's A (drums: their designed pitch, DRUM_ROOT).
+    const base = INSTRUMENTS[kinds[i]].baseNote;
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });

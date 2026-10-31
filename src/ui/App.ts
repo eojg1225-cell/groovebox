@@ -2482,7 +2482,7 @@ export class App {
     this.send({ type: 'setPatternSpeed', channel: toCh, pattern: toPat, speed: dst.speed ?? 'normal' });
     src.steps.forEach((s, i) => {
       const step: Step = JSON.parse(JSON.stringify(s));
-      if (plainDrum) step.note = emptyStep().note; // a drum's own pitch (as designed)
+      if (plainDrum) step.note = base; // a drum's own pitch (as designed)
       else if (fromDrum) step.note = base;
       if (from.instrument !== to.instrument) dropSoundLocks(step, fromCh);
       // One note at a time: the chord's lowest, as a CHORD plays it.

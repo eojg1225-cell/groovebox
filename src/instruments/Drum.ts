@@ -26,7 +26,7 @@ import { AirRoom } from './airRoom';
  * each other (centre = as designed). Then DRIVE (tanh) and CRUSH (bit + sample-rate
  * reduction). No filter per drum: the kit's filter is FX 1's FILTER (the LFO's filter
  * destination still sweeps a low-pass here). Ranges go far past "sensible" on purpose.
- * The played note tunes the pitched layers (36 = as designed), so drums play chromatically.
+ * The played note tunes the pitched layers (DRUM_ROOT, an A, = as designed; PERC by note name), so drums play chromatically.
  * PERC (relative tuning): the metal sits INTERVAL semitones above the tone, the click's
  * resonance follows the note too, and DETUNE moves both (up to a semitone) off the tone,
  * which always stays on the step's note.
@@ -101,6 +101,13 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   // OCTAVE (FUNC + OCT): the pitched layers an octave at a time, on top of the note.
   OCTAVE,
 ] as ParamSpec[]).map((p) => [p.id, p]));
+
+/**
+ * The note KICK / SNARE / HAT play as designed: A1, the keyboard's A in the default A minor.
+ * PERC is tuned by name (its tone is C3 on C2, `PERC_ROOT`), so its A key already plays an A.
+ */
+export const DRUM_ROOT = 33;
+const PERC_ROOT = 36;
 
 /** Build a drum type's parameter list (in knob order) with per-type defaults. */
 function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[] {
@@ -342,7 +349,7 @@ export class Drum implements Instrument {
     this.tMul = ring ? this.tRingMul : this.tDecayMul;
     this.mMul = ring ? this.mRingMul : this.mDecayMul;
     this.cMul = ring ? this.cRingMul : this.cDecayMul;
-    this.tune = Math.pow(2, (note - 36) / 12 + this.octave);
+    this.tune = Math.pow(2, (note - (this.voice.relative ? PERC_ROOT : DRUM_ROOT)) / 12 + this.octave);
     if (this.voice.relative) this.setupClick();
     this.velocity = velocity;
     this.tPhase = 0;

@@ -12,7 +12,7 @@ import type { Instrument } from '../instruments/Instrument';
 import { INSTRUMENTS, SOUND_KINDS, linkedParams, liveContribution, liveTargets, playsChords } from '../instruments/registry';
 import { toNorm, toValue } from './params';
 import { ARP_PARAMS, ARP_RATES, defaultArp, type ArpId } from './arp';
-import { ROLL_DIVS } from '../instruments/Drum';
+import { DRUM_ROOT, ROLL_DIVS } from '../instruments/Drum';
 import { Noise, Svf, silent } from '../instruments/dsp';
 import { LFO_PARAMS, LFO_RATES, lfoValue, type LfoId } from './lfo';
 import { FxBus } from '../fx/FxBus';
@@ -318,7 +318,7 @@ export class Engine {
   private readonly runLeft = new Uint16Array(NUM_CHANNELS);
   /** ROLL held down (PLAY / DESIGN, drums): the track repeats at ROLL RATE, and the note it strikes. */
   private readonly holdRoll = new Uint8Array(NUM_CHANNELS);
-  private readonly holdRollNote = new Float32Array(NUM_CHANNELS).fill(36);
+  private readonly holdRollNote = new Float32Array(NUM_CHANNELS).fill(DRUM_ROOT);
   // ARP (a track setting, engine/arp.ts): while a note is held its chord tones are played in
   // turn. On / off (the ARP key) and MODE as set, the mode in use (0 = off: off or MODE OFF),
   // rate in steps, and per track the held root, its velocity, the next note's index, frames

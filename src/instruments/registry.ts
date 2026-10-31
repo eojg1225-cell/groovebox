@@ -7,7 +7,7 @@ import type { InstrumentKind, SoundKind } from '../engine/project';
 import type { ParamSpec } from '../engine/params';
 import { macroSound } from './macros';
 import {
-  Drum, HAT_ELEMENTS, HAT_PARAMS, HAT_PRESETS, HAT_VOICE, KICK_ELEMENTS, KICK_PARAMS, KICK_PRESETS, KICK_VOICE,
+  DRUM_ROOT, Drum, HAT_ELEMENTS, HAT_PARAMS, HAT_PRESETS, HAT_VOICE, KICK_ELEMENTS, KICK_PARAMS, KICK_PRESETS, KICK_VOICE,
   PERC_ELEMENTS, PERC_PARAMS, PERC_PRESETS, PERC_VOICE, SNARE_ELEMENTS, SNARE_PARAMS, SNARE_PRESETS, SNARE_VOICE,
 } from './Drum';
 import {
@@ -271,23 +271,23 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     // character on 5, AIR on 6 beside DRIVE / CRUSH.
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SWEEP_FUNC),
-    presets: KICK_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
+    presets: KICK_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
   snare: {
     name: 'SNARE', gain: 0.467, live: ['fx1:dly_vol', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: SNARE_PARAMS,
     // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SWEEP_FUNC),
-    presets: SNARE_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
+    presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
     name: 'HAT', gain: 1.783, live: ['fx1:flt', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'c_noise'], ['m_tone', 'm_noise']),
     funcLayout: trackFunc(NO_FUNC),
-    presets: HAT_PRESETS, drum: true, baseNote: 33, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
+    presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
   perc: {
     name: 'PERC', gain: 0.537, live: ['macro:knock', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
     layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['c_tone', 'c_noise']),
     funcLayout: trackFunc(NO_FUNC),
-    presets: PERC_PRESETS, drum: true, pitched: true, baseNote: 33, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
+    presets: PERC_PRESETS, drum: true, pitched: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
   bass: {
     name: 'BASS', gain: 0.557, live: ['cutoff', 'macro:env'], liveFunc: ['mix:volume', 'macro:grit'], params: BASS_PARAMS,
     layout: synthPage(['attack', 'decay'], ['glide', 'sub']),
