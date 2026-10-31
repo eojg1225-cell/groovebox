@@ -2460,8 +2460,8 @@ export class App {
   }
 
   /**
-   * A keyboard track's strip showing steps (STRIP): a painted step gets a one-step note at
-   * the pitch of the note before it (none: the keyboard's lowest key), and a note tied over
+   * A keyboard track's strip showing steps (STRIP): a painted step gets a one-step note on
+   * the strip keyboard's lowest key (SCALE's root in the track's octave), and a note tied over
    * it ends there; an erased one loses its chord notes too.
    */
   private paintNote(index: number, kind: StrokeKind): void {
@@ -2474,19 +2474,17 @@ export class App {
     }
     if (kind !== 'add' || step.active) return;
     const len = pat.length;
-    let note = -1;
     for (let d = 1; d < len; d++) {
       const j = (index - d + len) % len;
       const s = pat.steps[j];
       if (!s.active) continue;
-      if (note < 0) note = s.note;
       if (s.gate > d || (s.extraGate ?? []).some((g) => g > d)) {
         s.gate = Math.min(s.gate, d);
         if (s.extraGate) s.extraGate = s.extraGate.map((g) => Math.min(g, d));
         this.sendStep(j, s);
       }
     }
-    step.note = note < 0 ? this.keyNote(this.selected, 0) : note;
+    step.note = this.keyNote(this.selected, 0);
     step.gate = 1;
     delete step.extra;
     delete step.extraGate;
