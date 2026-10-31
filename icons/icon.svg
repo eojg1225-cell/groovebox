@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" shape-rendering="crispEdges">
+  <rect width="512" height="512" fill="#111417"/>
+  <!-- pixel screen -->
+  <rect x="96" y="112" width="320" height="176" rx="8" fill="#050807"/>
+  <rect x="112" y="128" width="288" height="144" fill="#0a1410"/>
+  <!-- step grid: 8 steps, techno four-on-the-floor + offbeats -->
+  <g fill="#9cffc8">
+    <rect x="124" y="232" width="24" height="24"/>
+    <rect x="196" y="232" width="24" height="24"/>
+    <rect x="268" y="232" width="24" height="24"/>
+    <rect x="340" y="232" width="24" height="24"/>
+  </g>
+  <g fill="#1f4a35">
+    <rect x="160" y="232" width="24" height="24"/>
+    <rect x="232" y="232" width="24" height="24"/>
+    <rect x="304" y="232" width="24" height="24"/>
+    <rect x="376" y="232" width="12" height="24"/>
+  </g>
+  <!-- waveform -->
+  <g fill="#5fe0a0">
+    <rect x="124" y="176" width="16" height="16"/><rect x="140" y="160" width="16" height="16"/>
+    <rect x="156" y="144" width="16" height="16"/><rect x="172" y="160" width="16" height="16"/>
+    <rect x="188" y="176" width="16" height="16"/><rect x="204" y="192" width="16" height="16"/>
+    <rect x="220" y="208" width="16" height="8"/><rect x="236" y="192" width="16" height="16"/>
+    <rect x="252" y="176" width="16" height="16"/><rect x="268" y="160" width="16" height="16"/>
+    <rect x="284" y="144" width="16" height="16"/><rect x="300" y="160" width="16" height="16"/>
+    <rect x="316" y="176" width="16" height="16"/><rect x="332" y="192" width="16" height="16"/>
+    <rect x="348" y="208" width="16" height="8"/><rect x="364" y="192" width="16" height="16"/>
+  </g>
+  <!-- knobs -->
+  <g shape-rendering="geometricPrecision">
+    <circle cx="176" cy="360" r="36" fill="#2b333b"/>
+    <circle cx="256" cy="360" r="36" fill="#2b333b"/>
+    <circle cx="336" cy="360" r="36" fill="#2b333b"/>
+    <g stroke="#5fe0a0" stroke-width="10" stroke-linecap="round">
+      <line x1="176" y1="360" x2="160" y2="334"/>
+      <line x1="256" y1="360" x2="256" y2="330"/>
+      <line x1="336" y1="360" x2="360" y2="340"/>
+    </g>
+  </g>
+</svg>
