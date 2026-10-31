@@ -125,3 +125,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - STRIP steps pitch (2026-10-31): a step painted on a keyboard track takes the strip's lowest note (SCALE's root), not the pitch of the note before it.
 - Strip keys as a piano (2026-10-31): the strip keyboard is chromatic again, up from SCALE's root, black = off the root's minor (A minor = a piano from A; CHR = a piano's colours); STRIP's keys / steps view holds in every mode (drums show steps in PLAY / DESIGN unless switched).
 - Rolls, bars, KEY chords (2026-10-31): forced ROLL runs carry on past the loop end (16 into 1 / 17); STEPS + FUNC + ◀ ▶ = a bar at a time; CHORD gains KEY / KEY7 / KEY9 / KEY11 (diatonic to SCALE) and its knob runs in groups.
+- STEPS rework, 8 bars (2026-10-31): patterns up to 128 steps (format v60); STEPS mode = steps on / off, ◀ ▶ through the bars, track buttons = the bars (add / take out); BAR only moves (no adding); the app and MENU > MODE open on PLAY.

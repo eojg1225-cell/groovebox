@@ -46,7 +46,7 @@ Main -> worklet:
 |---|---|---|
 | `loadProject` | `project` | Replace all engine state |
 | `setStep` | `channel`, `pattern`, `index`, `step` | Write one step (incl. its locks) |
-| `setPatternLength` | `channel`, `pattern`, `length` | 1-64 steps |
+| `setPatternLength` | `channel`, `pattern`, `length` | 1-128 steps |
 | `setPatternSpeed` | `channel`, `pattern`, `speed` | normal / double / half / triplet |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern at the next bar line where the loop starts (or now, if `immediate` / stopped); its patch glides in until then (coarse params at the switch); the playing pattern again cancels (glides back) |
 | `setPatch` | `channel`, `pattern`, `sound`, `glide` | A pattern's whole patch (COPY, RESET); `glide` = glide there by the next bar line |
