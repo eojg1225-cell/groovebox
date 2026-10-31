@@ -72,7 +72,7 @@ import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, son
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
 import { ARP_MODES, ARP_PARAMS, defaultArp, type ArpId } from '../engine/arp';
-import { THEMES, applyTheme, fxColour, inkOf, neutralColour, trackColour } from './colours';
+import { SATURATIONS, THEMES, applyTheme, fxColour, inkOf, neutralColour, trackColour } from './colours';
 
 type Mode = 'record' | 'play' | 'design';
 
@@ -3079,6 +3079,11 @@ export class App {
       get: () => deviceSettings[key],
       set: (i) => { deviceSettings[key] = i; saveDeviceSettings(); },
     });
+    // THEME / SATURATION / INVERT: the look, applied as PLAY saves them.
+    const look = (label: string, key: 'theme' | 'saturation' | 'invert', options: readonly string[]): MenuLine => ({
+      ...device(label, key, options),
+      set: (i) => { deviceSettings[key] = i; saveDeviceSettings(); applyTheme(); },
+    });
     if (page === 'global') {
       return [
         device('COUNT-IN', 'countIn', COUNT_INS),
@@ -3087,7 +3092,9 @@ export class App {
         device('HOLD + RESET', 'holdReset', HOLD_RESETS),
         device('HOLD + PATTERN', 'holdPattern', HOLD_PATTERNS),
         { label: 'TOUCH SETTINGS', open: () => this.openPage('touch') },
-        { ...device('THEME', 'theme', THEMES), set: (i) => { deviceSettings.theme = i; saveDeviceSettings(); applyTheme(i); } },
+        look('THEME', 'theme', THEMES),
+        look('SATURATION', 'saturation', SATURATIONS),
+        look('INVERT', 'invert', ['OFF', 'ON']),
       ];
     }
     if (page === 'touch') {

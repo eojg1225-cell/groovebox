@@ -43,7 +43,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 // their working copies) stay in their slots for LOAD (FUNC + SAVE PROJECT).
 projectStore.setOpen(null);
 const project = createDefaultProject();
-applyTheme(deviceSettings.theme); // GLOBAL SETTINGS > THEME
+applyTheme(); // GLOBAL SETTINGS > THEME
 const panel = new Panel(document.getElementById('app') as HTMLElement, {
   channels: NUM_CHANNELS,
   patterns: PATTERN_NAMES,
