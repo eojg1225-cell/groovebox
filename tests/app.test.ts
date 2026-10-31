@@ -428,7 +428,8 @@ describe('arrow keys', () => {
     const { app, tap, texts } = makeApp();
     tap('menu');
     tap('cur+'); // MODE: SONG
-    tap('play'); // saved, the menu closes
+    tap('play'); // saved, the menu closes (SONG opens on PLAY)
+    tap('mode:design'); // the grid
     tap('ring'); // INSERT: a second row
     const row = () => (app as unknown as { songRow: number }).songRow;
     app.updateFrame(0);
@@ -501,9 +502,9 @@ describe('MENU and CANCEL', () => {
     expect(app.song).toBe(false);
     tap('menu');
     tap('cur+');
-    tap('play'); // saved: SONG, the menu closes (the top page); SONG opens on DESIGN (the grid)
+    tap('play'); // saved: SONG, the menu closes (the top page); SONG opens on PLAY
     expect(app.song).toBe(true);
-    expect(app.mode).toBe('design');
+    expect(app.mode).toBe('play');
     expect(app.menu).toBeNull();
     expect(app.playing).toBe(false); // PLAY in the menu is SAVE, not the transport
     app.updateFrame(0);
@@ -512,6 +513,7 @@ describe('MENU and CANCEL', () => {
     tap('cur-'); // JAM
     tap('play');
     expect(app.song).toBe(false);
+    expect(app.mode).toBe('play'); // JAM opens on PLAY too
   });
 
   it('▼ / ▲ move, ▶ opens a page, CANCEL goes back a page and closes at the top', () => {
@@ -620,7 +622,8 @@ describe('SONG grid: rows, track selection, A-D', () => {
     const r = makeApp();
     r.tap('menu');
     r.tap('cur+'); // MODE: SONG
-    r.tap('play'); // saved
+    r.tap('play'); // saved (SONG opens on PLAY)
+    r.tap('mode:design'); // the grid
     return r;
   };
   const rows = (app: App) => app.project.song.rows.map((row) => row.patterns.join(','));
@@ -992,7 +995,8 @@ describe('SONG strip (preview)', () => {
     r.app.project.channels[0].patterns[1].length = 48; // KICK B: 3 bars
     r.tap('menu');
     r.tap('cur+'); // MODE: SONG
-    r.tap('play');
+    r.tap('play'); // (SONG opens on PLAY)
+    r.tap('mode:design'); // the strip
     r.app.project.song.rows = []; // (SONG starts with a row of A on every track)
     r.tap('ch1');
     return r;
@@ -1090,37 +1094,6 @@ describe('STRIP key: keys / steps on the strip', () => {
   });
 });
 
-describe('STEPS length', () => {
-  it('STEPS + FUNC + ◀ ▶ = a bar at a time, to the bar line', () => {
-    const { app, press, release, tap } = makeApp();
-    tap('mode:record');
-    const len = () => app.project.channels[0].patterns[0].length;
-    press('len');
-    for (let i = 0; i < 4; i++) tap('cur+');
-    expect(len()).toBe(20);
-    press('func');
-    tap('cur+');
-    expect(len()).toBe(32);
-    tap('cur+');
-    tap('cur+');
-    tap('cur+');
-    expect(len()).toBe(64);
-    tap('cur-');
-    tap('cur-');
-    expect(len()).toBe(32);
-    release('func');
-    tap('cur-');
-    expect(len()).toBe(31);
-    press('func');
-    tap('cur-');
-    expect(len()).toBe(16);
-    tap('cur-');
-    expect(len()).toBe(16);
-    release('func');
-    release('len');
-  });
-});
-
 describe('CHORD knob', () => {
   it('runs in groups, KEY last in each: MIN7, then DOM7, then KEY7', () => {
     const { app, tap, emit } = makeApp();
@@ -1180,7 +1153,8 @@ describe('SONG over RECORD / PLAY / DESIGN', () => {
     const r = makeApp();
     r.tap('menu');
     r.tap('cur+'); // MODE: SONG
-    r.tap('play');
+    r.tap('play'); // (SONG opens on PLAY)
+    r.tap('mode:design'); // the grid
     return r;
   };
   const lastTransport = (sent: MainToWorklet[]) => sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
@@ -1762,20 +1736,39 @@ describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
     expect((app as unknown as { forceSlide: boolean[] }).forceSlide[0]).toBe(true);
   });
 
-  it('BAR + ▶ on the last bar adds an empty one (BAR lit at 16 steps); STEPS + ◀ ▶ = one step', () => {
+  it('STEPS mode: steps switch on / off, ◀ ▶ = through the bars, track buttons = the bars (BAR only moves)', () => {
     const { app, tap, press, release, texts } = makeApp();
     tap('mode:record');
     tap('ch1');
+    const pat = () => app.project.channels[0].patterns[0];
     press('steppage');
     tap('cur+');
     release('steppage');
-    expect(app.project.channels[0].patterns[0].length).toBe(32);
+    expect(pat().length).toBe(16); // BAR never adds a bar
+    tap('len'); // STEPS mode
+    tap('ch3'); // bars 2 and 3 added
+    expect(pat().length).toBe(48);
+    tap('cur+'); // to bar 2
     app.updateFrame(0);
-    expect(texts.get('steppage')).toContain('2/2');
-    press('len');
-    tap('cur-');
-    release('len');
-    expect(app.project.channels[0].patterns[0].length).toBe(31);
+    expect(texts.get('steppage')).toContain('2/3');
+    tap('step3');
+    expect(pat().steps[18].flip).toBe(true); // bar 2's step 3 switched
+    pat().steps[33].active = true; // a hit in bar 3
+    tap('ch2'); // bar 2 out: bar 3 moves up
+    expect(pat().length).toBe(32);
+    expect(pat().steps[17].active).toBe(true);
+    expect(pat().steps[18].flip).toBeUndefined();
+    tap('ch8'); // up to 8 bars: 128 steps
+    expect(pat().length).toBe(128);
+    tap('ch2');
+    tap('ch1');
+    tap('ch1');
+    tap('ch1');
+    tap('ch1');
+    tap('ch1');
+    tap('ch1');
+    expect(pat().length).toBe(16); // one bar stays
+    expect(app.project.channels[0].patterns[0]).toBe(pat());
   });
 
   it('a step the time signature leaves out shows ×', () => {

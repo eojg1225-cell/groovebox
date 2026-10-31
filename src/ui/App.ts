@@ -291,7 +291,7 @@ function lowestNoteOnly(step: Step): void {
 
 export class App {
   selected = 0;
-  mode: Mode = 'record';
+  mode: Mode = 'play';
   designPage = 0;
   /** PLAY's page: 0 = SOUND (the live knobs), 1 = MIX (as in DESIGN). PROJECT is DESIGN only. */
   playPage = 0;
@@ -1278,7 +1278,7 @@ export class App {
         if (!this.lenUsed) {
           this.leaveStepEdit();
           this.stepsMode = !this.stepsMode;
-          this.flash(this.stepsMode ? 'STEPS: TAP A STEP ON / OFF' : 'STEPS OFF');
+          this.flash(this.stepsMode ? 'STEPS: STEP = ON / OFF, TRACK = BAR' : 'STEPS OFF');
         }
         this.refreshPanel();
       }
@@ -1345,6 +1345,12 @@ export class App {
       if (this.song) { this.clearUsed = true; this.flash(SONG_KEEPS); }
       else if (pat < 0) this.clearTrack(Number(m[1]) - 1);
       else this.clearTrack(this.selected, pat);
+      this.refreshPanel();
+      return;
+    }
+    if (this.stepsMode && (m = /^ch(\d)$/.exec(id))) {
+      // STEPS mode: the track buttons are the pattern's bars.
+      this.toggleBar(Number(m[1]) - 1);
       this.refreshPanel();
       return;
     }
@@ -1536,20 +1542,13 @@ export class App {
       this.scaleUsed = true;
       this.flash(`SCALE: ${this.scaleName()}`);
       this.save();
-    } else if ((id === 'cur-' || id === 'cur+') && this.lenHeld) {
-      // STEPS + ◀ / ▶: the pattern one step shorter / longer; with FUNC a bar (to the bar line).
-      const d = id === 'cur+' ? 1 : -1;
-      if (this.func) {
-        const len = this.pattern.length;
-        const to = d > 0 ? (Math.floor(len / 16) + 1) * 16 : Math.max(16, (Math.ceil(len / 16) - 1) * 16);
-        this.changeLength(to - len);
-        if (this.funcHeld) this.funcUsed = true; // not a latching tap
-      } else this.changeLength(d);
-      this.lenUsed = true;
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
-      // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip; ▶ on the last adds one.
-      this.changeBar(id === 'cur+' ? 1 : -1, true);
+      // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip.
+      this.changeBar(id === 'cur+' ? 1 : -1);
       this.barUsed = true;
+    } else if ((id === 'cur-' || id === 'cur+') && this.stepsMode) {
+      // STEPS mode: ◀ / ▶ = through the bars (strip taps switch steps on / off).
+      this.changeBar(id === 'cur+' ? 1 : -1);
     } else if ((id === 'cur-' || id === 'cur+') && (this.stepEdit || this.autoSteps)) {
       // STEP EDIT / SONG RECORD: the primed step one on (not while knobs wait on it).
       this.stepPrime(id === 'cur+' ? 1 : -1);
@@ -2619,13 +2618,13 @@ export class App {
       this.ring = false;
       this.slideArm = false;
       this.dynamic = 'normal';
-      this.setMode('design');
+      this.setMode('play');
       if (this.project.song.rows.length === 0) {
         // A first row from what the tracks play now.
         this.project.song.rows.push({ bars: 4, patterns: this.project.channels.map((c) => c.activePattern) });
         this.sendSong();
       }
-    } else this.setMode(this.mode);
+    } else this.setMode('play');
   }
 
   /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
@@ -2762,14 +2761,14 @@ export class App {
 
   /**
    * ◀ ▶ in COPY BAR: the target bar. Past the pattern's last bar it grows by empty bars (up to
-   * 4); going back takes them away again (the steps they covered as they were).
+   * 8); going back takes them away again (the steps they covered as they were).
    */
   private moveCopyBar(d: number): void {
     const cb = this.copyBar!;
     const to = cb.to + d;
     if (to < 0) return;
     if (to >= MAX_STEPS / 16) {
-      this.flash('PATTERN FULL (4 BARS)');
+      this.flash('PATTERN FULL (8 BARS)');
       return;
     }
     this.fitCopyBar(to >= Math.ceil(cb.length / 16) ? (to + 1) * 16 : cb.length);
@@ -2993,19 +2992,6 @@ export class App {
     this.save();
   }
 
-  /** STEPS + ◀ / ▶: the pattern's length one bar (16 steps) down / up. */
-  /** STEPS + ◀ / ▶: the pattern one step shorter / longer (1-64; BAR + ▶ on the last bar adds a bar). */
-  private changeLength(delta: number): void {
-    const len = this.pattern.length;
-    const next = Math.max(1, Math.min(MAX_STEPS, len + delta));
-    if (next !== len) {
-      this.setLength(this.selected, next);
-      this.clampCursor();
-      this.save();
-    }
-    this.flash(`${next} STEPS`);
-  }
-
   /**
    * Step entry: landing on a step with a note plays it (its velocity, for its length),
    * cutting off the previous preview.
@@ -3038,7 +3024,7 @@ export class App {
    * moves with it (same place in the next bar), so the keyboard writes into the bar shown.
    */
   /** BAR: the previous / next bar on the strip; BAR + ▶ on the last bar (grow) adds an empty one. */
-  private changeBar(delta: number, grow = false): void {
+  private changeBar(delta: number): void {
     if (this.waiting) {
       this.flash('LOCK OR CANCEL FIRST');
       return;
@@ -3052,26 +3038,9 @@ export class App {
       this.flash('THE STRIP FOLLOWS THE PLAYHEAD');
       return;
     }
-    let pages = this.pageCount();
-    if (grow && delta > 0 && this.visiblePage(ch) === pages - 1 && !this.song) {
-      const len = this.pattern.length;
-      if (len + 16 > MAX_STEPS) {
-        this.flash('PATTERN FULL (4 BARS)');
-        return;
-      }
-      // The steps it grows over start empty (whatever an earlier length left there goes).
-      for (let i = len; i < len + 16; i++) {
-        const step = this.pattern.steps[i];
-        if (step.active || step.rest || step.locks || step.flip) {
-          this.pattern.steps[i] = emptyStep(step.note);
-          this.sendStep(i, this.pattern.steps[i]);
-        }
-      }
-      this.setLength(ch, len + 16);
-      this.save();
-      pages = this.pageCount();
-    } else if (pages <= 1) {
-      this.flash('BAR + > ADDS A BAR');
+    const pages = this.pageCount();
+    if (pages <= 1) {
+      this.flash('1 BAR: STEPS + TRACK 2 ADDS ONE');
       return;
     }
     const page = (this.visiblePage(ch) + delta + pages) % pages;
@@ -3085,6 +3054,51 @@ export class App {
       this.cursor[ch] = page * 16 + (this.cursor[ch] % 16);
     }
     this.flash(`BAR ${page + 1}/${pages}`);
+  }
+
+  /**
+   * STEPS mode, a track button = that bar of the pattern (lit = it has it): an unlit one grows
+   * the pattern up to it with empty bars, a lit one takes that bar out (the bars after it move
+   * up; one bar stays). Bar 8 at most (128 steps).
+   */
+  private toggleBar(bar: number): void {
+    if (this.song) {
+      this.flash(SONG_KEEPS);
+      return;
+    }
+    const ch = this.selected;
+    const pat = this.pattern;
+    const len = pat.length;
+    const bars = Math.ceil(len / 16);
+    if (bar >= bars) {
+      const to = (bar + 1) * 16;
+      // Whatever an earlier length left past the end goes.
+      for (let i = len; i < to; i++) {
+        const step = pat.steps[i];
+        if (step.active || step.rest || step.locks || step.flip) {
+          pat.steps[i] = emptyStep(step.note);
+          this.sendStep(i, pat.steps[i]);
+        }
+      }
+      this.setLength(ch, to);
+      this.flash(`${bar + 1} BARS (${to} STEPS)`);
+    } else {
+      if (bars === 1) {
+        this.flash('1 BAR AT LEAST');
+        return;
+      }
+      const from = bar * 16;
+      const n = Math.min(16, len - from);
+      for (let i = from; i < len; i++) {
+        pat.steps[i] = i + n < len ? pat.steps[i + n] : emptyStep(pat.steps[i].note);
+        this.sendStep(i, pat.steps[i]);
+      }
+      this.setLength(ch, len - n);
+      this.flash(`BAR ${bar + 1} TAKEN OUT (${len - n} STEPS)`);
+    }
+    if (this.viewPage[ch] >= this.pageCount()) this.viewPage[ch] = this.pageCount() - 1;
+    this.clampCursor();
+    this.save();
   }
 
   /** Step entry: the cursor moves to the next / previous step that plays (dark ones skipped). */
@@ -4248,7 +4262,9 @@ export class App {
       // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
       const sendView = this.sendOpen;
       // SONG grid: lit = armed (the cursor's track and those armed with it).
-      const lit = sendView ? this.onBus(c, this.fxView) : this.songGrid ? this.songCol > 0 && this.songArmed().includes(ch) : ch === this.selected;
+      // STEPS mode: a track button per bar, lit = the pattern has it.
+      const lit = sendView ? this.onBus(c, this.fxView) : this.songGrid ? this.songCol > 0 && this.songArmed().includes(ch)
+        : this.stepsMode ? ch < this.pageCount() : ch === this.selected;
       this.panel.setButtonLit(`ch${ch + 1}`, lit);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
@@ -4308,7 +4324,7 @@ export class App {
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && (this.stripSteps() || (this.clearHeld && this.mode !== 'design')));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || this.stepsMode || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
     // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
     this.panel.setButtonEnabled('scale', !this.songGrid);
