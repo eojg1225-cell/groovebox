@@ -133,3 +133,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Sound copy (2026-10-31): FUNC + COPY held + channel / A-D copies only the pattern's patch (same type only); patches stay tied to patterns (no patch memory).
 - Track colours (2026-10-31, preview): a colour per track type on panel and screen, white as the second colour.
 - Track colours reordered (2026-10-31, preview): BASS teal, PAD blue, LEAD purple; a colour tuner overlay for test builds.
+- STEPS mode track buttons take the selected track's colour (2026-10-31, preview).

@@ -4039,7 +4039,9 @@ export class App {
         t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight, staged: t.staged, colour: this.knobColour(t) } : null,
       );
     });
-    this.panel.setTrackColours(this.project.channels.map((c) => TRACK_COLOURS[c.instrument]), this.trackColour(this.selected));
+    // STEPS mode: the track buttons are the selected track's bars, so they take its colour.
+    const sel = this.trackColour(this.selected);
+    this.panel.setTrackColours(this.project.channels.map((c) => (this.stepsMode ? sel : TRACK_COLOURS[c.instrument])), sel);
 
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
