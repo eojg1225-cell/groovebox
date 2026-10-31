@@ -136,3 +136,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - STEPS mode track buttons take the selected track's colour (2026-10-31, preview).
 - Themes (2026-10-31, preview): GLOBAL SETTINGS > THEME = TRACKS (the user's track colours, FX knobs in alternating pairs) / CLASSIC (teal / gold).
 - Looks (2026-10-31, preview): THEME COLOUR / CLASSIC / MONO / REVERSE, SATURATION LOW / MEDIUM / HIGH, INVERT.
+- Looks on main (2026-10-31): THEME CLASSIC (default) / COLOUR / MONO / REVERSE, SATURATION (default HIGH), INVERT; a pick shows at once, CANCEL goes back.

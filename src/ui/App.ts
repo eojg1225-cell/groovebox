@@ -72,7 +72,7 @@ import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, son
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
 import { ARP_MODES, ARP_PARAMS, defaultArp, type ArpId } from '../engine/arp';
-import { SATURATIONS, THEMES, applyTheme, fxColour, inkOf, neutralColour, trackColour } from './colours';
+import { SATURATIONS, THEMES, applyTheme, fxColour, inkOf, neutralColour, trackColour, type Look } from './colours';
 
 type Mode = 'record' | 'play' | 'design';
 
@@ -101,6 +101,8 @@ interface MenuLine {
   get?(): number;
   set?(index: number): void;
   open?(): void;
+  /** THEME / SATURATION / INVERT: the look setting it picks (shown at once, before saving). */
+  look?: keyof Look;
 }
 
 /** TRACKS: the types a track can take, in this order (OFF = no instrument). */
@@ -476,6 +478,8 @@ export class App {
   private readonly heldKnobs = new Map<number, KnobTarget | null>();
   /** The knobs' jobs before the SONG / primed / playhead wrappers (what a held knob keeps). */
   private rawTargets: (KnobTarget | null)[] = [];
+  /** The look applied last (syncLook). */
+  private lookShown = '';
   /** The click setting last sent to the engine. */
   private clickSent = '';
 
@@ -3026,6 +3030,26 @@ export class App {
     this.menuBack();
   }
 
+  /**
+   * The look as it should show: the saved THEME / SATURATION / INVERT, or while they are being
+   * picked on the GLOBAL SETTINGS page the picked ones (CANCEL / leaving unsaved = back).
+   */
+  private syncLook(): void {
+    const look: Look = { theme: deviceSettings.theme, saturation: deviceSettings.saturation, invert: deviceSettings.invert };
+    const at = this.menu ? this.menuPage : null;
+    if (at?.page === 'global' && at.pending.size > 0) {
+      const lines = this.menuLines('global');
+      for (const [i, v] of at.pending) {
+        const key = lines[i]?.look;
+        if (key) look[key] = v;
+      }
+    }
+    const id = `${look.theme}/${look.saturation}/${look.invert}`;
+    if (id === this.lookShown) return;
+    this.lookShown = id;
+    applyTheme(look);
+  }
+
   /** A line's setting as shown: changed (not saved yet) or as saved. */
   private menuValue(line: MenuLine, i: number): number {
     return this.menuPage.pending.get(i) ?? line.get!();
@@ -3080,10 +3104,8 @@ export class App {
       set: (i) => { deviceSettings[key] = i; saveDeviceSettings(); },
     });
     // THEME / SATURATION / INVERT: the look, applied as PLAY saves them.
-    const look = (label: string, key: 'theme' | 'saturation' | 'invert', options: readonly string[]): MenuLine => ({
-      ...device(label, key, options),
-      set: (i) => { deviceSettings[key] = i; saveDeviceSettings(); applyTheme(); },
-    });
+    // (While picked, not yet saved, the look already shows: syncLook.)
+    const look = (label: string, key: keyof Look, options: readonly string[]): MenuLine => ({ ...device(label, key, options), look: key });
     if (page === 'global') {
       return [
         device('COUNT-IN', 'countIn', COUNT_INS),
@@ -4045,6 +4067,7 @@ export class App {
   /** Knob labels/positions and button states that change on input, not per frame. */
   refreshPanel(): void {
     this.syncClick();
+    this.syncLook();
     this.targets = this.computeTargets();
     if (this.menu || this.projMenu || this.songGrid) this.heldKnobs.clear();
     this.targets.forEach((t, i) => {

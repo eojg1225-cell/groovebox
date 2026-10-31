@@ -4,8 +4,8 @@
  *    second colour (cursor, playhead, accents, held knobs, values away from saved). Knobs of no
  *    track (LFO, project, TEMPO / MASTER, MENU) are neutral grey; FX 1-3's knob modules come
  *    in pairs, two track colours alternating per bus. The screen is neutral grey.
- *  - CLASSIC: everything teal, gold as the second colour, a teal screen. REVERSE: gold, teal
- *    second. MONO: grey, white second.
+ *  - CLASSIC (first and default): everything teal, gold as the second colour, a teal screen.
+ *    REVERSE: gold, teal second. MONO: grey, white second.
  *  - SATURATION: LOW / MEDIUM / HIGH. COLOUR's list is MEDIUM; CLASSIC / REVERSE's teal and
  *    gold are HIGH (the first look). The levels scale each colour's HSL saturation.
  *  - INVERT: every hue turned half way round the colour wheel (not MONO).
@@ -30,7 +30,7 @@ export const TRACK_COLOURS: Record<InstrumentKind, string> = {
 /** FX 1-3: the two colours their knob modules alternate in (modules 1-2, 5-6 / 3-4, 7-8). */
 const FX_PAIRS: [InstrumentKind, InstrumentKind][] = [['kick', 'perc'], ['snare', 'bass'], ['hat', 'pad']];
 
-export const THEMES = ['COLOUR', 'CLASSIC', 'MONO', 'REVERSE'] as const;
+export const THEMES = ['CLASSIC', 'COLOUR', 'MONO', 'REVERSE'] as const;
 export const SATURATIONS = ['LOW', 'MEDIUM', 'HIGH'] as const;
 /** Saturation against MEDIUM, per level. */
 const SAT_SCALE = [0.5, 1, 2.1];
@@ -73,8 +73,8 @@ function shift(colour: string, satScale: number, turn: number): string {
   return hex([f(0), f(8), f(4)]);
 }
 
-let theme: (typeof THEMES)[number] = 'COLOUR';
-let sat = 1;
+let theme: (typeof THEMES)[number] = 'CLASSIC';
+let sat = HIGH;
 let turn = 0;
 
 /** A colour designed at saturation level `base`, in the current SATURATION and INVERT. */
@@ -90,11 +90,21 @@ function second(): string {
   return theme === 'CLASSIC' ? tone(GOLD, HIGH) : theme === 'REVERSE' ? tone(TEAL, HIGH) : WHITE;
 }
 
-/** Read THEME / SATURATION / INVERT and set the look: screen inks, second colour, screen frame. */
-export function applyTheme(): void {
-  theme = THEMES[deviceSettings.theme] ?? 'COLOUR';
-  sat = deviceSettings.saturation;
-  turn = deviceSettings.invert && theme !== 'MONO' ? 180 : 0;
+/** THEME / SATURATION / INVERT choices (indexes, as in deviceSettings). */
+export interface Look {
+  theme: number;
+  saturation: number;
+  invert: number;
+}
+
+/**
+ * Set the look (as saved, or one being picked in MENU): screen inks, second colour, screen
+ * frame. The panel's own colours follow on its next refresh.
+ */
+export function applyTheme(look: Look = deviceSettings): void {
+  theme = THEMES[look.theme] ?? 'CLASSIC';
+  sat = look.saturation;
+  turn = look.invert && theme !== 'MONO' ? 180 : 0;
   if (theme === 'COLOUR') Object.assign(INK, GREY_SCREEN);
   else {
     // A screen of the one colour (CLASSIC's teal screen at HIGH).

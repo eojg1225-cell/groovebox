@@ -49,7 +49,7 @@ interface DeviceSettings {
   holdTime: number;
   /** KEEP SCREEN ON: 0 = while playing, 1 = always. */
   screenOn: number;
-  /** THEME: index into colours.ts THEMES (COLOUR, CLASSIC, MONO, REVERSE). */
+  /** THEME: index into colours.ts THEMES (CLASSIC, COLOUR, MONO, REVERSE). */
   theme: number;
   /** SATURATION: index into colours.ts SATURATIONS (LOW, MEDIUM, HIGH). */
   saturation: number;
@@ -58,7 +58,7 @@ interface DeviceSettings {
 }
 
 const KEY = 'groovebox.device';
-const DEFAULTS: DeviceSettings = { countIn: 0, metronome: 0, clickLevel: 7, holdReset: 0, holdPattern: 0, knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0, theme: 0, saturation: 1, invert: 0 };
+const DEFAULTS: DeviceSettings = { countIn: 0, metronome: 0, clickLevel: 7, holdReset: 0, holdPattern: 0, knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0, theme: 0, saturation: 2, invert: 0 };
 /** How many choices each setting has. */
 const CHOICES: Record<keyof DeviceSettings, number> = {
   countIn: COUNT_INS.length, metronome: METRONOMES.length, clickLevel: CLICK_LEVELS.length, holdReset: HOLD_RESETS.length, holdPattern: HOLD_PATTERNS.length,

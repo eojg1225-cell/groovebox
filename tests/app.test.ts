@@ -568,41 +568,47 @@ describe('MENU and CANCEL', () => {
     deviceSettings.touchDelay = 3;
   });
 
-  it('GLOBAL SETTINGS > THEME: CLASSIC = the teal / gold look; COLOUR = a colour per track, FX knobs in alternating pairs', () => {
+  it('GLOBAL SETTINGS > THEME: CLASSIC first (the first look); a pick shows at once, CANCEL goes back; COLOUR = FX knobs in alternating pairs', () => {
     const { app, tap } = makeApp();
     const colour = (slot: number) => (app as unknown as { knobColour(t: unknown): string; targets: unknown[] }).knobColour((app as unknown as { targets: unknown[] }).targets[slot]);
+    expect(deviceSettings.theme).toBe(0); // CLASSIC at HIGH
+    expect(INK.warn).toBe('#e8b53a');
+    expect(colour(0)).toBe('#3cc8b4');
+    tap('menu');
+    tap('step3'); // GLOBAL SETTINGS
+    tap('cur+');
+    tap('step7'); // THEME
+    tap('cur+'); // COLOUR, not saved yet: shown at once
+    expect(deviceSettings.theme).toBe(0);
+    expect(INK.warn).toBe('#ffffff');
+    tap('cancel'); // back to the saved look
+    expect(INK.warn).toBe('#e8b53a');
+    tap('cur+'); // GLOBAL SETTINGS again
+    tap('step7');
+    tap('cur+'); // COLOUR
+    tap('oct-'); // SATURATION
+    tap('cur-'); // MEDIUM
+    tap('play'); // saved
+    expect(deviceSettings.theme).toBe(1);
+    expect(deviceSettings.saturation).toBe(1);
+    expect(INK.warn).toBe('#ffffff');
+    tap('menu'); // closed
     tap('fx2'); // FX 2's knobs: modules 1-2 one colour, 3-4 the other, 5-6 the first again
     expect(colour(0)).toBe(colour(1));
     expect(colour(2)).not.toBe(colour(0));
     expect(colour(4)).toBe(colour(0));
     expect(colour(14)).toBe(colour(2));
     tap('fx2');
-    tap('menu');
-    tap('step3'); // GLOBAL SETTINGS
-    tap('cur+');
-    tap('step7'); // THEME
-    tap('cur+'); // CLASSIC
-    tap('oct-'); // SATURATION
-    tap('cur+'); // HIGH: the first look exactly
-    tap('play');
-    expect(deviceSettings.theme).toBe(1);
-    expect(deviceSettings.saturation).toBe(2);
-    expect(INK.warn).toBe('#e8b53a');
-    tap('menu');
-    expect(colour(0)).toBe(colour(4 + 8)); // one colour everywhere
-    expect(colour(0)).toBe('#3cc8b4');
-    // INVERT: hues turned half way round (teal -> red, gold -> blue); MONO ignores it.
-    deviceSettings.invert = 1;
+    // INVERT: hues turned half way round (CLASSIC: gold -> blue); MONO ignores it.
+    Object.assign(deviceSettings, { theme: 0, saturation: 2, invert: 1 });
     applyTheme();
     expect(INK.warn).toMatch(/^#[0-5][0-9a-f][0-9a-f]{2}[c-f][0-9a-f]$/); // blue
     deviceSettings.theme = 2;
     applyTheme();
     expect(INK.warn).toBe('#f4f7fa');
-    deviceSettings.theme = 0;
-    deviceSettings.saturation = 1;
-    deviceSettings.invert = 0;
+    Object.assign(deviceSettings, { theme: 0, saturation: 2, invert: 0 });
     applyTheme();
-    expect(INK.warn).toBe('#ffffff');
+    expect(INK.warn).toBe('#e8b53a');
   });
 
   it('CANCEL (lit when something is pending) leaves the SAVE / LOAD screen; UNDO is its own key (REDO with FUNC); neither touches views', () => {
