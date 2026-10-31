@@ -1390,8 +1390,8 @@ describe('UNDO / REDO', () => {
 });
 
 describe('OCT and FUNC + OCT', () => {
-  it('OCT is the keyboard octave in every mode; FUNC + OCT the synth sound\'s OCTAVE (drums: none)', () => {
-    const { app, tap, press, release, texts } = makeApp();
+  it('OCT is the keyboard octave in every mode; FUNC + OCT the sound\'s OCTAVE (drums too)', () => {
+    const { app, tap, press, release, texts, sent } = makeApp();
     const priv = app as unknown as { octave: number[]; message: string };
     const bass = () => app.project.channels[4].sounds.bass!.octave;
     tap('ch5');
@@ -1408,11 +1408,13 @@ describe('OCT and FUNC + OCT', () => {
     release('func');
     expect(bass()).toBe(was + 1);
     expect(texts.get('oct+')).toBe('OCT ▲');
-    tap('ch1');
+    tap('ch1'); // KICK: its pitched layers an octave down, in its patch
     press('func');
     tap('oct-');
     release('func');
-    expect(priv.message).toBe('NO OCTAVE');
+    expect(priv.message).toBe('OCTAVE -1');
+    expect(app.project.channels[0].sounds.kick!.octave).toBe(3);
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'setSound', channel: 0, id: 'octave', value: 3 }));
   });
 });
 
@@ -1428,6 +1430,23 @@ describe('OCT keys', () => {
     expect(priv.message).toMatch(/^KEYS FROM /);
     tap('oct-');
     expect(priv.octave[0]).toBe(before);
+  });
+});
+
+describe('painted steps', () => {
+  it('take the strip keys\' lowest note on every track, drums too (SCALE C: a C), and sound it', () => {
+    const { app, tap, sent } = makeApp();
+    tap('mode:record');
+    tap('ch1'); // KICK: steps
+    app.project.root = 0; // SCALE: C
+    tap('step3');
+    const step = app.project.channels[0].patterns[0].steps[2];
+    expect(step.active).toBe(true);
+    expect(step.note % 12).toBe(0);
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'trigger', channel: 0, note: step.note }));
+    app.project.root = 9; // A
+    tap('step5');
+    expect(app.project.channels[0].patterns[0].steps[4].note % 12).toBe(9);
   });
 });
 
@@ -1595,7 +1614,7 @@ describe('locks move the knobs while playing', () => {
 });
 
 describe('the sound\'s OCTAVE in sight', () => {
-  it('shows beside the track name on the screen and on the SND keys with FUNC; drums have none', () => {
+  it('shows beside the track name on the screen and on the SND keys with FUNC; drums too', () => {
     const { app, tap, press, release, texts } = makeApp();
     const label = () => app.liveView(0, { peak: 0 } as never).channelLabel;
     tap('ch5'); // BASS
@@ -1609,8 +1628,8 @@ describe('the sound\'s OCTAVE in sight', () => {
     expect(label()).toBe('CH5 BASS OCT-1');
     release('func');
     expect(texts.get('oct+')).toBe('OCT ▲');
-    tap('ch1'); // KICK: no OCTAVE
-    expect(label()).toBe('CH1 KICK');
+    tap('ch1'); // KICK: an OCTAVE too
+    expect(label()).toBe('CH1 KICK OCT 0');
   });
 });
 

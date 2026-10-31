@@ -2,7 +2,7 @@ import { CUT_FADE, type Instrument, type Preset } from './Instrument';
 import { choice, type ParamSpec } from '../engine/params';
 import { decayMul, IdleGate, Noise, polyBlep, Svf } from './dsp';
 import { exp2, sinRad, sinTurn, tanh } from './math';
-import { INTENSITY, TIMBRE, midFreq } from './macroParams';
+import { INTENSITY, OCTAVE, OCTAVE_ZERO, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
 import { AirRoom } from './airRoom';
@@ -98,6 +98,8 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'air', name: 'AIR LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'airsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
   midFreq(1000),
+  // OCTAVE (FUNC + OCT): the pitched layers an octave at a time, on top of the note.
+  OCTAVE,
 ] as ParamSpec[]).map((p) => [p.id, p]));
 
 /** Build a drum type's parameter list (in knob order) with per-type defaults. */
@@ -106,7 +108,7 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /** Controls every drum has (after its layer parameters). */
-const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq'];
+const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq', 'octave'];
 /** AIR: KICK and SNARE (DrumVoice.air sets each one's EQ). */
 const AIR = ['air', 'airsize'];
 
@@ -292,6 +294,8 @@ export class Drum implements Instrument {
 
   // Voice state: per layer an envelope value and stage (OFF / ATTACKING / DECAYING).
   private tune = 1;
+  /** OCTAVE, in octaves (0 = as designed). */
+  private octave = 0;
   private pitchMod = 1;
   private tPhase = 0; private sweepEnv = 0;
   /** The sweep has died away to nothing (its 2^x is exactly 1) until the next hit or SWEEP change. */
@@ -338,7 +342,7 @@ export class Drum implements Instrument {
     this.tMul = ring ? this.tRingMul : this.tDecayMul;
     this.mMul = ring ? this.mRingMul : this.mDecayMul;
     this.cMul = ring ? this.cRingMul : this.cDecayMul;
-    this.tune = Math.pow(2, (note - 36) / 12);
+    this.tune = Math.pow(2, (note - 36) / 12 + this.octave);
     if (this.voice.relative) this.setupClick();
     this.velocity = velocity;
     this.tPhase = 0;
@@ -438,6 +442,7 @@ export class Drum implements Instrument {
       case 'ogain': this.oGain = v; break;
       case 'air': this.airTarget = v * v * AIR_GAIN * (this.voice.air?.gain ?? 0); break;
       case 'airsize': this.room?.setSize(v); break;
+      case 'octave': this.octave = Math.round(v) - OCTAVE_ZERO; break;
     }
   }
 

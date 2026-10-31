@@ -1018,8 +1018,8 @@ export class App {
   }
 
   /**
-   * FUNC + OCT ▼ / ▲: step the selected synth's OCTAVE parameter (part of its patch) instead
-   * of the keyboard's octave. False when the track has no OCTAVE (drums, PERC).
+   * FUNC + OCT ▼ / ▲: step the selected track's OCTAVE parameter (part of its patch; drums:
+   * their pitched layers) instead of the keyboard's octave. False on a track with no sound.
    */
   private stepOctave(d: number): boolean {
     const c = this.channel;
@@ -2215,7 +2215,8 @@ export class App {
         : this.flagsOn(step) ? 'flags-off' : 'flags-on';
       this.stroke = { kind };
     }
-    if (!stepsOnStrip(this.channel.instrument)) this.paintNote(index, this.stroke.kind);
+    // Every track (drums too): a new hit takes the strip keys' lowest note (SCALE's root).
+    this.paintNote(index, this.stroke.kind);
     if (this.paintDrumStep(step, this.stroke.kind) && !this.playing) {
       this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
     }

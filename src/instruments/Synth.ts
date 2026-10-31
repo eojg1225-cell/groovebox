@@ -2,7 +2,7 @@ import { CUT_FADE, type Instrument, type Preset } from './Instrument';
 import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
 import { decayMul, IdleGate, midiToHz, polyBlep, Svf } from './dsp';
 import { cosTurn, exp2, sinRad, sinTurn, tanh } from './math';
-import { INTENSITY, TIMBRE, midFreq } from './macroParams';
+import { INTENSITY, OCTAVE, OCTAVE_ZERO, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { driveCompGain } from './driveComp';
 import { DELAY_DIVISIONS, Delay } from '../fx/Delay';
@@ -23,10 +23,6 @@ import { Reverb } from '../fx/Reverb';
 /** Legacy stepped wave (saves before SHAPE): SAW, SQR, TRI, SINE -> shape position. */
 const LEGACY_WAVE_TO_SHAPE = [2, 3, 1, 0];
 const VOICE_MODES = ['POLY', 'MONO'] as const;
-/** OCTAVE: -4 ... +4 (the value is the index). */
-const OCTAVES = ['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4'] as const;
-/** Index of OCTAVE 0 (OCTAVE's value is the index into OCTAVES). */
-const OCTAVE_ZERO = 4;
 const MAX_VOICES = 6;
 
 /**
@@ -151,7 +147,7 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'cfeedback', name: 'CAR FB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // Level of carriers 2 and 3 against carrier 1 (0 = one clear note, 1 = the full stack).
   { id: 'carriers', name: 'CARRIERS', min: 0, max: 1, defaultValue: 0.35, unit: '', curve: 'linear' },
-  choice('octave', 'OCTAVE', OCTAVES, OCTAVE_ZERO),
+  OCTAVE,
   choice('voice', 'VOICES', VOICE_MODES),
   // SLIDE (id "glide" for old projects): how long a SLIDE note takes to glide into the next;
   // fully left = an instant jump. Only slides glide; other notes start on pitch.

@@ -1,4 +1,4 @@
-import type { ParamSpec } from '../engine/params';
+import { choice, type ParamSpec } from '../engine/params';
 
 /**
  * The two macro knobs every track type has (see macros.ts). They are stored with the
@@ -10,3 +10,7 @@ export function midFreq(defaultValue: number): ParamSpec {
   return { id: 'midfreq', name: 'MID FREQ', min: 150, max: 6000, defaultValue, unit: 'HZ', curve: 'exp', decimals: 0 };
 }
 export const INTENSITY: ParamSpec = { id: 'intensity', name: 'INT', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' };
+
+/** OCTAVE (FUNC + OCT, every type: part of the patch): -4 ... +4, the value is the index. */
+export const OCTAVE_ZERO = 4;
+export const OCTAVE = choice('octave', 'OCTAVE', ['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4'], OCTAVE_ZERO);

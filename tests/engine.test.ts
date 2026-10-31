@@ -1441,6 +1441,26 @@ describe('slides and rolls', () => {
     near(o2, [0, 3000, 24000]);
   });
 
+  it('drum OCTAVE (FUNC + OCT) moves the pitched layers by whole octaves; 0 = as before', () => {
+    const run = (octave?: number) => {
+      const inst = INSTRUMENTS.perc.create(SR);
+      const snd = macroSound('perc', 0, 0.5, INSTRUMENTS.perc.params);
+      for (const k in snd) inst.setParam(k, snd[k]);
+      if (octave !== undefined) inst.setParam('octave', octave);
+      const l = new Float32Array(9600), r = new Float32Array(9600);
+      inst.noteOn(36, 0.8, 36, false);
+      inst.render(l, r, 0, 9600);
+      let n = 0;
+      for (let i = 2400; i < 9600; i++) if (l[i - 1] < 0 && l[i] >= 0) n++;
+      return { n, l };
+    };
+    const zero = run(4), plain = run();
+    expect(zero.l).toEqual(plain.l);
+    const up = run(5).n / zero.n;
+    expect(up).toBeGreaterThan(1.7);
+    expect(up).toBeLessThan(2.3);
+  });
+
   it('BASS: a note during the last one\'s release starts cleanly (no click): the old one fades out under it', () => {
     for (const t of [0, 1]) { // SINE SUB, FM 2:3
       const run = (retrig: boolean) => {
