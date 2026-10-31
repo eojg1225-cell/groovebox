@@ -321,7 +321,7 @@ export class App {
   playing = false;
   private readonly viewPage: number[] = new Array(NUM_CHANNELS).fill(0);
   private readonly cursor: number[] = new Array(NUM_CHANNELS).fill(0);
-  /** RECORD: the track's strip the other way round from its type's (drums: keys; the others: steps). Not saved. */
+  /** STRIP: the track's strip the other way round from its type's (drums: keys; the others: steps). Not saved. */
   private readonly stripFlip: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private readonly octave: number[];
   /** Strip button -> note being held (keyboard), so release ends the right note. */
@@ -616,12 +616,12 @@ export class App {
     if (this.clearHeld && this.mode !== 'design') return false;
     if (this.stepsMode) return false;
     if (this.placing && this.mode === 'record') return false;
-    return !this.stripSteps() || this.mode !== 'record';
+    return !this.stripSteps();
   }
 
   /**
-   * RECORD: track ch's strip shows steps (painted like a drum lane), not keys. Drums (KICK,
-   * SNARE, HAT) by default, the others with the STRIP key (`stripFlip`).
+   * Track ch's strip shows steps (painted like a drum lane), not keys, in every mode (SONG
+   * aside). Drums (KICK, SNARE, HAT) by default, the others with the STRIP key (`stripFlip`).
    */
   private stripSteps(ch = this.selected): boolean {
     return stepsOnStrip(this.project.channels[ch].instrument) !== this.stripFlip[ch];
@@ -638,14 +638,17 @@ export class App {
   }
 
   /**
-   * The note strip key `button` plays on track ch: up from SCALE's root (within a fifth or so
-   * of the track's octave, `octave` = an A: the root moves the keys a semitone at a time,
-   * jumping an octave between D and D#), along the minor scale or every semitone (CHROMATIC).
+   * The note strip key `button` plays on track ch: a semitone each, up from SCALE's root
+   * (within a fifth or so of the track's octave, `octave` = an A: the root moves the keys a
+   * semitone at a time, jumping an octave between D and D#). `blackKey` colours them.
    */
   private keyNote(ch: number, button: number): number {
-    const first = this.octave[ch] + ((this.root - 9 + 6 + 12) % 12) - 6;
-    if (this.project.chromatic) return first + button;
-    return first + 12 * Math.floor(button / MINOR.length) + MINOR[button % MINOR.length];
+    return this.octave[ch] + ((this.root - 9 + 6 + 12) % 12) - 6 + button;
+  }
+
+  /** A strip key shows black: off SCALE's minor scale (CHROMATIC: a piano's sharps). */
+  private blackKey(note: number): boolean {
+    return this.project.chromatic ? isBlackKey(note) : !MINOR.includes((note - this.root + 120) % 12);
   }
 
   /** The ARP view open (FUNC + ARP): knobs and screen show the selected track's ARP. */
@@ -1544,7 +1547,7 @@ export class App {
       this.moveCursor(id === 'cur+' ? 1 : -1);
       this.previewCursor();
     } else if (id === 'view') {
-      // STRIP: the selected track's strip shows keys / steps (RECORD; held notes let go first).
+      // STRIP: the selected track's strip shows keys / steps (every mode; held notes let go first).
       const ch = this.selected;
       this.leaveStepEdit();
       this.entry = null;
@@ -4291,7 +4294,7 @@ export class App {
     this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || this.stepsMode || !this.followsPlayhead);
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, kb);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
-    this.panel.setStripSlide(!this.stepsMode && ((this.mode === 'record' && this.stripSteps()) || (this.clearHeld && this.mode !== 'design')));
+    this.panel.setStripSlide(!this.stepsMode && (this.stripSteps() || (this.clearHeld && this.mode !== 'design')));
     for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
     // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
@@ -4299,8 +4302,8 @@ export class App {
     this.panel.setButtonText('scale', `SCALE<small>${this.scaleName()}</small>`);
     this.panel.setButtonLit('scale', this.scaleHeld);
     // STRIP: keys / steps on the strip, the selected track's (RECORD); lit = not its type's own.
-    this.panel.setButtonEnabled('view', rec && !this.song);
-    this.panel.setButtonText('view', `STRIP<small>${this.mode === 'record' && this.stripSteps() ? 'STEPS' : 'KEYS'}</small>`);
+    this.panel.setButtonEnabled('view', !this.song);
+    this.panel.setButtonText('view', `STRIP<small>${this.stripSteps() ? 'STEPS' : 'KEYS'}</small>`);
     this.panel.setButtonLit('view', this.stripFlip[this.selected]);
     // STEP EDIT: RECORD, stopped, on the pattern it was primed on (else it starts over there).
     if (this.stepEdit && (!rec || this.song)) this.leaveStepEdit();
@@ -4471,7 +4474,7 @@ export class App {
         const id = `step${i + 1}`;
         const note = this.keyNote(ch, i);
         this.panel.setButtonText(id, noteName(note));
-        this.panel.setButtonFlag(id, 'black', isBlackKey(note));
+        this.panel.setButtonFlag(id, 'black', this.blackKey(note));
         this.panel.setButtonFlag(id, 'lit', note === sounding || under.includes(note));
         this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
         for (const f of ['note', 'accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);

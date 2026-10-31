@@ -1085,33 +1085,50 @@ describe('STRIP key: keys / steps on the strip', () => {
     tap('step1');
     const s = steps(app, 0);
     expect(s[0].active && s[1].active).toBe(true);
-    expect(s[0].note - s[1].note).toBe(3); // the third key of A minor: C
+    expect(s[0].note - s[1].note).toBe(2);
   });
 });
 
 describe('SCALE key', () => {
   const notes = (app: App) => app.project.channels[4].patterns[0].steps.map((st) => st.note);
+  const black = (flags: Map<string, Set<string>>, k: number) => flags.get(`step${k}`)!.has('black');
 
-  it('the strip starts in A minor; SCALE + ◀ ▶ moves the root a semitone, a tap = chromatic', () => {
-    const { app, tap, press, release, texts } = makeApp();
+  it('the strip is a keyboard up from the root, black = off A minor; SCALE + ◀ ▶ moves the root, a tap = piano colours', () => {
+    const { app, tap, press, release, texts, flags } = makeApp();
     tap('mode:record');
     tap('ch5'); // BASS, octave A1 (33)
     for (const k of [1, 2, 3, 8]) tap(`step${k}`);
-    expect(notes(app).slice(0, 4)).toEqual([33, 35, 36, 45]); // A B C, A an octave up
+    expect(notes(app).slice(0, 4)).toEqual([33, 34, 35, 40]); // A A# B E
     app.updateFrame(0);
     expect(texts.get('scale')).toContain('A MIN');
+    expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([false, true, false, false]); // A A# B C
     press('scale');
     tap('cur+');
     release('scale');
     expect(app.project.root).toBe(10);
     tap('step1');
     expect(notes(app)[4]).toBe(34); // A#
-    tap('scale'); // a tap: chromatic
-    tap('step2');
-    expect(notes(app)[5]).toBe(35);
+    app.updateFrame(0);
+    expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([false, true, false, false]); // A# B C C#: B is off A# minor
+    tap('scale'); // a tap: a piano's colours
+    app.updateFrame(0);
+    expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([true, false, false, true]);
     expect(fromStored(toStored(app.project))).toMatchObject({ root: 10, chromatic: true });
   });
+
+  it('the STRIP view is the same in every mode: a drum shows steps in PLAY, keys once switched', () => {
+    const { app, tap, flags } = makeApp();
+    tap('mode:play');
+    tap('ch1');
+    tap('step3'); // steps: a hit on step 3
+    expect(app.project.channels[0].patterns[0].steps[2].active).toBe(true);
+    tap('view');
+    tap('mode:record');
+    app.updateFrame(0);
+    expect(flags.get('step2')!.has('black')).toBe(true); // keys here too
+  });
 });
+
 
 describe('SONG over RECORD / PLAY / DESIGN', () => {
   const song = () => {

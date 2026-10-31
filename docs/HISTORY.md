@@ -124,3 +124,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - SCALE key (2026-10-30): function key 11 (STRIP moved to 10) sets the strip keyboard's key: A minor to start, held + ◀ ▶ = root by semitones, tap = minor / chromatic; saved in the project (format v59).
 - SCALE keys coloured (2026-10-30): the strip's keys show black / white as on a piano in MINOR too (A minor: all white).
 - STRIP steps pitch (2026-10-31): a step painted on a keyboard track takes the strip's lowest note (SCALE's root), not the pitch of the note before it.
+- Strip keys as a piano (2026-10-31): the strip keyboard is chromatic again, up from SCALE's root, black = off the root's minor (A minor = a piano from A; CHR = a piano's colours); STRIP's keys / steps view holds in every mode (drums show steps in PLAY / DESIGN unless switched).
