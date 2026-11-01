@@ -420,8 +420,6 @@ export class App {
   /** chord: PAD / PLUCK keys added to the step meanwhile (the cursor moves on when all are up). */
   /** The note(s) being entered in step entry: their key, step, held chord, and (PAD / PLUCK) which notes ▶ / ◀ tie. */
   private entry: { button: number; index: number; chord?: boolean; notes?: number[] } | null = null;
-  /** STEP EDIT: the primed step held down (strip button, step index): ◀ ▶ tie its note. */
-  private editHeld: { button: number; index: number } | null = null;
   /**
    * A paint stroke on a drum lane (RECORD): the first step pressed decides what every step
    * the finger slides onto gets (a hit with the armed flags, the flags set / cleared, a rest,
@@ -1727,11 +1725,11 @@ export class App {
     } else if ((id === 'cur-' || id === 'cur+') && this.stepsMode) {
       // STEPS mode: ◀ / ▶ = through the bars (strip taps switch steps on / off).
       this.changeBar(id === 'cur+' ? 1 : -1);
-    } else if ((id === 'cur-' || id === 'cur+') && this.stepEdit && this.editHeld) {
-      // STEP EDIT, the yellow step held: its note one step longer / shorter.
+    } else if ((id === 'cur-' || id === 'cur+') && this.stepEdit) {
+      // STEP EDIT: the primed step's note one step longer / shorter (a tap moves the prime).
       this.tieEdited(id === 'cur+' ? 1 : -1);
-    } else if ((id === 'cur-' || id === 'cur+') && (this.stepEdit || this.autoSteps)) {
-      // STEP EDIT / SONG RECORD: the primed step one on (not while knobs wait on it).
+    } else if ((id === 'cur-' || id === 'cur+') && this.autoSteps) {
+      // SONG RECORD: the primed step one on (not while knobs wait on it).
       this.stepPrime(id === 'cur+' ? 1 : -1);
     } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
       // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
@@ -2260,7 +2258,6 @@ export class App {
       return;
     }
     if (this.stepEdit) {
-      this.stripDown.add(button);
       this.stepEditTap(button);
       return;
     }
@@ -2803,7 +2800,6 @@ export class App {
 
   private releaseKey(button: number): void {
     this.stripDown.delete(button);
-    if (this.editHeld?.button === button) this.editHeld = null;
     if (this.stripDown.size === 0) this.stroke = null;
     const note = this.heldNotes.get(button);
     if (note === undefined) return;
@@ -2891,16 +2887,22 @@ export class App {
   }
 
   /**
-   * STEP EDIT, the primed step held + ◀ ▶: its note (PAD / PLUCK: every note on it) a step
-   * longer / shorter, as a tie in step entry; the screen says how long.
+   * STEP EDIT ◀ ▶: the primed step's note (on a tied-over step: the note tied over it; PAD /
+   * PLUCK: every note on its step) a step longer / shorter, as a tie in step entry; the strip
+   * shows the tie, the screen how long.
    */
   private tieEdited(delta: number): void {
-    const { index } = this.editHeld!;
-    const step = this.pattern.steps[index];
-    if (!step.active) {
-      this.flash('NO NOTE HERE');
+    const pattern = this.pattern;
+    const at = this.primed?.cell ?? -1;
+    if (at < 0) return;
+    const own = pattern.steps[at];
+    const cover = own.active ? null : coveringNote(pattern.steps, pattern.length, at);
+    const index = own.active ? at : cover ? cover[0] : -1;
+    if (index < 0) {
+      this.flash('NO NOTE HERE: TAP A NOTE');
       return;
     }
+    const step = pattern.steps[index];
     const kind = this.channel.instrument;
     if (isDrum(kind) && kind !== 'perc') {
       this.flash('DRUMS PLAY OUT: NO TIES');
@@ -3704,8 +3706,6 @@ export class App {
     }
     if (this.primed?.cell === index) {
       if (this.funcHeld) this.funcUsed = true;
-      // Held down, ◀ ▶ tie its note longer / shorter (editHeld).
-      this.editHeld = { button, index };
       this.lockPrimed(this.func);
       return;
     }
@@ -3762,7 +3762,6 @@ export class App {
     if (!this.stepEdit) return;
     this.unprime();
     this.stepEdit = false;
-    this.editHeld = null;
   }
 
   /** The second tap: each knob touched since priming is locked at its value there. */
@@ -3836,22 +3835,48 @@ export class App {
     // Playing: the step being heard lights (the edited pattern only).
     const c = this.channel;
     const head = this.playing && (this.status?.patterns[this.selected] ?? c.activePattern) === c.activePattern ? (this.status?.steps[this.selected] ?? -1) : -1;
+    // The steps as in RING / ACCENT ... placing: notes lit (accent / ghost / ring), steps a
+    // note is tied over as a band; locks marked L; the primed step yellow, and the LEDs over
+    // every step the primed note lasts (◀ ▶ change that).
+    const pitched = !stepsOnStrip(c.instrument);
+    const steps = pattern.steps;
+    const len = pattern.length;
+    let noteAt = -1;
+    let lasts = 0;
+    if (pr && pr.cell < len) {
+      const cover = steps[pr.cell].active ? [pr.cell, 0] : pitched ? coveringNote(steps, len, pr.cell) : null;
+      if (cover) {
+        noteAt = cover[0];
+        lasts = pitched ? longest(steps[noteAt]) : 1;
+      }
+    }
+    const inNote = (index: number) => noteAt >= 0 && (index - noteAt + len) % len < lasts;
     for (let i = 0; i < STEP_BUTTONS; i++) {
       const id = `step${i + 1}`;
       const index = page * 16 + i;
-      const off = index >= pattern.length;
-      const step = pattern.steps[index];
+      const off = index >= len;
+      const own = steps[index];
       const dark = !off && !this.plays(index);
-      const meterOut = dark && !step.flip && !meterPlays(this.project.meter, index);
+      const meterOut = dark && !own.flip && !meterPlays(this.project.meter, index);
       const primed = pr?.cell === index;
-      this.panel.setButtonText(id, meterOut ? '×' : String(index + 1));
+      const cover = pitched && !off && !own.active ? coveringNote(steps, len, index) : null;
+      const tie = !!cover && cover[1] > 0;
+      const step = tie ? steps[cover![0]] : own;
+      const d = step.active && !off && !dark ? stepDynamic(step) : null;
+      const label = meterOut ? '×' : String(index + 1);
+      this.panel.setButtonText(id, !off && own.locks ? `${label}<small>L</small>` : label);
       this.panel.setButtonFlag(id, 'off', off);
       this.panel.setButtonFlag(id, 'skip', dark);
-      this.panel.setButtonFlag(id, 'lit', !off && !!step.locks);
-      this.panel.setButtonFlag(id, 'note', !off && step.active);
+      this.panel.setButtonFlag(id, 'tie', tie);
+      this.panel.setButtonFlag(id, 'lit', d !== null);
+      this.panel.setButtonFlag(id, 'accent', d === 'accent');
+      this.panel.setButtonFlag(id, 'ghost', d === 'ghost');
+      this.panel.setButtonFlag(id, 'ring', d !== null && !!step.ring);
+      this.panel.setButtonFlag(id, 'rest', !off && !own.active && !!own.rest);
+      this.panel.setButtonFlag(id, 'head', !off && index === head);
       this.panel.setButtonFlag(id, 'cursor', primed);
-      for (const f of ['black', 'accent', 'ghost', 'ring', 'rest', 'head', 'tie']) this.panel.setButtonFlag(id, f, false);
-      this.panel.setLed(i, primed ? 'cursor' : !off && index === head ? 'on' : '');
+      for (const f of ['black', 'note']) this.panel.setButtonFlag(id, f, false);
+      this.panel.setLed(i, primed || (!off && inNote(index)) ? 'cursor' : !off && index === head ? 'on' : '');
     }
     this.panel.setButtonText('steppage', `BAR<small>${page + 1}/${this.pageCount()}</small>`);
   }

@@ -1027,35 +1027,39 @@ describe('STEP EDIT: COPY', () => {
 });
 
 describe('STEP EDIT: ties', () => {
-  it('the yellow step held + ◀ ▶ = its note a step longer / shorter (a longer tie clears what it covers); ◀ ▶ alone still move it', () => {
-    const { app, tap, press, release } = makeApp();
-    const primed = () => (app as unknown as { primed: { cell: number } | null }).primed?.cell;
+  it('the strip shows the steps (notes, ties); ◀ ▶ make the primed note a step longer / shorter, shown as a tie (a longer tie clears what it covers)', () => {
+    const { app, tap, flags, leds } = makeApp();
     tap('mode:record');
     tap('ch5'); // BASS
     const steps = app.project.channels[4].patterns[0].steps;
-    Object.assign(steps[0], { active: true, note: 40, gate: 1 });
+    Object.assign(steps[0], { active: true, note: 40, gate: 1, accent: true });
     Object.assign(steps[2], { active: true, note: 45, gate: 1 });
     tap('stepedit'); // step 1 primed
-    press('step1');
+    app.updateFrame(0);
+    expect(flags.get('step1')?.has('lit')).toBe(true);
+    expect(flags.get('step1')?.has('accent')).toBe(true);
+    expect(flags.get('step3')?.has('lit')).toBe(true);
     tap('cur+');
     expect(steps[0].gate).toBe(2);
+    app.updateFrame(0);
+    expect(flags.get('step2')?.has('tie')).toBe(true); // shown on the strip
+    expect(leds.slice(0, 3)).toEqual(['cursor', 'cursor', '']);
     tap('cur+'); // over step 3: its note goes
     expect(steps[0].gate).toBe(3);
     expect(steps[2].active).toBe(false);
     tap('cur-');
     expect(steps[0].gate).toBe(2);
-    release('step1');
-    tap('cur+'); // not held: the primed step moves
-    expect(primed()).toBe(1);
-    expect(steps[0].gate).toBe(2);
-    press('step2'); // a step without a note: primes it; held, nothing to tie
-    press('step2');
+    tap('step2'); // a tied-over step: ◀ ▶ work on the note tied over it
     tap('cur+');
-    expect(steps[1].gate).toBe(1);
+    expect(steps[0].gate).toBe(3);
+    tap('step5'); // nothing there
+    tap('cur+');
+    expect(steps[4].active).toBe(false);
+    expect((app as unknown as { message: string }).message).toBe('NO NOTE HERE: TAP A NOTE');
   });
 
-  it('PAD: every note on the held step gets a step longer, each by its own length', () => {
-    const { app, tap, press, release } = makeApp();
+  it('PAD: every note on the primed step gets a step longer, each by its own length', () => {
+    const { app, tap } = makeApp();
     tap('mode:record');
     tap('ch6'); // PAD
     const c = app.project.channels[5];
@@ -1063,9 +1067,7 @@ describe('STEP EDIT: ties', () => {
     const steps = c.patterns[0].steps;
     setStepNotes(steps[0], [{ note: 57, gate: 1 }, { note: 60, gate: 3 }]);
     tap('stepedit');
-    press('step1');
     tap('cur+');
-    release('step1');
     expect(stepNotes(steps[0]).map((n) => n.gate)).toEqual([2, 4]);
   });
 });
@@ -1600,15 +1602,14 @@ describe('STEP EDIT', () => {
     tap('stepedit');
     expect(app.stepEdit).toBe(true);
     expect(priv(app).primed?.cell).toBe(0);
-    tap('cur+');
-    tap('cur+');
+    tap('step3'); // a tap primes another step
     expect(priv(app).primed?.cell).toBe(2);
     app.updateFrame(0);
     expect(flags.get('step3')?.has('cursor')).toBe(true);
     emit({ type: 'touch', id: 'k5' }); // BASS LIVE 1
     emit({ type: 'knob', id: 'k5', value: 0.9 });
     expect(texts.get('undo')).toBe('UNDO');
-    tap('cur+'); // refused while a knob waits
+    tap('step5'); // refused while a knob waits
     expect(priv(app).primed?.cell).toBe(2);
     expect(priv(app).message).toBe('LOCK OR CANCEL FIRST');
     tap('step3'); // lock
@@ -1616,7 +1617,7 @@ describe('STEP EDIT', () => {
     expect(Object.keys(step.locks ?? {})).toEqual(['cutoff']); // BASS LIVE 1 = CUTOFF, stored by its bare id
     expect(priv(app).primed?.cell).toBe(2); // still primed there
     app.updateFrame(0);
-    expect(flags.get('step3')?.has('lit')).toBe(true);
+    expect(texts.get('step3')).toBe('3<small>L</small>'); // locks marked L
     tap('undo'); // UNDO: the lock goes
     expect(app.project.channels[4].patterns[0].steps[2].locks).toBeUndefined();
     tap('play'); // STEP EDIT stays on while playing
