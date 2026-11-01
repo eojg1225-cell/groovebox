@@ -142,3 +142,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Drum OCTAVE and painted pitch (2026-10-31): FUNC + OCT moves a drum's pitched layers by octaves (new `octave` sound param on every drum, default 0, no save change); a painted step on any track, drums too, takes the strip keys' lowest note (SCALE's root).
 - Format v62 (2026-10-31): KICK / SNARE / HAT play as designed on A (DRUM_ROOT 33, was C 36), so A minor's bottom key hits them on their own pitch; load migration `drumRootV62` moves older notes on those tracks down three semitones (sound unchanged).
 - KICK TECHNO / PSY DOOF INT 100: longer sweeps (SWP TIME 0.07 -> 0.2 s, 0.26 -> 0.4 s), TECHNO's OUT GAIN re-levelled (2026-11-01).
+- KICK TECHNO INT 100: SWP TIME 0.18 s, DRIVE 10 -> 7 (2026-11-01).

@@ -90,7 +90,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
         soft: { ogain: 1.076, t_sweep: 12, t_stime: 0.04, c_level: 0.08, c_tone: 2500, c_reso: 0.15, drive: 1.3 },
         // Hard house: a tall drop you hear fall (longer than PUNCH's, shorter than PSY DOOF's),
         // a punchy tail, only lightly clipped.
-        hard: { ogain: 0.683, t_pitch: 55, t_decay: 0.35, t_sweep: 72, t_stime: 0.2, c_level: 0.4, c_tone: 3200, c_reso: 0.5, c_len: 0.004, drive: 10 },
+        hard: { ogain: 0.683, t_pitch: 55, t_decay: 0.35, t_sweep: 72, t_stime: 0.18, c_level: 0.4, c_tone: 3200, c_reso: 0.5, c_len: 0.004, drive: 7 },
       },
       {
         // A laser zap down into a doof; the click fades out as INT rises (psy kicks have none).
