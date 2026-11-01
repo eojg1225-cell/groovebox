@@ -51,7 +51,7 @@ import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
 import { CHORD_KNOB, CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
-  cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf, speedSteps,
+  cloneNotes, clonePatch, dropTiedRests, editPattern, initPatterns, lockProject, patchOf, setPatchOf, speedSteps,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SettingKey, type SoundKind, type Step,
   AUTO_FILL_STEPS, AUTO_FILL_TRACKS, CLIP_ENTRY, FILL_STEPS, GLIDE_CURVES, GLIDE_STEPS, compactEntry, type ClipEntry,
 } from '../engine/project';
@@ -642,6 +642,7 @@ export class App {
     } else {
       step.locks = { ...step.locks, [m.id]: m.value };
     }
+    if (m.type !== 'recordedLock') this.tidyRests(m.channel, m.pattern);
     this.project.channels[m.channel].patterns[m.pattern].notesDirty = true;
     this.save();
   }
@@ -1729,6 +1730,7 @@ export class App {
     } else if (id === 'rest') {
       // Step entry: a rest marker at the cursor (ends a ringing note), then advance.
       const step = this.pattern.steps[this.cursor[this.selected]];
+      this.endTiesAt(this.cursor[this.selected]); // a note tied over it ends here (the rest shows)
       step.active = false;
       step.ring = false;
       step.slide = false;
@@ -2369,12 +2371,23 @@ export class App {
   private paintNote(index: number, kind: StrokeKind): void {
     const pat = this.pattern;
     const step = pat.steps[index];
+    if (kind === 'rest-on') this.endTiesAt(index); // a rest shows, and ends a note tied over it
     if (kind === 'erase' || kind === 'rest-on' || kind === 'rest-off') {
       delete step.extra;
       delete step.extraGate;
       return;
     }
     if (kind !== 'add' || step.active) return;
+    this.endTiesAt(index);
+    step.note = this.keyNote(this.selected, 0);
+    step.gate = 1;
+    delete step.extra;
+    delete step.extraGate;
+  }
+
+  /** Notes tied over step `index` of the selected track's pattern end before it. */
+  private endTiesAt(index: number): void {
+    const pat = this.pattern;
     const len = pat.length;
     for (let d = 1; d < len; d++) {
       const j = (index - d + len) % len;
@@ -2386,10 +2399,12 @@ export class App {
         this.sendStep(j, s);
       }
     }
-    step.note = this.keyNote(this.selected, 0);
-    step.gate = 1;
-    delete step.extra;
-    delete step.extraGate;
+  }
+
+  /** Rests a note is now tied over go (they would cut it, and its SLIDE, unseen). */
+  private tidyRests(ch = this.selected, p = this.project.channels[ch].activePattern): void {
+    const pat = this.project.channels[ch].patterns[p];
+    for (const i of dropTiedRests(pat.steps, pat.length)) this.send({ type: 'setStep', channel: ch, pattern: p, index: i, step: pat.steps[i] });
   }
 
   /** The armed flags are all already on this hit (so a stroke from it takes them off). */
@@ -2629,6 +2644,7 @@ export class App {
       dst.steps[i] = step;
       this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
     });
+    this.tidyRests(toCh, toPat);
     dst.notesDirty = true;
     // The notes; an empty pattern the sound too, else it keeps its own.
     if (withSound) {
@@ -2752,6 +2768,7 @@ export class App {
     else delete copy.flip;
     steps[to] = copy;
     this.sendStep(to, copy);
+    this.tidyRests();
     this.pattern.notesDirty = true;
     this.save();
     this.relabel(`COPY STEP ${from + 1}`);
@@ -2783,6 +2800,7 @@ export class App {
       this.sendStep(at, step);
     });
     if (pat.length < (to + 1) * 16) this.setLength(this.selected, (to + 1) * 16);
+    this.tidyRests();
     pat.notesDirty = true;
     this.save();
     this.relabel(`COPY BAR ${from + 1}`);
@@ -2989,6 +3007,7 @@ export class App {
       const now = stepNotes(step);
       setStepNotes(step, now.map((m) => notes.find((n) => n.note === m.note) ?? m));
       this.sendStep(index, step);
+      this.tidyRests();
       this.save();
       return;
     }

@@ -1871,6 +1871,29 @@ describe('PERC track', () => {
   });
 });
 
+describe('SLIDE through tied steps', () => {
+  it('a rest hidden under a tie is dropped on load, so a SLIDE note held over it glides into the next note', () => {
+    const p = kickProject([], { bpm: 120 });
+    const c = p.channels[6]; // LEAD
+    const pat = c.patterns[0];
+    pat.speed = 'half';
+    Object.assign(pat.steps[0], { active: true, note: 76, gate: 5, slide: true });
+    for (const i of [1, 2, 3, 4]) pat.steps[i].rest = true; // under the tie: unseen on the strip
+    Object.assign(pat.steps[5], { active: true, note: 79, gate: 1 });
+    pat.steps[6].rest = true; // after the note: a real rest
+    const q = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
+    expect(q.channels[6].patterns[0].steps.slice(1, 7).map((st) => !!st.rest)).toEqual([false, false, false, false, false, true]);
+    const e = engineWith(q);
+    const syn = (e as unknown as { current: { noteOn: (...a: unknown[]) => void }[] }).current[6];
+    const on = syn.noteOn.bind(syn);
+    const calls: [number, number][] = [];
+    syn.noteOn = (...a: unknown[]) => { calls.push([a[0] as number, a[4] as number]); on(...a); };
+    e.handleMessage({ type: 'transport', playing: true });
+    render(e, 1.5);
+    expect(calls.slice(0, 2)).toEqual([[76, -1], [79, 76]]); // 79 slides from 76
+  });
+});
+
 describe('song mode', () => {
   // 120 BPM: a bar is 16 x 6000 = 96000 frames.
   const BAR = 96000;

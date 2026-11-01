@@ -147,6 +147,28 @@ export function setStepNotes(step: Step, notes: readonly { note: number; gate: n
   }
 }
 
+/**
+ * REST markers on steps a note is tied over (by an earlier note's own length, also across the
+ * loop end) go: the strip shows the tie there, not the rest, yet the rest would cut the note
+ * (and the SLIDE out of it). In place; returns the steps changed.
+ */
+export function dropTiedRests(steps: Step[], length: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < length; i++) {
+    if (!steps[i].rest || steps[i].active) continue;
+    for (let k = 1; k < length; k++) {
+      const s = steps[(i - k + length) % length];
+      if (!s.active) continue;
+      if (Math.max(s.gate, ...(s.extraGate ?? [])) > k) {
+        steps[i].rest = false;
+        out.push(i);
+      }
+      break;
+    }
+  }
+  return out;
+}
+
 /** Notes a step can hold (PAD: one per voice). */
 export const STEP_NOTES = 6;
 

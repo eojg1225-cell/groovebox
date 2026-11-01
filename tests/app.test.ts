@@ -1102,6 +1102,21 @@ describe('COPY: hold COPY, tap what, then where', () => {
 
 });
 
+describe('REST and ties', () => {
+  it('REST on a tied-over step ends the tie there (the rest shows); a tie grown over a rest takes it away', () => {
+    const { app, tap } = makeApp();
+    tap('mode:record');
+    tap('ch7'); // LEAD
+    const steps = app.project.channels[6].patterns[0].steps;
+    Object.assign(steps[0], { active: true, note: 57, gate: 4, slide: true });
+    const cursor = () => (app as unknown as { cursor: number[] }).cursor[6];
+    while (cursor() !== 2) tap(cursor() < 2 ? 'cur+' : 'cur-');
+    tap('rest'); // on step 3, under the tie
+    expect(steps[0].gate).toBe(2);
+    expect(steps[2].rest).toBe(true);
+  });
+});
+
 describe('STEP EDIT: ties', () => {
   it('the strip shows the steps (notes, ties); ◀ ▶ make the primed note a step longer / shorter, shown as a tie (a longer tie clears what it covers)', () => {
     const { app, tap, flags, leds } = makeApp();

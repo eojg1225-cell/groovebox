@@ -10,7 +10,7 @@
 import { ARP_MODES, ARP_RATES, defaultArp } from './arp';
 import {
   CLIP_ENTRY, FILL_STEPS, GLIDE_STEPS, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
-  compactEntry, emptyPattern, initPatterns, patchOf,
+  compactEntry, dropTiedRests, emptyPattern, initPatterns, patchOf,
   type ChannelState, type ClipEntry, type Patch, type Pattern, type Project, type SongRow, type SoundKind, type Step,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
@@ -734,6 +734,13 @@ export function fromStored(data: unknown): Project | null {
     if (isObj(src)) readChannel(src, p.channels[i], version);
   }
   if (version < 49) typeGainV49(p);
+  // Rests hidden under ties go (they cut notes and slides unseen): the saved copies too.
+  for (const c of p.channels) {
+    for (const pat of c.patterns) {
+      dropTiedRests(pat.steps, pat.length);
+      if (pat.savedNotes) dropTiedRests(pat.savedNotes.steps, pat.savedNotes.length);
+    }
+  }
   // Every pattern gets its patch and saved versions (where the save had none).
   for (const c of p.channels) initPatterns(c);
   return p;
