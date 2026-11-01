@@ -1063,8 +1063,9 @@ export class App {
   private designPages(): { name: string; targets: () => (KnobTarget | null)[] }[] {
     const sound = { name: 'SOUND', targets: () => this.soundTargets(this.func) };
     const mix = { name: 'MIX', targets: () => this.mixTargets() };
-    // SONG RECORD (automation): the live knobs instead of PROJECT, first.
-    if (this.song) return [{ name: 'LIVE', targets: () => this.liveGrid() }, sound, mix];
+    // SONG RECORD (automation): the live knobs instead of PROJECT, first. (SONG PLAY keeps
+    // JAM's pages: its knobs are the live knobs / the mixer, as in JAM.)
+    if (this.songRecord) return [{ name: 'LIVE', targets: () => this.liveGrid() }, sound, mix];
     return [sound, mix, { name: 'PROJECT', targets: () => this.projectTargets() }];
   }
 
@@ -1077,9 +1078,9 @@ export class App {
     return layout.map((id) => (id ? this.paramTarget(ch, id) : null));
   }
 
-  /** DESIGN's page for a track's sound (a channel tap opens it): SOUND, after LIVE in SONG. */
+  /** DESIGN's page for a track's sound (a channel tap opens it): SOUND, after LIVE in SONG RECORD. */
   private get soundPage(): number {
-    return this.song ? 1 : 0;
+    return this.songRecord ? 1 : 0;
   }
 
   /** The live knobs: column = track, rows = live knob 1 / 2 (FUNC: 3 / 4). */
@@ -4570,8 +4571,9 @@ export class App {
     };
   }
 
-  /** The page buttons' names in this mode (none in RECORD / SONG). */
+  /** The page buttons' names in this mode (none in RECORD / SONG DESIGN). */
   private pageNames(): string[] {
+    if (this.songGrid) return [];
     return this.mode === 'design' || this.mode === 'play' || this.songRecord ? this.designPages().map((p) => p.name) : [];
   }
 

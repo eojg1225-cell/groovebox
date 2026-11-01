@@ -148,3 +148,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Drum live knobs (2026-11-01, format v64): KICK INT / DECAY, VOL / AIR (new AIR macro); SNARE FX1:MOD / INT, VOL / AIR; HAT FX1:DELAY / ATTACK, VOL / DECAY; PERC FX1:FILTER / INT; `drumLiveV64` moves drums still on an older default.
 - Format v65 (2026-11-01): HAT FUNC live = VOL / GRIT; every saved project's drum tracks take the current drum live knobs (`drumLiveV65`).
 - Macro live knobs anchored (2026-11-01, format v66): a macro sits at its parameters' average position and moves them linearly over the full range (HAT ATTACK from fully left up to 2 s); older offsets converted (`macroOffsetV66`).
+- SONG PLAY page buttons (2026-11-01): they read SOUND / MIX as in JAM (they showed SONG RECORD's LIVE / SOUND, so the one labelled SOUND opened the mixer); SONG DESIGN shows no page names.

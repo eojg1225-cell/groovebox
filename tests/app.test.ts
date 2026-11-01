@@ -701,6 +701,20 @@ describe('SONG never changes a pattern', () => {
     }
   });
 
+  it('the page buttons name what the knobs show in every SONG mode (SONG PLAY: SOUND = live knobs, MIX = the mixer)', () => {
+    const labels = (app: App) => (app as unknown as { targets: ({ label: string } | null)[] }).targets.map((t) => t?.label ?? '');
+    const play = songMode('mode:play');
+    expect([play.texts.get('dpage0'), play.texts.get('dpage1')]).toEqual(['SOUND', 'MIX']);
+    play.tap('dpage1');
+    expect(labels(play.app).slice(0, 8)).toEqual(['VOL 1', 'VOL 2', 'VOL 3', 'VOL 4', 'VOL 5', 'VOL 6', 'VOL 7', 'VOL 8']);
+    play.tap('dpage0');
+    expect(labels(play.app)).not.toContain('VOL 1');
+    const rec = songMode('mode:record');
+    expect([rec.texts.get('dpage0'), rec.texts.get('dpage1'), rec.texts.get('dpage2')]).toEqual(['LIVE', 'SOUND', 'MIX']);
+    const design = songMode('mode:design');
+    expect([design.texts.get('dpage0'), design.texts.get('dpage1'), design.texts.get('dpage2')]).toEqual(['', '', '']);
+  });
+
   it('SONG RECORD SOUND knobs are heard, not kept: the pattern keeps its patch, which comes back on a mode change', () => {
     const { app, tap, emit, sent } = songMode('mode:record');
     tap('ch5'); // BASS SOUND page
