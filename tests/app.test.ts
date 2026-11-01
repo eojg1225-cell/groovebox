@@ -376,7 +376,7 @@ describe('live knobs', () => {
     const live = (ch: number) => [...app.project.channels[ch].live, ...app.project.channels[ch].liveFunc];
     expect(live(0)).toEqual(['intensity', 'macro:decay', 'mix:volume', 'macro:air']);
     expect(live(1)).toEqual(['fx1:mod_vol', 'intensity', 'mix:volume', 'macro:air']);
-    expect(live(2)).toEqual(['fx1:dly_vol', 'macro:attack', 'mix:volume', 'macro:decay']);
+    expect(live(2)).toEqual(['fx1:dly_vol', 'macro:attack', 'mix:volume', 'macro:grit']);
     expect(live(3)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'macro:grit']);
     expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
   });

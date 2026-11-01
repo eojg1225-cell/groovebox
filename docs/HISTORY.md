@@ -146,3 +146,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Group pattern switch (2026-11-01): A-D switches its tracks together at the longest one's loop end; FUNC + A-D = at the next bar line (`switchPatterns`).
 - Live knobs (2026-11-01): only macros stay relative; a SOUND page knob as a live knob is absolute (shows / sets the SOUND page's value). KICK's first live knob = INT (format v63, `kickLiveV63` for KICKs still on FX1:MOD).
 - Drum live knobs (2026-11-01, format v64): KICK INT / DECAY, VOL / AIR (new AIR macro); SNARE FX1:MOD / INT, VOL / AIR; HAT FX1:DELAY / ATTACK, VOL / DECAY; PERC FX1:FILTER / INT; `drumLiveV64` moves drums still on an older default.
+- Format v65 (2026-11-01): HAT FUNC live = VOL / GRIT; every saved project's drum tracks take the current drum live knobs (`drumLiveV65`).

@@ -370,7 +370,7 @@ function kickLiveV63(ch: ChannelState): void {
 
 /**
  * v64: new drum live knobs (KICK INT / DECAY, FUNC VOL / AIR; SNARE FX1:MOD / INT, VOL / AIR;
- * HAT FX1:DELAY / ATTACK, VOL / DECAY; PERC FX1:FILTER / INT): a drum whose live knobs are
+ * HAT FX1:DELAY / ATTACK, VOL / GRIT; PERC FX1:FILTER / INT): a drum whose live knobs are
  * still an older default takes them (each layer on its own; chosen ones stay).
  */
 const OLD_DRUM_LIVE: Partial<Record<InstrumentKind, string[]>> = {
@@ -385,6 +385,11 @@ function drumLiveV64(ch: ChannelState): void {
   const entry = INSTRUMENTS[ch.instrument];
   if (old.includes(ch.live.join(','))) ch.live = [...entry.live];
   if (ch.liveFunc.join(',') === 'mix:volume,macro:grit') ch.liveFunc = [...entry.liveFunc];
+}
+
+/** v65: every drum track takes its type's live knobs as they are now (asked for once; offsets centred). */
+function drumLiveV65(ch: ChannelState): void {
+  if (ch.instrument !== 'none' && INSTRUMENTS[ch.instrument].drum) liveDefaults(ch);
 }
 
 /** A stored pattern's length, speed, flips and notes into `pat` (its steps start empty). */
@@ -508,6 +513,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (version < 51) liveV51(ch);
   if (version < 63) kickLiveV63(ch);
   if (version < 64) drumLiveV64(ch);
+  if (version < 65) drumLiveV65(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;

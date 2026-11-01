@@ -1487,30 +1487,20 @@ describe('slides and rolls', () => {
     expect(fromStored(toStored(p))!.channels[0].patterns[0].steps[0].note).toBe(36); // a v62 save as stored
   });
 
-  it('v63 load: a KICK on the old first live knob (FX1:MOD) takes INT; custom live knobs stay', () => {
+  it('v65 load: every drum track takes its type\'s live knobs (chosen ones too); synths keep theirs', () => {
     const p = createDefaultProject();
-    p.channels[0].live = ['fx1:mod_vol', 'macro:decay'];
-    p.channels[1].live = ['fx1:mod_vol', 'macro:decay']; // SNARE: not a KICK
+    p.channels[1].live = ['fx1:dly_vol', 'macro:decay'];
+    p.channels[2].live = ['m_tone', 'macro:decay'];
+    p.channels[2].liveFunc = ['mix:volume', 'macro:decay'];
+    p.channels[4].live = ['fm', 'macro:env'];
     const stored = toStored(p) as { version: number };
-    stored.version = 62;
-    const back = fromStored(stored)!;
-    expect(back.channels[0].live).toEqual(['intensity', 'macro:decay']);
-    expect(back.channels[1].live).toEqual(['fx1:mod_vol', 'macro:decay']);
-  });
-
-  it('v64 load: drums still on an older default live layout take the new one; chosen live knobs stay', () => {
-    const p = createDefaultProject();
-    p.channels[1].live = ['fx1:dly_vol', 'macro:decay']; // SNARE: old default
-    p.channels[1].liveFunc = ['mix:volume', 'macro:grit'];
-    p.channels[2].live = ['m_tone', 'macro:decay']; // HAT: chosen
-    p.channels[2].liveFunc = ['mix:volume', 'macro:grit'];
-    const stored = toStored(p) as { version: number };
-    stored.version = 63;
+    stored.version = 64;
     const back = fromStored(stored)!;
     expect(back.channels[1].live).toEqual(['fx1:mod_vol', 'intensity']);
     expect(back.channels[1].liveFunc).toEqual(['mix:volume', 'macro:air']);
-    expect(back.channels[2].live).toEqual(['m_tone', 'macro:decay']);
-    expect(back.channels[2].liveFunc).toEqual(['mix:volume', 'macro:decay']);
+    expect(back.channels[2].live).toEqual(['fx1:dly_vol', 'macro:attack']);
+    expect(back.channels[2].liveFunc).toEqual(['mix:volume', 'macro:grit']);
+    expect(back.channels[4].live).toEqual(['fm', 'macro:env']);
   });
 
   it('drum OCTAVE (FUNC + OCT) moves the pitched layers by whole octaves; 0 = as before', () => {

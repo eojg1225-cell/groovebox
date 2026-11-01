@@ -278,7 +278,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: trackFunc(SWEEP_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
-    name: 'HAT', gain: 1.783, live: ['fx1:dly_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:decay'], params: HAT_PARAMS,
+    name: 'HAT', gain: 1.783, live: ['fx1:dly_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'c_noise'], ['m_tone', 'm_noise']),
     funcLayout: trackFunc(NO_FUNC),
     presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
