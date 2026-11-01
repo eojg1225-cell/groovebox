@@ -2264,21 +2264,21 @@ describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => 
   });
 
   it('older saves derive trims that reproduce their values exactly', () => {
-    // (On the BASS: the PAD's and the LEAD's engines changed (v32, v58), so their old sounds are rebuilt.)
+    // (On the PLUCK: the PAD's, LEAD's and BASS's sounds changed (v32, v58, v68), so theirs are rebuilt.)
     const p = createDefaultProject();
-    const sound = { ...p.channels[4].sounds.bass!, cutoff: 333, intensity: 0.2 };
-    p.channels[4].sounds.bass = sound;
+    const sound = { ...p.channels[7].sounds.pluck!, cutoff: 333, intensity: 0.2 };
+    p.channels[7].sounds.pluck = sound;
     const old = { ...JSON.parse(JSON.stringify(toStored(p))), version: 41 };
-    delete old.channels[4].trims;
-    const q = fromStored(old)!.channels[4];
-    expect(q.sounds.bass!.cutoff).toBeCloseTo(333);
-    const trims = q.trims.bass!;
-    const hidden = hiddenSound('bass', q.sounds.bass!, INSTRUMENTS.bass.params);
-    for (const id of macroIds('bass', INSTRUMENTS.bass.params)) {
-      const spec = paramSpec('bass', id)!;
-      expect(applyTrim(spec, hidden[id], trims[id]), id).toBeCloseTo(q.sounds.bass![id], 4);
+    delete old.channels[7].trims;
+    const q = fromStored(old)!.channels[7];
+    expect(q.sounds.pluck!.cutoff).toBeCloseTo(333);
+    const trims = q.trims.pluck!;
+    const hidden = hiddenSound('pluck', q.sounds.pluck!, INSTRUMENTS.pluck.params);
+    for (const id of macroIds('pluck', INSTRUMENTS.pluck.params)) {
+      const spec = paramSpec('pluck', id)!;
+      expect(applyTrim(spec, hidden[id], trims[id]), id).toBeCloseTo(q.sounds.pluck![id], 4);
     }
-    expect(deriveTrims('bass', presetSound('bass', 1), INSTRUMENTS.bass.params)).toEqual({});
+    expect(deriveTrims('pluck', presetSound('pluck', 1), INSTRUMENTS.pluck.params)).toEqual({});
   });
 
   it('live macros only push SOUND page parameters (or ones a page knob moves with it)', () => {
@@ -2408,7 +2408,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
   it('every type has five sounds, the new one where it blends', () => {
     const names = (k: SoundKind) => MACROS[k].anchors.map((a) => a.name);
     expect(names('hat')).toEqual(['RIDE', 'HAT', 'SPLASH', 'CRASH', 'CHINA']);
-    expect(names('bass')).toEqual(['SINE SUB', 'GROWL', 'ACID', 'SOLID', 'FM 2:3']);
+    expect(names('bass')).toEqual(['SINE SUB', 'GROWL', 'STICK', 'SOLID', 'ACID']);
     expect(names('snare')[1]).toBe('PICCOLO');
     expect(names('lead')).toEqual(['WHISTLE', 'SQUARE', 'SUPERSAW', 'HOOVER', 'FM BITE']);
     for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
@@ -2834,13 +2834,13 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(mag(locked, f)).toBeGreaterThan(0.01);
   });
 
-  it('BASS (v40): FM ratio ladder 1:2 -> 2:3 -> 3:2 over the knob, INT leaves FM LVL alone', () => {
+  it('BASS (v68): FM ratio ladder 1:2 -> 1:3 -> 3:2 over the knob, INT leaves FM LVL alone', () => {
     const specs = INSTRUMENTS.bass.params;
     const pair = (t: number) => { const m = macroSound('bass', t, 0.5, specs); return [m.cratio, m.fmratio]; };
     expect(pair(0)).toEqual([1, 2]);
     expect(pair(0.3)).toEqual([1, 2]);
-    expect(pair(0.34)).toEqual([2, 3]);
-    expect(pair(0.66)).toEqual([2, 3]);
+    expect(pair(0.34)).toEqual([1, 3]);
+    expect(pair(0.66)).toEqual([1, 3]);
     expect(pair(0.67)).toEqual([3, 2]);
     expect(pair(1)).toEqual([3, 2]);
     // Every pair keeps its lowest partial on the note (carrier = +-1 mod modulator, never 0 Hz).
@@ -2852,7 +2852,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     for (const t of [0, 0.25, 0.5, 0.75, 1]) {
       expect(macroSound('bass', t, 0, specs).fm).toBeCloseTo(macroSound('bass', t, 1, specs).fm);
     }
-    expect(INSTRUMENTS.bass.presets.map((p) => presetSound('bass', INSTRUMENTS.bass.presets.indexOf(p)).fm)).toEqual([0.12, 0.15, 0.15, 0.15, 0.6]);
+    expect(INSTRUMENTS.bass.presets.map((p) => presetSound('bass', INSTRUMENTS.bass.presets.indexOf(p)).fm)).toEqual([0.12, 0.15, 0.25, 0.15, 0.18]);
     // FM LVL itself still goes from none to full.
     const fm = specs.find((x) => x.id === 'fm')!;
     expect([fm.min, fm.max]).toEqual([0, 1]);
@@ -3845,20 +3845,21 @@ describe('v41: the FM envelope', () => {
     const p = createDefaultProject();
     const stored = JSON.parse(JSON.stringify(toStored(p)));
     stored.version = 40;
-    const bass = stored.channels[4];
-    bass.sounds.bass.fattack = 0.02;
-    bass.sounds.bass.fdecay = 0.7;
-    delete bass.sounds.bass.fmattack;
-    delete bass.sounds.bass.fmdecay;
-    bass.trims = { bass: { fdecay: 0.1 } };
-    bass.patterns[0].steps = [{ i: 0, n: 33, v: 0.8, l: { fdecay: 0.4 } }];
+    // (On the PLUCK: the BASS is rebuilt from v68's sounds on load.)
+    const pluck = stored.channels[7];
+    pluck.sounds.pluck.fattack = 0.02;
+    pluck.sounds.pluck.fdecay = 0.7;
+    delete pluck.sounds.pluck.fmattack;
+    delete pluck.sounds.pluck.fmdecay;
+    pluck.trims = { pluck: { fdecay: 0.1 } };
+    pluck.patterns[0].steps = [{ i: 0, n: 45, v: 0.8, l: { fdecay: 0.4 } }];
     stored.channels[5].fxSend = 3; // the old pad reverb
     stored.channels[6].fxSend = 2; // the old dub delay
     stored.buses = [{ dly_vol: 1 }, {}, {}];
     const back = fromStored(stored)!;
-    const b = back.channels[4];
-    expect([b.sounds.bass!.fmattack, b.sounds.bass!.fmdecay]).toEqual([0.02, 0.7]);
-    expect(b.trims.bass!.fmdecay).toBe(0.1);
+    const b = back.channels[7];
+    expect([b.sounds.pluck!.fmattack, b.sounds.pluck!.fmdecay]).toEqual([0.02, 0.7]);
+    expect(b.trims.pluck!.fmdecay).toBe(0.1);
     expect(b.patterns[0].steps[0].locks).toEqual({ fdecay: 0.4, fmdecay: 0.4 });
     expect([back.channels[5].fxSend, back.channels[6].fxSend]).toEqual([2, 3]);
     expect(back.buses).toEqual(createDefaultProject().buses);
@@ -4164,6 +4165,53 @@ describe('v46: PERC TIMBALE and its order', () => {
     expect(back.sounds.perc!.c_tone).toBeCloseTo(applyTrim(paramSpec('perc', 'c_tone')!, hidden.c_tone, 0.05), 9);
     // Between two sounds still neighbours (CONGA -> COWBELL) the position moves with them.
     expect(v45({ timbre: 0.625 }, {}).sounds.perc!.timbre).toBeCloseTo(0.375, 9);
+  });
+});
+
+describe('v68: BASS reworked (STICK, ACID + FM 2:3 merged, own INT ends)', () => {
+  const specs = INSTRUMENTS.bass.params;
+  const v67 = (sound: Record<string, number>, trims: Record<string, number>, extra: (c: Record<string, unknown>, p: Record<string, unknown>) => void = () => {}) => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 67;
+    const bass = stored.channels[4];
+    Object.assign(bass.sounds.bass, sound);
+    bass.trims = { bass: trims };
+    extra(bass, stored);
+    return fromStored(stored)!;
+  };
+
+  it('SINE SUB, GROWL, STICK, SOLID, ACID, each with its own INT 0 / 100 and no type-wide INT rule', () => {
+    expect(MACROS.bass.anchors.map((a) => a.name)).toEqual(['SINE SUB', 'GROWL', 'STICK', 'SOLID', 'ACID']);
+    expect(MACROS.bass.excite).toEqual([]);
+    for (const a of MACROS.bass.anchors) expect(a.soft && a.hard, a.name).toBeTruthy();
+    // INT never moves FM LVL.
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(macroSound('bass', t, 0, specs).fm).toBeCloseTo(macroSound('bass', t, 0.5, specs).fm, 9);
+      expect(macroSound('bass', t, 1, specs).fm).toBeCloseTo(macroSound('bass', t, 0.5, specs).fm, 9);
+    }
+  });
+
+  it('older saves keep their sound by name (TIMBRE, preset, locks, SONG lanes) and are rebuilt under their trims', () => {
+    // Before: SINE SUB 0, GROWL 0.25, ACID 0.5, SOLID 0.75, FM 2:3 1.
+    const back = v67({ timbre: 0.5, intensity: 0.5, cutoff: 333 }, { cutoff: 0.05 }, (c, p) => {
+      c.presets = { bass: 2 };
+      (c.patterns as { steps: unknown[] }[])[0].steps = [{ i: 0, n: 33, v: 0.8, l: { timbre: 1 } }, { i: 1, o: 1, l: { timbre: 0.875 } }];
+      (p.song as Record<string, unknown>).a = { 's:4:timbre': [[0, 0.5], [16, 0.625]] };
+    });
+    const b = back.channels[4];
+    expect(b.sounds.bass!.timbre).toBe(1); // ACID's new place
+    expect(b.presets.bass).toBe(4);
+    expect(b.patterns[0].steps[0].locks).toEqual({ timbre: 1 }); // FM 2:3 -> ACID
+    expect(b.patterns[0].steps[1].locks!.timbre).toBeCloseTo(0.875, 9); // SOLID -> FM 2:3 = SOLID -> ACID
+    expect(back.song.auto!['s:4:timbre'].map(([, v]) => v)).toEqual([1, 0.875]); // ACID -> SOLID, reversed
+    const hidden = macroSound('bass', 1, 0.5, specs);
+    expect(b.sounds.bass!.reso).toBeCloseTo(hidden.reso, 9);
+    expect(b.sounds.bass!.cutoff).toBeCloseTo(applyTrim(paramSpec('bass', 'cutoff')!, hidden.cutoff, 0.05), 9);
+    // Between sounds now apart (GROWL -> ACID): the nearer one (projects 3 / 4 at 0.425: ACID).
+    expect(v67({ timbre: 0.3 }, {}).channels[4].sounds.bass!.timbre).toBe(0.25);
+    expect(v67({ timbre: 0.425 }, {}).channels[4].sounds.bass!.timbre).toBe(1);
+    // Neighbours still (SINE SUB -> GROWL) move with them.
+    expect(v67({ timbre: 0.125 }, {}).channels[4].sounds.bass!.timbre).toBeCloseTo(0.125, 9);
   });
 });
 

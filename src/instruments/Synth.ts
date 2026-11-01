@@ -133,7 +133,7 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   // sets it along with its own (registry.linkedParams); this knob sets it apart afterwards.
   { id: 'fm2', name: 'FM LVL2', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'fmratio', name: 'FM RATIO', min: 0.25, max: 16, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
-  // BASS FM pair carrier (x the note; set by TIMBRE, no knob): FM 2:3 runs it at 3 under a 2.
+  // BASS FM pair carrier (x the note; set by TIMBRE, no knob): SOLID / ACID run it at 3 under a 2.
   { id: 'cratio', name: 'CAR RATIO', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'detune', name: 'DETUNE', min: 0, max: 4, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'sub', name: 'SUB', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
@@ -313,7 +313,7 @@ export class Synth implements Instrument {
   /**
    * FM pair carrier ratio (BASS FM, algo 0; 1 = on the note). Above 1 with FM RATIO below it
    * (carrier 3, modulator 2) the pair's lowest sideband lands on the note: a "root-locked"
-   * 2 : 3 that keeps its pitch at every FM LEVEL (BASS FM 2:3; TIMBRE's, no knob).
+   * 3 : 2 that keeps its pitch at every FM LEVEL (BASS SOLID / ACID; TIMBRE's, no knob).
    */
   private cRatio = 1;
   /** Output gain after DRIVE / CRUSH (evens the sounds out). */

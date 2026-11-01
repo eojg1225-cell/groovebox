@@ -325,16 +325,38 @@ export function leadV58(kind: SoundKind, sound: Record<string, number>, trims: R
 const PERC_ORDER_V46 = [0, 3, 1, 2, 4];
 
 /**
- * A PERC TIMBRE position from before v46, by sound: on (or between two sounds still next to
- * each other) it moves with them; between sounds now apart it takes the nearer one's place.
+ * A TIMBRE position from before a reorder (`order`: each old sound's new place), by sound: on
+ * (or between two sounds still next to each other) it moves with them; between sounds now
+ * apart (or merged into one) it takes the nearer one's place.
  */
-function percTimbreV46(t: number): number {
-  const n = PERC_ORDER_V46.length - 1;
+function timbreByOrder(order: readonly number[], t: number): number {
+  const n = order.length - 1;
   const u = Math.min(1, Math.max(0, t)) * n;
   const i = Math.min(n - 1, Math.floor(u));
   const f = u - i;
-  const a = PERC_ORDER_V46[i], b = PERC_ORDER_V46[i + 1];
+  const a = order[i], b = order[i + 1];
   return (Math.abs(a - b) === 1 ? a + (b - a) * f : f < 0.5 ? a : b) / n;
+}
+
+/** A PERC TIMBRE position from before v46. */
+function percTimbreV46(t: number): number {
+  return timbreByOrder(PERC_ORDER_V46, t);
+}
+
+/**
+ * v68: BASS SINE SUB, GROWL, ACID, SOLID, FM 2:3 -> SINE SUB, GROWL, STICK, SOLID, ACID (ACID
+ * and FM 2:3 merged into ACID; STICK new): each old sound's new place.
+ */
+const BASS_ORDER_V68 = [0, 1, 4, 3, 4];
+
+/** A BASS TIMBRE position from before v68 (GROWL -> ACID blends take the nearer one). */
+function bassTimbreV68(t: number): number {
+  return timbreByOrder(BASS_ORDER_V68, t);
+}
+
+/** A BASS preset number (= its TIMBRE sound) from before v68. */
+function bassPresetV68(p: number): number {
+  return BASS_ORDER_V68[p] ?? p;
 }
 
 /** A PERC preset number (= its TIMBRE sound) from before v46. */
@@ -349,6 +371,17 @@ function percPresetV46(p: number): number {
 export function percV46(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
   if (kind !== 'perc') return;
   if (sound.timbre !== undefined) sound.timbre = percTimbreV46(sound.timbre);
+  rebuildMacros(kind, sound, trims);
+}
+
+/**
+ * v68: the BASS reworked (own INT 0 / 100 per sound, STICK, ACID + FM 2:3 merged): a saved
+ * BASS's TIMBRE moves to its sound's new place and its TIMBRE / INT values are rebuilt from
+ * the new sounds under its stored trims (none stored: none kept). In place.
+ */
+export function bassV68(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (kind !== 'bass') return;
+  if (sound.timbre !== undefined) sound.timbre = bassTimbreV68(sound.timbre);
   rebuildMacros(kind, sound, trims);
 }
 
@@ -452,6 +485,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
       if (s.x === 1) step.rest = true;
       const locks = numbers(s.l);
       if (version < 66) macroLocksV66(locks);
+      if (version < 68 && kind === 'bass' && locks.timbre !== undefined) locks.timbre = bassTimbreV68(locks.timbre);
       if (Object.keys(locks).length) step.locks = locks;
       continue;
     }
@@ -466,6 +500,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     const locks = numbers(s.l);
     if (version < 41) fmEnvV41(locks);
     if (version < 46 && kind === 'perc' && locks.timbre !== undefined) locks.timbre = percTimbreV46(locks.timbre);
+    if (version < 68 && kind === 'bass' && locks.timbre !== undefined) locks.timbre = bassTimbreV68(locks.timbre);
     if (version < 66) macroLocksV66(locks);
     if (Object.keys(locks).length) step.locks = locks;
     const extra = readExtra(s.c);
@@ -506,8 +541,8 @@ export function rollRateV57(sound: Record<string, number>): void {
 /** SOUND page trims as stored (derived from the values when absent), pruned to the page. */
 function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, version: number): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
-  // A rebuilt type (v44 HAT, v45 PERC, v58 LEAD) without stored trims keeps none.
-  const rebuilt = (version < 44 && kind === 'hat') || (version < 46 && kind === 'perc') || (version < 58 && kind === 'lead');
+  // A rebuilt type (v44 HAT, v45 PERC, v58 LEAD, v68 BASS) without stored trims keeps none.
+  const rebuilt = (version < 44 && kind === 'hat') || (version < 46 && kind === 'perc') || (version < 58 && kind === 'lead') || (version < 68 && kind === 'bass');
   const trims = isObj(x) ? numbers(x) : rebuilt ? {} : deriveTrims(kind, sound, specs);
   if (version < 41 && isObj(x)) fmEnvV41(trims);
   // Trims stored without a linked parameter's (FM LVL2, added later): the knob's own.
@@ -517,6 +552,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 46) percV46(kind, sound, trims);
   if (version < 47) kickV47(kind, sound, trims);
   if (version < 58) leadV58(kind, sound, trims);
+  if (version < 68) bassV68(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
@@ -528,6 +564,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   const patch: Patch = { sound, trims: readTrims(kind, sound, x.t, version) };
   if (typeof x.p === 'number') patch.preset = Math.max(0, Math.round(x.p));
   if (version < 46 && kind === 'perc' && patch.preset !== undefined) patch.preset = percPresetV46(patch.preset);
+  if (version < 68 && kind === 'bass' && patch.preset !== undefined) patch.preset = bassPresetV68(patch.preset);
   return patch;
 }
 
@@ -546,6 +583,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (isObj(src.presets)) {
     for (const k of SOUND_KINDS) if (typeof src.presets[k] === 'number') ch.presets[k] = Math.max(0, Math.round(src.presets[k] as number));
     if (version < 46 && ch.presets.perc !== undefined) ch.presets.perc = percPresetV46(ch.presets.perc);
+    if (version < 68 && ch.presets.bass !== undefined) ch.presets.bass = bassPresetV68(ch.presets.bass);
   }
   const pair = (x: unknown): [string, string] | null =>
     Array.isArray(x) && x.length === 2 && x.every((y) => typeof y === 'string') ? [x[0] as string, x[1] as string] : null;
@@ -734,6 +772,13 @@ export function fromStored(data: unknown): Project | null {
     if (isObj(src)) readChannel(src, p.channels[i], version);
   }
   if (version < 49) typeGainV49(p);
+  // v68: SONG lanes on a BASS track's TIMBRE follow their sound (as its step locks).
+  if (version < 68 && p.song.auto) {
+    for (const key in p.song.auto) {
+      const t = parseAutoKey(key);
+      if (t?.kind === 's' && t.id === 'timbre' && p.channels[t.index]?.instrument === 'bass') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, bassTimbreV68(v)]);
+    }
+  }
   // Rests hidden under ties go (they cut notes and slides unseen): the saved copies too.
   for (const c of p.channels) {
     for (const pat of c.patterns) {
