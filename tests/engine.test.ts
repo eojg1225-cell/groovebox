@@ -1498,6 +1498,21 @@ describe('slides and rolls', () => {
     expect(back.channels[1].live).toEqual(['fx1:mod_vol', 'macro:decay']);
   });
 
+  it('v64 load: drums still on an older default live layout take the new one; chosen live knobs stay', () => {
+    const p = createDefaultProject();
+    p.channels[1].live = ['fx1:dly_vol', 'macro:decay']; // SNARE: old default
+    p.channels[1].liveFunc = ['mix:volume', 'macro:grit'];
+    p.channels[2].live = ['m_tone', 'macro:decay']; // HAT: chosen
+    p.channels[2].liveFunc = ['mix:volume', 'macro:grit'];
+    const stored = toStored(p) as { version: number };
+    stored.version = 63;
+    const back = fromStored(stored)!;
+    expect(back.channels[1].live).toEqual(['fx1:mod_vol', 'intensity']);
+    expect(back.channels[1].liveFunc).toEqual(['mix:volume', 'macro:air']);
+    expect(back.channels[2].live).toEqual(['m_tone', 'macro:decay']);
+    expect(back.channels[2].liveFunc).toEqual(['mix:volume', 'macro:decay']);
+  });
+
   it('drum OCTAVE (FUNC + OCT) moves the pitched layers by whole octaves; 0 = as before', () => {
     const run = (octave?: number) => {
       const inst = INSTRUMENTS.perc.create(SR);

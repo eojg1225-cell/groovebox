@@ -368,6 +368,25 @@ function kickLiveV63(ch: ChannelState): void {
   if (ch.instrument === 'kick' && ch.live[0] === 'fx1:mod_vol') ch.live = ['intensity', ch.live[1]];
 }
 
+/**
+ * v64: new drum live knobs (KICK INT / DECAY, FUNC VOL / AIR; SNARE FX1:MOD / INT, VOL / AIR;
+ * HAT FX1:DELAY / ATTACK, VOL / DECAY; PERC FX1:FILTER / INT): a drum whose live knobs are
+ * still an older default takes them (each layer on its own; chosen ones stay).
+ */
+const OLD_DRUM_LIVE: Partial<Record<InstrumentKind, string[]>> = {
+  kick: ['fx1:mod_vol,macro:decay', 'intensity,macro:decay'],
+  snare: ['fx1:dly_vol,macro:decay'],
+  hat: ['fx1:flt,macro:decay'],
+  perc: ['macro:knock,macro:decay'],
+};
+function drumLiveV64(ch: ChannelState): void {
+  const old = OLD_DRUM_LIVE[ch.instrument];
+  if (!old || ch.instrument === 'none') return;
+  const entry = INSTRUMENTS[ch.instrument];
+  if (old.includes(ch.live.join(','))) ch.live = [...entry.live];
+  if (ch.liveFunc.join(',') === 'mix:volume,macro:grit') ch.liveFunc = [...entry.liveFunc];
+}
+
 /** A stored pattern's length, speed, flips and notes into `pat` (its steps start empty). */
 function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, version: number, kind: InstrumentKind): void {
   pat.length = Math.round(num(sp.len, pat.length, 1, MAX_STEPS));
@@ -488,6 +507,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, id))) liveDefaults(ch);
   if (version < 51) liveV51(ch);
   if (version < 63) kickLiveV63(ch);
+  if (version < 64) drumLiveV64(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;

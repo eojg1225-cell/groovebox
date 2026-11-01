@@ -357,7 +357,7 @@ describe('CLEAR + A-D and the TIME key', () => {
 });
 
 describe('live knobs', () => {
-  it('KICK top live knob = INT (the SOUND page\'s own value); SNARE / HAT ride FX 1: DELAY, FILTER', () => {
+  it('KICK top live knob = INT (the SOUND page\'s own value); SNARE / HAT / PERC top knobs ride FX 1: MOD, DELAY, FILTER', () => {
     const { app, sent, tap, emit } = makeApp();
     tap('mode:play');
     tap('ch1');
@@ -367,10 +367,17 @@ describe('live knobs', () => {
     expect((app as unknown as { targets: { get(): number }[] }).targets[0].get()).toBeCloseTo(0.25, 2); // live INT shows it
     emit({ type: 'knob', id: 'k1', value: 1 });
     expect(app.project.channels[0].sounds.kick!.intensity).toBe(1);
-    emit({ type: 'knob', id: 'k2', value: 0.5 });
-    emit({ type: 'knob', id: 'k3', value: 0 });
+    emit({ type: 'knob', id: 'k2', value: 1 });
+    emit({ type: 'knob', id: 'k3', value: 0.5 });
+    emit({ type: 'knob', id: 'k4', value: 0 });
+    expect(app.project.buses[0].mod_vol).toBe(1);
     expect(app.project.buses[0].dly_vol).toBe(0.5);
     expect(app.project.buses[0].flt).toBe(0);
+    const live = (ch: number) => [...app.project.channels[ch].live, ...app.project.channels[ch].liveFunc];
+    expect(live(0)).toEqual(['intensity', 'macro:decay', 'mix:volume', 'macro:air']);
+    expect(live(1)).toEqual(['fx1:mod_vol', 'intensity', 'mix:volume', 'macro:air']);
+    expect(live(2)).toEqual(['fx1:dly_vol', 'macro:attack', 'mix:volume', 'macro:decay']);
+    expect(live(3)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'macro:grit']);
     expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
   });
 
@@ -753,21 +760,21 @@ describe('changed knobs', () => {
 describe('RESET with buttons held', () => {
   const glide = (app: App) => (app as unknown as { stepGlides(n: number): void }).stepGlides(performance.now() + 10);
 
-  it('a held track keeps its own settings and the FX knobs its live knobs move (PLAY: KICK LIVE 1 = FX1:MOD)', () => {
+  it('a held track keeps its own settings and the FX knobs its live knobs move (PLAY: HAT LIVE 1 = FX1:DELAY)', () => {
     const { app, tap, press, release, emit } = makeApp();
     tap('mode:play');
     tap('ch1');
-    emit({ type: 'knob', id: 'k1', value: 0.9 }); // FX1:MOD
-    emit({ type: 'knob', id: 'k9', value: 0.9 }); // DECAY
-    emit({ type: 'knob', id: 'k2', value: 0.1 }); // SNARE LIVE 1 = FX1:DELAY
-    const mod = app.project.buses[0].mod_vol;
-    press('ch1');
+    emit({ type: 'knob', id: 'k3', value: 0.9 }); // HAT FX1:DELAY
+    emit({ type: 'knob', id: 'k11', value: 0.9 }); // HAT ATTACK
+    emit({ type: 'knob', id: 'k2', value: 0.1 }); // SNARE LIVE 1 = FX1:MOD
+    const dly = app.project.buses[0].dly_vol;
+    press('ch3');
     tap('reset');
-    release('ch1');
+    release('ch3');
     glide(app);
-    expect(app.project.buses[0].mod_vol).toBe(mod);
-    expect(app.project.channels[0].liveOffset['macro:decay']).toBeGreaterThan(0);
-    expect(app.project.buses[0].dly_vol).toBe(createDefaultProject().buses[0].dly_vol); // SNARE's: reset
+    expect(app.project.buses[0].dly_vol).toBe(dly);
+    expect(app.project.channels[2].liveOffset['macro:attack']).toBeGreaterThan(0);
+    expect(app.project.buses[0].mod_vol).toBe(createDefaultProject().buses[0].mod_vol); // SNARE's: reset
     expect(app.selected).toBe(0);
   });
 
@@ -804,26 +811,27 @@ describe('HOLD + RESET and project settings', () => {
     const { app, tap, press, release, emit } = makeApp();
     app.project.settings = { holdReset: 1 };
     tap('mode:play');
-    emit({ type: 'knob', id: 'k1', value: 0.9 }); // KICK FX1:MOD
-    emit({ type: 'knob', id: 'k10', value: 0.9 }); // SNARE DECAY
+    emit({ type: 'knob', id: 'k3', value: 0.9 }); // HAT FX1:DELAY
+    emit({ type: 'knob', id: 'k9', value: 0.9 }); // KICK DECAY
     tap('mode:design');
     tap('dpage1'); // MIX
     emit({ type: 'knob', id: 'k1', value: 0.2 }); // KICK VOLUME
     emit({ type: 'knob', id: 'k2', value: 0.2 }); // SNARE VOLUME
     tap('fx2');
     emit({ type: 'knob', id: 'k1', value: 0.7 });
+    emit({ type: 'knob', id: 'k3', value: 0.2 }); // HAT VOLUME
     tap('fx2');
-    const snare = app.project.channels[1].volume;
+    const kick = app.project.channels[0].volume;
     const fx2 = JSON.stringify(app.project.buses[1]);
-    press('ch1');
+    press('ch3');
     tap('reset');
-    release('ch1');
+    release('ch3');
     glide(app);
     const fresh = createDefaultProject();
-    expect(app.project.channels[0].volume).toBe(fresh.channels[0].volume);
-    expect(app.project.buses[0].mod_vol).toBe(fresh.buses[0].mod_vol);
-    expect(app.project.channels[1].volume).toBe(snare);
-    expect(app.project.channels[1].liveOffset['macro:decay']).toBeGreaterThan(0);
+    expect(app.project.channels[2].volume).toBe(fresh.channels[2].volume);
+    expect(app.project.buses[0].dly_vol).toBe(fresh.buses[0].dly_vol);
+    expect(app.project.channels[0].volume).toBe(kick);
+    expect(app.project.channels[0].liveOffset['macro:decay']).toBeGreaterThan(0);
     expect(JSON.stringify(app.project.buses[1])).toBe(fx2);
   });
 
