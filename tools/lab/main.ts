@@ -12,6 +12,7 @@ import stored4 from './project4.json';
 import { fromStored } from '../../src/engine/projectFile';
 import { patchOf, type Project, type SoundKind } from '../../src/engine/project';
 import { formatValue } from '../../src/engine/params';
+import { applyTrim } from '../../src/instruments/trims';
 import { INSTRUMENTS, SOUND_KINDS } from '../../src/instruments/registry';
 import { CANDIDATES } from './candidates';
 import { anchorNames, candidateIds, labSound, type Candidate } from './sound';
@@ -20,7 +21,7 @@ import { stressProject } from './stress';
 import { loudness } from './loudness';
 
 type Source = 'project' | 'p3' | 'p4' | 'groove' | 'stress';
-type Sweep = 'off' | 'timbre' | 'int';
+type Sweep = 'off' | 'timbre' | 'int' | 'fm';
 
 const state = {
   kind: 'kick' as SoundKind,
@@ -31,6 +32,8 @@ const state = {
   cand: 0, // 0 = A
   timbre: 0.5,
   intensity: 0.5,
+  /** FM LVL knob (synths): a trim on top of TIMBRE / INT, as the SOUND page's; 0.5 = as designed. */
+  fm: 0.5,
   match: true,
   sweep: 'off' as Sweep,
   bars: 8,
@@ -141,8 +144,15 @@ function load(): void {
   applySound();
 }
 
+/** FM LVL's trim: the knob's distance from the middle, across the whole range (-1 ... +1). */
+const fmTrim = () => (state.fm - 0.5) * 2;
+const fmSpec = () => INSTRUMENTS[state.kind].params.find((p) => p.id === 'fm');
+
 function soundOf(c: Candidate | null): Record<string, number> {
-  return { ...labSound(state.kind, c, state.timbre, state.intensity, built!.base), ...built!.extra };
+  const out = { ...labSound(state.kind, c, state.timbre, state.intensity, built!.base), ...built!.extra };
+  const spec = fmSpec();
+  if (spec && out.fm !== undefined) out.fm = applyTrim(spec, out.fm, fmTrim());
+  return out;
 }
 
 /** Send what changed, then the level and the readouts. */
@@ -222,7 +232,7 @@ function runSweep(): void {
     const u = (ctx.currentTime - sweepStart) / (state.bars * bar);
     const up = Math.floor(u) % 2 === 0;
     const v = up ? u % 1 : 1 - (u % 1);
-    if (state.sweep === 'timbre') { state.timbre = v; drawTimbre(); } else { state.intensity = v; drawInt(); }
+    if (state.sweep === 'timbre') { state.timbre = v; drawTimbre(); } else if (state.sweep === 'fm') { state.fm = v; drawFm(); } else { state.intensity = v; drawInt(); }
     $('sweep-pos').textContent = `${up ? '▲' : '▼'} bar ${Math.floor((u % 1) * state.bars) + 1} of ${state.bars}`;
     applySound();
   }, 40);
@@ -238,6 +248,12 @@ function readout(): void {
   const f = u - i;
   $('timbre-val').textContent = f < 0.02 ? names[i] : f > 0.98 ? names[i + 1] : `${names[i]} → ${names[i + 1]} ${Math.round(f * 100)}%`;
   $('int-val').textContent = `${Math.round(state.intensity * 100)}%`;
+  const spec = fmSpec();
+  if (spec && built) {
+    const t = Math.round(fmTrim() * 100);
+    $('fm-val').textContent = `${formatValue(spec, soundOf(current()).fm)}${t ? ` (${t > 0 ? '+' : ''}${t})` : ' (as designed)'}`;
+  }
+  document.querySelectorAll<HTMLButtonElement>('#fm-marks button').forEach((b) => b.classList.toggle('on', Math.abs(Number(b.dataset.v) - state.fm) < 0.01));
   document.querySelectorAll<HTMLButtonElement>('#names button').forEach((b, k) => b.classList.toggle('on', Math.abs(u - k) < 0.02));
   document.querySelectorAll<HTMLButtonElement>('#int-marks button').forEach((b) => b.classList.toggle('on', Math.abs(Number(b.dataset.v) - state.intensity) < 0.01));
 }
@@ -310,6 +326,14 @@ function knob(id: string, get: () => number, set: (v: number) => void): () => vo
 
 const drawTimbre = knob('timbre', () => state.timbre, (v) => { state.timbre = v; });
 const drawInt = knob('int', () => state.intensity, (v) => { state.intensity = v; });
+const drawFm = knob('fm', () => state.fm, (v) => { state.fm = v; });
+$('fm-marks').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('button');
+  if (!b) return;
+  state.fm = Number(b.dataset.v);
+  drawFm();
+  applySound();
+});
 
 function drawNames(): void {
   $('names').innerHTML = anchorNames(state.kind, current()).map((n, i) => `<button type="button" data-i="${i}">${n}</button>`).join('');
@@ -362,7 +386,9 @@ function setKind(k: SoundKind): void {
   built = build();
   state.timbre = built.base.timbre ?? 0.5;
   state.intensity = built.base.intensity ?? 0.5;
-  drawKinds(); drawCandidates(); drawNames(); drawTimbre(); drawInt(); meta();
+  state.fm = 0.5;
+  $('fm-wrap').hidden = !fmSpec();
+  drawKinds(); drawCandidates(); drawNames(); drawTimbre(); drawInt(); drawFm(); meta();
   if (node) load(); else applySound();
 }
 $('kinds').addEventListener('click', (e) => {
@@ -430,6 +456,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 const savedAt = (stored as { savedAt?: number }).savedAt;
-$('foot').textContent = `Projects 3 (${stored3.name}) and 4 (${stored4.name}) are copies of those slots; your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit.`;
+$('foot').textContent = `Projects 3 (${stored3.name}) and 4 (${stored4.name}) are copies of those slots; your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. FM LVL (synths) is a trim on top, as the SOUND page's knob: the middle = as designed, the same for A and the candidates. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit.`;
 // Open on the track type with candidates to try (KICK when there are none).
 setKind(SOUND_KINDS.find((k) => CANDIDATES[k]?.length) ?? 'kick');

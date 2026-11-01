@@ -81,6 +81,21 @@
           <button type="button" data-v="0">0</button><button type="button" data-v="0.25">25</button><button type="button" data-v="0.5">50</button><button type="button" data-v="0.75">75</button><button type="button" data-v="1">100</button>
         </div>
       </div>
+      <div class="knob-wrap" id="fm-wrap">
+        <div class="knob" id="fm" tabindex="0" role="slider" aria-label="FM LVL trim" aria-valuemin="0" aria-valuemax="100">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <path class="track" d="M 21.7 78.3 A 40 40 0 1 1 78.3 78.3"></path>
+            <path class="arc"></path>
+            <circle class="cap" cx="50" cy="50" r="27"></circle>
+            <line class="ptr" x1="50" y1="50" x2="50" y2="20"></line>
+          </svg>
+        </div>
+        <div class="klabel">FM LVL</div>
+        <div class="kval" id="fm-val"></div>
+        <div class="names" id="fm-marks">
+          <button type="button" data-v="0">NONE</button><button type="button" data-v="0.5">AS DESIGNED</button><button type="button" data-v="1">FULL</button>
+        </div>
+      </div>
     </div>
 
     <div class="sweep">
@@ -89,6 +104,7 @@
         <label for="sw-off"><input type="radio" name="sweep" id="sw-off" value="off" checked> Off</label>
         <label for="sw-timbre"><input type="radio" name="sweep" id="sw-timbre" value="timbre"> TIMBRE</label>
         <label for="sw-int"><input type="radio" name="sweep" id="sw-int" value="int"> INT</label>
+        <label for="sw-fm"><input type="radio" name="sweep" id="sw-fm" value="fm"> FM LVL</label>
       </div>
       <label class="check" for="bars">over
         <select id="bars">
