@@ -24,7 +24,7 @@ Goal: the Android / Fire APK becomes the main version; the web build stays as th
 - Never trust a comment over the code: if they disagree, fix the comment in the same commit.
 
 ## Current state
-Milestone M2 (mixer + FX) mostly done. SONG DESIGN clip transitions (GLIDE START / END, FILL) and JAM AUTO-FILL / GLIDE CURVE are new: to be tried on the device. **Next:** check the new FX buses on the Fire (CPU: all nine effects at once cost ~20 % more than the old buses; default settings about the same as before).
+Milestone M2 (mixer + FX) mostly done. SONG DESIGN clip transitions (GLIDE START / END, FILL) and JAM AUTO-FILL / GLIDE CURVE are new: to be tried on the device. **Next SONG round:** clip length in SONG DESIGN should work like STEP EDIT's ties: a tapped clip is primed (yellow), ◀ ▶ make it a bar shorter / longer (the bars shown on the strip as a tie, as STEP EDIT shows a note's), instead of today's STEP EDIT toggle + ◀ ▶. **Next:** check the new FX buses on the Fire (CPU: all nine effects at once cost ~20 % more than the old buses; default settings about the same as before).
 
 ### Naming traps (stored id / code name vs what the panel shows)
 | Code | Panel / meaning |
