@@ -211,19 +211,14 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
   ],
 };
 
-/** Live knob ids that stay absolute: the main filter (and the mixer / LFO ids). */
-const ABSOLUTE_LIVE = new Set(['cutoff', 'reso', 'track:chord', 'track:notes']);
-
 /**
- * What a relative live knob moves on this type: a macro's targets, a single (non-coarse)
- * sound parameter, or nothing (absolute ids, unknown ids).
+ * What a relative live knob moves on this type: a macro's targets. Every other live knob (a
+ * SOUND page knob such as INT or CUTOFF, the mixer, FX, LFO) is absolute: the knob itself,
+ * showing and setting the same value as on the SOUND page.
  */
 export function liveTargets(kind: InstrumentKind, id: string): readonly LiveTarget[] {
-  if (kind === 'none' || ABSOLUTE_LIVE.has(id) || id.includes(':') && !id.startsWith('macro:')) return [];
-  if (id.startsWith('macro:')) return LIVE_MACROS[kind].find((m) => m.id === id)?.targets ?? [];
-  const spec = INSTRUMENTS[kind].params.find((p) => p.id === id);
-  // A knob that sets others along with it (PAD / LEAD ATTACK, FM LVL ...) pushes them too.
-  return spec && !spec.coarse ? [id, ...linkedParams(kind, id)].map((t) => ({ id: t, amount: 1 })) : [];
+  if (kind === 'none' || !id.startsWith('macro:')) return [];
+  return LIVE_MACROS[kind].find((m) => m.id === id)?.targets ?? [];
 }
 
 /** How far a relative live knob at `offset` (-1..1) pushes one target (normalised units). */
@@ -266,7 +261,7 @@ interface InstrumentEntry {
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
-    name: 'KICK', gain: 0.565, live: ['fx1:mod_vol', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
+    name: 'KICK', gain: 0.565, live: ['intensity', 'macro:decay'], liveFunc: ['mix:volume', 'macro:grit'], params: KICK_PARAMS,
     // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2): the click's
     // character on 5, AIR on 6 beside DRIVE / CRUSH.
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),

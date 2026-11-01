@@ -143,3 +143,5 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Format v62 (2026-10-31): KICK / SNARE / HAT play as designed on A (DRUM_ROOT 33, was C 36), so A minor's bottom key hits them on their own pitch; load migration `drumRootV62` moves older notes on those tracks down three semitones (sound unchanged).
 - KICK TECHNO / PSY DOOF INT 100: longer sweeps (SWP TIME 0.07 -> 0.2 s, 0.26 -> 0.4 s), TECHNO's OUT GAIN re-levelled (2026-11-01).
 - KICK TECHNO INT 100: SWP TIME 0.18 s, DRIVE 10 -> 7 (2026-11-01).
+- Group pattern switch (2026-11-01): A-D switches its tracks together at the longest one's loop end; FUNC + A-D = at the next bar line (`switchPatterns`).
+- Live knobs (2026-11-01): only macros stay relative; a SOUND page knob as a live knob is absolute (shows / sets the SOUND page's value). KICK's first live knob = INT (format v63, `kickLiveV63` for KICKs still on FX1:MOD).

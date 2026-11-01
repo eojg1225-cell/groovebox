@@ -357,13 +357,18 @@ describe('CLEAR + A-D and the TIME key', () => {
 });
 
 describe('live knobs', () => {
-  it('KICK / SNARE / HAT top live knobs ride FX 1: MOD, DELAY, FILTER', () => {
+  it('KICK top live knob = INT (the SOUND page\'s own value); SNARE / HAT ride FX 1: DELAY, FILTER', () => {
     const { app, sent, tap, emit } = makeApp();
     tap('mode:play');
+    tap('ch1');
+    tap('mode:design');
+    emit({ type: 'knob', id: 'k9', value: 0.25 }); // DESIGN SOUND: INT
+    tap('mode:play');
+    expect((app as unknown as { targets: { get(): number }[] }).targets[0].get()).toBeCloseTo(0.25, 2); // live INT shows it
     emit({ type: 'knob', id: 'k1', value: 1 });
+    expect(app.project.channels[0].sounds.kick!.intensity).toBe(1);
     emit({ type: 'knob', id: 'k2', value: 0.5 });
     emit({ type: 'knob', id: 'k3', value: 0 });
-    expect(app.project.buses[0].mod_vol).toBe(1);
     expect(app.project.buses[0].dly_vol).toBe(0.5);
     expect(app.project.buses[0].flt).toBe(0);
     expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
@@ -1447,6 +1452,19 @@ describe('painted steps', () => {
     app.project.root = 9; // A
     tap('step5');
     expect(app.project.channels[0].patterns[0].steps[4].note % 12).toBe(9);
+  });
+});
+
+describe('pattern switch', () => {
+  it('A-D switches the tracks as one group; FUNC + A-D = the quick switch (FUNC lets go)', () => {
+    const { app, tap, sent } = makeApp();
+    tap('patB');
+    expect(sent).toContainEqual({ type: 'switchPatterns', channels: [0, 1, 2, 3, 4, 5, 6, 7], pattern: 1, quick: false });
+    tap('func'); // latched
+    tap('patC');
+    expect(sent).toContainEqual({ type: 'switchPatterns', channels: [0, 1, 2, 3, 4, 5, 6, 7], pattern: 2, quick: true });
+    expect((app as unknown as { func: boolean }).func).toBe(false);
+    expect(app.project.channels.every((c) => c.activePattern === 2)).toBe(true);
   });
 });
 

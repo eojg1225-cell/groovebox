@@ -49,6 +49,7 @@ Main -> worklet:
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-128 steps |
 | `setPatternSpeed` | `channel`, `pattern`, `speed` | normal / double / half / triplet |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern at the next bar line where the loop starts (or now, if `immediate` / stopped); its patch glides in until then (coarse params at the switch); the playing pattern again cancels (glides back) |
+| `switchPatterns` | `channels`, `pattern`, `quick` | A-D on several tracks: playing, all switch together at the loop end of the one that ends last (`quick`: the next bar line), each from its first step; patches glide in until then; stopped: at once |
 | `setPatch` | `channel`, `pattern`, `sound`, `glide` | A pattern's whole patch (COPY, RESET); `glide` = glide there by the next bar line |
 | `swapNotes` | `channel`, `pattern`, `length`, `steps`, `speed?` | RESET with notes: the saved notes replace the pattern's at the next bar line |
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's type and set its full sound |
@@ -99,7 +100,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 The types in `src/engine/project.ts` (`Project`, `ChannelState`, `Pattern`, `Step`, `Patch`, `Song`)
 are the reference, with a doc comment on every field; they are not repeated here. Key points:
-- `PROJECT_VERSION` is the stored format's version (62 now).
+- `PROJECT_VERSION` is the stored format's version (63 now).
 - A pattern being edited keeps its patch in the channel's `sounds` / `trims` / `presets`; the other
   patterns keep theirs in `Pattern.patch`. Read and write through `patchOf` / `setPatchOf` / `editPattern`.
 - `sounds` hold resulting values; `trims` hold the SOUND page offsets on top of TIMBRE / INTENSITY

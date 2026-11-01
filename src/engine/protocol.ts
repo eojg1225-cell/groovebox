@@ -23,6 +23,12 @@ export type MainToWorklet =
    * playing pattern again = a waiting switch is cancelled (the sound glides back).
    */
   | { type: 'selectPattern'; channel: number; pattern: number; immediate: boolean }
+  /**
+   * A-D on several tracks: they all switch together (playing), at the loop end of the one
+   * whose loop ends last (each on a bar line), or with `quick` (FUNC + A-D) at the next bar
+   * line; each new pattern starts from its first step. Stopped: at once.
+   */
+  | { type: 'switchPatterns'; channels: number[]; pattern: number; quick: boolean }
   /** Pattern `pattern`'s whole patch; glide = (playing) glide there by the next bar line. */
   | { type: 'setPatch'; channel: number; pattern: number; sound: Record<string, number>; glide: boolean }
   /** RESET with notes: a pattern's (saved) notes replace its steps at the next bar line. */

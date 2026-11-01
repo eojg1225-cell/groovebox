@@ -363,6 +363,11 @@ function drumRootV62(kind: InstrumentKind, note: number): number {
   return kind === 'kick' || kind === 'snare' || kind === 'hat' ? Math.max(0, note - 3) : note;
 }
 
+/** v63: a KICK's first live knob became INT; a KICK still on the old default (FX1:MOD) takes it. */
+function kickLiveV63(ch: ChannelState): void {
+  if (ch.instrument === 'kick' && ch.live[0] === 'fx1:mod_vol') ch.live = ['intensity', ch.live[1]];
+}
+
 /** A stored pattern's length, speed, flips and notes into `pat` (its steps start empty). */
 function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, version: number, kind: InstrumentKind): void {
   pat.length = Math.round(num(sp.len, pat.length, 1, MAX_STEPS));
@@ -482,6 +487,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   // Live knobs on parameters the type does not have: back to the type's defaults.
   if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, id))) liveDefaults(ch);
   if (version < 51) liveV51(ch);
+  if (version < 63) kickLiveV63(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;

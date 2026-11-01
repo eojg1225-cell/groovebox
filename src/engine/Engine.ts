@@ -191,6 +191,8 @@ export class Engine {
   private pendingMeter = -1;
 
   private readonly pendingPattern = new Int8Array(NUM_CHANNELS).fill(-1);
+  /** A group switch (switchPatterns): the master step it lands on (-1 = at the track's own loop end). */
+  private readonly landAt = new Float64Array(NUM_CHANNELS).fill(-1);
   private readonly position = new Uint8Array(NUM_CHANNELS);
   /** Step index whose trigger is skipped once (a live note was already played for it). */
   private readonly skipStep = new Int16Array(NUM_CHANNELS).fill(-1);
@@ -430,6 +432,7 @@ export class Engine {
         break;
       }
       case 'selectPattern': this.selectPattern(msg.channel, msg.pattern, msg.immediate); break;
+      case 'switchPatterns': this.switchPatterns(msg.channels, msg.pattern, msg.quick); break;
       case 'setSound': this.setPatchSound(msg.channel, msg.pattern ?? this.editedPattern(msg.channel), msg.id, msg.value); break;
       case 'setPatch': this.setPatch(msg.channel, msg.pattern, msg.sound, msg.glide); break;
       case 'swapNotes': this.swapNotes(msg.channel, msg.pattern, msg.length, msg.steps, msg.speed); break;
@@ -729,6 +732,7 @@ export class Engine {
     this.applyPendingNotes();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       // A switch waiting for its bar line happens now, and every patch glide lands.
+      this.landAt[ch] = -1;
       if (this.pendingPattern[ch] >= 0) this.landPattern(ch);
       if (this.glidePattern[ch] >= 0) this.finishGlide(ch);
       if (!playing) {
@@ -1070,7 +1074,17 @@ export class Engine {
       if (!this.current[ch]) continue;
       // Quantised pattern switch on a bar line: where the track starts its loop, or (its
       // last loop started off the bar: drifting) at the next one, from its first step.
-      if (atBar && this.pendingPattern[ch] >= 0 && (this.loopStart[ch] || this.offGrid[ch])) {
+      if (this.pendingPattern[ch] >= 0 && this.landAt[ch] >= 0) {
+        // A group switch: every track of it on the same step, each from its first step.
+        if (g >= this.landAt[ch]) {
+          this.landAt[ch] = -1;
+          this.position[ch] = 0;
+          this.loopStart[ch] = 1;
+          this.runLeft[ch] = 0;
+          this.rollLeft[ch] = 0;
+          this.landPattern(ch);
+        }
+      } else if (atBar && this.pendingPattern[ch] >= 0 && (this.loopStart[ch] || this.offGrid[ch])) {
         if (!this.loopStart[ch]) {
           this.position[ch] = 0;
           this.loopStart[ch] = 1;
@@ -2225,13 +2239,43 @@ export class Engine {
       return;
     }
     this.pendingPattern[ch] = pat;
+    this.landAt[ch] = -1;
     // Glide until it lands: the loop's end, on (or, drifting, rounded up to) a bar line.
+    const ahead = this.loopAhead(ch);
+    this.startGlide(ch, pat, this.framesAhead(ahead));
+  }
+
+  /** Master steps until the track's loop ends, on (or, drifting, rounded up to) a bar line. */
+  private loopAhead(ch: number): number {
     const cur = ch * NUM_PATTERNS + this.activePattern[ch];
     const left = this.loopStart[ch] ? 0 : this.onCount(cur * MAX_STEPS, this.position[ch], this.patternLength[cur]);
     let ahead = Math.ceil(left * this.patternRate[cur] - 1e-6);
     const p = this.barPos(this.globalStep + ahead);
     if (p !== 0) ahead += this.barLen - p;
-    this.startGlide(ch, pat, this.framesAhead(ahead));
+    return ahead;
+  }
+
+  /**
+   * A-D on several tracks (switchPatterns): playing, they switch together, at the loop end of
+   * the one that ends last (or `quick`: the next bar line), their patches gliding in until then.
+   */
+  private switchPatterns(channels: number[], pat: number, quick: boolean): void {
+    const moving = this.playing ? channels.filter((ch) => this.current[ch] && pat !== this.activePattern[ch]) : [];
+    // Stopped, or already on it (a waiting switch is cancelled): as a single switch.
+    for (const ch of channels) if (!moving.includes(ch)) this.selectPattern(ch, pat, false);
+    if (moving.length === 0) return;
+    let ahead = 0;
+    if (quick) {
+      const p = this.barPos(this.globalStep);
+      ahead = p === 0 ? 0 : this.barLen - p;
+    } else {
+      for (const ch of moving) ahead = Math.max(ahead, this.loopAhead(ch));
+    }
+    for (const ch of moving) {
+      this.pendingPattern[ch] = pat;
+      this.landAt[ch] = this.globalStep + ahead;
+      this.startGlide(ch, pat, this.framesAhead(ahead));
+    }
   }
 
   /** A switch waiting for the loop end happens. */

@@ -1386,22 +1386,35 @@ export class App {
     if ((m = /^pat([A-D])$/.exec(id))) {
       // A-D: every track; channels held: HOLD + PATTERN = KEEP HELD switches all but those,
       // SWITCH HELD only those.
+      // Playing, the tracks switch together: at the loop end of the one that ends last, or
+      // with FUNC (the quick switch; FUNC lets go) at the next bar line.
       const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
+      const quick = this.func;
+      if (quick) {
+        this.funcHeld = false;
+        this.funcLatched = false;
+        this.funcUsed = true;
+      }
+      let chs: number[];
+      let label: string;
       if (this.heldChannels.size > 0) {
         const held = [...this.heldChannels].sort();
         const names = held.map((ch) => ch + 1).join(' ');
         if (this.setting('holdPattern') === 1) {
-          for (const ch of held) this.selectPattern(ch, pat, held.length === 1);
-          if (held.length > 1) this.flash(`${names} PAT ${m[1]}`);
+          chs = held;
+          label = held.length === 1 ? `${held[0] + 1} ${this.kindName(this.project.channels[held[0]])}` : names;
         } else {
-          for (let ch = 0; ch < NUM_CHANNELS; ch++) if (!this.heldChannels.has(ch)) this.selectPattern(ch, pat, false);
-          this.flash(`ALL BUT ${names} PAT ${m[1]}`);
+          chs = [...Array(NUM_CHANNELS).keys()].filter((ch) => !this.heldChannels.has(ch));
+          label = `ALL BUT ${names}`;
         }
         this.heldUsed = true;
       } else {
-        for (let ch = 0; ch < NUM_CHANNELS; ch++) this.selectPattern(ch, pat, false);
-        this.flash(`ALL TRACKS PAT ${m[1]}`);
+        chs = [...Array(NUM_CHANNELS).keys()];
+        label = 'ALL TRACKS';
       }
+      for (const ch of chs) this.selectPattern(ch, pat, false, false);
+      this.send({ type: 'switchPatterns', channels: chs, pattern: pat, quick });
+      this.flash(`${label} PAT ${m[1]}${quick && this.playing ? ' AT THE BAR' : ''}`);
       this.refreshPanel();
       return;
     }
@@ -2069,14 +2082,14 @@ export class App {
    * Switch a track's pattern, with its patch (stopped: at once; playing: at its loop end, in
    * every mode, the sound gliding there). The chosen pattern is the one edited.
    */
-  private selectPattern(ch: number, pattern: number, flash = true): void {
+  private selectPattern(ch: number, pattern: number, flash = true, send = true): void {
     const c = this.project.channels[ch];
     editPattern(c, pattern);
     if (ch === this.selected) {
       this.clampCursor();
       this.entry = null;
     }
-    this.send({ type: 'selectPattern', channel: ch, pattern, immediate: false });
+    if (send) this.send({ type: 'selectPattern', channel: ch, pattern, immediate: false });
     if (flash) this.flash(`${ch + 1} ${this.kindName(c)} PAT ${PATTERN_NAMES[pattern]}`);
     this.save();
   }

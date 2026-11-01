@@ -453,6 +453,38 @@ describe('sequencer', () => {
     near(onsets(rest), [96000 + 12000 - first.length]);
   });
 
+  /** Track 1: A = a 1-bar loop hit on step 0, B = step 2; track 2 (a second short kick): A = 2 bars, silent, B = step 4. */
+  const twoTracks = () => {
+    const p = kickProject([0]);
+    p.channels[0].patterns[1].steps[2].active = true;
+    const c = p.channels[1];
+    c.instrument = 'kick';
+    c.sounds.kick = { ...p.channels[0].sounds.kick! };
+    c.patterns[0].length = 32;
+    c.patterns[1].steps[4].active = true;
+    return p;
+  };
+
+  it('A-D on several tracks: they all switch at the loop end of the one that ends last', () => {
+    const e = engineWith(twoTracks());
+    e.handleMessage({ type: 'transport', playing: true });
+    const first = render(e, 0.5).l;
+    e.handleMessage({ type: 'switchPatterns', channels: [0, 1], pattern: 1, quick: false });
+    const rest = render(e, 4.5).l;
+    near(onsets(first), [0]);
+    // Track 1 plays A again at 96000 (its own loop end) and both switch at 192000 (track 2's).
+    near(onsets(rest), [96000, 192000 + 12000, 192000 + 24000].map((x) => x - first.length));
+  });
+
+  it('FUNC + A-D (quick): the tracks switch together at the next bar line', () => {
+    const e = engineWith(twoTracks());
+    e.handleMessage({ type: 'transport', playing: true });
+    const first = render(e, 0.5).l;
+    e.handleMessage({ type: 'switchPatterns', channels: [0, 1], pattern: 1, quick: true });
+    const rest = render(e, 2.5).l;
+    near(onsets(rest), [96000 + 12000, 96000 + 24000].map((x) => x - first.length));
+  });
+
   it('a held note changing dynamic (slide ghost -> accent) moves its level smoothly', () => {
     const p = kickProject([]);
     const c = p.channels[4];
@@ -1453,6 +1485,17 @@ describe('slides and rolls', () => {
     expect(back.channels[3].patterns[0].steps[0].note).toBe(40);
     expect(back.channels[4].patterns[0].steps[0].note).toBe(45);
     expect(fromStored(toStored(p))!.channels[0].patterns[0].steps[0].note).toBe(36); // a v62 save as stored
+  });
+
+  it('v63 load: a KICK on the old first live knob (FX1:MOD) takes INT; custom live knobs stay', () => {
+    const p = createDefaultProject();
+    p.channels[0].live = ['fx1:mod_vol', 'macro:decay'];
+    p.channels[1].live = ['fx1:mod_vol', 'macro:decay']; // SNARE: not a KICK
+    const stored = toStored(p) as { version: number };
+    stored.version = 62;
+    const back = fromStored(stored)!;
+    expect(back.channels[0].live).toEqual(['intensity', 'macro:decay']);
+    expect(back.channels[1].live).toEqual(['fx1:mod_vol', 'macro:decay']);
   });
 
   it('drum OCTAVE (FUNC + OCT) moves the pitched layers by whole octaves; 0 = as before', () => {
@@ -3722,7 +3765,7 @@ describe('PAD / PLUCK chord slides, FM LVL2', () => {
       const fmAt = INSTRUMENTS[k].layout.indexOf('fm');
       expect(INSTRUMENTS[k].funcLayout[fmAt]).toBe('fm2');
       expect(linkedParams(k, 'fm')).toEqual(['fm2']);
-      expect(liveTargets(k, 'fm').map((t) => t.id)).toEqual(['fm', 'fm2']);
+      expect(liveTargets(k, 'fm')).toEqual([]); // a live FM LVL is absolute: the knob itself (App.paramTarget links FM LVL2)
       for (let t = 0; t <= 1; t += 0.25) expect(macroSound(k, t, 0.5, INSTRUMENTS[k].params).fm2).toBe(macroSound(k, t, 0.5, INSTRUMENTS[k].params).fm);
     }
   });
