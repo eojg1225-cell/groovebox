@@ -68,7 +68,7 @@ import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
-import type { DesignView, LaneCell, LiveView, MenuView, ProjectView, SongStripView } from './views';
+import type { CopyView, DesignView, LaneCell, LiveView, MenuView, ProjectView, SongStripView } from './views';
 import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, songBars, songClips, type Clip } from './songClips';
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
@@ -372,7 +372,13 @@ export class App {
    * selected track's pattern (COPY again = paste). `length` = the pattern's length before,
    * `saved` = the steps an added bar covered (put back if the bar is left again).
    */
-  private copyBar: { from: number; to: number; length: number; saved: Map<number, Step> } | null = null;
+  /**
+   * COPY held: what was tapped first, the thing to copy (a bar of the selected track, one of its
+   * steps, or a track's pattern); what is tapped after are the places it goes (`copyTargets`, named
+   * for the screen). Null = nothing picked yet.
+   */
+  private copySrc: { kind: 'bar'; bar: number } | { kind: 'step'; index: number } | { kind: 'pattern'; ch: number; pat: number } | null = null;
+  private copyTargets: string[] = [];
   /**
    * SONG never changes a pattern: its sound knobs are heard through a copy of the patch per
    * track (the project keeps the pattern's own), dropped at STOP, a mode change etc. (endAudition).
@@ -655,7 +661,8 @@ export class App {
    * Holding CLEAR turns the strip into steps (to clear) in RECORD and PLAY.
    */
   private get keyboard(): boolean {
-    if (this.autoSteps || this.copyBar || this.stepEdit) return false;
+    if (this.autoSteps || this.stepEdit) return false;
+    if (this.copyHeld && !this.song) return false; // COPY: the strip shows the steps
     if (this.song) return true; // SONG never edits a pattern's steps
     if (this.clearHeld && this.mode !== 'design') return false;
     if (this.stepsMode) return false;
@@ -798,7 +805,6 @@ export class App {
 
   /** Which block of 16 steps the strip/screen shows for a channel. */
   private visiblePage(ch: number): number {
-    if (this.copyBar && ch === this.selected) return this.copyBar.to;
     if (this.stepEdit && this.primed && ch === this.selected) return Math.floor(this.primed.cell / 16);
     const c = this.project.channels[ch];
     const heard = this.status?.patterns[ch] ?? c.activePattern;
@@ -1441,58 +1447,29 @@ export class App {
       }
       if (id === 'copy') {
         this.copyHeld = false;
-        if (!this.copyUsed) this.flash(this.stepEdit ? 'HOLD COPY + TAP STEPS' : 'HOLD COPY + TRACK / A-D');
+        this.copySrc = null;
+        this.copyTargets = [];
+        if (!this.copyUsed) this.flash('HOLD COPY: TAP WHAT, THEN WHERE');
         this.refreshPanel();
       }
       return;
     }
     // The other strip modes (flag placing, REST) end STEP EDIT.
     if (this.stepEdit && (id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost' || id === 'rest')) this.leaveStepEdit();
-    if (id === 'copy' && this.copyBar) {
-      this.pasteBar();
-      this.copyUsed = true; // its release is not a tap
-      this.copyHeld = true;
-      this.refreshPanel();
-      return;
-    }
     if (id === 'copy') {
       this.copyHeld = true;
       this.copyUsed = false;
+      this.copySrc = null;
+      this.copyTargets = [];
       this.refreshPanel();
       return;
     }
-    if (this.copyHeld && id === 'steppage' && !this.song) {
-      this.leaveStepEdit();
-      this.startCopyBar();
-      this.copyUsed = true;
-      this.refreshPanel();
-      return;
-    }
-    if (this.copyBar && !(id === 'cancel' || id === 'play' || id.startsWith('mode:'))) {
-      // ◀ ▶ = the target bar; the rest waits (CANCEL drops it, a mode change too).
-      if (id === 'cur-' || id === 'cur+') this.moveCopyBar(id === 'cur+' ? 1 : -1);
-      this.refreshPanel();
-      return;
-    }
-    if (this.copyHeld && !this.songGrid && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
-      // COPY + channel: the same pattern slot on that track; COPY + A-D: that pattern of
-      // this track. (SONG DESIGN: COPY is its own, stripHold.)
+    if (this.copyHeld && !this.songGrid && (id === 'steppage' || /^(ch\d|pat[A-D]|step\d+)$/.test(id))) {
+      // COPY held: the first tap picks what to copy, the next ones where to (SONG DESIGN: its own).
       if (this.song) {
         this.copyUsed = true;
         this.flash(SONG_KEEPS);
-        this.refreshPanel();
-        return;
-      }
-      const c = this.channel;
-      const [toCh, toPat] = id.startsWith('ch') ? [Number(m[1]) - 1, c.activePattern]
-        : [this.selected, PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number])];
-      // FUNC + COPY = the sound only (FUNC lets go, held or latched).
-      if (this.func) {
-        this.funcHeld = false;
-        this.funcLatched = false;
-        this.funcUsed = true;
-        this.copyPatch(this.selected, c.activePattern, toCh, toPat);
-      } else this.copyPattern(this.selected, c.activePattern, toCh, toPat);
+      } else this.copyTap(id);
       this.refreshPanel();
       return;
     }
@@ -2500,7 +2477,6 @@ export class App {
     this.leaveStepEdit();
     this.unprime();
     this.endAudition();
-    this.dropCopyBar();
     this.mode = mode;
     this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
@@ -2538,7 +2514,7 @@ export class App {
   /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
   /** The strip shows the bar playing: PLAY, DESIGN and live recording (RECORD while playing; not in STEP EDIT, which keeps its primed bar). */
   private get followsPlayhead(): boolean {
-    return this.playing && !this.copyBar && !this.stepEdit && (this.mode === 'play' || this.mode === 'design' || this.recording);
+    return this.playing && !this.stepEdit && (this.mode === 'play' || this.mode === 'design' || this.recording);
   }
 
   /**
@@ -2631,6 +2607,9 @@ export class App {
     const to = this.project.channels[toCh];
     const src = from.patterns[fromPat];
     const dst = to.patterns[toPat];
+    // An empty pattern takes the sound too (a track of the same type).
+    const withSound = from.instrument !== 'none' && from.instrument === to.instrument
+      && dst.steps.slice(0, MAX_STEPS).every((st) => !st.active && !st.rest && !st.locks);
     const plainDrum = to.instrument !== 'none' && stepsOnStrip(to.instrument);
     // A drum's hits onto a pitched track land on its keyboard's base note.
     const fromDrum = from.instrument !== 'none' && stepsOnStrip(from.instrument) && !plainDrum;
@@ -2651,9 +2630,14 @@ export class App {
       this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
     });
     dst.notesDirty = true;
-    // Only the notes: the pattern keeps its own sound.
+    // The notes; an empty pattern the sound too, else it keeps its own.
+    if (withSound) {
+      setPatchOf(to, toPat, patchOf(from, fromPat));
+      dst.patchDirty = true;
+      this.send({ type: 'setPatch', channel: toCh, pattern: toPat, sound: { ...patchOf(to, toPat).sound }, glide: this.playing });
+    }
     this.copyUsed = true;
-    this.flash(`COPIED ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${PATTERN_NAMES[toPat]}`);
+    this.flash(`COPIED ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${PATTERN_NAMES[toPat]}${withSound ? ' + SOUND' : ''}`);
     this.relabel(`COPY > ${this.kindName(to)} ${PATTERN_NAMES[toPat]}`);
     this.save();
   }
@@ -2663,17 +2647,13 @@ export class App {
    * slot of a track of the same type; the target keeps its notes. Playing, the engine glides it
    * in by the next bar line. An unsaved edit there (RESET / UNDO bring the old one back).
    */
-  private copyPatch(fromCh: number, fromPat: number, toCh: number, toPat: number): void {
+  private copyPatch(fromCh: number, fromPat: number, toCh: number, toPat: number): boolean {
     this.copyUsed = true;
-    if (fromCh === toCh && fromPat === toPat) {
-      this.flash('PICK ANOTHER TRACK / PATTERN');
-      return;
-    }
     const from = this.project.channels[fromCh];
     const to = this.project.channels[toCh];
     if (from.instrument === 'none' || from.instrument !== to.instrument) {
       this.flash('SOUND: SAME TYPE ONLY');
-      return;
+      return false;
     }
     setPatchOf(to, toPat, patchOf(from, fromPat));
     to.patterns[toPat].patchDirty = true;
@@ -2681,90 +2661,158 @@ export class App {
     this.flash(`SOUND ${fromCh + 1} ${PATTERN_NAMES[fromPat]} > ${toCh + 1} ${PATTERN_NAMES[toPat]}`);
     this.relabel(`SOUND > ${this.kindName(to)} ${PATTERN_NAMES[toPat]}`);
     this.save();
+    return true;
   }
 
-  // ---------------------------------------------------------------- COPY BAR
+  // ---------------------------------------------------------------- COPY
 
-  /** COPY held + BAR: the bar the strip shows is the one to copy; ◀ ▶ pick where to. */
-  private startCopyBar(): void {
-    const bar = this.visiblePage(this.selected);
-    this.copyBar = { from: bar, to: bar, length: this.pattern.length, saved: new Map() };
-    this.flash(`COPY BAR ${bar + 1}: < > TO, COPY = PASTE`);
+  /**
+   * A tap while COPY is held. Nothing picked yet (or a tap that can't be a place for it): it
+   * picks what to copy: BAR = the bar the strip shows, a step, a channel = that track's pattern,
+   * A-D = that pattern of the selected track. Then: a bar goes onto the bars on the track keys
+   * (an unlit one grows the pattern), a step onto other steps, a pattern onto A-D (the same track)
+   * or a channel (its pattern of that letter); FUNC = the sound only. As many as wanted.
+   */
+  private copyTap(id: string): void {
+    this.copyUsed = true;
+    const src = this.copySrc;
+    let m: RegExpExecArray | null;
+    const ch = this.selected;
+    if (id === 'steppage') {
+      const bar = this.visiblePage(ch);
+      this.copySrc = { kind: 'bar', bar };
+      this.copyTargets = [];
+      this.leaveStepEdit();
+      return;
+    }
+    if ((m = /^step(\d+)$/.exec(id))) {
+      const index = this.visiblePage(ch) * 16 + Number(m[1]) - 1;
+      if (index >= this.pattern.length) return;
+      if (src?.kind === 'step') {
+        this.copyStep(src.index, index);
+        return;
+      }
+      this.copySrc = { kind: 'step', index };
+      this.copyTargets = [];
+      return;
+    }
+    if ((m = /^ch(\d)$/.exec(id))) {
+      const n = Number(m[1]) - 1;
+      if (src?.kind === 'bar') {
+        this.copyBarTo(src.bar, n);
+        return;
+      }
+      if (src?.kind === 'pattern') {
+        this.copyPatternTo(src.ch, src.pat, n, src.pat);
+        return;
+      }
+      this.copySrc = { kind: 'pattern', ch: n, pat: this.project.channels[n].activePattern };
+      this.copyTargets = [];
+      return;
+    }
+    if ((m = /^pat([A-D])$/.exec(id))) {
+      const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
+      if (src?.kind === 'pattern') {
+        this.copyPatternTo(src.ch, src.pat, src.ch, pat);
+        return;
+      }
+      this.copySrc = { kind: 'pattern', ch, pat };
+      this.copyTargets = [];
+    }
+  }
+
+  /** COPY: a pattern onto another slot (FUNC: the sound only; FUNC lets go, held or latched). */
+  private copyPatternTo(fromCh: number, fromPat: number, toCh: number, toPat: number): void {
+    const name = `${toCh + 1} ${PATTERN_NAMES[toPat]}`;
+    if (fromCh === toCh && fromPat === toPat) {
+      this.flash('PICK ANOTHER TRACK / PATTERN');
+      return;
+    }
+    if (this.func) {
+      this.funcHeld = false;
+      this.funcLatched = false;
+      this.funcUsed = true;
+      if (this.copyPatch(fromCh, fromPat, toCh, toPat)) this.copyTargets.push(`${name} SOUND`);
+      return;
+    }
+    this.copyPattern(fromCh, fromPat, toCh, toPat);
+    this.copyTargets.push(name);
+  }
+
+  /** COPY: step `from` (its notes, flags and locks) onto step `to`; whether it plays (STEPS) stays the target's. */
+  private copyStep(from: number, to: number): void {
+    if (from === to) return;
+    if (this.waiting) {
+      this.flash('LOCK OR CANCEL FIRST');
+      return;
+    }
+    const steps = this.pattern.steps;
+    const copy = JSON.parse(JSON.stringify(steps[from])) as Step;
+    if (steps[to].flip) copy.flip = true;
+    else delete copy.flip;
+    steps[to] = copy;
+    this.sendStep(to, copy);
+    this.pattern.notesDirty = true;
+    this.save();
+    this.relabel(`COPY STEP ${from + 1}`);
+    this.copyTargets.push(`STEP ${to + 1}`);
   }
 
   /**
-   * ◀ ▶ in COPY BAR: the target bar. Past the pattern's last bar it grows by empty bars (up to
-   * 8); going back takes them away again (the steps they covered as they were).
+   * COPY: bar `from` of the selected track's pattern (all 16 steps, empty and switched-off ones
+   * too) onto bar `to`; a bar past the end grows the pattern (empty bars in between).
    */
-  private moveCopyBar(d: number): void {
-    const cb = this.copyBar!;
-    const to = cb.to + d;
-    if (to < 0) return;
-    if (to >= MAX_STEPS / 16) {
-      this.flash('PATTERN FULL (8 BARS)');
-      return;
-    }
-    this.fitCopyBar(to >= Math.ceil(cb.length / 16) ? (to + 1) * 16 : cb.length);
-    cb.to = to;
-    this.viewPage[this.selected] = to;
-  }
-
-  /** The pattern at this length for COPY BAR: steps it grows over start empty, those it gives back are as they were. */
-  private fitCopyBar(length: number): void {
-    const cb = this.copyBar!;
-    const pat = this.pattern;
-    if (length > pat.length) {
-      for (let i = pat.length; i < length; i++) {
-        if (!cb.saved.has(i)) cb.saved.set(i, pat.steps[i]);
-        pat.steps[i] = emptyStep(pat.steps[0]?.note ?? 36);
-        this.sendStep(i, pat.steps[i]);
-      }
-    } else {
-      for (let i = length; i < pat.length; i++) {
-        const was = cb.saved.get(i);
-        if (!was) continue;
-        pat.steps[i] = was;
-        cb.saved.delete(i);
-        this.sendStep(i, was);
-      }
-    }
-    if (length !== pat.length) this.setLength(this.selected, length);
-  }
-
-  /** COPY again: the target bar becomes the copied one, all 16 steps (empty and switched-off ones too). */
-  private pasteBar(): void {
-    const cb = this.copyBar!;
-    const pat = this.pattern;
-    if (cb.to === cb.from) {
+  private copyBarTo(from: number, to: number): void {
+    if (from === to) {
       this.flash('PICK ANOTHER BAR');
-      this.dropCopyBar();
       return;
     }
-    this.copyBar = null;
+    const pat = this.pattern;
+    const empty = () => emptyStep(pat.steps[0]?.note ?? 36);
     const src = Array.from({ length: 16 }, (_, i) => {
-      const at = cb.from * 16 + i;
-      // Beyond the pattern's end a step is empty.
-      return at < pat.length ? (JSON.parse(JSON.stringify(pat.steps[at])) as Step) : emptyStep(pat.steps[0]?.note ?? 36);
+      const at = from * 16 + i;
+      return at < pat.length ? (JSON.parse(JSON.stringify(pat.steps[at])) as Step) : empty();
     });
+    for (let i = pat.length; i < to * 16; i++) {
+      pat.steps[i] = empty();
+      this.sendStep(i, pat.steps[i]);
+    }
     src.forEach((step, i) => {
-      const at = cb.to * 16 + i;
+      const at = to * 16 + i;
       pat.steps[at] = step;
       this.sendStep(at, step);
     });
-    if (pat.length < (cb.to + 1) * 16) this.setLength(this.selected, (cb.to + 1) * 16);
+    if (pat.length < (to + 1) * 16) this.setLength(this.selected, (to + 1) * 16);
     pat.notesDirty = true;
-    this.viewPage[this.selected] = cb.to;
     this.save();
-    this.flash(`COPIED BAR ${cb.from + 1} > ${cb.to + 1}`);
-    this.relabel(`COPY BAR ${cb.from + 1} > ${cb.to + 1}`);
+    this.relabel(`COPY BAR ${from + 1}`);
+    this.copyTargets.push(`BAR ${to + 1}`);
   }
 
-  /** Leave COPY BAR without pasting: bars added for it go again. */
-  private dropCopyBar(): void {
-    if (!this.copyBar) return;
-    this.fitCopyBar(this.copyBar.length);
-    this.copyBar = null;
-    this.clampCursor();
+  /** COPY held (not SONG): the screen's big COPY view replaces the sequencer. */
+  get copyShowing(): boolean {
+    return this.copyHeld && !this.song;
+  }
+
+  copyView(): CopyView {
+    const src = this.copySrc;
+    const c = this.channel;
+    let title = 'COPY';
+    let sub = `${this.selected + 1} ${this.kindName(c)} ${PATTERN_NAMES[c.activePattern]}`;
+    let hint = 'TAP A STEP, BAR, TRACK OR A-D';
+    if (src?.kind === 'bar') {
+      title = `COPY BAR ${src.bar + 1}`;
+      hint = 'TO: TAP A BAR ON THE TRACK KEYS';
+    } else if (src?.kind === 'step') {
+      title = `COPY STEP ${src.index + 1}`;
+      hint = 'TO: TAP STEPS';
+    } else if (src?.kind === 'pattern') {
+      title = `COPY PATTERN ${PATTERN_NAMES[src.pat]}`;
+      sub = `${src.ch + 1} ${this.kindName(this.project.channels[src.ch])}`;
+      hint = this.func ? 'SOUND ONLY: TAP A-D OR A TRACK' : 'TO: TAP A-D OR A TRACK';
+    }
+    const done = this.copyTargets.length ? `> ${this.copyTargets.slice(-6).join(' / ')}` : '';
+    return { title, sub, hint, done, message: performance.now() < this.messageUntil ? this.message : '', ink: inkOf(this.trackColour(this.selected)) };
   }
 
   /** A track's (edited) pattern length, here and in the engine. */
@@ -3700,38 +3748,12 @@ export class App {
       this.flash(`STEP ${index + 1}: LOCKS CLEARED`);
       return;
     }
-    if (this.copyHeld && this.primed?.cell !== index) {
-      this.copyPrimed(index);
-      return;
-    }
     if (this.primed?.cell === index) {
       if (this.funcHeld) this.funcUsed = true;
       this.lockPrimed(this.func);
       return;
     }
     this.movePrime(index);
-  }
-
-  /**
-   * STEP EDIT, COPY held: the primed step (its notes, flags and locks) onto step `index`; more
-   * taps place more copies until COPY is let go. Whether a step plays (STEPS) stays the target's.
-   */
-  private copyPrimed(index: number): void {
-    this.copyUsed = true;
-    if (this.waiting) {
-      this.flash('LOCK OR CANCEL FIRST');
-      return;
-    }
-    const steps = this.pattern.steps;
-    const from = this.primed!.cell;
-    const copy = JSON.parse(JSON.stringify(steps[from])) as Step;
-    if (steps[index].flip) copy.flip = true;
-    else delete copy.flip;
-    steps[index] = copy;
-    this.sendStep(index, copy);
-    this.save();
-    this.relabel(`COPY STEP ${from + 1}`);
-    this.flash(`STEP ${from + 1} COPIED TO ${index + 1}`);
   }
 
   /** STEP EDIT on (RECORD, stopped): the other strip modes go, the step entry cursor's step is primed. */
@@ -3749,7 +3771,6 @@ export class App {
     this.slideArm = false;
     this.dynamic = 'normal';
     this.restArm = false;
-    this.dropCopyBar();
     this.entry = null;
     const ch = this.selected;
     const cell = this.stripSteps() ? this.visiblePage(ch) * 16 : this.cursor[ch];
@@ -3913,9 +3934,9 @@ export class App {
       this.unprime();
       if (pr.pattern) this.primeAt(pr.cell);
       this.flash('STEP LEFT UNLOCKED');
-    } else if (this.copyBar) {
-      this.dropCopyBar();
-      this.flash('NOTHING COPIED');
+    } else if (this.copyHeld && this.copySrc) {
+      this.copySrc = null;
+      this.flash('COPY: PICK AGAIN');
     } else {
       this.flash('NOTHING TO CANCEL');
     }
@@ -3923,7 +3944,7 @@ export class App {
 
   /** Something CANCEL would drop (the CANCEL key lights). */
   private get cancelShows(): boolean {
-    return !!(this.menu || this.projMenu || this.waiting || this.copyBar);
+    return !!(this.menu || this.projMenu || this.waiting || (this.copyHeld && this.copySrc));
   }
 
   // ---------------------------------------------------------------- UNDO / REDO
@@ -3941,7 +3962,7 @@ export class App {
   private trackGesture(e: ControlEvent): void {
     const inMenu = !!(this.menu || this.projMenu);
     // A primed SONG RECORD step and COPY BAR are one gesture until locked / pasted (or dropped).
-    const pending = this.waiting || !!this.copyBar;
+    const pending = this.waiting;
     if (e.type === 'button' && e.id !== 'func') {
       if (e.pressed) this.down.add(e.id);
       else this.down.delete(e.id);
@@ -4332,7 +4353,10 @@ export class App {
     });
     // STEPS mode: the track buttons are the selected track's bars, so they take its colour.
     const sel = this.trackColour(this.selected);
-    this.panel.setTrackColours(this.project.channels.map((c) => (this.stepsMode ? sel : trackColour(c.instrument))), sel, neutralColour());
+    // COPY a bar: the track keys are the pattern's bars (lit = it has it, yellow = the one copied).
+    const copyBars = this.copyShowing && this.copySrc?.kind === 'bar' ? this.copySrc.bar : -1;
+    const barKeys = this.stepsMode || copyBars >= 0;
+    this.panel.setTrackColours(this.project.channels.map((c) => (barKeys ? sel : trackColour(c.instrument))), sel, neutralColour());
 
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -4340,12 +4364,13 @@ export class App {
       // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
       const sendView = this.sendOpen;
       // STEPS mode: a track button per bar, lit = the pattern has it.
-      const lit = sendView ? this.onBus(c, this.fxView) : this.stepsMode ? ch < this.pageCount() : ch === this.selected;
+      const lit = sendView ? this.onBus(c, this.fxView) : barKeys ? ch < this.pageCount() && ch !== copyBars : ch === this.selected;
       this.panel.setButtonLit(`ch${ch + 1}`, lit);
+      this.panel.setButtonFlag(`ch${ch + 1}`, 'cursor', ch === copyBars);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonLit(`solo${ch + 1}`, this.soloed[ch]);
-      this.panel.setButtonText(`ch${ch + 1}`, `${ch + 1}<small>${this.kindName(c)}</small>`);
+      this.panel.setButtonText(`ch${ch + 1}`, copyBars >= 0 ? `${ch + 1}<small>BAR</small>` : `${ch + 1}<small>${this.kindName(c)}</small>`);
     }
     for (const [id, gid] of Object.entries(MASTER_GLOBAL)) {
       const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
@@ -4373,7 +4398,7 @@ export class App {
     // SAVE PROJECT doubles as LOAD (FUNC): the label says which one a tap opens.
     this.panel.setButtonText('saveproject', this.func ? 'LOAD<small>PROJECT</small>' : 'SAVE/LOAD<small>PROJECT</small>');
     this.panel.setButtonEnabled('clear', this.mode !== 'design' || this.songGrid);
-    this.panel.setButtonLit('copy', this.copyHeld || !!this.copyBar);
+    this.panel.setButtonLit('copy', this.copyHeld);
     this.panel.setButtonEnabled('copy', this.mode !== 'design' || this.songGrid);
     this.panel.setButtonLit('play', this.playing);
     this.panel.setButtonText('play', this.playing ? 'STOP' : 'PLAY');
@@ -4402,7 +4427,7 @@ export class App {
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, true);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && (this.stripSteps() || (this.clearHeld && this.mode !== 'design')));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || this.stepsMode || !!this.projMenu || !!this.copyBar || this.stepEdit || this.autoSteps);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || this.stepsMode || !!this.projMenu || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
     // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
     this.panel.setButtonEnabled('scale', !this.songGrid);
@@ -4569,7 +4594,8 @@ export class App {
         this.panel.setButtonFlag(id, 'head', head === index);
         this.panel.setButtonFlag(id, 'ring', !view && d !== null && !!step.ring);
         this.panel.setButtonFlag(id, 'rest', !off && !step.active && !!step.rest);
-        for (const f of ['note', 'black', 'cursor']) this.panel.setButtonFlag(id, f, false);
+        for (const f of ['note', 'black']) this.panel.setButtonFlag(id, f, false);
+        this.panel.setButtonFlag(id, 'cursor', this.copyShowing && this.copySrc?.kind === 'step' && this.copySrc.index === index);
         if (tie && !meterOut) this.panel.setButtonText(id, String(index + 1));
       }
     }
@@ -4659,8 +4685,7 @@ export class App {
       bpmText: this.project.bpm.toFixed(0),
       playing: this.playing,
       ink: inkOf(this.fxView > 0 && !this.arpOpen ? neutralColour() : this.trackColour(ch)),
-      message: performance.now() < this.messageUntil ? this.message : this.primed ? this.primedHint()
-        : this.copyBar ? `COPY BAR ${this.copyBar.from + 1} > ${this.copyBar.to + 1}` : '',
+      message: performance.now() < this.messageUntil ? this.message : this.primed ? this.primedHint() : '',
     };
   }
 
@@ -4706,7 +4731,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK / A-D' : this.copyHeld ? 'COPY: TRACK / A-D' : this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
+      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK / A-D' :  this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',

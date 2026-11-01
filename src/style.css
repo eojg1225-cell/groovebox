@@ -276,6 +276,8 @@ html, body {
 }
 /* Channel buttons while a send is open: lit = track feeds the send (tap to toggle). */
 .btn.ch.send { border-style: dashed; }
+/* COPY a bar: the bar being copied (the track keys are bars). */
+.btn.ch.cursor { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); box-shadow: none; }
 .btn.ch.send.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); border-style: solid; }
 
 /* Keyboard view (pitched tracks). */

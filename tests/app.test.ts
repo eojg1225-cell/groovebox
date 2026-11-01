@@ -1004,26 +1004,102 @@ describe('CHORD knob', () => {
   });
 });
 
-describe('STEP EDIT: COPY', () => {
-  it('COPY held + taps = copies of the primed step (notes, flags, locks); the primed step stays primed', () => {
-    const { app, tap, press, release } = makeApp();
+describe('COPY: hold COPY, tap what, then where', () => {
+  const copyView = (app: App) => app.copyView();
+
+  it('a step: COPY + a step, then other steps get copies (notes, flags, locks; STEPS on / off stays theirs); the screen shows it large', () => {
+    const { app, tap, press, release, flags } = makeApp();
     tap('mode:record');
     tap('ch5');
     const steps = app.project.channels[4].patterns[0].steps;
     Object.assign(steps[0], { active: true, note: 40, gate: 2, slide: true, locks: { cutoff: 900 } });
     steps[5].flip = true;
-    tap('stepedit'); // primes step 1 (the cursor's)
     press('copy');
+    expect(app.copyShowing).toBe(true);
+    expect(copyView(app).title).toBe('COPY');
+    tap('step1');
+    expect(copyView(app).title).toBe('COPY STEP 1');
+    app.updateFrame(0);
+    expect(flags.get('step1')?.has('cursor')).toBe(true); // the strip shows steps, the source yellow
     tap('step4');
     tap('step6');
+    expect(copyView(app).done).toBe('> STEP 4 / STEP 6');
     release('copy');
+    expect(app.copyShowing).toBe(false);
     for (const i of [3, 5]) expect(steps[i]).toMatchObject({ active: true, note: 40, gate: 2, slide: true, locks: { cutoff: 900 } });
-    expect(steps[5].flip).toBe(true); // STEPS on / off stays the target's
+    expect(steps[5].flip).toBe(true);
     expect(steps[3].flip).toBeUndefined();
     expect(steps[3]).not.toBe(steps[0]);
-    tap('step8'); // COPY let go: a tap primes again
-    expect(steps[7].active).toBe(false);
   });
+
+  it('a bar: COPY + BAR, the track keys are the bars (yellow = this one, lit = the pattern has it); an unlit one grows the pattern', () => {
+    const { app, tap, press, release, flags, texts } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    const pat = app.project.channels[0].patterns[0];
+    pat.steps[0].active = true;
+    pat.steps[4].active = true;
+    pat.steps[4].accent = true;
+    pat.steps[13].flip = true;
+    pat.length = 32;
+    pat.steps[16].active = true;
+    pat.steps[20].active = true;
+    press('copy');
+    tap('steppage');
+    expect(app.copyView().title).toBe('COPY BAR 1');
+    expect(flags.get('ch1')?.has('cursor')).toBe(true);
+    expect(texts.get('ch3')).toBe('3<small>BAR</small>');
+    tap('ch2'); // over bar 2 (its hits replaced: empty steps too)
+    tap('ch4'); // past the end: grows to 4 bars, bar 3 empty
+    release('copy');
+    expect(pat.length).toBe(64);
+    expect(pat.steps.slice(16, 32).map((st) => st.active)).toEqual(pat.steps.slice(0, 16).map((st) => st.active));
+    expect(pat.steps[20].accent).toBe(true);
+    expect(pat.steps[29].flip).toBe(true);
+    expect(pat.steps.slice(32, 48).every((st) => !st.active)).toBe(true);
+    expect(pat.steps[48].active).toBe(true);
+    expect(flags.get('ch1')?.has('cursor')).toBe(false);
+    expect(texts.get('ch1')).toBe('1<small>KICK</small>');
+  });
+
+  it('a pattern: COPY + A-D (or a track), then A-D = that pattern of the track, a track = its pattern of that letter; CANCEL picks again', () => {
+    const { app, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    const kick = app.project.channels[0];
+    kick.patterns[0].steps[2].active = true;
+    press('copy');
+    tap('patA');
+    expect(app.copyView().title).toBe('COPY PATTERN A');
+    tap('patC');
+    expect(kick.patterns[2].steps[2].active).toBe(true);
+    tap('cancel');
+    expect(app.copyView().title).toBe('COPY');
+    tap('ch1'); // track 1's pattern (A)
+    tap('ch7'); // LEAD's A
+    release('copy');
+    expect(app.project.channels[6].patterns[0].steps[2]).toMatchObject({ active: true, note: 45 });
+  });
+
+  it('onto an empty pattern the sound comes too; onto one with notes only the notes', () => {
+    const { app, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch5');
+    const c = app.project.channels[4];
+    c.sounds.bass!.cutoff = 321;
+    c.patterns[0].steps[0].active = true;
+    c.patterns[2].steps[5].active = true; // C has notes
+    const soundC = patchOf(c, 2).sound.cutoff;
+    press('copy');
+    tap('patA');
+    tap('patB'); // B empty: notes and sound
+    tap('patC'); // C: notes only
+    release('copy');
+    expect(patchOf(c, 1).sound.cutoff).toBe(321);
+    expect(c.patterns[1].steps[0].active).toBe(true);
+    expect(patchOf(c, 2).sound.cutoff).toBe(soundC);
+  });
+
 });
 
 describe('STEP EDIT: ties', () => {
@@ -1244,74 +1320,6 @@ function emit_helper(app: App): void {
   expect((app as unknown as { primed: { cell: number } | null }).primed?.cell).toBe(3 * 16 + 2);
 }
 
-describe('COPY BAR', () => {
-  const kick = (app: App) => app.project.channels[0].patterns[app.project.channels[0].activePattern];
-
-  it('COPY + BAR on the bar shown, ▶ past the end grows the pattern, COPY pastes all 16 steps (switched-off ones too)', () => {
-    const { app, tap, press, release } = makeApp();
-    tap('mode:record');
-    tap('ch1');
-    const pat = kick(app);
-    pat.steps[0].active = true;
-    pat.steps[4].accent = true;
-    pat.steps[4].active = true;
-    pat.steps[13].flip = true; // switched off (STEPS)
-    press('copy');
-    tap('steppage'); // COPY BAR from bar 1
-    release('copy');
-    tap('cur+'); // to bar 2: the pattern grows
-    expect(pat.length).toBe(32);
-    press('copy'); // paste
-    release('copy');
-    expect(pat.steps[16].active).toBe(true);
-    expect(pat.steps[20].accent).toBe(true);
-    expect(pat.steps[29].flip).toBe(true);
-    expect((app as unknown as { copyBar: unknown }).copyBar).toBeNull();
-  });
-
-  it('an empty step overwrites an active one; going back or CANCEL takes an added bar away again', () => {
-    const { app, tap, press, release } = makeApp();
-    tap('mode:record');
-    tap('ch1');
-    const pat = kick(app);
-    pat.length = 32;
-    pat.steps[16].active = true; // bar 2 has a hit; bar 1 is empty
-    press('copy');
-    tap('steppage');
-    release('copy');
-    tap('cur+'); // bar 2
-    tap('cur+'); // bar 3: added
-    expect(pat.length).toBe(48);
-    tap('cur-'); // back to bar 2: bar 3 goes again
-    expect(pat.length).toBe(32);
-    press('copy');
-    release('copy');
-    expect(pat.steps[16].active).toBe(false);
-    press('copy');
-    tap('steppage');
-    release('copy');
-    tap('cur+');
-    tap('cur+');
-    tap('cancel');
-    expect(pat.length).toBe(32);
-  });
-
-  it('the strip shows the target bar as steps on a keyboard track too', () => {
-    const { app, tap, press, release, flags } = makeApp();
-    tap('mode:record');
-    tap('ch5'); // BASS
-    const pat = app.project.channels[4].patterns[0];
-    pat.length = 32;
-    pat.steps[18].active = true;
-    press('copy');
-    tap('steppage');
-    release('copy');
-    tap('cur+');
-    app.updateFrame(0);
-    expect(flags.get('step3')?.has('lit')).toBe(true);
-  });
-});
-
 describe('FUNC + COPY: the sound only', () => {
   it('copies the patch onto another pattern of the same type, keeps its notes, lets go of FUNC, and UNDO brings the old sound back', () => {
     const { app, press, release, tap, sent } = makeApp();
@@ -1322,6 +1330,7 @@ describe('FUNC + COPY: the sound only', () => {
     const notesB = JSON.stringify(c.patterns[1].steps);
     const before = patchOf(c, 1).sound.cutoff;
     press('copy');
+    tap('patA');
     tap('func');
     tap('patB');
     release('copy');
@@ -1340,6 +1349,7 @@ describe('FUNC + COPY: the sound only', () => {
     tap('ch6');
     const kick = JSON.stringify(patchOf(app.project.channels[0], 0));
     press('copy');
+    tap('patA');
     tap('func');
     tap('ch1');
     release('copy');
@@ -1361,7 +1371,9 @@ describe('COPY pattern: notes only, any track', () => {
     const bassSound = JSON.stringify(bass.sounds.bass);
     tap('mode:record');
     tap('ch6');
+    bass.patterns[0].steps[9].active = true; // not empty: the BASS keeps its sound
     press('copy');
+    tap('ch6');
     tap('ch5');
     release('copy');
     expect(bass.patterns[0].steps[0]).toMatchObject({ active: true, note: 50 });
@@ -1369,8 +1381,8 @@ describe('COPY pattern: notes only, any track', () => {
     expect(JSON.stringify(bass.sounds.bass)).toBe(bassSound);
     const kick = app.project.channels[0];
     kick.patterns[0].steps[2].active = true;
-    tap('ch1');
     press('copy');
+    tap('ch1');
     tap('ch7');
     release('copy');
     expect(app.project.channels[6].patterns[0].steps[2]).toMatchObject({ active: true, note: 45 });

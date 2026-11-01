@@ -389,6 +389,33 @@ export function drawSongStripView(s: PixelScreen, v: SongStripView): void {
   drawFooter(s, v, v.footerLeft, '');
 }
 
+/** COPY held: what is being copied, large, in place of the sequencer. */
+export interface CopyView {
+  /** COPY BAR 1, COPY STEP 12, COPY PATTERN C, or COPY (nothing picked yet). */
+  title: string;
+  /** The track (and pattern) it is on. */
+  sub: string;
+  /** What to tap next. */
+  hint: string;
+  /** Where copies went this time (`> BAR 3 / BAR 4`). */
+  done: string;
+  message: string;
+  ink: Ink;
+}
+
+export function drawCopyView(s: PixelScreen, v: CopyView): void {
+  s.clear();
+  const centre = (y: number, text: string, color: string, scale = 1) => {
+    let k = scale;
+    while (k > 1 && textWidth(text, k) > SCREEN_W - 8) k--;
+    s.text(Math.round((SCREEN_W - textWidth(text, k)) / 2), y, text, color, k);
+  };
+  centre(8, v.sub, v.ink.mid);
+  centre(30, v.title, INK.hi, 4);
+  centre(70, v.message || v.hint, v.message ? INK.warn : v.ink.hi);
+  if (v.done) centre(90, v.done, INK.mid);
+}
+
 export interface ProjectView {
   kind: 'save' | 'load';
   bank: number;
