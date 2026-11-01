@@ -74,6 +74,8 @@ Main -> worklet:
 | `setSong` | `song` | Replace the song: rows, and the automation lanes (`song.auto`, compiled into `Engine.lanes`, played by `runAuto` while the song plays) |
 | `setClick` | `on`, `level` | METRONOME: click on the beats while playing (`on`), level 0..1 (also the count-in's) |
 | `songJump` | `row` | While the song plays: go to this row at the next bar line |
+| `setGlideCurve` | `curve` | GLIDE CURVE (index into `GLIDE_CURVES`): the shape of every patch glide (`glideShape`) |
+| `setAutoFill` | `steps`, `tracks` | JAM AUTO-FILL: master steps of fill before a waiting switch lands (0 = off), and which tracks fill; not in SONG |
 | `trigger` | `channel`, `note`, `velocity`, `slideFrom?` | Play a note now (`slideFrom` = legato from a held note) |
 | `recordNote` | `channel`, `note`, `velocity`, `accent`, `slide?`, `chord?` | Live recording: play now, write to the nearest step (answers `recordedNote` / `recordedChord`) |
 | `recordLock` | `channel`, `id`, `value` | Live recording: lock a sound param on the step playing now (answers `recordedLock`) |
@@ -100,7 +102,7 @@ No SharedArrayBuffer (static hosting can't set COOP/COEP headers); everything is
 
 The types in `src/engine/project.ts` (`Project`, `ChannelState`, `Pattern`, `Step`, `Patch`, `Song`)
 are the reference, with a doc comment on every field; they are not repeated here. Key points:
-- `PROJECT_VERSION` is the stored format's version (66 now).
+- `PROJECT_VERSION` is the stored format's version (67 now).
 - A pattern being edited keeps its patch in the channel's `sounds` / `trims` / `presets`; the other
   patterns keep theirs in `Pattern.patch`. Read and write through `patchOf` / `setPatchOf` / `editPattern`.
 - `sounds` hold resulting values; `trims` hold the SOUND page offsets on top of TIMBRE / INTENSITY
@@ -152,8 +154,22 @@ before the first and when the loop starts again (sound params over the base, `lo
 rest as the SONG's lanes do). A SONG lane holding the same knob wins.
 
 **Pattern patches:** `patchValue` per pattern. `selectPattern` glides from the current patch to the
-next pattern's between the prime and the switch (`startGlide` / `stepPatchGlides` per block; coarse
-params switch at the landing); song rows glide over the old row's last bar (`glideToRow`).
+next pattern's between the prime and the switch (`startGlide` / `stepPatchGlides` per block, shaped by
+GLIDE CURVE, `glideShape`; coarse params switch at the landing). SONG: each clip start (`SongRow.entry`,
+compiled by `setEdges` into `edgeOn` / `edgeGlideStart` / `edgeGlideEnd` / `edgeFill` / `edgeFillStart`,
+positions in strip cells from the clip's first step, a reach back limited to where the lane last
+changed) is checked every step by `runSongEdges` (`songCell`: the cell last played; a jump or a new
+start counts afresh): a GLIDE START before the clip glides while the old pattern plays (`glideWait`),
+one on or after it lets the clip come in with the old sound (`heldEntry`, set by `enterRow`) until
+then; a song jump glides over the rest of the bar (`glideToRow`).
+
+**Fills:** `fillPat` = the pattern whose steps the track's sequencer reads instead of its own
+(`seqPattern`: `stepChannel`, the step rate, `runPatAuto`; the status reports it, `heardPattern`); the
+sound is untouched. `startFill` positions it so its first step comes where the fill ends. SONG: a
+clip's FILL starts from `runSongEdges` (from an empty bar it is a pickup: `songOff` cleared) and runs
+over other tracks' row lines into its clip (`enterRow`). JAM AUTO-FILL (`planFill`): a filling track's
+switch lands on an exact step (`landAt`), the fill from `fillAt`; A-D during a fill keeps its landing
+(the playing pattern again = that pattern restarts there).
 
 **Dynamics:** ghost / normal / accent = velocity 0.45 / 0.8 / 1.0, scaled per track by ACC/GHOST
 (`dynVelocity`). Each track's output passes a 12 dB low-pass whose cutoff is set per hit from the

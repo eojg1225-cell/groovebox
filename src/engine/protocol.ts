@@ -92,6 +92,13 @@ export type MainToWorklet =
   | { type: 'setClick'; on: boolean; level: number }
   /** Replace the song (sent after every song edit; small). */
   | { type: 'setSong'; song: Song }
+  /** GLIDE CURVE (index into GLIDE_CURVES): how every patch glide moves, JAM and SONG. */
+  | { type: 'setGlideCurve'; curve: number }
+  /**
+   * JAM AUTO-FILL: before a waiting pattern switch lands, the last `steps` master steps of
+   * the tracks marked in `tracks` play the new pattern's last steps (0 = off). Not in SONG.
+   */
+  | { type: 'setAutoFill'; steps: number; tracks: boolean[] }
   /** While the song plays: go to this row at the next bar line. */
   | { type: 'songJump'; row: number }
   /** Audition / play a note on a channel now. */

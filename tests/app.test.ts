@@ -13,7 +13,7 @@ import { deviceSettings } from '../src/storage/settings';
 import { INK } from '../src/ui/screen';
 import { applyTheme } from '../src/ui/colours';
 import { changes, restore, snapshot } from '../src/ui/history';
-import { initPatterns } from '../src/engine/project';
+import { FILL_STEPS, GLIDE_STEPS, initPatterns } from '../src/engine/project';
 import start from '../src/engine/startProject.json';
 
 /** A panel that swallows every call (the App only needs its events). */
@@ -1787,5 +1787,83 @@ describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
     expect(st.note).toBe(60);
     expect(st.extra).toBeUndefined();
     expect(st.locks).toEqual({ 'm:5:volume': 0.5 });
+  });
+});
+
+describe('song transitions: GLIDE CURVE, JAM AUTO-FILL, SONG DESIGN clip knobs', () => {
+  const targets = (app: App) => (app as unknown as { targets: ({ label: string; get(): number; spec: { options?: readonly string[] } } | null)[] }).targets;
+  const lastOf = (sent: MainToWorklet[], type: string) => [...sent].reverse().find((m) => m.type === type);
+
+  it('DESIGN > PROJECT: CURVE / AUTO-FILL on modules 5 / 6, FILL per track on FUNC; the engine hears them', () => {
+    const { app, tap, emit, sent, press, release } = makeApp();
+    tap('mode:design');
+    tap('dpage2');
+    expect(targets(app).slice(4, 6).map((t) => t?.label)).toEqual(['CURVE', 'AUTO-FILL']);
+    expect(targets(app)[5]!.spec.options![targets(app)[5]!.get()]).toBe('4 STEPS');
+    expect(lastOf(sent, 'setAutoFill')).toEqual({ type: 'setAutoFill', steps: 4, tracks: [true, true, true, true, false, false, false, false] });
+    emit({ type: 'knob', id: 'k5', value: 1 / 3 }); // LATE
+    expect(app.project.settings?.glideCurve).toBe(1);
+    expect(lastOf(sent, 'setGlideCurve')).toEqual({ type: 'setGlideCurve', curve: 1 });
+    emit({ type: 'knob', id: 'k6', value: 0 }); // OFF
+    expect((lastOf(sent, 'setAutoFill') as { steps: number }).steps).toBe(0);
+    press('func');
+    expect(targets(app).slice(0, 8).map((t) => t?.label)).toEqual(['FILL 1', 'FILL 2', 'FILL 3', 'FILL 4', 'FILL 5', 'FILL 6', 'FILL 7', 'FILL 8']);
+    emit({ type: 'knob', id: 'k5', value: 1 }); // BASS on
+    release('func');
+    expect(app.project.fillTracks?.[4]).toBe(1);
+    expect((lastOf(sent, 'setAutoFill') as { tracks: boolean[] }).tracks[4]).toBe(true);
+    // Stored and read back.
+    const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;
+    expect(back.fillTracks).toEqual(app.project.fillTracks);
+    expect(back.settings).toEqual(app.project.settings);
+  });
+
+  it('MENU: PROJECT SETTINGS > AUTO-FILL has STEPS and a line per track; GLOBAL has the defaults', () => {
+    const { app, tap } = makeApp();
+    const page = () => { const st = (app as unknown as { menu: { stack: { page: string }[] } }).menu.stack; return st[st.length - 1].page; };
+    tap('menu');
+    tap('step2'); // PROJECT SETTINGS
+    tap('cur+');
+    expect(page()).toBe('project');
+    tap('step8'); // AUTO-FILL
+    tap('cur+');
+    expect(page()).toBe('fill');
+    tap('step2'); // TRACK 1
+    tap('cur+'); // OFF
+    tap('play'); // saved
+    expect(app.project.fillTracks?.[0]).toBe(0);
+    expect(deviceSettings.autoFill).toBe(4);
+    expect(deviceSettings.glideCurve).toBe(0);
+  });
+
+  it('SONG DESIGN: the cursor clip\'s GLIDE START / END and FILL / FILL LEN; START never after END; stored in the song rows', () => {
+    const { app, tap, emit } = makeApp();
+    tap('menu');
+    tap('cur+'); // MODE: SONG
+    tap('play');
+    tap('mode:design');
+    tap('ch1');
+    tap('patA'); // bar 1
+    tap('patB'); // bar 2
+    tap('cur-'); // back on B
+    const ts = targets(app);
+    expect([ts[0]?.label, ts[8]?.label, ts[1]?.label, ts[9]?.label, ts[7]?.label]).toEqual(['GLIDE START', 'GLIDE END', 'FILL', 'FILL LEN', 'CURVE']);
+    expect(ts[0]!.spec.options![ts[0]!.get()]).toBe('-16 ST');
+    expect(ts[8]!.spec.options![ts[8]!.get()]).toBe('0 ST');
+    const n = GLIDE_STEPS.length - 1;
+    emit({ type: 'knob', id: 'k1', value: GLIDE_STEPS.indexOf(8) / n }); // START +8: END follows
+    const row = app.project.song.rows.find((r) => r.patterns[0] === 1)!;
+    expect(row.entry?.[0]).toEqual({ glideStart: 8, glideEnd: 8 });
+    emit({ type: 'knob', id: 'k9', value: GLIDE_STEPS.indexOf(-4) / n }); // END -4: START follows
+    expect(app.project.song.rows.find((r) => r.patterns[0] === 1)!.entry?.[0]).toEqual({ glideStart: -4, glideEnd: -4 });
+    emit({ type: 'knob', id: 'k2', value: 3 / 4 }); // FILL C
+    emit({ type: 'knob', id: 'k10', value: FILL_STEPS.indexOf(8) / (FILL_STEPS.length - 1) });
+    expect(app.project.song.rows.find((r) => r.patterns[0] === 1)!.entry?.[0]).toEqual({ glideStart: -4, glideEnd: -4, fill: 2, fillLen: 8 });
+    const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;
+    expect(back.song).toEqual(app.project.song);
+    // An empty bar: no clip knobs (CURVE stays).
+    for (let i = 0; i < 4; i++) tap('cur+'); // bar 6, past the song
+    expect(targets(app)[0]).toBeNull();
+    expect(targets(app)[7]?.label).toBe('CURVE');
   });
 });

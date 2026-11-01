@@ -4,7 +4,7 @@ import type { ParamSpec } from './params';
 import type { MainToWorklet, WorkletToMain } from './protocol';
 import { Smoother } from './smoother';
 import {
-  DYNAMIC_VELOCITY, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, STEP_NOTES, type Song,
+  CLIP_ENTRY, DYNAMIC_VELOCITY, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, SONG_MAX_ROWS, STEP_NOTES, type Song,
   type InstrumentKind, type Project, type Step, patchOf,
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
@@ -39,6 +39,14 @@ export const LOCK_SLOTS = 48;
 const STEP_SLOTS = NUM_CHANNELS * NUM_PATTERNS * MAX_STEPS;
 /** Shortest patch glide (an immediate pattern switch), and the glide back from a cancelled switch, s. */
 const MIN_PATCH_GLIDE = 0.05;
+/** Song cell `pos` (round the song's `total` cells) lies after `prev`, up to `cur` (wrapping when cur < prev). */
+function crossedCell(pos: number, prev: number, cur: number, total: number): boolean {
+  const p = ((pos % total) + total) % total;
+  return prev <= cur ? p > prev && p <= cur : p > prev || p <= cur;
+}
+
+/** SONG: the furthest GLIDE START / END from a clip's first step, strip steps. */
+const SONG_GLIDE_MAX = 128;
 const CANCEL_PATCH_GLIDE = 0.2;
 /** The hit tone (velocity colour) moves to a new hit's cutoff over about this long, s: no click on legato / tied notes. */
 const TONE_SMOOTH = 0.003;
@@ -220,6 +228,21 @@ export class Engine {
   private readonly glideTotal = new Float64Array(NUM_CHANNELS);
   /** The glide waits for a song row to switch the pattern (a waiting switch: pendingPattern). */
   private readonly glideWait = new Uint8Array(NUM_CHANNELS);
+  /** GLIDE CURVE (index into GLIDE_CURVES): how every patch glide moves (glideShape). */
+  private glideCurve = 0;
+  /**
+   * FILL: the track's sequencer reads this pattern's steps instead of the playing one's (the
+   * sound stays the playing pattern's, gliding as it does). -1 = no fill. SONG: a clip's FILL
+   * up to its first step; JAM: AUTO-FILL up to a waiting switch's landing (landAt).
+   */
+  private readonly fillPat = new Int8Array(NUM_CHANNELS).fill(-1);
+  /** JAM AUTO-FILL: the master step the fill starts on (-1 = none waiting). */
+  private readonly fillAt = new Float64Array(NUM_CHANNELS).fill(-1);
+  /** JAM AUTO-FILL: master steps of fill before a switch (0 = off), and the tracks that fill. */
+  private autoFillSteps = 0;
+  private readonly autoFillOn = new Uint8Array(NUM_CHANNELS);
+  /** SONG: the clip starting this row on this track holds the old sound until its GLIDE START (>= 0). */
+  private readonly heldEntry = new Uint8Array(NUM_CHANNELS);
   /** RESET (notes too): a pattern's saved notes, swapped in at the next bar line. */
   private readonly pendingNotes: ({ length: number; steps: Step[]; speed?: PatternSpeed } | null)[] = new Array(NUM_CHANNELS * NUM_PATTERNS).fill(null);
   private notesPending = false;
@@ -294,6 +317,20 @@ export class Engine {
   private readonly hitNote = new Uint8Array(NUM_CHANNELS);
   /** MUTE: the sequencer starts no new notes on the track (sounding ones play out). */
   private readonly muted = new Uint8Array(NUM_CHANNELS);
+  /**
+   * SONG clip entries, per row and track ([row * NUM_CHANNELS + ch]): 1 = a clip starts there
+   * (a pattern, not kept on); its GLIDE START / END and FILL start in strip steps from its first
+   * step (already limited to the bars since the lane last changed), FILL's pattern (-1 = none).
+   */
+  private readonly edgeOn = new Uint8Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  private readonly edgeGlideStart = new Int16Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  private readonly edgeGlideEnd = new Int16Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  private readonly edgeFill = new Int8Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  private readonly edgeFillStart = new Int16Array(SONG_MAX_ROWS * NUM_CHANNELS);
+  /** SONG: the strip cell the last step played (song bar x 16 + cell); NaN = start afresh. */
+  private songCell = NaN;
+  /** Played master steps before each strip cell of a bar (the time signature's). */
+  private readonly playedBefore = new Uint8Array(17);
   // Song: per row its bars and per track its pattern (-1 = silent), row count, playback state.
   private readonly songBars = new Uint8Array(SONG_MAX_ROWS);
   private readonly songPatterns = new Int8Array(SONG_MAX_ROWS * NUM_CHANNELS);
@@ -467,6 +504,11 @@ export class Engine {
         this.setPlaying(msg.playing);
         break;
       case 'setSong': this.setSong(msg.song); break;
+      case 'setGlideCurve': this.glideCurve = Math.max(0, Math.min(3, Math.round(msg.curve))); break;
+      case 'setAutoFill':
+        this.autoFillSteps = Math.max(0, Math.round(msg.steps));
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) this.autoFillOn[ch] = msg.tracks[ch] ? 1 : 0;
+        break;
       case 'setClick':
         this.clickOn = msg.on;
         this.clickLevel = Math.max(0, Math.min(1, msg.level));
@@ -546,7 +588,7 @@ export class Engine {
    */
   private runPatAuto(): void {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-      const pat = this.activePattern[ch];
+      const pat = this.seqPattern(ch);
       if (this.lanePat[ch] !== pat) {
         this.releasePatLanes(ch);
         this.lanePat[ch] = pat;
@@ -729,6 +771,10 @@ export class Engine {
     this.loopStart.fill(1);
     this.offGrid.fill(0);
     this.chanCount.fill(-1);
+    this.fillPat.fill(-1);
+    this.fillAt.fill(-1);
+    this.heldEntry.fill(0);
+    this.songCell = NaN;
     this.applyPendingNotes();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       // A switch waiting for its bar line happens now, and every patch glide lands.
@@ -990,7 +1036,11 @@ export class Engine {
     this.meter = m;
     this.barLen = meterLength(m);
     let k = 0;
-    for (let cell = 0; cell < 16; cell++) if (meterPlays(m, cell)) this.cellOf[k++] = cell;
+    for (let cell = 0; cell < 16; cell++) {
+      this.playedBefore[cell] = k;
+      if (meterPlays(m, cell)) this.cellOf[k++] = cell;
+    }
+    this.playedBefore[16] = k;
     // A beat starts each of the meter's (non-empty) groups.
     this.beatAt.fill(0);
     let at = 0;
@@ -1070,6 +1120,7 @@ export class Engine {
     if (this.clickOn && this.beatAt[pos]) this.click.trigger(pos === 0);
     if (atBar && this.notesPending) this.applyPendingNotes();
     if (this.songOn && atBar) this.songBarLine();
+    if (this.songOn) this.runSongEdges(g);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       if (!this.current[ch]) continue;
       // Quantised pattern switch on a bar line: where the track starts its loop, or (its
@@ -1094,7 +1145,12 @@ export class Engine {
         this.rollLeft[ch] = 0;
         this.landPattern(ch);
       }
-      const rate = this.patternRate[ch * NUM_PATTERNS + this.activePattern[ch]];
+      // AUTO-FILL: the waiting switch's new pattern plays its last steps up to the landing.
+      if (this.fillAt[ch] >= 0 && g >= this.fillAt[ch]) {
+        this.fillAt[ch] = -1;
+        if (this.pendingPattern[ch] >= 0 && this.landAt[ch] > g) this.startFill(ch, this.pendingPattern[ch], this.landAt[ch] - g);
+      }
+      const rate = this.patternRate[ch * NUM_PATTERNS + this.seqPattern(ch)];
       if (rate < 1) {
         // Double time: a step now and one halfway through.
         this.stepChannel(ch, stepLen / 2, g);
@@ -1134,7 +1190,7 @@ export class Engine {
   private stepChannel(ch: number, stepLen: number, at: number): void {
     const inst = this.current[ch];
     if (!inst) return;
-    const pat = ch * NUM_PATTERNS + this.activePattern[ch];
+    const pat = ch * NUM_PATTERNS + this.seqPattern(ch);
     this.chanRate[ch] = this.patternRate[pat];
     this.chanAt[ch] = at;
     this.chanCount[ch]++;
@@ -1263,19 +1319,17 @@ export class Engine {
       if (this.songJumpTo >= 0) {
         this.enterRow(this.songJumpTo);
         this.songJumpTo = -1;
+        this.songCell = NaN; // the clips' glides and fills count afresh from here
       } else if (this.songBar >= this.songBars[this.songRow]) {
         this.enterRow((this.songRow + 1) % this.songLength, true); // the end loops to the top
       }
     }
-    // The row's last bar: each track's sound glides over it to the next row's patch.
-    if (this.songBar === this.songBars[this.songRow] - 1 && this.songJumpTo < 0) {
-      this.glideToRow((this.songRow + 1) % this.songLength, this.framesAhead(this.barLen));
-    }
   }
 
   /**
-   * Song: tracks whose pattern changes in `row` glide to its patch over `frames`; ones
-   * already gliding elsewhere that keep their pattern glide back.
+   * Song jump: tracks whose pattern changes in `row` glide to its patch over `frames`; ones
+   * already gliding elsewhere that keep their pattern glide back. (In order, the clips' own
+   * GLIDE START / END do it: runSongEdges.)
    */
   private glideToRow(row: number, frames: number): void {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -1298,8 +1352,13 @@ export class Engine {
     this.songRow = row;
     this.songBar = 0;
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-      const p = this.songPatterns[row * NUM_CHANNELS + ch];
-      if (inOrder && this.songKeep[row * NUM_CHANNELS + ch] && !this.songOff[ch] && p === this.activePattern[ch]) continue;
+      const k = row * NUM_CHANNELS + ch;
+      const p = this.songPatterns[k];
+      // A FILL runs on to its clip's first step, over row lines of other tracks' changes.
+      if (inOrder && this.fillPat[ch] >= 0 && !this.edgeOn[k]) continue;
+      if (inOrder && this.songKeep[k] && !this.songOff[ch] && p === this.activePattern[ch]) continue;
+      this.fillPat[ch] = -1;
+      this.heldEntry[ch] = 0;
       this.pendingPattern[ch] = -1;
       this.glideWait[ch] = 0;
       this.position[ch] = 0;
@@ -1312,7 +1371,12 @@ export class Engine {
         this.songOff[ch] = 1;
       } else {
         this.songOff[ch] = 0;
-        if (p !== this.activePattern[ch]) this.enterPattern(ch, p, this.glidePattern[ch] !== p);
+        if (p !== this.activePattern[ch]) {
+          // GLIDE START on or after the clip's first step: it comes in with the old sound.
+          const hold = inOrder && this.edgeOn[k] === 1 && this.edgeGlideStart[k] >= 0 && this.glidePattern[ch] !== p;
+          this.enterPattern(ch, p, !hold && this.glidePattern[ch] !== p);
+          if (hold) this.heldEntry[ch] = 1;
+        }
       }
     }
   }
@@ -1334,6 +1398,7 @@ export class Engine {
     let bar = 0;
     for (let i = 0; i < this.songLength; i++) { this.rowStart[i] = bar; bar += this.songBars[i]; }
     this.rowStart[this.songLength] = bar;
+    this.setEdges(rows);
     // The lanes, anew (any that were playing hand their knobs back first).
     this.releaseLanes();
     this.lanes = [];
@@ -1344,6 +1409,92 @@ export class Engine {
       if (!lane) continue;
       this.lanes.push(lane);
       this.songLaneByKey.set(key, lane);
+    }
+  }
+
+  /**
+   * SONG: where each clip starts and how it comes in (SongRow.entry). A GLIDE START or FILL
+   * before the clip reaches back at most to where the lane last changed (the clip or the
+   * silence before it), round the song's end for the first row.
+   */
+  private setEdges(rows: Song['rows']): void {
+    const len = this.songLength;
+    const pat = (r: number, ch: number) => this.songPatterns[(((r % len) + len) % len) * NUM_CHANNELS + ch];
+    for (let r = 0; r < len; r++) {
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+        const k = r * NUM_CHANNELS + ch;
+        this.edgeOn[k] = this.songPatterns[k] >= 0 && !this.songKeep[k] ? 1 : 0;
+        if (!this.edgeOn[k]) continue;
+        // The bars since the lane last changed: the row before and the rows it runs on from.
+        let q = r - 1;
+        let back = this.songBars[(q + len) % len];
+        for (let n = 1; n < len - 1; n++) {
+          const qi = (q + len) % len;
+          const on = this.songPatterns[qi * NUM_CHANNELS + ch] >= 0;
+          const goesOn = on ? this.songKeep[qi * NUM_CHANNELS + ch] === 1 : pat(q - 1, ch) < 0;
+          if (!goesOn) break;
+          q--;
+          back += this.songBars[(q + len) % len];
+        }
+        const most = back * CELLS_PER_BAR;
+        const e = rows[r].entry?.[ch];
+        const gs = typeof e?.glideStart === 'number' ? e.glideStart : CLIP_ENTRY.glideStart;
+        const ge = typeof e?.glideEnd === 'number' ? e.glideEnd : CLIP_ENTRY.glideEnd;
+        const start = Math.max(-most, Math.min(SONG_GLIDE_MAX, Math.round(gs)));
+        this.edgeGlideStart[k] = start;
+        this.edgeGlideEnd[k] = Math.max(start, Math.min(SONG_GLIDE_MAX, Math.round(ge)));
+        const fill = typeof e?.fill === 'number' && e.fill >= 0 && e.fill < NUM_PATTERNS ? Math.round(e.fill) : -1;
+        const fillLen = typeof e?.fillLen === 'number' ? Math.round(e.fillLen) : CLIP_ENTRY.fillLen;
+        this.edgeFill[k] = fill;
+        this.edgeFillStart[k] = -Math.max(1, Math.min(most, fillLen));
+      }
+    }
+  }
+
+  /** Played master steps from the song's start to strip cell c (song bar x 16 + cell). */
+  private playedAt(c: number): number {
+    const bar = Math.floor(c / CELLS_PER_BAR);
+    return bar * this.barLen + this.playedBefore[c - bar * CELLS_PER_BAR];
+  }
+
+  /**
+   * SONG, each step: the clips' glides and fills that start between the last step played and
+   * this one (a cell the time signature leaves out: on the next one that plays).
+   */
+  private runSongEdges(g: number): void {
+    const total = this.rowStart[this.songLength] * CELLS_PER_BAR;
+    const cur = (this.rowStart[this.songRow] + Math.max(0, this.songBar)) * CELLS_PER_BAR + this.cellOf[this.barPos(g)];
+    const prev = this.songCell === this.songCell ? this.songCell : cur - 0.5;
+    this.songCell = cur;
+    if (total <= 0) return;
+    for (let r = 0; r < this.songLength; r++) {
+      const at = this.rowStart[r] * CELLS_PER_BAR;
+      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+        const k = r * NUM_CHANNELS + ch;
+        if (!this.edgeOn[k] || !this.current[ch]) continue;
+        const p = this.songPatterns[k];
+        const gs = this.edgeGlideStart[k];
+        if (crossedCell(at + gs, prev, cur, total)) {
+          const frames = this.framesAhead(this.playedAt(at + this.edgeGlideEnd[k]) - this.playedAt(at + gs));
+          if (gs < 0) {
+            // Before the clip: glide while the old pattern plays (the switch comes with the row).
+            if (p !== this.activePattern[ch] || (this.glidePattern[ch] >= 0 && this.glidePattern[ch] !== p)) {
+              this.startGlide(ch, p, frames);
+              this.glideWait[ch] = 1;
+            }
+          } else if (this.heldEntry[ch] && this.activePattern[ch] === p) {
+            // Inside the clip: it came in with the old sound, which glides now.
+            this.heldEntry[ch] = 0;
+            this.startGlide(ch, p, frames);
+          }
+        }
+        const fill = this.edgeFill[k];
+        if (fill >= 0 && crossedCell(at + this.edgeFillStart[k], prev, cur, total)) {
+          const to = at > cur ? at : at + total;
+          this.startFill(ch, fill, this.playedAt(to) - this.playedAt(cur));
+          this.songOff[ch] = 0; // from an empty bar: a pickup
+        }
+      }
     }
   }
 
@@ -2230,8 +2381,18 @@ export class Engine {
       this.enterPattern(ch, pat, true);
       return;
     }
+    if (this.fillPat[ch] >= 0 && this.pendingPattern[ch] >= 0 && this.landAt[ch] > this.globalStep && !immediate) {
+      // A fill is playing up to its landing: that stays; another pattern takes over the fill,
+      // the playing one again starts afresh from its first step there.
+      const left = this.landAt[ch] - this.globalStep;
+      this.pendingPattern[ch] = pat;
+      if (pat !== this.activePattern[ch]) this.startFill(ch, pat, left);
+      this.startGlide(ch, pat, pat === this.activePattern[ch] ? CANCEL_PATCH_GLIDE * this.sampleRate : this.framesAhead(left));
+      return;
+    }
     if (pat === this.activePattern[ch]) {
       // Back to the pattern playing: a waiting switch is cancelled and the sound glides back.
+      this.fillAt[ch] = -1;
       if (this.pendingPattern[ch] >= 0 || this.glidePattern[ch] >= 0) {
         this.pendingPattern[ch] = -1;
         this.startGlide(ch, pat, CANCEL_PATCH_GLIDE * this.sampleRate);
@@ -2239,6 +2400,8 @@ export class Engine {
       return;
     }
     if (immediate) {
+      this.fillPat[ch] = -1;
+      this.fillAt[ch] = -1;
       this.pendingPattern[ch] = -1;
       this.startGlide(ch, pat, 0);
       this.enterPattern(ch, pat, false);
@@ -2249,10 +2412,50 @@ export class Engine {
     // Glide until it lands: the loop's end, on (or, drifting, rounded up to) a bar line.
     const ahead = this.loopAhead(ch);
     this.startGlide(ch, pat, this.framesAhead(ahead));
+    this.planFill(ch, ahead);
+  }
+
+  /** The pattern whose steps the track's sequencer reads: a FILL's, else the playing one. */
+  private seqPattern(ch: number): number {
+    return this.fillPat[ch] >= 0 ? this.fillPat[ch] : this.activePattern[ch];
+  }
+
+  /** The pattern whose steps track ch plays now (status: currentStep is a step of it). */
+  heardPattern(ch: number): number {
+    return this.seqPattern(ch);
+  }
+
+  /**
+   * JAM AUTO-FILL for a switch landing `ahead` master steps from the next: on a filling track
+   * it lands on that exact step (landAt), its last AUTO-FILL steps (or what is left) a fill.
+   */
+  private planFill(ch: number, ahead: number): void {
+    this.fillAt[ch] = -1;
+    if (this.songOn || !this.autoFillOn[ch] || this.autoFillSteps <= 0 || ahead <= 0) return;
+    this.landAt[ch] = this.globalStep + ahead;
+    this.fillAt[ch] = this.globalStep + ahead - Math.min(ahead, this.autoFillSteps);
+  }
+
+  /**
+   * FILL: from the next step the track plays pattern fp's last steps, `steps` master steps of
+   * them, so its first step comes where the fill ends. Its notes only: the sound stays.
+   */
+  private startFill(ch: number, fp: number, steps: number): void {
+    if (steps <= 0 || !this.current[ch]) return;
+    const k = ch * NUM_PATTERNS + fp;
+    const len = this.patternLength[k];
+    const base = k * MAX_STEPS;
+    this.fillPat[ch] = fp;
+    this.runLeft[ch] = 0;
+    this.rollLeft[ch] = 0;
+    this.loopStart[ch] = 0;
+    const first = this.nextOn(base, 0, len);
+    this.position[ch] = first < 0 ? 0 : this.walkOn(base, first, -Math.max(1, Math.round(steps / this.patternRate[k])), len);
   }
 
   /** Master steps until the track's loop ends, on (or, drifting, rounded up to) a bar line. */
   private loopAhead(ch: number): number {
+    if (this.fillPat[ch] >= 0 && this.landAt[ch] > this.globalStep) return this.landAt[ch] - this.globalStep;
     const cur = ch * NUM_PATTERNS + this.activePattern[ch];
     const left = this.loopStart[ch] ? 0 : this.onCount(cur * MAX_STEPS, this.position[ch], this.patternLength[cur]);
     let ahead = Math.ceil(left * this.patternRate[cur] - 1e-6);
@@ -2278,9 +2481,12 @@ export class Engine {
       for (const ch of moving) ahead = Math.max(ahead, this.loopAhead(ch));
     }
     for (const ch of moving) {
+      const filling = this.fillPat[ch] >= 0;
       this.pendingPattern[ch] = pat;
       this.landAt[ch] = this.globalStep + ahead;
       this.startGlide(ch, pat, this.framesAhead(ahead));
+      if (filling) this.startFill(ch, pat, ahead);
+      else this.planFill(ch, ahead);
     }
   }
 
@@ -2288,6 +2494,8 @@ export class Engine {
   private landPattern(ch: number): void {
     const pat = this.pendingPattern[ch];
     this.pendingPattern[ch] = -1;
+    this.fillPat[ch] = -1;
+    this.fillAt[ch] = -1;
     this.enterPattern(ch, pat, this.glidePattern[ch] !== pat);
   }
 
@@ -2341,7 +2549,7 @@ export class Engine {
         continue;
       }
       this.glideDone[ch] += frames;
-      const t = Math.min(1, this.glideDone[ch] / this.glideTotal[ch]);
+      const t = this.glideShape(Math.min(1, this.glideDone[ch] / this.glideTotal[ch]));
       const base = ch * LOCK_SLOTS;
       const n = Math.min(inst.params.length, LOCK_SLOTS);
       for (let k = 0; k < n; k++) {
@@ -2354,6 +2562,16 @@ export class Engine {
         this.baseValue[base + k] = v;
         if (!this.lockApplied[base + k]) this.applyParam(ch, inst, spec.id, this.withOffset(ch, k, v));
       }
+    }
+  }
+
+  /** GLIDE CURVE: how far (0..1) a glide is at time t (0..1): LINEAR, LATE, EARLY, S-CURVE. */
+  private glideShape(t: number): number {
+    switch (this.glideCurve) {
+      case 1: return t * t;
+      case 2: return 1 - (1 - t) * (1 - t);
+      case 3: return t * t * (3 - 2 * t);
+      default: return t;
     }
   }
 

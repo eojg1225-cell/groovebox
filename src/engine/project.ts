@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 66;
+export const PROJECT_VERSION = 67;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -16,6 +16,40 @@ export const SONG_MAX_ROWS = 64;
 export const SONG_MAX_BARS = 64;
 
 /**
+ * How a SONG clip comes in (SONG DESIGN's knobs), positions in strip steps (16 per bar) from
+ * the clip's first step. Absent fields take the CLIP_ENTRY defaults (as before v67).
+ */
+export interface ClipEntry {
+  /** GLIDE START / END: the sound glides from the old pattern's patch to the clip's between these (-128..128, start <= end). */
+  glideStart?: number;
+  glideEnd?: number;
+  /** FILL: the steps before the clip play this pattern's last `fillLen` steps (-1 / absent = no fill). */
+  fill?: number;
+  fillLen?: number;
+}
+
+/** A clip's entry as it plays when nothing is set (the glide over the bar before it, no fill). */
+export const CLIP_ENTRY: Required<ClipEntry> = { glideStart: -16, glideEnd: 0, fill: -1, fillLen: 4 };
+/** GLIDE START / END stops (strip steps). */
+export const GLIDE_STEPS = [-128, -96, -64, -48, -32, -24, -16, -12, -8, -6, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128] as const;
+/** FILL LENGTH stops (steps); AUTO-FILL's are these with OFF first. */
+export const FILL_STEPS = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32] as const;
+/** AUTO-FILL's lengths (0 = OFF). */
+export const AUTO_FILL_STEPS = [0, ...FILL_STEPS] as const;
+/** AUTO-FILL TRACKS (GLOBAL): which tracks fill when their project setting is DEFAULT. */
+export const AUTO_FILL_TRACKS = ['DRUMS', 'ALL', 'NONE'] as const;
+/** GLIDE CURVE: how a patch glide moves from the old sound to the new (engine: glideShape). */
+export const GLIDE_CURVES = ['LINEAR', 'LATE', 'EARLY', 'S-CURVE'] as const;
+
+/** A clip entry with only what differs from the defaults (undefined = nothing set). */
+export function compactEntry(e: ClipEntry | undefined | null): ClipEntry | undefined {
+  if (!e) return undefined;
+  const out: ClipEntry = {};
+  for (const k of Object.keys(CLIP_ENTRY) as (keyof ClipEntry)[]) if (e[k] !== undefined && e[k] !== CLIP_ENTRY[k]) out[k] = e[k];
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
  * One song row: how many bars it lasts and, per track, the pattern it plays (0-3 = A-D)
  * or -1 = the track is silent for the row. Every track restarts its pattern at the row start.
  */
@@ -24,6 +58,8 @@ export interface SongRow {
   patterns: number[];
   /** Per track, 1 = its pattern runs on from the row before instead of restarting (the SONG strip). */
   keep?: number[];
+  /** v67: per track, how its clip starting at this row comes in (absent / null = CLIP_ENTRY). */
+  entry?: (ClipEntry | null)[];
 }
 
 export interface Song {
@@ -263,13 +299,18 @@ export interface ChannelState {
 }
 
 /** The GLOBAL settings a project can set for itself (MENU > PROJECT SETTINGS). */
-export type SettingKey = 'countIn' | 'metronome' | 'clickLevel' | 'holdReset' | 'holdPattern';
-export const SETTING_KEYS: readonly SettingKey[] = ['countIn', 'metronome', 'clickLevel', 'holdReset', 'holdPattern'];
+export type SettingKey = 'countIn' | 'metronome' | 'clickLevel' | 'holdReset' | 'holdPattern' | 'glideCurve' | 'autoFill' | 'autoFillTracks';
+export const SETTING_KEYS: readonly SettingKey[] = ['countIn', 'metronome', 'clickLevel', 'holdReset', 'holdPattern', 'glideCurve', 'autoFill', 'autoFillTracks'];
 
 export interface Project {
   version: number;
   /** This project's own choice of a GLOBAL setting (an option index); absent = DEFAULT (the device's). */
   settings?: Partial<Record<SettingKey, number>>;
+  /**
+   * v67: AUTO-FILL per track (JAM pattern switches): 1 = on, 0 = off, -1 / absent = DEFAULT
+   * (GLOBAL SETTINGS' AUTO-FILL TRACKS).
+   */
+  fillTracks?: number[];
   bpm: number;
   /** 50..75 (%): 50 = straight. */
   swing: number;

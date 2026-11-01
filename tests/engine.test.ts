@@ -591,6 +591,57 @@ describe('sequencer', () => {
       expect(base(e, 'cutoff')).toBeCloseTo(2000, 3);
     });
 
+    /** Song: two bars of A, then B coming in as `entry` says. */
+    const songInto = (entry: Record<string, number>) => {
+      const { e } = setup();
+      e.handleMessage({ type: 'setSong', song: { rows: [{ bars: 2, patterns: [0, 0, 0, 0, 0, 0, 0, 0] }, { bars: 4, patterns: [0, 0, 0, 0, 1, 0, 0, 0], entry: [null, null, null, null, entry, null, null, null] }] } });
+      return e;
+    };
+    const glided = (e: Engine) => {
+      const spec = specs[slot('cutoff')];
+      return (toNorm(spec, base(e, 'cutoff')) - toNorm(spec, 200)) / (toNorm(spec, 2000) - toNorm(spec, 200));
+    };
+
+    it('SONG GLIDE START / END after the clip starts: it comes in with the old sound, then glides', () => {
+      const e = songInto({ glideStart: 0, glideEnd: 16 });
+      e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 0 });
+      render(e, 3.95);
+      expect(base(e, 'cutoff')).toBeCloseTo(200, 3);
+      render(e, 0.1); // B playing, its coarse settings in, the old cutoff held
+      expect(glided(e)).toBeLessThan(0.05);
+      render(e, 0.95); // half way through the bar
+      expect(glided(e)).toBeGreaterThan(0.4);
+      expect(glided(e)).toBeLessThan(0.6);
+      render(e, 1.1);
+      expect(base(e, 'cutoff')).toBeCloseTo(2000, 3);
+    });
+
+    it('SONG GLIDE START / END before the clip: the sound arrives early, the pattern switches with the row', () => {
+      const e = songInto({ glideStart: -32, glideEnd: -16 });
+      const a = base(e, coarse.id);
+      e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 0 });
+      render(e, 1);
+      expect(glided(e)).toBeGreaterThan(0.4);
+      expect(glided(e)).toBeLessThan(0.6);
+      render(e, 1.2);
+      expect(base(e, 'cutoff')).toBeCloseTo(2000, 3);
+      expect(base(e, coarse.id)).toBe(a); // still pattern A
+      render(e, 2);
+      expect(base(e, coarse.id)).not.toBe(a);
+      expect(base(e, 'cutoff')).toBeCloseTo(2000, 3);
+    });
+
+    it('GLIDE CURVE shapes every glide (LATE: a quarter of the way at half time)', () => {
+      for (const [curve, lo, hi] of [[0, 0.4, 0.6], [1, 0.15, 0.35], [2, 0.65, 0.85]] as const) {
+        const e = songInto({ glideStart: 0, glideEnd: 16 });
+        e.handleMessage({ type: 'setGlideCurve', curve });
+        e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 0 });
+        render(e, 5);
+        expect(glided(e)).toBeGreaterThan(lo);
+        expect(glided(e)).toBeLessThan(hi);
+      }
+    });
+
     it('RESET with notes swaps a pattern\'s notes in at the next bar line', () => {
       const p = kickProject([]);
       const e = engineWith(p);
@@ -1869,6 +1920,42 @@ describe('song mode', () => {
     near(onsets(play(p, 4.1).l, 0.005, 1000), [0, BAR + 24000, 2 * BAR], 8);
     near(onsets(play(p, 1.1, 1).l, 0.005, 1000), [24000], 8); // from row 2: as far into it
     expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.song).toEqual(p.song);
+  });
+
+  it('a clip\'s FILL plays its pattern\'s last steps before the clip (from an empty bar: a pickup)', () => {
+    const p = songProject([{ bars: 1, patterns: [0] }, { bars: 1, patterns: [0] }]);
+    p.song.rows[1].entry = [{ fill: 1, fillLen: 12 }, null, null, null, null, null, null, null];
+    near(onsets(play(p, 2.1).l, 0.005, 1000), [0, 24000, BAR], 8); // A's step 1, B's step 5, A
+    p.song.rows[0].patterns[0] = -1;
+    near(onsets(play(p, 2.1).l, 0.005, 1000), [24000, BAR], 8);
+    p.song.rows[1].entry = [{ fill: 1, fillLen: 3 }, null, null, null, null, null, null, null];
+    near(onsets(play(p, 2.1).l, 0.005, 1000), [BAR], 8); // B's last 3 steps: no hit
+    const back = fromStored(JSON.parse(JSON.stringify(toStored(p))))!.song;
+    expect(back).toEqual(p.song);
+  });
+
+  it('JAM AUTO-FILL: before a switch lands the new pattern\'s last steps play; the playing pattern again keeps the fill', () => {
+    const p = songProject([]);
+    const run = (fill: number, cancelAt = -1) => {
+      const e = engineWith(p);
+      e.handleMessage({ type: 'setAutoFill', steps: fill, tracks: [true, false, false, false, false, false, false, false] });
+      e.handleMessage({ type: 'transport', playing: true });
+      const a = render(e, 0.1).l;
+      e.handleMessage({ type: 'selectPattern', channel: 0, pattern: 1, immediate: false });
+      if (cancelAt < 0) return onsets(Float32Array.from([...a, ...render(e, 4).l]), 0.005, 1000);
+      const b = render(e, cancelAt).l;
+      e.handleMessage({ type: 'selectPattern', channel: 0, pattern: 0, immediate: false });
+      return onsets(Float32Array.from([...a, ...b, ...render(e, 2.5).l]), 0.005, 1000);
+    };
+    near(run(0), [0, BAR + 24000], 8);
+    near(run(12), [0, 24000, BAR + 24000], 8);
+    near(run(12, 1), [0, 24000, BAR], 8); // A again during the fill: A from its top at the loop end
+    // SONG: no AUTO-FILL.
+    const s = songProject([{ bars: 1, patterns: [0] }, { bars: 1, patterns: [1] }]);
+    const e = engineWith(s);
+    e.handleMessage({ type: 'setAutoFill', steps: 12, tracks: [true, false, false, false, false, false, false, false] });
+    e.handleMessage({ type: 'transport', playing: true, song: true, fromRow: 0 });
+    near(onsets(render(e, 4.1).l, 0.005, 1000), [0, BAR + 24000, 2 * BAR], 8);
   });
 
   it('pattern mode ignores the song; songs survive the stored format', () => {

@@ -53,6 +53,7 @@ import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
   cloneNotes, clonePatch, editPattern, initPatterns, lockProject, patchOf, setPatchOf, speedSteps,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SettingKey, type SoundKind, type Step,
+  AUTO_FILL_STEPS, AUTO_FILL_TRACKS, CLIP_ENTRY, FILL_STEPS, GLIDE_CURVES, GLIDE_STEPS, compactEntry, type ClipEntry,
 } from '../engine/project';
 import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
@@ -78,10 +79,24 @@ type Mode = 'record' | 'play' | 'design';
 
 
 /** MENU's pages (top = the list MENU opens on). */
-type MenuPage = 'top' | 'project' | 'tracks' | 'global' | 'touch';
+type MenuPage = 'top' | 'project' | 'tracks' | 'fill' | 'global' | 'touch';
 const MENU_TITLES: Record<MenuPage, string> = {
-  top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
+  top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', fill: 'AUTO-FILL', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
 };
+/** The knob / menu names of GLIDE CURVE, AUTO-FILL, a track's AUTO-FILL and the clip knobs' stops. */
+const AUTO_FILL_NAMES = AUTO_FILL_STEPS.map((n) => (n ? `${n} STEPS` : 'OFF'));
+const GLIDE_NAMES = GLIDE_STEPS.map((n) => `${n > 0 ? '+' : ''}${n} ST`);
+const FILL_NAMES = FILL_STEPS.map((n) => `${n} ST`);
+const CURVE_SPEC = choice('glideCurve', 'CURVE', GLIDE_CURVES);
+const AUTO_FILL_SPEC = choice('autoFill', 'AUTO-FILL', AUTO_FILL_NAMES);
+const FILL_ON_SPEC = choice('fillOn', 'FILL', ['OFF', 'ON']);
+/** SONG DESIGN's clip knobs: GLIDE START / END, FILL (pattern) / FILL LEN. */
+const CLIP_SPECS = {
+  glideStart: choice('glideStart', 'GLIDE START', GLIDE_NAMES, GLIDE_STEPS.indexOf(CLIP_ENTRY.glideStart as never)),
+  glideEnd: choice('glideEnd', 'GLIDE END', GLIDE_NAMES, GLIDE_STEPS.indexOf(CLIP_ENTRY.glideEnd as never)),
+  fill: choice('fill', 'FILL', ['OFF', ...PATTERN_NAMES]),
+  fillLen: choice('fillLen', 'FILL LEN', FILL_NAMES, FILL_STEPS.indexOf(CLIP_ENTRY.fillLen as never)),
+} as const;
 
 /**
  * MENU open: the pages gone into (the last one shown), each with the line its cursor is on
@@ -482,6 +497,7 @@ export class App {
   private lookShown = '';
   /** The click setting last sent to the engine. */
   private clickSent = '';
+  private transitionsSent = '';
 
   constructor(
     public project: Project,
@@ -528,6 +544,32 @@ export class App {
     return this.project.settings?.[key] ?? deviceSettings[key];
   }
 
+  /** A project's AUTO-FILL on track ch: its own ON / OFF, else (DEFAULT) GLOBAL's AUTO-FILL TRACKS. */
+  private fillOn(ch: number, p: Project = this.project): boolean {
+    const own = p.fillTracks?.[ch] ?? -1;
+    if (own >= 0) return own === 1;
+    const kind = p.channels[ch].instrument;
+    const which = AUTO_FILL_TRACKS[deviceSettings.autoFillTracks];
+    return kind !== 'none' && (which === 'ALL' || (which === 'DRUMS' && isDrum(kind)));
+  }
+
+  /** GLIDE CURVE and JAM AUTO-FILL as the engine plays them. */
+  private transitionMessages(): MainToWorklet[] {
+    return [
+      { type: 'setGlideCurve', curve: this.setting('glideCurve') },
+      { type: 'setAutoFill', steps: AUTO_FILL_STEPS[this.setting('autoFill')] ?? 0, tracks: this.project.channels.map((_, ch) => this.fillOn(ch)) },
+    ];
+  }
+
+  /** Sends GLIDE CURVE / AUTO-FILL when they changed (settings, knobs, track types, a project opened). */
+  private syncTransitions(): void {
+    const msgs = this.transitionMessages();
+    const key = JSON.stringify(msgs);
+    if (key === this.transitionsSent) return;
+    this.transitionsSent = key;
+    for (const m of msgs) this.send(m);
+  }
+
   /** METRONOME: the click with the music (RECORDING = in RECORD mode), at CLICK LEVEL. */
   private clickMessage(): Extract<MainToWorklet, { type: 'setClick' }> {
     const m = this.setting('metronome');
@@ -550,6 +592,7 @@ export class App {
       ...this.muteMessages(),
       { type: 'transport', playing: this.playing, gen: this.transportGen },
       this.clickMessage(),
+      ...this.transitionMessages(),
     ];
   }
 
@@ -1151,14 +1194,105 @@ export class App {
       get: () => this.getGlobal(spec.id as GlobalId),
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
     }));
+    top.push(this.settingTarget('glideCurve', CURVE_SPEC), this.settingTarget('autoFill', AUTO_FILL_SPEC));
     while (top.length < KNOBS_PER_ROW) top.push(null);
     if (this.func) {
       const bottom = this.project.channels.map((c, ch) => (c.instrument === 'none' ? null
         : isDrum(c.instrument) ? this.paramTarget(ch, 'mix:ring', `RING ${ch + 1}`, ch === this.selected)
         : this.paramTarget(ch, 'mix:gate', `TRIM ${ch + 1}`, ch === this.selected)));
-      return [...new Array<KnobTarget | null>(KNOBS_PER_ROW).fill(null), ...bottom];
+      return [...this.project.channels.map((c, ch) => (c.instrument === 'none' ? null : this.fillTarget(ch))), ...bottom];
     }
     return [...top, ...this.trackRow('mix:dyn', 'ACC')];
+  }
+
+  /**
+   * A project knob for one of its GLOBAL settings (GLIDE CURVE, AUTO-FILL): shows the setting
+   * in effect, turning it gives the project its own (MENU puts it back to DEFAULT).
+   */
+  private settingTarget(key: SettingKey, spec: ParamSpec): KnobTarget {
+    return {
+      label: spec.name, spec, channel: this.selected, key: `setting:${key}`, neutral: true,
+      base: () => this.savedProject().settings?.[key] ?? deviceSettings[key],
+      get: () => this.setting(key),
+      set: (v: number) => {
+        (this.project.settings ??= {})[key] = Math.round(v);
+        this.syncTransitions();
+      },
+    };
+  }
+
+  /** DESIGN > PROJECT, FUNC top row: track ch's AUTO-FILL (JAM) on / off. */
+  private fillTarget(ch: number): KnobTarget {
+    return {
+      label: `FILL ${ch + 1}`, spec: FILL_ON_SPEC, channel: ch, key: `fill:${ch}`, highlight: ch === this.selected,
+      base: () => (this.fillOn(ch, this.savedProject()) ? 1 : 0),
+      get: () => (this.fillOn(ch) ? 1 : 0),
+      set: (v: number) => this.setFillTrack(ch, Math.round(v)),
+    };
+  }
+
+  /** A track's AUTO-FILL: 1 on, 0 off, -1 DEFAULT. */
+  private setFillTrack(ch: number, v: number): void {
+    const ft = (this.project.fillTracks ??= new Array<number>(NUM_CHANNELS).fill(-1));
+    ft[ch] = v;
+    if (ft.every((x) => x < 0)) delete this.project.fillTracks;
+    this.syncTransitions();
+    this.save();
+  }
+
+  /**
+   * SONG DESIGN's knobs: how the cursor's clip on the selected track comes in. Module 1 GLIDE
+   * START / END (strip steps from its first step), module 2 FILL / FILL LEN; module 8 top
+   * GLIDE CURVE (the project's).
+   */
+  private songDesignTargets(): (KnobTarget | null)[] {
+    const out: (KnobTarget | null)[] = new Array(KNOB_COUNT).fill(null);
+    out[KNOBS_PER_ROW - 1] = this.settingTarget('glideCurve', CURVE_SPEC);
+    const ch = this.selected;
+    const clip = clipAt(this.clips()[ch], this.stripBar);
+    if (!clip) return out;
+    const at = clip.at;
+    const value = (e: ClipEntry | undefined, k: keyof ClipEntry) => e?.[k] ?? CLIP_ENTRY[k];
+    const index = (k: keyof ClipEntry, v: number) => (k === 'fill' ? v + 1 : k === 'fillLen' ? FILL_STEPS.indexOf(v as never) : GLIDE_STEPS.indexOf(v as never));
+    const make = (k: keyof ClipEntry): KnobTarget => ({
+      label: CLIP_SPECS[k].name, spec: CLIP_SPECS[k], channel: ch, key: `clip:${ch}:${at}:${k}`,
+      base: () => {
+        const saved = this.savedProject();
+        const old = songClips(saved.song.rows, (c, p) => patternBars(saved.channels[c], p))[ch].find((c) => c.at === at && c.pattern === clip.pattern);
+        return Math.max(0, index(k, value(old?.entry, k)));
+      },
+      get: () => Math.max(0, index(k, value(clipAt(this.clips()[ch], this.stripBar)?.entry, k))),
+      set: (i: number) => this.setClipEntry(ch, at, k, Math.round(i)),
+    });
+    out[0] = make('glideStart');
+    out[KNOBS_PER_ROW] = make('glideEnd');
+    out[1] = make('fill');
+    out[KNOBS_PER_ROW + 1] = make('fillLen');
+    return out;
+  }
+
+  /** SONG DESIGN: one of a clip's entry knobs to option i (GLIDE START never after END). */
+  private setClipEntry(ch: number, at: number, k: keyof ClipEntry, i: number): void {
+    const clips = this.clips();
+    const clip = clips[ch].find((c) => c.at === at);
+    if (!clip) return;
+    const e: Required<ClipEntry> = { ...CLIP_ENTRY, ...clip.entry };
+    if (k === 'fill') e.fill = Math.max(-1, Math.min(NUM_PATTERNS - 1, i - 1));
+    else if (k === 'fillLen') e.fillLen = FILL_STEPS[Math.max(0, Math.min(FILL_STEPS.length - 1, i))];
+    else {
+      const v = GLIDE_STEPS[Math.max(0, Math.min(GLIDE_STEPS.length - 1, i))];
+      e[k] = v;
+      if (k === 'glideStart' && e.glideEnd < v) e.glideEnd = v;
+      if (k === 'glideEnd' && e.glideStart > v) e.glideStart = v;
+    }
+    const entry = compactEntry(e);
+    if (entry) clip.entry = entry;
+    else delete clip.entry;
+    if (!this.setClips(clips)) return;
+    const name = k === 'fill' ? (e.fill < 0 ? 'OFF' : PATTERN_NAMES[e.fill])
+      : k === 'fillLen' ? FILL_NAMES[FILL_STEPS.indexOf(e.fillLen as never)]
+      : `${GLIDE_NAMES[GLIDE_STEPS.indexOf(e.glideStart as never)]} TO ${GLIDE_NAMES[GLIDE_STEPS.indexOf(e.glideEnd as never)]}`;
+    this.flash(`${PATTERN_NAMES[clip.pattern]} BAR ${at + 1}: ${k.startsWith('glide') ? 'GLIDE' : CLIP_SPECS[k].name} ${name}`);
   }
 
   /** The 16 knob targets for the current mode. */
@@ -1167,7 +1301,7 @@ export class App {
     if (this.menu) return this.menuTargets();
     // FUNC layers exist for the DESIGN pages and the live knobs; elsewhere FUNC
     // leaves the knobs empty.
-    if (this.songGrid) return new Array(KNOB_COUNT).fill(null);
+    if (this.songGrid) return this.songDesignTargets();
     // A held knob keeps its job (as touched), wrapped afresh below. SONG: a pattern's sound
     // knobs only audition. A primed step (STEP EDIT, SONG RECORD): the knobs show and set what
     // will be locked there. Playing: knobs with locks show what the locks give at the playhead.
@@ -3121,6 +3255,29 @@ export class App {
         own('CLICK LEVEL', 'clickLevel', CLICK_LEVELS.map((v) => `${v} %`)),
         own('HOLD + RESET', 'holdReset', HOLD_RESETS),
         own('HOLD + PATTERN', 'holdPattern', HOLD_PATTERNS),
+        own('GLIDE CURVE', 'glideCurve', GLIDE_CURVES),
+        { label: 'AUTO-FILL', open: () => this.openPage('fill') },
+      ];
+    }
+    if (page === 'fill') {
+      // JAM AUTO-FILL: how many steps (DEFAULT = GLOBAL's), and per track DEFAULT / OFF / ON.
+      const p = this.project;
+      return [
+        {
+          label: 'STEPS', options: ['DEFAULT', ...AUTO_FILL_NAMES],
+          get: () => (p.settings?.autoFill ?? -1) + 1,
+          set: (i) => {
+            const st = (p.settings ??= {});
+            if (i === 0) delete st.autoFill;
+            else st.autoFill = i - 1;
+            this.save();
+          },
+        },
+        ...p.channels.map((_, ch): MenuLine => ({
+          label: `TRACK ${ch + 1}`, options: ['DEFAULT', 'OFF', 'ON'],
+          get: () => (p.fillTracks?.[ch] ?? -1) + 1,
+          set: (i) => this.setFillTrack(ch, i - 1),
+        })),
       ];
     }
     // GLOBAL / TOUCH SETTINGS are kept on this device (storage/settings.ts), not in the project.
@@ -3143,6 +3300,9 @@ export class App {
         look('THEME', 'theme', THEMES),
         look('SATURATION', 'saturation', SATURATIONS),
         look('INVERT', 'invert', ['OFF', 'ON']),
+        device('GLIDE CURVE', 'glideCurve', GLIDE_CURVES),
+        device('AUTO-FILL', 'autoFill', AUTO_FILL_NAMES),
+        device('AUTO-FILL TRACKS', 'autoFillTracks', AUTO_FILL_TRACKS),
       ];
     }
     if (page === 'touch') {
@@ -4093,6 +4253,7 @@ export class App {
   /** Knob labels/positions and button states that change on input, not per frame. */
   refreshPanel(): void {
     this.syncClick();
+    this.syncTransitions();
     this.syncLook();
     this.targets = this.computeTargets();
     if (this.menu || this.projMenu || this.songGrid) this.heldKnobs.clear();

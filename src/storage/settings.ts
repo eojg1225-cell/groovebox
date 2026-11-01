@@ -1,3 +1,5 @@
+import { AUTO_FILL_STEPS, AUTO_FILL_TRACKS, GLIDE_CURVES } from '../engine/project';
+
 /**
  * Settings kept on this device, the same for every project (MENU > GLOBAL SETTINGS): in
  * localStorage, read once at start. Missing or broken values take the defaults.
@@ -39,6 +41,12 @@ interface DeviceSettings {
   holdReset: number;
   /** Index into HOLD_PATTERNS. */
   holdPattern: number;
+  /** GLIDE CURVE: index into GLIDE_CURVES. */
+  glideCurve: number;
+  /** AUTO-FILL: index into AUTO_FILL_STEPS (4 = 4 steps). */
+  autoFill: number;
+  /** AUTO-FILL TRACKS: index into AUTO_FILL_TRACKS (DRUMS). */
+  autoFillTracks: number;
   /** Index into KNOB_SPEEDS. */
   knobSpeed: number;
   /** Quick drags move a knob further (1) or not (0). */
@@ -58,10 +66,11 @@ interface DeviceSettings {
 }
 
 const KEY = 'groovebox.device';
-const DEFAULTS: DeviceSettings = { countIn: 0, metronome: 0, clickLevel: 7, holdReset: 0, holdPattern: 0, knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0, theme: 0, saturation: 2, invert: 0 };
+const DEFAULTS: DeviceSettings = { countIn: 0, metronome: 0, clickLevel: 7, holdReset: 0, holdPattern: 0, glideCurve: 0, autoFill: 4, autoFillTracks: 0, knobSpeed: 1, knobAccel: 1, touchDelay: 3, holdTime: 1, screenOn: 0, theme: 0, saturation: 2, invert: 0 };
 /** How many choices each setting has. */
 const CHOICES: Record<keyof DeviceSettings, number> = {
   countIn: COUNT_INS.length, metronome: METRONOMES.length, clickLevel: CLICK_LEVELS.length, holdReset: HOLD_RESETS.length, holdPattern: HOLD_PATTERNS.length,
+  glideCurve: GLIDE_CURVES.length, autoFill: AUTO_FILL_STEPS.length, autoFillTracks: AUTO_FILL_TRACKS.length,
   knobSpeed: KNOB_SPEEDS.length, knobAccel: 2, touchDelay: TOUCH_DELAYS.length, holdTime: HOLD_TIMES.length, screenOn: 2, theme: 4, saturation: 3, invert: 2,
 };
 

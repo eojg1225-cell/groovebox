@@ -106,7 +106,7 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
       s.countIn = this.engine.countBeats;
       for (let ch = 0; ch < s.steps.length; ch++) {
         s.steps[ch] = this.engine.currentStep[ch];
-        s.patterns[ch] = this.engine.activePattern[ch];
+        s.patterns[ch] = this.engine.heardPattern(ch); // a FILL's pattern while it plays (its steps)
       }
       this.port.postMessage(s);
       this.engine.resetPeaks();

@@ -1,4 +1,4 @@
-import { NUM_CHANNELS, SONG_MAX_ROWS, speedSteps, type ChannelState, type SongRow } from '../engine/project';
+import { NUM_CHANNELS, SONG_MAX_ROWS, compactEntry, speedSteps, type ChannelState, type ClipEntry, type SongRow } from '../engine/project';
 
 /**
  * The SONG strip (preview): the song as one lane per track, each a run of clips: a pattern
@@ -11,6 +11,8 @@ export interface Clip {
   at: number;
   pattern: number;
   bars: number;
+  /** How it comes in (SONG DESIGN's knobs; absent = the defaults). */
+  entry?: ClipEntry;
 }
 
 /** The longest song the strip edits (16 pages of 16 bars). */
@@ -50,7 +52,12 @@ export function songClips(rows: SongRow[], barsOf: (ch: number, pattern: number)
         at += grow;
       }
       const len = barsOf(ch, p);
-      for (; left > 0; left -= len, at += len) lane.push({ at, pattern: p, bars: Math.min(len, left) });
+      // The row's entry belongs to the clip starting on its first bar (a loop's later clips: none).
+      let entry = at === bar ? compactEntry(r.entry?.[ch]) : undefined;
+      for (; left > 0; left -= len, at += len) {
+        lane.push({ at, pattern: p, bars: Math.min(len, left), ...(entry ? { entry: { ...entry } } : {}) });
+        entry = undefined;
+      }
     }
     bar += r.bars;
   }
@@ -77,13 +84,18 @@ export function clipRows(clips: Clip[][]): SongRow[] | null {
     const bars = (lines[i + 1] ?? end) - at;
     const patterns = new Array<number>(NUM_CHANNELS).fill(-1);
     const keep = new Array<number>(NUM_CHANNELS).fill(0);
+    const entry = new Array<ClipEntry | null>(NUM_CHANNELS).fill(null);
     clips.forEach((lane, ch) => {
       const c = lane.find((k) => k.at <= at && at < k.at + k.bars);
       if (!c) return;
       patterns[ch] = c.pattern;
       if (c.at < at) keep[ch] = 1;
+      else entry[ch] = compactEntry(c.entry) ?? null;
     });
-    return keep.some((k) => k) ? { bars, patterns, keep } : { bars, patterns };
+    const row: SongRow = { bars, patterns };
+    if (keep.some((k) => k)) row.keep = keep;
+    if (entry.some((e) => e)) row.entry = entry;
+    return row;
   });
 }
 

@@ -9,9 +9,9 @@
  */
 import { ARP_MODES, ARP_RATES, defaultArp } from './arp';
 import {
-  MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
-  emptyPattern, initPatterns, patchOf,
-  type ChannelState, type Patch, type Pattern, type Project, type SongRow, type SoundKind, type Step,
+  CLIP_ENTRY, FILL_STEPS, GLIDE_STEPS, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
+  compactEntry, emptyPattern, initPatterns, patchOf,
+  type ChannelState, type ClipEntry, type Patch, type Pattern, type Project, type SongRow, type SoundKind, type Step,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { parseAutoKey } from './automation';
@@ -156,6 +156,33 @@ interface StoredChannel {
   patterns: StoredPattern[];
 }
 
+interface StoredEntry { gs?: number; ge?: number; f?: number; l?: number }
+
+function storeEntries(entry: SongRow['entry']): { e?: (StoredEntry | 0)[] } {
+  const e = (entry ?? []).map((x): StoredEntry | 0 => {
+    const c = compactEntry(x);
+    if (!c) return 0;
+    return { ...(c.glideStart !== undefined ? { gs: c.glideStart } : {}), ...(c.glideEnd !== undefined ? { ge: c.glideEnd } : {}),
+      ...(c.fill !== undefined ? { f: c.fill } : {}), ...(c.fillLen !== undefined ? { l: c.fillLen } : {}) };
+  });
+  return e.some((x) => x !== 0) ? { e } : {};
+}
+
+/** A stored row's clip entries (anything off its knob's stops takes the default). */
+function readEntries(src: unknown, patterns: number[]): SongRow['entry'] {
+  if (!Array.isArray(src)) return undefined;
+  const pick = (v: unknown, stops: readonly number[], d: number) => (typeof v === 'number' && stops.includes(v) ? v : d);
+  const out = Array.from({ length: NUM_CHANNELS }, (_, ch): ClipEntry | null => {
+    const x: unknown = src[ch];
+    if (!isObj(x) || patterns[ch] < 0) return null;
+    let gs = pick(x.gs, GLIDE_STEPS, CLIP_ENTRY.glideStart);
+    let ge = pick(x.ge, GLIDE_STEPS, CLIP_ENTRY.glideEnd);
+    if (ge < gs) [gs, ge] = [ge, gs];
+    return compactEntry({ glideStart: gs, glideEnd: ge, fill: pick(x.f, [0, 1, 2, 3], -1), fillLen: pick(x.l, FILL_STEPS, CLIP_ENTRY.fillLen) }) ?? null;
+  });
+  return out.some((x) => x) ? out : undefined;
+}
+
 interface StoredProject {
   format: typeof FILE_FORMAT;
   version: number;
@@ -164,7 +191,10 @@ interface StoredProject {
   master: number;
   lfo: LfoState;
   /** v53: `a` = the song's automation (key -> [position, value] pairs). */
-  song: { rows: { b: number; p: number[]; k?: number[] }[]; a?: Record<string, [number, number][]> };
+  /** v67: a row's `e` = per track how its clip comes in (gs / ge glide start / end, f fill pattern, l fill length; 0 = defaults). */
+  song: { rows: { b: number; p: number[]; k?: number[]; e?: (StoredEntry | 0)[] }[]; a?: Record<string, [number, number][]> };
+  /** v67: AUTO-FILL per track (1 on, 0 off, -1 DEFAULT); absent = all DEFAULT. */
+  ft?: number[];
   /** v41: FX 1-3 settings (BUS_PARAMS ids). */
   buses: Record<string, number>[];
   /** v36: time signature (index into METERS; absent = 4/4). */
@@ -188,8 +218,9 @@ export function toStored(p: Project): StoredProject {
     ...(p.root !== undefined ? { root: p.root } : {}),
     ...(p.chromatic ? { chromatic: true } : {}),
     settings: { ...p.settings },
+    ...(p.fillTracks?.some((v) => v >= 0) ? { ft: [...p.fillTracks] } : {}),
     lfo: { ...p.lfo },
-    song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns], ...(r.keep?.some((k) => k) ? { k: [...r.keep] } : {}) })), ...(p.song.auto ? { a: JSON.parse(JSON.stringify(p.song.auto)) as Record<string, [number, number][]> } : {}) },
+    song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns], ...(r.keep?.some((k) => k) ? { k: [...r.keep] } : {}), ...storeEntries(r.entry) })), ...(p.song.auto ? { a: JSON.parse(JSON.stringify(p.song.auto)) as Record<string, [number, number][]> } : {}) },
     buses: p.buses.map((b) => ({ ...b })),
     channels: p.channels.map((c) => ({
       instrument: c.instrument,
@@ -665,6 +696,10 @@ export function fromStored(data: unknown): Project | null {
       if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < 64) p.settings[k] = v;
     }
   }
+  if (Array.isArray(data.ft)) {
+    const ft = Array.from({ length: NUM_CHANNELS }, (_, i) => ((data.ft as unknown[])[i] === 1 ? 1 : (data.ft as unknown[])[i] === 0 ? 0 : -1));
+    if (ft.some((v) => v >= 0)) p.fillTracks = ft;
+  }
   const version = num(data.version, 0);
   // FX 1-3 (v41; older FX settings take the new buses' defaults).
   if (version >= 41 && Array.isArray(data.buses)) {
@@ -686,6 +721,8 @@ export function fromStored(data: unknown): Project | null {
       const row: SongRow = { bars: Math.round(num(r.b, 4, 1, SONG_MAX_BARS)), patterns };
       const keep = Array.isArray(r.k) ? (r.k as unknown[]) : [];
       if (keep.length > 0) row.keep = Array.from({ length: NUM_CHANNELS }, (_, i) => (keep[i] === 1 && patterns[i] >= 0 ? 1 : 0));
+      const entry = readEntries(r.e, patterns);
+      if (entry) row.entry = entry;
       p.song.rows.push(row);
     }
     const auto = readAuto(data.song.a);
