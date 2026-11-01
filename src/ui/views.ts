@@ -486,8 +486,18 @@ export function drawMenuView(s: PixelScreen, v: MenuView): void {
   s.clear();
   s.rect(0, 0, SCREEN_W, 13, INK.hi);
   s.text(3, 4, v.title, INK.bg);
+  // As many lines as fit; longer pages scroll to keep the cursor's line in sight (▲ ▼ marks
+  // show there are more above / below).
+  const rows = Math.floor((FOOTER_Y - 4 - 16) / MENU_ROW_H);
+  const first = Math.max(0, Math.min(v.item - Math.floor(rows / 2), v.items.length - rows));
+  const arrow = (x: number, up: boolean) => {
+    for (let k = 0; k < 3; k++) s.rect(x + 2 - k, up ? 4 + k : 8 - k, 1 + 2 * k, 1, INK.bg);
+  };
+  if (first > 0) arrow(SCREEN_W - 18, true);
+  if (first + rows < v.items.length) arrow(SCREEN_W - 10, false);
   v.items.forEach((it, i) => {
-    const y = 18 + i * MENU_ROW_H;
+    if (i < first || i >= first + rows) return;
+    const y = 18 + (i - first) * MENU_ROW_H;
     const on = i === v.item;
     if (on) s.rect(0, y - 2, SCREEN_W, MENU_ROW_H - 1, INK.hi);
     const ink = on ? INK.bg : INK.mid;

@@ -153,3 +153,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - SONG strip windows (2026-11-01): the screen draws each clip's GLIDE (a ramp in GLIDE CURVE's shape) and FILL (a band) as the engine plays them.
 - STEP EDIT ties (2026-11-01): the strip shows the steps as flag placing does (ties as bands, locks as L); ◀ ▶ make the primed note a step longer / shorter (they no longer move the primed step: a tap does).
 - COPY (2026-11-01): hold COPY, tap what (BAR / a step / A-D / a track), then where (bars on the track keys, steps, A-D / tracks); shown large on the screen; COPY BAR's ◀ ▶ / paste flow and STEP EDIT's primed-step copy replaced; a pattern copied onto an empty one of the same type brings its sound.
+- MENU pages scroll (2026-11-01): nine lines show, longer pages (GLOBAL SETTINGS has 12) follow the cursor; arrows in the title bar.
