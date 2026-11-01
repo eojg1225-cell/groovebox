@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../src/ui/App';
 import { createDefaultProject } from '../src/engine/defaultProject';
-import { patchOf, stepNotes } from '../src/engine/project';
+import { patchOf, setStepNotes, stepNotes } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { CHORD_KNOB, CHORD_NAMES } from '../src/engine/chords';
 import { projectStore } from '../src/storage/projects';
@@ -1023,6 +1023,71 @@ describe('STEP EDIT: COPY', () => {
     expect(steps[3]).not.toBe(steps[0]);
     tap('step8'); // COPY let go: a tap primes again
     expect(steps[7].active).toBe(false);
+  });
+});
+
+describe('STEP EDIT: ties', () => {
+  it('the yellow step held + ◀ ▶ = its note a step longer / shorter (a longer tie clears what it covers); ◀ ▶ alone still move it', () => {
+    const { app, tap, press, release } = makeApp();
+    const primed = () => (app as unknown as { primed: { cell: number } | null }).primed?.cell;
+    tap('mode:record');
+    tap('ch5'); // BASS
+    const steps = app.project.channels[4].patterns[0].steps;
+    Object.assign(steps[0], { active: true, note: 40, gate: 1 });
+    Object.assign(steps[2], { active: true, note: 45, gate: 1 });
+    tap('stepedit'); // step 1 primed
+    press('step1');
+    tap('cur+');
+    expect(steps[0].gate).toBe(2);
+    tap('cur+'); // over step 3: its note goes
+    expect(steps[0].gate).toBe(3);
+    expect(steps[2].active).toBe(false);
+    tap('cur-');
+    expect(steps[0].gate).toBe(2);
+    release('step1');
+    tap('cur+'); // not held: the primed step moves
+    expect(primed()).toBe(1);
+    expect(steps[0].gate).toBe(2);
+    press('step2'); // a step without a note: primes it; held, nothing to tie
+    press('step2');
+    tap('cur+');
+    expect(steps[1].gate).toBe(1);
+  });
+
+  it('PAD: every note on the held step gets a step longer, each by its own length', () => {
+    const { app, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch6'); // PAD
+    const c = app.project.channels[5];
+    c.chord = 0;
+    const steps = c.patterns[0].steps;
+    setStepNotes(steps[0], [{ note: 57, gate: 1 }, { note: 60, gate: 3 }]);
+    tap('stepedit');
+    press('step1');
+    tap('cur+');
+    release('step1');
+    expect(stepNotes(steps[0]).map((n) => n.gate)).toEqual([2, 4]);
+  });
+});
+
+describe('SONG strip: GLIDE and FILL windows on the screen', () => {
+  it('each clip start carries its glide (from another pattern, reach limited) and fill windows', () => {
+    const { app } = makeApp();
+    const a = app as unknown as { laneEntries(lane: unknown[], ch: number): { at: number; glide?: number[]; fill?: number[] }[]; clips(): unknown[][] };
+    app.project.song = { rows: [
+      { bars: 2, patterns: [0, -1, -1, -1, -1, -1, -1, -1] },
+      { bars: 1, patterns: [1, -1, -1, -1, -1, -1, -1, -1], entry: [{ glideStart: -48, glideEnd: 8, fill: 2, fillLen: 6 }, null, null, null, null, null, null, null] },
+      { bars: 1, patterns: [1, -1, -1, -1, -1, -1, -1, -1] },
+      { bars: 1, patterns: [-1, -1, -1, -1, -1, -1, -1, -1] },
+      { bars: 1, patterns: [0, -1, -1, -1, -1, -1, -1, -1], entry: [{ fill: 1, fillLen: 32 }, null, null, null, null, null, null, null] },
+    ] };
+    const lane = a.laneEntries(a.clips()[0], 0);
+    expect(lane.map((c) => c.at)).toEqual([0, 1, 2, 3, 5]); // A loops in its 2-bar row
+    expect(lane[0].glide).toBeUndefined(); // the song's first clip
+    expect(lane[1].glide).toBeUndefined(); // a loop inside its row: no clip start
+    expect(lane[2]).toMatchObject({ glide: [0, 40], fill: [26, 32] }); // reach back: to the row before's start (bar 1)
+    expect(lane[3].glide).toBeUndefined(); // B again: no glide
+    expect(lane[4]).toMatchObject({ glide: [80 - 16, 80], fill: [64, 80] }); // after an empty bar: from where the lane changed
   });
 });
 

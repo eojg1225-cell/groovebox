@@ -270,8 +270,14 @@ export interface SongStripView extends HeaderView, FooterView {
   selected: number;
   /** The page's first bar (0 = the song's first). */
   firstBar: number;
-  /** Per track, its clips (absolute bars; the drawing keeps to the page). */
-  lanes: { at: number; bars: number; name: string }[][];
+  /**
+   * Per track, its clips (absolute bars; the drawing keeps to the page), each with the
+   * windows of how it comes in, in song steps (bar x 16 + step; from <= to): its patch
+   * GLIDE (a ramp, shaped by `curve`) and its FILL (a band along the lane's foot).
+   */
+  lanes: { at: number; bars: number; name: string; glide?: [number, number]; fill?: [number, number] }[][];
+  /** GLIDE CURVE (index into GLIDE_CURVES), for the ramps. */
+  curve: number;
   /** The cursor on the selected lane: bars `from`-`to` (yellow). */
   cursorFrom: number;
   cursorTo: number;
@@ -288,6 +294,49 @@ const STRIP_CELL = 12;
 
 /** Left edge of page cell i (groups of four, a gap between them). */
 const stripCellX = (i: number) => STRIP_X + i * (STRIP_CELL + 1) + Math.floor(i / 4) * 2;
+
+/** Song step `cell` (bar x 16 + step) as an x on the page starting at bar `first` (kept to the page). */
+function songX(cell: number, first: number): number {
+  const rel = Math.max(0, Math.min(16, cell / 16 - first));
+  const i = Math.min(15, Math.floor(rel));
+  return stripCellX(i) + (rel - i) * STRIP_CELL;
+}
+
+/** GLIDE CURVE's shape (as the engine's glideShape). */
+function curveAt(curve: number, t: number): number {
+  return curve === 1 ? t * t : curve === 2 ? 1 - (1 - t) * (1 - t) : curve === 3 ? t * t * (3 - 2 * t) : t;
+}
+
+/**
+ * A clip's GLIDE as a ramp up the lane (bottom = the old sound, top = the clip's; a jump: a
+ * line) and its FILL as a band along the lane's foot.
+ */
+function drawEntry(s: PixelScreen, v: SongStripView, y: number, c: SongStripView['lanes'][number][number], ink: string): void {
+  const first = v.firstBar;
+  const h = STRIP_ROW - 3;
+  if (c.fill) {
+    const x0 = Math.round(songX(c.fill[0], first));
+    const x1 = Math.round(songX(c.fill[1], first));
+    if (x1 > x0) s.rect(x0, y + h - 1, x1 - x0, 2, ink);
+  }
+  if (c.glide) {
+    const [from, to] = c.glide;
+    const x0 = Math.round(songX(from, first));
+    const x1 = Math.round(songX(to, first));
+    if (to <= from) {
+      if (from >= first * 16 && from <= (first + 16) * 16) s.rect(x0, y, 1, h + 1, ink);
+      return;
+    }
+    for (let x = x0; x < x1; x++) {
+      // The step under this pixel (inside its bar's cell, the gaps between groups left out).
+      let i = 15;
+      while (i > 0 && stripCellX(i) > x) i--;
+      const cell = (first + i + Math.min(1, (x - stripCellX(i) + 0.5) / STRIP_CELL)) * 16;
+      if (cell < from || cell > to) continue;
+      s.rect(x, y + h - Math.round(curveAt(v.curve, (cell - from) / (to - from)) * h), 1, 1, ink);
+    }
+  }
+}
 
 /**
  * SONG (strip preview): a lane per track over the page's 16 bars, each clip a bar as long as
@@ -310,15 +359,22 @@ export function drawSongStripView(s: PixelScreen, v: SongStripView): void {
     const k = v.inks[ch];
     s.text(2, y + 2, t, sel ? INK.warn : k.mid);
     for (let i = 0; i < 16; i++) s.rect(stripCellX(i), y + 4, STRIP_CELL, 1, INK.shade);
-    for (const c of v.lanes[ch]) {
-      const from = Math.max(c.at, v.firstBar) - v.firstBar;
-      const to = Math.min(c.at + c.bars, v.firstBar + 16) - v.firstBar - 1;
-      if (to < 0 || from > 15) continue;
-      const x0 = stripCellX(from);
-      s.rect(x0, y, stripCellX(to) + STRIP_CELL - x0, STRIP_ROW - 2, sel ? k.mid : k.dim);
-      if (c.at >= v.firstBar) {
-        s.rect(x0, y, 1, STRIP_ROW - 2, k.hi);
-        s.text(x0 + 3, y + 2, c.name, sel ? INK.bg : k.hi);
+    // The clips, then how each comes in (over the clip before it), then each clip's start.
+    for (let pass = 0; pass < 3; pass++) {
+      for (const c of v.lanes[ch]) {
+        if (pass === 1) {
+          if (c.glide || c.fill) drawEntry(s, v, y, c, sel ? INK.warn : k.hi);
+          continue;
+        }
+        const from = Math.max(c.at, v.firstBar) - v.firstBar;
+        const to = Math.min(c.at + c.bars, v.firstBar + 16) - v.firstBar - 1;
+        if (to < 0 || from > 15) continue;
+        const x0 = stripCellX(from);
+        if (pass === 0) s.rect(x0, y, stripCellX(to) + STRIP_CELL - x0, STRIP_ROW - 2, sel ? k.mid : k.dim);
+        else if (c.at >= v.firstBar) {
+          s.rect(x0, y, 1, STRIP_ROW - 2, k.hi);
+          s.text(x0 + 3, y + 2, c.name, sel ? INK.bg : k.hi);
+        }
       }
     }
     if (sel) {

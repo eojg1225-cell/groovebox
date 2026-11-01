@@ -420,6 +420,8 @@ export class App {
   /** chord: PAD / PLUCK keys added to the step meanwhile (the cursor moves on when all are up). */
   /** The note(s) being entered in step entry: their key, step, held chord, and (PAD / PLUCK) which notes ▶ / ◀ tie. */
   private entry: { button: number; index: number; chord?: boolean; notes?: number[] } | null = null;
+  /** STEP EDIT: the primed step held down (strip button, step index): ◀ ▶ tie its note. */
+  private editHeld: { button: number; index: number } | null = null;
   /**
    * A paint stroke on a drum lane (RECORD): the first step pressed decides what every step
    * the finger slides onto gets (a hit with the armed flags, the flags set / cleared, a rest,
@@ -1725,6 +1727,9 @@ export class App {
     } else if ((id === 'cur-' || id === 'cur+') && this.stepsMode) {
       // STEPS mode: ◀ / ▶ = through the bars (strip taps switch steps on / off).
       this.changeBar(id === 'cur+' ? 1 : -1);
+    } else if ((id === 'cur-' || id === 'cur+') && this.stepEdit && this.editHeld) {
+      // STEP EDIT, the yellow step held: its note one step longer / shorter.
+      this.tieEdited(id === 'cur+' ? 1 : -1);
     } else if ((id === 'cur-' || id === 'cur+') && (this.stepEdit || this.autoSteps)) {
       // STEP EDIT / SONG RECORD: the primed step one on (not while knobs wait on it).
       this.stepPrime(id === 'cur+' ? 1 : -1);
@@ -2255,6 +2260,7 @@ export class App {
       return;
     }
     if (this.stepEdit) {
+      this.stripDown.add(button);
       this.stepEditTap(button);
       return;
     }
@@ -2797,6 +2803,7 @@ export class App {
 
   private releaseKey(button: number): void {
     this.stripDown.delete(button);
+    if (this.editHeld?.button === button) this.editHeld = null;
     if (this.stripDown.size === 0) this.stroke = null;
     const note = this.heldNotes.get(button);
     if (note === undefined) return;
@@ -2880,14 +2887,46 @@ export class App {
    */
   private tie(delta: number): void {
     if (!this.entry) return;
-    const { index } = this.entry;
+    this.tieStep(this.entry.index, delta, this.entry.notes);
+  }
+
+  /**
+   * STEP EDIT, the primed step held + ◀ ▶: its note (PAD / PLUCK: every note on it) a step
+   * longer / shorter, as a tie in step entry; the screen says how long.
+   */
+  private tieEdited(delta: number): void {
+    const { index } = this.editHeld!;
+    const step = this.pattern.steps[index];
+    if (!step.active) {
+      this.flash('NO NOTE HERE');
+      return;
+    }
+    const kind = this.channel.instrument;
+    if (isDrum(kind) && kind !== 'perc') {
+      this.flash('DRUMS PLAY OUT: NO TIES');
+      return;
+    }
+    this.tieStep(index, delta);
+    const gates = stepNotes(step).map((n) => n.gate);
+    const lo = Math.min(...gates);
+    const hi = Math.max(...gates);
+    this.relabel(`TIE STEP ${index + 1}`);
+    this.flash(`STEP ${index + 1}: ${lo === hi ? lo : `${lo}-${hi}`} STEP${hi > 1 ? 'S' : ''} LONG`);
+  }
+
+  /**
+   * A tie on step `index`: its note `delta` steps longer / shorter (1 up to the loop). PAD /
+   * PLUCK (CHORD OFF): the notes in `only` (absent = all), each by its own length, nothing
+   * cleared; the others: a longer tie clears what it now covers.
+   */
+  private tieStep(index: number, delta: number, only?: number[]): void {
     const len = this.pattern.length;
     const step = this.pattern.steps[index];
     if (this.stepChords(this.channel)) {
       const notes = stepNotes(step);
       let changed = false;
       for (const n of notes) {
-        if (!this.entry.notes?.includes(n.note)) continue;
+        if (only && !only.includes(n.note)) continue;
         // Up to the whole loop: a tie can run past the end and on from the start.
         const gate = Math.max(1, Math.min(len, n.gate + delta));
         if (gate === n.gate) continue;
@@ -3665,6 +3704,8 @@ export class App {
     }
     if (this.primed?.cell === index) {
       if (this.funcHeld) this.funcUsed = true;
+      // Held down, ◀ ▶ tie its note longer / shorter (editHeld).
+      this.editHeld = { button, index };
       this.lockPrimed(this.func);
       return;
     }
@@ -3721,6 +3762,7 @@ export class App {
     if (!this.stepEdit) return;
     this.unprime();
     this.stepEdit = false;
+    this.editHeld = null;
   }
 
   /** The second tap: each knob touched since priming is locked at its value there. */
@@ -4654,6 +4696,44 @@ export class App {
     };
   }
 
+  /**
+   * SONG strip: a lane's clips for the screen, each with its GLIDE and FILL windows (song
+   * steps) as the engine plays them (Engine.setEdges / runSongEdges): only where a clip starts
+   * a row (not a loop of a longer row), a reach back no further than where the lane last
+   * changed; a glide only from another pattern. Before the song's first bar nothing is drawn.
+   */
+  private laneEntries(lane: Clip[], ch: number): SongStripView['lanes'][number] {
+    const rows = this.songRows;
+    const starts = new Set<number>();
+    let bar = 0;
+    for (const r of rows) {
+      if (r.patterns[ch] >= 0 && !r.keep?.[ch]) starts.add(bar);
+      bar += r.bars;
+    }
+    return lane.map((c, j) => {
+      const out: SongStripView['lanes'][number][number] = { at: c.at, bars: c.bars, name: PATTERN_NAMES[c.pattern] };
+      if (!starts.has(c.at)) return out;
+      const prev = j > 0 ? lane[j - 1] : undefined;
+      // Empty bars from the song's start: a pickup only (the sound before is the song end's).
+      let limit = !prev ? 0 : prev.at + prev.bars;
+      if (prev && limit === c.at) {
+        // The clip before, and the loops of its row before it (one stretch for the engine).
+        let k = j - 1;
+        while (k > 0 && !starts.has(lane[k].at) && lane[k - 1].at + lane[k - 1].bars === lane[k].at) k--;
+        limit = lane[k].at;
+      }
+      const room = (c.at - limit) * 16;
+      const e = { ...CLIP_ENTRY, ...c.entry };
+      const at = c.at * 16;
+      if (prev && prev.pattern !== c.pattern) {
+        const from = Math.max(e.glideStart, -room);
+        out.glide = [at + from, at + Math.max(from, e.glideEnd)];
+      }
+      if (e.fill >= 0 && room > 0) out.fill = [at - Math.max(1, Math.min(room, e.fillLen)), at];
+      return out;
+    });
+  }
+
   /** SONG strip: every track's lane over the page's 16 bars. */
   songStripView(now: number, audio: AudioInfo): SongStripView {
     const f = this.footer(audio);
@@ -4671,7 +4751,8 @@ export class App {
       inks: this.project.channels.map((_, i) => inkOf(this.trackColour(i))),
       selected: this.selected,
       firstBar: this.songPage * 16,
-      lanes: clips.map((l) => l.map((c) => ({ at: c.at, bars: c.bars, name: PATTERN_NAMES[c.pattern] }))),
+      lanes: clips.map((l, ch) => this.laneEntries(l, ch)),
+      curve: this.setting('glideCurve'),
       cursorFrom: cur ? cur.at : this.stripBar,
       cursorTo: cur ? cur.at + cur.bars - 1 : this.stripBar,
       playingBar: playing,
