@@ -9,7 +9,7 @@ import { DYNAMIC_VELOCITY, METERS, NUM_PATTERNS, stepPlays, editPattern, emptyPa
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
-import { INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, presetSound } from '../src/instruments/registry';
+import { INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, macroAnchor, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { IdleGate, midiToHz } from '../src/instruments/dsp';
@@ -1503,6 +1503,19 @@ describe('slides and rolls', () => {
     expect(back.channels[4].live).toEqual(['fm', 'macro:env']);
   });
 
+  it('v66 load: older macro offsets (tapered knob positions) become the distance they moved', () => {
+    const p = createDefaultProject();
+    p.channels[4].liveOffset = { 'macro:env': 0.5 };
+    p.channels[4].patterns[0].steps[0] = { ...p.channels[4].patterns[0].steps[0], active: true, note: 45, locks: { 'o:4:macro:env': -1 } };
+    p.song.auto = { 'o:4:macro:env': [[0, 1]] };
+    const stored = toStored(p) as { version: number };
+    stored.version = 65;
+    const back = fromStored(stored)!;
+    expect(back.channels[4].liveOffset['macro:env']).toBeCloseTo(0.24);
+    expect(back.channels[4].patterns[0].steps[0].locks!['o:4:macro:env']).toBeCloseTo(-0.6);
+    expect(back.song.auto!['o:4:macro:env'][0][1]).toBeCloseTo(0.6);
+  });
+
   it('drum OCTAVE (FUNC + OCT) moves the pitched layers by whole octaves; 0 = as before', () => {
     const run = (octave?: number) => {
       const inst = INSTRUMENTS.perc.create(SR);
@@ -2062,13 +2075,17 @@ describe('relative live knobs', () => {
     }
   });
 
-  it('a full turn reaches 60 % of the range; halfway gives 40 % of that (gentle log taper)', () => {
+  it('a macro moves its targets by the distance turned from its anchor; a top target only over the far half', () => {
     const t = { id: 'x', amount: 1 };
-    expect(liveContribution(t, 1)).toBeCloseTo(0.6);
-    expect(liveContribution(t, -1)).toBeCloseTo(-0.6);
-    expect(liveContribution(t, 0.5)).toBeCloseTo(0.24);
-    expect(liveContribution({ ...t, top: true }, 0.5)).toBe(0);
-    expect(liveContribution({ ...t, top: true }, 1)).toBeCloseTo(0.6);
+    expect(liveContribution(t, 0.5, 0.2)).toBeCloseTo(0.5);
+    expect(liveContribution({ ...t, amount: 0.5 }, -0.4, 0.5)).toBeCloseTo(-0.2);
+    expect(liveContribution({ ...t, top: true }, 0.4, 0)).toBe(0); // anchor 0: starts at 0.5
+    expect(liveContribution({ ...t, top: true }, 1, 0)).toBeCloseTo(1);
+    // The anchor: where the targets sit on average (a negative amount counted from the top).
+    expect(macroAnchor([{ id: 'a', amount: 1 }, { id: 'b', amount: -1 }, { id: 'c', amount: 1, top: true }], (id) => ({ a: 0.2, b: 0.4, c: 0.9 })[id])).toBeCloseTo(0.4);
+    // HAT ATTACK: its attacks sit at the shortest, so the knob starts fully left.
+    const hat = presetSound('hat', 0);
+    expect(macroAnchor(liveTargets('hat', 'macro:attack'), (id) => toNorm(HAT_PARAMS.find((p) => p.id === id)!, hat[id]))).toBeCloseTo(0, 2);
   });
 
   it('DECAY pushes the kick longer / shorter around the sound as set', () => {

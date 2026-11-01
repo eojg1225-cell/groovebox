@@ -381,6 +381,17 @@ describe('live knobs', () => {
     expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
   });
 
+  it('a macro knob sits where its parameters sit: HAT ATTACK starts fully left and a full turn adds the whole range', () => {
+    const { app, tap, emit, sent } = makeApp();
+    tap('mode:play');
+    const t = (app as unknown as { targets: { label: string; spec: { min: number; max: number }; get(): number }[] }).targets[10];
+    expect(t.label).toBe('ATTACK');
+    expect((t.get() - t.spec.min) / (t.spec.max - t.spec.min)).toBeCloseTo(0, 2);
+    emit({ type: 'knob', id: 'k11', value: 1 });
+    expect(app.project.channels[2].liveOffset['macro:attack']).toBeCloseTo(1, 1);
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'setOffset', channel: 2, id: 'macro:attack' }));
+  });
+
   it('a live knob can take every sound page parameter, the FX volumes and CHORD', () => {
     const { app } = makeApp();
     const ids = (ch: number) => (app as unknown as { liveCandidates(c: unknown): { id: string }[] }).liveCandidates(app.project.channels[ch]).map((x) => x.id);

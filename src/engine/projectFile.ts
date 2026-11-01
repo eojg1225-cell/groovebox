@@ -392,6 +392,20 @@ function drumLiveV65(ch: ChannelState): void {
   if (ch.instrument !== 'none' && INSTRUMENTS[ch.instrument].drum) liveDefaults(ch);
 }
 
+/**
+ * v66: a macro live knob's stored offset was a knob position (-1..1) pushed through a taper
+ * (|x|^1.32) and a 60 % reach; now it is the distance its targets move, so older offsets (on
+ * the track, in step locks and SONG lanes, keys `o:`) become that distance and sound as before.
+ */
+const OLD_TAPER = Math.log(0.4) / Math.log(0.5);
+function macroOffsetV66(v: number): number {
+  const d = Math.pow(Math.abs(v), OLD_TAPER) * 0.6;
+  return v < 0 ? -d : d;
+}
+function macroLocksV66(locks: Record<string, number>): void {
+  for (const k in locks) if (k.startsWith('o:')) locks[k] = macroOffsetV66(locks[k]);
+}
+
 /** A stored pattern's length, speed, flips and notes into `pat` (its steps start empty). */
 function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: PatternSpeed }, version: number, kind: InstrumentKind): void {
   pat.length = Math.round(num(sp.len, pat.length, 1, MAX_STEPS));
@@ -406,6 +420,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     if (s.x === 1 || s.o === 1) {
       if (s.x === 1) step.rest = true;
       const locks = numbers(s.l);
+      if (version < 66) macroLocksV66(locks);
       if (Object.keys(locks).length) step.locks = locks;
       continue;
     }
@@ -420,6 +435,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     const locks = numbers(s.l);
     if (version < 41) fmEnvV41(locks);
     if (version < 46 && kind === 'perc' && locks.timbre !== undefined) locks.timbre = percTimbreV46(locks.timbre);
+    if (version < 66) macroLocksV66(locks);
     if (Object.keys(locks).length) step.locks = locks;
     const extra = readExtra(s.c);
     if (extra) {
@@ -506,7 +522,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.liveFunc = pair(src.liveFunc) ?? ch.liveFunc;
   if (isObj(src.liveOffset)) {
     const offsets = numbers(src.liveOffset);
-    for (const id in offsets) if (offsets[id] !== 0) ch.liveOffset[id] = Math.max(-1, Math.min(1, offsets[id]));
+    for (const id in offsets) if (offsets[id] !== 0) ch.liveOffset[id] = Math.max(-1, Math.min(1, version < 66 ? macroOffsetV66(offsets[id]) : offsets[id]));
   }
   // Live knobs on parameters the type does not have: back to the type's defaults.
   if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, id))) liveDefaults(ch);
@@ -673,6 +689,7 @@ export function fromStored(data: unknown): Project | null {
       p.song.rows.push(row);
     }
     const auto = readAuto(data.song.a);
+    if (version < 66) for (const key in auto) if (key.startsWith('o:')) auto[key] = auto[key].map(([at, v]) => [at, macroOffsetV66(v)]);
     if (Object.keys(auto).length > 0) p.song.auto = auto;
   }
   for (let i = 0; i < NUM_CHANNELS; i++) {

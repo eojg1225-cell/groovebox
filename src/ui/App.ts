@@ -57,7 +57,7 @@ import {
 import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, macroAnchor, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
@@ -828,8 +828,17 @@ export class App {
   private liveKnob(ch: number, id: string, highlight: boolean): KnobTarget | null {
     const c = this.project.channels[ch];
     if (c.instrument === 'none' || liveTargets(c.instrument, id).length === 0) return this.paramTarget(ch, id, undefined, highlight);
+    // A macro sits where its parameters sit on average (its anchor) and moves them from there:
+    // the knob's range is the distance it can go each way (0 = the sound as set).
+    const kind = c.instrument;
+    const sound = c.sounds[kind] ?? {};
+    const anchor = macroAnchor(liveTargets(kind, id), (pid) => {
+      const spec = paramSpec(kind, pid);
+      return spec ? toNorm(spec, sound[pid] ?? spec.defaultValue) : undefined;
+    });
+    const spec: ParamSpec = { ...OFFSET_SPEC, min: -anchor * 100, max: (1 - anchor) * 100 };
     return {
-      label: this.liveName(c, id), spec: OFFSET_SPEC, channel: ch, highlight, key: `${ch}:off:${id}`,
+      label: this.liveName(c, id), spec, channel: ch, highlight, key: `${ch}:off:${id}`,
       auto: { key: `o:${ch}:${id}`, scale: 0.01 },
       get: () => (c.liveOffset[id] ?? 0) * 100,
       base: () => (this.savedChannel(ch)?.liveOffset[id] ?? 0) * 100,
@@ -4380,7 +4389,7 @@ export class App {
   private valueText(t: KnobTarget): string {
     const kind = this.project.channels[t.channel]?.instrument;
     if (t.spec.id === 'timbre' && kind && kind !== 'none') return timbreName(kind, t.get());
-    if (t.spec === OFFSET_SPEC) {
+    if (t.spec.id === OFFSET_SPEC.id) {
       const v = Math.round(t.get());
       return v === 0 ? 'SET' : `${v > 0 ? '+' : ''}${v}%`;
     }

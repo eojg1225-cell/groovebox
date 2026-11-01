@@ -120,20 +120,13 @@ function trackFunc(func: readonly (string | null)[]): (string | null)[] {
   return out;
 }
 
-/** How far a relative live knob reaches at full turn: this share of each parameter's range. */
-const LIVE_RANGE = 0.6;
 /**
- * The relative knobs' gentle log taper: halfway to either end gives 40 % of the push
- * (|x|^LIVE_TAPER, 0.5^LIVE_TAPER = 0.4), so the area around the centre is finer.
- */
-const LIVE_TAPER = Math.log(0.4) / Math.log(0.5);
-
-/**
- * LIVE knobs (the top layer: live > SOUND page > TIMBRE / INTENSITY) only push SOUND page
- * parameters (main or FUNC layer). They are relative: centred (0) they leave the sound as set on the SOUND page;
- * turned they push parameters up / down by up to LIVE_RANGE of their knob range (on each
- * parameter's own curve, with a gentle taper), clamped at its limits. A macro moves several at once.
- * CUTOFF and RESO (and the mixer, LFO) stay absolute.
+ * LIVE knobs (the top layer: live > SOUND page > TIMBRE / INTENSITY). A macro knob moves several
+ * SOUND page parameters (main or FUNC layer) at once, relative to the sound as set: it sits
+ * where its parameters sit on average (`macroAnchor`; an ATTACK whose attacks are at their
+ * shortest starts fully left), and turning it moves each by the same distance along its own
+ * knob range (x its amount), clamped at its limits. Its stored offset is that distance (0 = the
+ * sound as set). Every other live knob is absolute (the knob itself).
  */
 interface LiveTarget {
   id: string;
@@ -225,11 +218,35 @@ export function liveTargets(kind: InstrumentKind, id: string): readonly LiveTarg
   return LIVE_MACROS[kind].find((m) => m.id === id)?.targets ?? [];
 }
 
-/** How far a relative live knob at `offset` (-1..1) pushes one target (normalised units). */
-export function liveContribution(t: LiveTarget, offset: number): number {
-  if (t.top) return offset > 0.5 ? Math.pow((offset - 0.5) * 2, LIVE_TAPER) * LIVE_RANGE * t.amount : 0;
-  const shaped = Math.pow(Math.abs(offset), LIVE_TAPER) * LIVE_RANGE * t.amount;
-  return offset < 0 ? -shaped : shaped;
+/**
+ * How far a macro turned `offset` from its anchor (normalised, -1..1) pushes one target. A
+ * `top` target (CRUSH on GRIT) only moves over the second half of the way from the anchor to
+ * the right end, up to its whole range there.
+ */
+export function liveContribution(t: LiveTarget, offset: number, anchor: number): number {
+  if (t.top) {
+    const half = (1 - anchor) / 2;
+    return half > 0 && offset > half ? ((offset - half) / half) * t.amount : 0;
+  }
+  return offset * t.amount;
+}
+
+/**
+ * Where a macro knob sits with the sound as set: the average position (0..1) of its targets
+ * (`norm` = a parameter's position on its knob; a negative amount counts from the top; the
+ * `top` ones left out). A macro with nothing to average sits in the middle.
+ */
+export function macroAnchor(targets: readonly LiveTarget[], norm: (id: string) => number | undefined): number {
+  let sum = 0;
+  let n = 0;
+  for (const t of targets) {
+    if (t.top) continue;
+    const v = norm(t.id);
+    if (v === undefined) continue;
+    sum += t.amount < 0 ? 1 - v : v;
+    n++;
+  }
+  return n ? sum / n : 0.5;
 }
 
 interface InstrumentEntry {

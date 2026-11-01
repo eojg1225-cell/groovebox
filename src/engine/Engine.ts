@@ -9,7 +9,7 @@ import {
 } from './project';
 import { MAX_CHORD_NOTES, chordVoicing } from './chords';
 import type { Instrument } from '../instruments/Instrument';
-import { INSTRUMENTS, SOUND_KINDS, linkedParams, liveContribution, liveTargets, playsChords } from '../instruments/registry';
+import { INSTRUMENTS, SOUND_KINDS, linkedParams, liveContribution, liveTargets, macroAnchor, playsChords } from '../instruments/registry';
 import { toNorm, toValue } from './params';
 import { ARP_PARAMS, ARP_RATES, defaultArp, type ArpId } from './arp';
 import { DRUM_ROOT, ROLL_DIVS } from '../instruments/Drum';
@@ -1732,7 +1732,7 @@ export class Engine {
   }
 
   /**
-   * A relative LIVE knob moved (value -1..1, 0 = centred). Re-sums the channel's push per
+   * A macro LIVE knob moved (value = its distance from its anchor, -1..1, 0 = the sound as set). Re-sums the channel's push per
    * slot and re-applies the slots whose push changed (UI rate, not per block).
    */
   private setOffset(ch: number, id: string, value: number): void {
@@ -1748,9 +1748,15 @@ export class Engine {
     for (let k = 0; k < n; k++) this.prevOffset[k] = this.offsetNorm[base + k];
     this.offsetNorm.fill(0, base, base + LOCK_SLOTS);
     for (const [key, v] of offsets) {
-      for (const t of liveTargets(kind, key)) {
+      const targets = liveTargets(kind, key);
+      // The macro's anchor: where its targets sit as set (for its `top` targets' start).
+      const anchor = macroAnchor(targets, (id) => {
+        const slot = this.slotOf(inst, id);
+        return slot >= 0 ? toNorm(inst.params[slot], this.baseValue[base + slot]) : undefined;
+      });
+      for (const t of targets) {
         const slot = this.slotOf(inst, t.id);
-        if (slot >= 0) this.offsetNorm[base + slot] += liveContribution(t, v);
+        if (slot >= 0) this.offsetNorm[base + slot] += liveContribution(t, v, anchor);
       }
     }
     for (let k = 0; k < n; k++) {
