@@ -53,6 +53,8 @@ const CONVERGE = 0.98;
 export interface MacroDef {
   anchors: readonly Anchor[];
   excite: readonly Excite[];
+  /** Its own FM ratio ladder (carrier : modulator, as RATIO_LADDER) instead of the type's. */
+  ladder?: readonly (readonly [number, number])[];
 }
 
 export const MACROS: Record<SoundKind, MacroDef> = {
@@ -301,9 +303,9 @@ const RATIO_LADDER: Partial<Record<SoundKind, readonly (readonly [number, number
   bass: [[1, 2], [2, 3], [3, 2]],
 };
 
-/** The ladder's ratio pair at a TIMBRE position. */
-function ladderAt(kind: SoundKind, timbre: number): readonly [number, number] | undefined {
-  const ladder = RATIO_LADDER[kind];
+/** The ladder's ratio pair at a TIMBRE position (`own`: a sound set's own ladder). */
+function ladderAt(kind: SoundKind, timbre: number, own?: MacroDef['ladder']): readonly [number, number] | undefined {
+  const ladder = own ?? RATIO_LADDER[kind];
   if (!ladder) return undefined;
   return ladder[Math.min(ladder.length - 1, Math.floor(Math.min(1, Math.max(0, timbre)) * ladder.length))];
 }
@@ -412,7 +414,7 @@ export function macroSoundOf(def: MacroDef, kind: SoundKind, timbre: number, int
       out[id] = nearest(RATIO_SNAP[kind]?.[id] ?? RATIO_STEPS, out[id]);
     }
   }
-  const pair = ladderAt(kind, timbre);
+  const pair = ladderAt(kind, timbre, def.ladder);
   if (pair) {
     out.cratio = pair[0];
     out.fmratio = pair[1];

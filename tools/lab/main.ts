@@ -7,6 +7,8 @@
 import workletUrl from './worklet.ts?worker&url';
 import BenchWorker from './bench.ts?worker&inline';
 import stored from './project.json';
+import stored3 from './project3.json';
+import stored4 from './project4.json';
 import { fromStored } from '../../src/engine/projectFile';
 import { patchOf, type Project, type SoundKind } from '../../src/engine/project';
 import { formatValue } from '../../src/engine/params';
@@ -17,12 +19,12 @@ import { grooveProject } from './groove';
 import { stressProject } from './stress';
 import { loudness } from './loudness';
 
-type Source = 'project' | 'groove' | 'stress';
+type Source = 'project' | 'p3' | 'p4' | 'groove' | 'stress';
 type Sweep = 'off' | 'timbre' | 'int';
 
 const state = {
   kind: 'kick' as SoundKind,
-  source: 'project' as Source,
+  source: 'p3' as Source,
   solo: false,
   /** Every hit on the test track rings (drums: open; the RING step flag, as PLAY's RING). */
   ring: false,
@@ -41,7 +43,10 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const LETTERS = 'ABCDE';
 const candidates = (kind: SoundKind): (Candidate | null)[] => [null, ...(CANDIDATES[kind] ?? [])];
 const current = () => candidates(state.kind)[state.cand] ?? null;
-const snapshot = (): Project | null => fromStored((stored as { project: unknown }).project);
+/** The saved projects the lab plays: the app's current one, and slots 3 / 4 (copies from the app's db). */
+const SAVES: Record<string, { name?: string; savedAt?: number; project: unknown }> = { project: stored, p3: stored3, p4: stored4 };
+const isSave = (s: Source) => s in SAVES;
+const snapshot = (): Project | null => fromStored(SAVES[state.source].project);
 
 // ------------------------------------------------------------------ the project
 
@@ -52,7 +57,7 @@ let built: Built | null = null;
 /** The project to play, with the test track found, its locks and live offsets cleared. */
 function build(): Built {
   const stress = state.source === 'stress' ? stressProject() : null;
-  let p = stress ? stress.project : state.source === 'project' ? snapshot() : null;
+  let p = stress ? stress.project : isSave(state.source) ? snapshot() : null;
   let ch = p ? p.channels.findIndex((c) => c.instrument === state.kind) : -1;
   const groove = ch < 0;
   if (groove) {
@@ -368,9 +373,9 @@ $('kinds').addEventListener('click', (e) => {
 function meta(): void {
   if (!built) return;
   const where = built.groove
-    ? (state.source === 'project' ? `Your project has no ${INSTRUMENTS[state.kind].name} track: playing the built-in groove.` : 'Built-in groove')
+    ? (isSave(state.source) ? `This project has no ${INSTRUMENTS[state.kind].name} track: playing the built-in groove.` : 'Built-in groove')
     : state.source === 'stress' ? `Maths stress test, track ${built.ch + 1}`
-    : `Track ${built.ch + 1}, pattern ${'ABCD'[built.project.channels[built.ch].activePattern]}`;
+    : `${SAVES[state.source]?.name ? `${SAVES[state.source].name} · ` : ''}Track ${built.ch + 1}, pattern ${'ABCD'[built.project.channels[built.ch].activePattern]}`;
   $('meta').textContent = `${where} · ${Math.round(built.project.bpm * 10) / 10} BPM`;
 }
 
@@ -425,6 +430,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 const savedAt = (stored as { savedAt?: number }).savedAt;
-$('foot').textContent = `Your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit.`;
+$('foot').textContent = `Projects 3 (${stored3.name}) and 4 (${stored4.name}) are copies of those slots; your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit.`;
 // Open on the track type with candidates to try (KICK when there are none).
 setKind(SOUND_KINDS.find((k) => CANDIDATES[k]?.length) ?? 'kick');
