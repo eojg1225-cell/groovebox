@@ -90,7 +90,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
         soft: { ogain: 1.076, t_sweep: 12, t_stime: 0.04, c_level: 0.08, c_tone: 2500, c_reso: 0.15, drive: 1.3 },
         // Hard house: a tall drop you hear fall (longer than PUNCH's, shorter than PSY DOOF's),
         // a punchy tail, only lightly clipped.
-        hard: { ogain: 0.828, t_pitch: 55, t_decay: 0.35, t_sweep: 72, t_stime: 0.07, c_level: 0.4, c_tone: 3200, c_reso: 0.5, c_len: 0.004, drive: 10 },
+        hard: { ogain: 0.683, t_pitch: 55, t_decay: 0.35, t_sweep: 72, t_stime: 0.2, c_level: 0.4, c_tone: 3200, c_reso: 0.5, c_len: 0.004, drive: 10 },
       },
       {
         // A laser zap down into a doof; the click fades out as INT rises (psy kicks have none).
@@ -99,7 +99,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
         soft: { ogain: 0.891, t_sweep: 10, t_stime: 0.06, c_level: 0.2, c_tone: 3000, c_reso: 0.3, drive: 2 },
         // Goa laser: a 7-octave zap from about 7 kHz, slow enough to hear it fall; no click,
         // little drive.
-        hard: { ogain: 0.639, t_sweep: 84, t_stime: 0.26, c_level: 0, drive: 8 },
+        hard: { ogain: 0.639, t_sweep: 84, t_stime: 0.4, c_level: 0, drive: 8 },
       },
     ],
     excite: [],
