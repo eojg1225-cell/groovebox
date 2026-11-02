@@ -177,21 +177,23 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // envelope, drive and width (no type-wide INT rule); INT never moves FM LVL (the FM LVL
     // knob goes from none to full on every sound). At INT 50 every sound but SINE SUB filters
     // between 420 and 800 Hz, RESO 0.45 at most, FLT ENV 0.2 - 0.6, FLT DEC 0.2 - 0.5 s.
+    // FM COMP (`fmcomp`, dB quieter at FM LVL 100) keeps each sound's level as FM LVL turns,
+    // the engine's BODY its weight (Synth.ts).
     anchors: [
       {
         // A pure sine; INT 0 rounder still, INT 100 a saturated sub with drive's harmonics.
         name: 'SINE SUB',
-        values: { ogain: 0.713, shape: 0, fm: 0.12, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 },
-        soft: { ogain: 0.714, cutoff: 1200 },
-        hard: { ogain: 0.63, cutoff: 3000, fenv: 0.15, drive: 4, sub: 0.3 },
+        values: { ogain: 0.626, fmcomp: 1.75, shape: 0, fm: 0.12, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 },
+        soft: { ogain: 0.627, cutoff: 1200 },
+        hard: { ogain: 0.613, cutoff: 3000, fenv: 0.15, drive: 4, sub: 0.3 },
       },
       {
         // A saw with a sub under a resonant filter; INT 0 muted and narrow, INT 100 an open,
         // driven, wide snarl.
         name: 'GROWL',
-        values: { ogain: 0.936, shape: 2, fm: 0.15, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, fmattack: 0.0005, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 },
-        soft: { ogain: 1.007, cutoff: 260, reso: 0.1, fenv: 0.05, drive: 1.3, detune: 0.3 },
-        hard: { ogain: 0.818, cutoff: 1400, reso: 0.4, fenv: 0.45, drive: 7, detune: 1.1 },
+        values: { ogain: 1.007, fmcomp: 1.25, shape: 2, fm: 0.15, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, fmattack: 0.0005, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 },
+        soft: { ogain: 1.218, cutoff: 260, reso: 0.1, fenv: 0.05, drive: 1.3, detune: 0.3 },
+        hard: { ogain: 0.824, cutoff: 1400, reso: 0.4, fenv: 0.45, drive: 7, detune: 1.1 },
       },
       {
         // The Boss DR-3's STICK: a tapped Chapman Stick. No pick or finger thump (no woody
@@ -200,25 +202,25 @@ export const MACROS: Record<SoundKind, MacroDef> = {
         // brightest on the strike (the FM envelope). INT 0: dull, rounder taps; INT 100: bright and
         // driven. FM LVL: more steel, towards a DX tine bass.
         name: 'STICK',
-        values: { ogain: 0.975, shape: 1, fm: 0.25, fmratio: 3, cratio: 1, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fattack: 0.0005, fdecay: 0.4, fmattack: 0.0005, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 },
-        soft: { ogain: 1.18, cutoff: 500, reso: 0.1, fenv: 0.1, drive: 1, detune: 0 },
-        hard: { ogain: 0.944, cutoff: 1600, reso: 0.3, fenv: 0.5, drive: 2.2, detune: 0.1 },
+        values: { ogain: 0.881, fmcomp: 5, shape: 1, fm: 0.25, fmratio: 3, cratio: 1, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fattack: 0.0005, fdecay: 0.4, fmattack: 0.0005, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 },
+        soft: { ogain: 1.054, cutoff: 500, reso: 0.1, fenv: 0.1, drive: 1, detune: 0 },
+        hard: { ogain: 0.869, cutoff: 1600, reso: 0.3, fenv: 0.5, drive: 2.2, detune: 0.1 },
       },
       {
         // A saw-square with a sub and a snapping filter; INT 0 round, INT 100 punchy and driven.
         name: 'SOLID',
-        values: { ogain: 2.171, shape: 2.3, fm: 0.15, fmratio: 2, cratio: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, fmattack: 0.0005, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 },
-        soft: { ogain: 2.389, cutoff: 220, reso: 0.2, fenv: 0.15, drive: 1.1, detune: 0.05 },
-        hard: { ogain: 1.624, cutoff: 900, reso: 0.5, fenv: 0.9, fdecay: 0.16, fmdecay: 0.16, drive: 4, detune: 0.25 },
+        values: { ogain: 2.421, fmcomp: 8, shape: 2.3, fm: 0.15, fmratio: 2, cratio: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, fmattack: 0.0005, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 },
+        soft: { ogain: 2.62, cutoff: 220, reso: 0.2, fenv: 0.15, drive: 1.1, detune: 0.05 },
+        hard: { ogain: 1.864, cutoff: 900, reso: 0.5, fenv: 0.9, fdecay: 0.16, fmdecay: 0.16, drive: 4, detune: 0.25 },
       },
       {
         // 303: square, a resonant filter with a snappy envelope, now in step with SOLID
         // (cutoff 600, RESO 0.45, FLT ENV 0.6; was 350 / 0.75 / 0.9). INT 0 muted, INT 100 the
         // full squelch. On 3 : 2: FM LVL pushes the square into its odd, bright partials.
         name: 'ACID',
-        values: { ogain: 0.596, shape: 3, fm: 0.18, fmratio: 2, cratio: 3, sub: 0.1, cutoff: 600, reso: 0.45, fenv: 0.6, fattack: 0.0005, fdecay: 0.2, fmattack: 0.0005, fmdecay: 0.2, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 },
-        soft: { ogain: 0.675, cutoff: 200, reso: 0.2, fenv: 0.15, drive: 1.2 },
-        hard: { ogain: 0.542, cutoff: 700, reso: 0.8, fenv: 1.2, drive: 3.5 },
+        values: { ogain: 0.507, fmcomp: -1.75, shape: 3, fm: 0.18, fmratio: 2, cratio: 3, sub: 0.1, cutoff: 600, reso: 0.45, fenv: 0.6, fattack: 0.0005, fdecay: 0.2, fmattack: 0.0005, fmdecay: 0.2, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 },
+        soft: { ogain: 0.547, cutoff: 200, reso: 0.2, fenv: 0.15, drive: 1.2 },
+        hard: { ogain: 0.483, cutoff: 700, reso: 0.8, fenv: 1.2, drive: 3.5 },
       },
     ],
     excite: [],

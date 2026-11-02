@@ -44,6 +44,17 @@ const KEY_TRACK = 0.75;
  * 4 settled; was 5 / 0.5), for a proper squelch. Up to 60 (every TIMBRE sound) unchanged.
  */
 const SQUELCH_FROM = 0.6;
+/**
+ * BASS body: as FM LVL crossfades the wave into the FM pair, a sine on each oscillator's own
+ * pitch comes in with it (x FM LVL x BODY), so the note itself stays (a 3 : 2 pair has little
+ * of it, and FM 100 used to drop the wave's): the bass keeps its weight at any FM LVL.
+ */
+const BODY = 1.4;
+
+/** BASS: the output gain for FM COMP (dB at FM LVL 100) at an FM level. */
+function fmGainOf(fmcomp: number, fm: number): number {
+  return fmcomp === 0 ? 1 : Math.pow(10, (-fmcomp * fm) / 20);
+}
 const SQUELCH_TOP = 8;
 function squelch(fm: number): number {
   if (fm <= SQUELCH_FROM) return fm;
@@ -175,6 +186,9 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): every sound equally loud by
   // default, without changing how hard it drives.
   { id: 'ogain', name: 'OUT GAIN', min: 0.05, max: 16, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
+  // BASS (set by TIMBRE, no knob): how much quieter (dB) the sound plays at FM LVL 100 than at
+  // FM LVL 0, so FM LVL changes its colour, not its level (fmGainOf).
+  { id: 'fmcomp', name: 'FM COMP', min: -24, max: 24, defaultValue: 0, unit: 'DB', curve: 'linear', decimals: 1 },
   { id: 'attack', name: 'OSC1 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'decay', name: 'OSC1 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
   { id: 'attack2', name: 'OSC2 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
@@ -218,8 +232,8 @@ const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'fmattack', 'f
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
-export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
-export const BASS_FIXED = { voice: 1, envlink: 1, keyref: 33, squelch: 1 };
+export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'fmcomp', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
+export const BASS_FIXED = { voice: 1, envlink: 1, keyref: 33, squelch: 1, body: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
@@ -318,12 +332,16 @@ export class Synth implements Instrument {
   private cRatio = 1;
   /** Output gain after DRIVE / CRUSH (evens the sounds out). */
   private oGain = 1;
+  /** BASS FM COMP: its dB at FM LVL 100, and the gain at the FM level in use. */
+  private fmComp = 0; private fmGain = 1;
   /**
    * 0 = FM PAIR (crossfaded with the waves), 1 = 3 CARRIER (one feedback modulator into three
    * carriers), 2 = 2 STACKS (two modulator -> carrier pairs).
    */
   /** FM pair depth (algo 0): FM LVL, or with `squelch` (BASS) its curve above 60. */
   private pairFm = 0; private squelchOn = false;
+  /** BASS: the note's sine under the FM pair (BODY). */
+  private bodyOn = false;
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private fm2 = 0; private fm2Index = 0; private carriers = 0.35;
   /** DC blocker state (renderDcBlock) and its pole. */
   private dcXL = 0; private dcYL = 0; private dcXR = 0; private dcYR = 0; private dcR = 1;
@@ -494,6 +512,7 @@ export class Synth implements Instrument {
     const f = this.fm + this.fmMod;
     this.fmEff = f < 0 ? 0 : f > 1 ? 1 : f;
     this.pairFm = this.squelchOn ? squelch(this.fmEff) : this.fmEff;
+    this.fmGain = fmGainOf(this.fmComp, this.fmEff);
     this.fmIndex = dx7Index(this.fmEff);
     const f2 = this.fm2 + this.fmMod;
     this.fm2Index = dx7Index(f2 < 0 ? 0 : f2 > 1 ? 1 : f2);
@@ -530,6 +549,7 @@ export class Synth implements Instrument {
       case 'bend': this.bend = value; this.pitchFx = this.vibDepth > 0 || this.bend !== 0; break;
       case 'bendtime': this.bendTime = Math.max(0.001, value); break;
       case 'squelch': this.squelchOn = value === 1; this.updateFm(); break;
+      case 'body': this.bodyOn = value === 1; break;
       case 'fm2': this.fm2 = value; this.updateFm(); break;
       case 'ratio2': this.ratio2 = value; break;
       case 'ratio3': this.ratio3 = value; break;
@@ -560,6 +580,7 @@ export class Synth implements Instrument {
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
       case 'ogain': this.oGain = value; break;
+      case 'fmcomp': this.fmComp = value; this.updateFm(); break;
       case 'attack':
         this.attackInc[0] = 1 / (value * sr);
         if (this.envLink) this.attackInc[1] = this.attackInc[0];
@@ -622,8 +643,9 @@ export class Synth implements Instrument {
     this.renderVoices(outL, outR, start, end);
     if (this.algo === 2) this.renderDcBlock(outL, outR, start, end);
     this.renderCrush(outL, outR, start, end);
-    if (this.oGain !== 1) {
-      for (let i = start; i < end; i++) { outL[i] *= this.oGain; outR[i] *= this.oGain; }
+    const og = this.oGain * this.fmGain;
+    if (og !== 1) {
+      for (let i = start; i < end; i++) { outL[i] *= og; outR[i] *= og; }
     }
     if (this.duckStage !== 0) this.renderDuck(outL, outR, start, end);
   }
@@ -794,6 +816,13 @@ export class Synth implements Instrument {
       const fmOut = sinRad(2 * Math.PI * carrier + index * sinTurn(v.p4));
       o1[j] = o1[j] * (1 - fm) + fmOut * fm;
       o2[j] = o2[j] * (1 - fm) + fmOut * fm;
+    }
+    if (this.bodyOn) {
+      const body = fm * BODY;
+      for (let j = 0; j < n; j++) {
+        o1[j] += body * sinTurn(this.bP1[j]);
+        o2[j] += body * sinTurn(this.bP2[j]);
+      }
     }
   }
 

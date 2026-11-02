@@ -2824,7 +2824,8 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
       for (let i = a; i < b; i++) { re += l[i] * Math.cos((2 * Math.PI * f * i) / SR); im += l[i] * Math.sin((2 * Math.PI * f * i) / SR); }
       return Math.hypot(re, im) / (b - a);
     };
-    const base = { shape: 0, fm: 1, fenv: 1, fdecay: 2, sustain: 1, decay: 2, cutoff: 12000, reso: 0, sub: 0, drive: 1, detune: 0, unison: 0 };
+    // The pair alone (BODY off: its sine on the note would hide the pair's own partials).
+    const base = { shape: 0, fm: 1, fenv: 1, fdecay: 2, sustain: 1, decay: 2, cutoff: 12000, reso: 0, sub: 0, drive: 1, detune: 0, unison: 0, body: 0 };
     const f = midiToHz(45) * Math.pow(2, (presetSound('bass', 0).octave ?? 4) - 4);
     const plain = play(synth('bass', { ...base, fmratio: 2 / 3 }), 0.6, 0.6);
     const locked = play(synth('bass', { ...base, fmratio: 2, cratio: 3 }), 0.6, 0.6);
@@ -2919,6 +2920,39 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
   it('every type\'s sound parameters fit its engine slots (none spill into the next track)', () => {
     for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.length, k).toBeLessThanOrEqual(LOCK_SLOTS);
   });
+
+  it('BASS: FM LVL 0 ... 100 keeps every sound audible (BODY) and about as loud (FM COMP)', () => {
+    // Weight = the energy up to 1.5x the note's fundamental (what makes it a bass); loudness =
+    // the gated measure. Against each sound as designed, at INT 0 / 50 / 100, on three notes.
+    const e = INSTRUMENTS.bass;
+    const measure = (t: number, x: number, fm: number | null, note: number) => {
+      const inst = e.create(SR);
+      const s: Record<string, number> = { ...presetSound('bass', 0), ...macroSound('bass', t, x, e.params), timbre: t, intensity: x };
+      if (fm !== null) s.fm = fm;
+      for (const id in s) inst.setParam(id, s[id]);
+      inst.noteOn(note, 0.8, note, false);
+      const l = new Float32Array(SR / 2), r = new Float32Array(SR / 2);
+      inst.render(l, r, 0, l.length);
+      const a = Math.exp((-2 * Math.PI * midiToHz(note + 12 * (s.octave - 4)) * 1.5) / SR);
+      let y = 0, y2 = 0, acc = 0;
+      for (let i = 0; i < l.length; i++) { y = (1 - a) * l[i] + a * y; y2 = (1 - a) * y + a * y2; acc += y2 * y2; }
+      return { loud: gatedLoudness(l, r), weight: 10 * Math.log10(acc / l.length + 1e-20) };
+    };
+    MACROS.bass.anchors.forEach((anchor, i) => {
+      const t = anchorPosition('bass', i);
+      for (const x of [0, 0.5, 1]) {
+        for (const note of [28, 40, 52]) {
+          const ref = measure(t, x, null, note);
+          for (const fm of [0, 0.5, 1]) {
+            const m = measure(t, x, fm, note);
+            const at = `${anchor.name} INT ${x * 100} note ${note} FM ${fm * 100}`;
+            expect(m.weight - ref.weight, at).toBeGreaterThan(-5);
+            expect(Math.abs(m.loud - ref.loud), at).toBeLessThan(7.5);
+          }
+        }
+      }
+    });
+  }, 60_000);
 
   it('INT 0 is dull, never near-silent: every synth sound stays within 5 dB of its INT 50 up to A5', () => {
     for (const kind of ['bass', 'pad', 'lead', 'pluck'] as const) {
@@ -3815,7 +3849,7 @@ describe('v41: the FM envelope', () => {
     const p = kickProject([], { bpm: 120 });
     const bass = p.channels[4];
     bass.fxSend = 0;
-    bass.sounds.bass = { ...presetSound('bass', 4), ...sound }; // FM 2:3
+    bass.sounds.bass = { ...presetSound('bass', 4), fm: 0.6, ...sound }; // ACID with the old FM 2:3's FM LVL
     bass.patterns[0].steps[0].active = true;
     bass.patterns[0].steps[0].gate = 8;
     const e = engineWith(p);
@@ -4212,6 +4246,23 @@ describe('v68: BASS reworked (STICK, ACID + FM 2:3 merged, own INT ends)', () =>
     expect(v67({ timbre: 0.425 }, {}).channels[4].sounds.bass!.timbre).toBe(1);
     // Neighbours still (SINE SUB -> GROWL) move with them.
     expect(v67({ timbre: 0.125 }, {}).channels[4].sounds.bass!.timbre).toBeCloseTo(0.125, 9);
+  });
+});
+
+describe('v69: BASS BODY and FM COMP', () => {
+  it('a v68 BASS takes the new levels (OUT GAIN, FM COMP) under its trims', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 68;
+    const bass = stored.channels[4];
+    bass.sounds.bass.ogain = 0.5;
+    delete bass.sounds.bass.fmcomp;
+    bass.trims = { bass: { cutoff: 0.05 } };
+    const b = fromStored(stored)!.channels[4];
+    const s = b.sounds.bass!;
+    const hidden = macroSound('bass', s.timbre, s.intensity, INSTRUMENTS.bass.params);
+    expect(s.ogain).toBeCloseTo(hidden.ogain, 9);
+    expect(s.fmcomp).toBeCloseTo(hidden.fmcomp, 9);
+    expect(s.cutoff).toBeCloseTo(applyTrim(paramSpec('bass', 'cutoff')!, hidden.cutoff, 0.05), 9);
   });
 });
 

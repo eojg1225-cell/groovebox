@@ -386,6 +386,14 @@ export function bassV68(kind: SoundKind, sound: Record<string, number>, trims: R
 }
 
 /**
+ * v69: the BASS's BODY and FM COMP (its levels re-set for them), so a v68 BASS's TIMBRE / INT
+ * values are rebuilt under its stored trims (older ones already are, by bassV68). In place.
+ */
+function bassV69(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (kind === 'bass') rebuildMacros(kind, sound, trims);
+}
+
+/**
  * v47: the KICK's VINTAGE, TECHNO (INT 100) and PSY DOOF were redone, so a saved KICK's trims
  * are taken again from its stored values over the new sounds: it plays as it was saved (the
  * project that VINTAGE was built from ends up with almost no trims). In place.
@@ -553,6 +561,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 47) kickV47(kind, sound, trims);
   if (version < 58) leadV58(kind, sound, trims);
   if (version < 68) bassV68(kind, sound, trims);
+  else if (version < 69) bassV69(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
