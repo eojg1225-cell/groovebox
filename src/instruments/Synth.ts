@@ -308,37 +308,37 @@ function anchorPresets(kind: 'bass' | 'pad' | 'lead' | 'pluck'): Preset[] {
  * BASS presets (v70): finished sounds as knob settings on a TIMBRE wave (0 SINE, 0.25 TRIANGLE,
  * 0.5 SAW, 0.75 SQUARE, 1 PULSE). A preset loads as SOUND page edits (trims), so every knob
  * shows where it is and turning TIMBRE keeps them (ACID's filter on a saw ...). fmpair = FM
- * RATIO: 0 1:1, 1 1:2, 2 1:3, 3 3:2. The first five are the v68 TIMBRE sounds (same order).
+ * RATIO: 0 1:1, 1 1:2, 2 1:3, 3 3:2. In TIMBRE order (v72; saves renumbered, PRESET_ORDER_V72).
  * `level` (LEVEL, no knob) evens the presets (equally loud, as the TIMBRE waves).
  */
 export const BASS_PRESETS: readonly Preset[] = [
   { name: 'SUB', values: { timbre: 0, intensity: 0.5, level: 0.599, fm: 0.12, fmpair: 1, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8 } },
-  { name: 'GROWL', values: { timbre: 0.5, intensity: 0.5, level: 1.125, fm: 0.15, fmpair: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
   { name: 'STICK', values: { timbre: 0.25, intensity: 0.5, level: 0.65, fm: 0.25, fmpair: 2, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fdecay: 0.4, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 } },
+  { name: 'GROWL', values: { timbre: 0.5, intensity: 0.5, level: 1.125, fm: 0.15, fmpair: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+  { name: 'REESE', values: { timbre: 0.5, intensity: 0.5, level: 0.895, sub: 0.3, cutoff: 500, reso: 0.2, fenv: 0.1, fdecay: 0.5, fmdecay: 0.5, drive: 2, decay: 1.2, sustain: 0.9, detune: 0.6, unison: 1 } },
   { name: 'SOLID', values: { timbre: 0.625, intensity: 0.5, level: 1.194, fm: 0.45, fmpair: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
   { name: 'ACID', values: { timbre: 0.75, intensity: 0.5, level: 0.745, cutoff: 380, reso: 0.75, fenv: 0.9, fdecay: 0.18, fmdecay: 0.18, drive: 1.8, glide: 0.08, decay: 0.35, sustain: 0.6 } },
-  { name: 'REESE', values: { timbre: 0.5, intensity: 0.5, level: 0.895, sub: 0.3, cutoff: 500, reso: 0.2, fenv: 0.1, fdecay: 0.5, fmdecay: 0.5, drive: 2, decay: 1.2, sustain: 0.9, detune: 0.6, unison: 1 } },
 ];
 export const PAD_PRESETS: readonly Preset[] = anchorPresets('pad');
 /**
  * LEAD presets (v71), as the BASS's: knob settings on a TIMBRE wave (0 SINE, 0.25 TRIANGLE, 0.5
  * SAW, 0.75 SQUARE, 1 PULSE), loaded as trims. fmpair = FM RATIO (1 1:2, 5 1:4, 6 1:5, 0 1:1);
- * `level` evens them, as the BASS's.
+ * `level` evens them, as the BASS's. In TIMBRE order (v72).
  */
 export const LEAD_PRESETS: readonly Preset[] = [
   // A sine with a slow, late vibrato and a long slide: theremin / dub siren.
   { name: 'WHISTLE', values: { timbre: 0, intensity: 0.5, level: 0.459, fm: 0.04, fmpair: 1, cutoff: 7000, reso: 0, fenv: 0.1, fdecay: 0.6, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35 } },
+  // The FM pair at 1 : 2 with a fast FM envelope and a quick zap down from above: it bites.
+  { name: 'FM BITE', values: { timbre: 0, intensity: 0.5, level: 0.401, fm: 0.55, fmpair: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fdecay: 0.15, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
   // Hard-sync style: a SAW under a deep 1 : 4 pair whose FM envelope sweeps down each note (the
   // tearing, formant-sweeping sync lead), in the squelch range.
   { name: 'SYNC', values: { timbre: 0.5, intensity: 0.5, level: 0.402, fm: 0.65, fmpair: 5, fmdecay: 0.3, cutoff: 4500, reso: 0.25, fenv: 0.4, fdecay: 0.3, drive: 2, glide: 0.05, decay: 0.8, sustain: 0.8, vibrato: 0.08, vibdelay: 0.5 } },
+  // Detuned saws, wide, each note scooping up from an octave below: the rave hoover.
+  { name: 'HOOVER', values: { timbre: 0.5, intensity: 0.5, level: 1.102, fm: 0.08, fmpair: 0, cutoff: 2200, reso: 0.3, fenv: 0.5, fdecay: 0.25, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
   // The engine at once: a narrowed PULSE, wide (UNISON, DETUNE), each note scooping up into
   // pitch, then blooming into glass as a slow FM ATTACK opens the 1 : 5 pair, a delayed
   // vibrato swelling in as it settles; resonant, with a long slide.
   { name: 'BLOOM', values: { timbre: 0.9, intensity: 0.5, level: 0.826, fm: 0.35, fmpair: 6, fmattack: 0.35, fmdecay: 1.5, cutoff: 3500, reso: 0.35, fenv: 0.3, fdecay: 0.8, drive: 1.4, glide: 0.1, decay: 1.5, sustain: 0.85, detune: 0.3, unison: 0.6, vibrato: 0.25, vibrate: 5, vibdelay: 0.7, bend: -1, bendtime: 0.12 } },
-  // Detuned saws, wide, each note scooping up from an octave below: the rave hoover.
-  { name: 'HOOVER', values: { timbre: 0.5, intensity: 0.5, level: 1.102, fm: 0.08, fmpair: 0, cutoff: 2200, reso: 0.3, fenv: 0.5, fdecay: 0.25, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
-  // The FM pair at 1 : 2 with a fast FM envelope and a quick zap down from above: it bites.
-  { name: 'FM BITE', values: { timbre: 0, intensity: 0.5, level: 0.401, fm: 0.55, fmpair: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fdecay: 0.15, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
 ];
 export const PLUCK_PRESETS: readonly Preset[] = anchorPresets('pluck');
 

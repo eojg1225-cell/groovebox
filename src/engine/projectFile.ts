@@ -406,6 +406,19 @@ function bassPresetV68(p: number): number {
   return BASS_ORDER_V68[p] ?? p;
 }
 
+/**
+ * v72: the BASS / LEAD presets in TIMBRE order: each old number's new place (BASS SUB, GROWL,
+ * STICK, SOLID, ACID, REESE -> SUB, STICK, GROWL, REESE, SOLID, ACID; LEAD WHISTLE, SYNC, BLOOM,
+ * HOOVER, FM BITE -> WHISTLE, FM BITE, SYNC, HOOVER, BLOOM). USER patches come after: unmoved.
+ */
+const PRESET_ORDER_V72: Partial<Record<SoundKind, readonly number[]>> = { bass: [0, 2, 1, 4, 5, 3], lead: [0, 2, 4, 3, 1] };
+
+/** A preset number as stored -> today's (older BASS numbers first take v68's order). */
+function presetV72(kind: SoundKind, p: number, version: number): number {
+  if (version < 68 && kind === 'bass') p = bassPresetV68(p);
+  return version < 72 ? (PRESET_ORDER_V72[kind]?.[p] ?? p) : p;
+}
+
 /** A PERC preset number (= its TIMBRE sound) from before v46. */
 function percPresetV46(p: number): number {
   return PERC_ORDER_V46[p] ?? p;
@@ -677,7 +690,7 @@ function readPatch(kind: SoundKind, x: unknown, version: number): Patch | undefi
   const patch: Patch = { sound, trims: readTrims(kind, sound, x.t, version) };
   if (typeof x.p === 'number') patch.preset = Math.max(0, Math.round(x.p));
   if (version < 46 && kind === 'perc' && patch.preset !== undefined) patch.preset = percPresetV46(patch.preset);
-  if (version < 68 && kind === 'bass' && patch.preset !== undefined) patch.preset = bassPresetV68(patch.preset);
+  if (patch.preset !== undefined) patch.preset = presetV72(kind, patch.preset, version);
   return patch;
 }
 
@@ -696,7 +709,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (isObj(src.presets)) {
     for (const k of SOUND_KINDS) if (typeof src.presets[k] === 'number') ch.presets[k] = Math.max(0, Math.round(src.presets[k] as number));
     if (version < 46 && ch.presets.perc !== undefined) ch.presets.perc = percPresetV46(ch.presets.perc);
-    if (version < 68 && ch.presets.bass !== undefined) ch.presets.bass = bassPresetV68(ch.presets.bass);
+    for (const k of ['bass', 'lead'] as const) if (ch.presets[k] !== undefined) ch.presets[k] = presetV72(k, ch.presets[k]!, version);
   }
   const pair = (x: unknown): [string, string] | null =>
     Array.isArray(x) && x.length === 2 && x.every((y) => typeof y === 'string') ? [x[0] as string, x[1] as string] : null;

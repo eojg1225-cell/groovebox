@@ -2921,7 +2921,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
   it('BASS squelch: above FM LVL 60 the FM pair goes much deeper; every TIMBRE sound (FM 60 and under) plays as before', () => {
     const play = (fixed: Record<string, number>, set: Record<string, number>) => {
       const s = new Synth(SR, INSTRUMENTS.bass.params, fixed);
-      const sound: Record<string, number> = { ...presetSound('bass', 4), cutoff: 20000, fenv: 0, ...set };
+      const sound: Record<string, number> = { ...presetSound('bass', INSTRUMENTS.bass.presets.findIndex((x) => x.name === 'ACID')), cutoff: 20000, fenv: 0, ...set };
       for (const id in sound) s.setParam(id, sound[id]);
       s.noteOn(33, 1, 33, false);
       const l = new Float32Array(SR / 4);
@@ -3143,10 +3143,19 @@ describe('v71: LEAD = the BASS\'s design (the wave on TIMBRE, presets as knob se
     expect(back.channels[6].patterns[0].steps[0].locks!.timbre).toBeCloseTo(0.75, 9);
   });
 
-  it('presets: WHISTLE, SYNC, BLOOM, HOOVER, FM BITE, loaded as knob settings; INT leaves FM, VIBRATO and BEND alone', () => {
-    expect(INSTRUMENTS.lead.presets.map((x) => x.name)).toEqual(['WHISTLE', 'SYNC', 'BLOOM', 'HOOVER', 'FM BITE']);
+  it('v72: a saved BASS / LEAD preset number keeps its name (the presets in TIMBRE order)', () => {
+    const back = old(71, (lead, p) => {
+      lead.presets = { lead: 2 }; // BLOOM in v71's order
+      p.channels[4].presets = { bass: 1 }; // GROWL in v70's order
+    });
+    expect(INSTRUMENTS.lead.presets[back.channels[6].presets.lead!].name).toBe('BLOOM');
+    expect(INSTRUMENTS.bass.presets[back.channels[4].presets.bass!].name).toBe('GROWL');
+  });
+
+  it('presets: WHISTLE, FM BITE, SYNC, HOOVER, BLOOM, loaded as knob settings; INT leaves FM, VIBRATO and BEND alone', () => {
+    expect(INSTRUMENTS.lead.presets.map((x) => x.name)).toEqual(['WHISTLE', 'FM BITE', 'SYNC', 'HOOVER', 'BLOOM']); // TIMBRE order
     const c = createDefaultProject().channels[6];
-    applyPreset(c, 'lead', 2); // BLOOM
+    applyPreset(c, 'lead', INSTRUMENTS.lead.presets.findIndex((x) => x.name === 'BLOOM'));
     expect(c.sounds.lead!.fmattack).toBeCloseTo(0.35, 9);
     expect(c.trims.lead!.fmattack).toBeGreaterThan(0);
     for (const t of [0, 0.5, 1]) for (const id of ['fm', 'vibrato', 'bend', 'detune']) {
@@ -3920,7 +3929,7 @@ describe('v41: the FM envelope', () => {
     const p = kickProject([], { bpm: 120 });
     const bass = p.channels[4];
     bass.fxSend = 0;
-    bass.sounds.bass = { ...presetSound('bass', 4), fm: 0.6, ...sound }; // ACID with the old FM 2:3's FM LVL
+    bass.sounds.bass = { ...presetSound('bass', INSTRUMENTS.bass.presets.findIndex((x) => x.name === 'ACID')), fm: 0.6, ...sound }; // ACID with the old FM 2:3's FM LVL
     bass.patterns[0].steps[0].active = true;
     bass.patterns[0].steps[0].gate = 8;
     const e = engineWith(p);
@@ -4295,7 +4304,7 @@ describe('v70: BASS = the wave (presets = knob settings); PAD FM LVL is INT\'s',
     const hidden = macroSound('bass', s.timbre, s.intensity, specs);
     expect(s.ogain).toBeCloseTo(hidden.ogain, 9); // the new wave's level
     for (const id of ['cutoff', 'reso', 'fm']) expect(applyTrim(paramSpec('bass', id)!, hidden[id], b.trims.bass![id]), id).toBeCloseTo(s[id], 6);
-    expect(b.presets.bass).toBe(4); // ACID
+    expect(b.presets.bass).toBe(5); // ACID (v68 order, then v72's TIMBRE order)
     expect(b.patterns[0].steps[0].locks!.timbre).toBeCloseTo(0.75, 9); // SQUARE
     expect(back.song.auto!['s:4:timbre'].map(([, v]) => v)).toEqual([2.3 / 4, 0]);
   });
@@ -4332,7 +4341,11 @@ describe('v70: BASS = the wave (presets = knob settings); PAD FM LVL is INT\'s',
     // On the SAW instead: the same filter.
     const saw = macroSound('bass', 0.5, 0.5, specs);
     expect(applyTrim(paramSpec('bass', 'reso')!, saw.reso, c.trims.bass!.reso)).toBeCloseTo(0.75, 9);
-    expect(INSTRUMENTS.bass.presets.map((x) => x.name)).toEqual(['SUB', 'GROWL', 'STICK', 'SOLID', 'ACID', 'REESE']);
+    expect(INSTRUMENTS.bass.presets.map((x) => x.name)).toEqual(['SUB', 'STICK', 'GROWL', 'REESE', 'SOLID', 'ACID']); // TIMBRE order
+    for (const k of ['bass', 'lead'] as const) {
+      const t = INSTRUMENTS[k].presets.map((x) => x.values.timbre);
+      expect([...t].sort((a, b) => a - b), k).toEqual(t);
+    }
   });
 });
 
