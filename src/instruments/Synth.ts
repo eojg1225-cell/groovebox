@@ -51,9 +51,29 @@ const SQUELCH_FROM = 0.6;
  */
 const BODY = 1.4;
 
+/**
+ * BASS FM RATIO (a knob, FUNC module 4): the FM pair's carrier : modulator, each with its
+ * lowest partial on the note (the pitch holds at any FM LVL), soft to bright. (How loud FM
+ * makes it depends on the wave, not the ratio: FM COMP is TIMBRE's.) `sign`: 3 : 2's partial
+ * on the note comes out inverted (the lower sideband), which cancelled the wave's note half-way
+ * up FM LVL (-7 dB on a SAW): the pair is flipped so it adds to it.
+ */
+const FM_PAIRS: readonly { name: string; c: number; m: number; sign?: number }[] = [
+  { name: '1:1', c: 1, m: 1 },
+  { name: '1:2', c: 1, m: 2 },
+  { name: '1:3', c: 1, m: 3 },
+  { name: '3:2', c: 3, m: 2, sign: -1 },
+  { name: '3:4', c: 3, m: 4 },
+  { name: '1:4', c: 1, m: 4 },
+  { name: '1:5', c: 1, m: 5 },
+  { name: '1:7', c: 1, m: 7 },
+];
+/** The FM RATIO knob's choices (BASS). */
+const FM_PAIR_NAMES = FM_PAIRS.map((p) => p.name);
+
 /** BASS: the output gain for FM COMP (dB at FM LVL 100) at an FM level. */
-function fmGainOf(fmcomp: number, fm: number): number {
-  return fmcomp === 0 ? 1 : Math.pow(10, (-fmcomp * fm) / 20);
+function fmGainOf(comp: number, fm: number): number {
+  return comp === 0 ? 1 : Math.pow(10, (-comp * fm) / 20);
 }
 const SQUELCH_TOP = 8;
 function squelch(fm: number): number {
@@ -109,9 +129,22 @@ function wave(w: number, phase: number, dt: number): number {
   }
 }
 
-/** A block of SHAPE's wave: out[j] = shaped(phase[j], dt[j] x scale). */
+/**
+ * SHAPE past 3 (BASS: SQUARE -> PULSE): a band-limited pulse whose width narrows from 50 %
+ * (the square) at 3 to PULSE_MIN at 4, centred (no DC).
+ */
+const PULSE_MIN = 0.125;
+function pulse(phase: number, dt: number, f: number): number {
+  const width = 0.5 - (0.5 - PULSE_MIN) * f;
+  let p2 = phase + 1 - width; if (p2 >= 1) p2 -= 1;
+  return (phase < width ? 1 : -1) + polyBlep(phase, dt) - polyBlep(p2, dt) + 1 - 2 * width;
+}
+
+/** A block of SHAPE's wave: out[j] = shaped(phase[j], dt[j] x scale); w = 3: the pulse. */
 function waves(w: number, f: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
-  if (f > 0) {
+  if (w === 3) {
+    for (let j = 0; j < n; j++) out[j] = pulse(phase[j], dt[j] * scale, f);
+  } else if (f > 0) {
     for (let j = 0; j < n; j++) {
       const d = dt[j] * scale;
       const a = wave(w, phase[j], d);
@@ -122,8 +155,9 @@ function waves(w: number, f: number, phase: Float64Array, dt: Float64Array, scal
   }
 }
 
-/** SHAPE's continuous wave: wave w crossfaded by f (0..1) towards wave w + 1. */
+/** SHAPE's continuous wave: wave w crossfaded by f (0..1) towards wave w + 1 (w = 3: the pulse). */
 function shaped(w: number, f: number, phase: number, dt: number): number {
+  if (w === 3) return pulse(phase, dt, f);
   const a = wave(w, phase, dt);
   return f > 0 ? a + (wave(w + 1, phase, dt) - a) * f : a;
 }
@@ -138,13 +172,14 @@ const BLOCK = 64;
 const SYNTH_PARAMS: readonly ParamSpec[] = [
   TIMBRE,
   INTENSITY,
+  // 0 sine, 1 triangle, 2 saw, 3 square; BASS also 3 -> 4 = the square narrowing to a PULSE.
   { id: 'shape', name: 'SHAPE', min: 0, max: 3, defaultValue: 2, unit: '', curve: 'linear' },
   { id: 'fm', name: 'FM LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // PAD / LEAD: the second stack's modulation level (PAD stack 2, LEAD carriers 2 / 3). FM LVL
   // sets it along with its own (registry.linkedParams); this knob sets it apart afterwards.
   { id: 'fm2', name: 'FM LVL2', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'fmratio', name: 'FM RATIO', min: 0.25, max: 16, defaultValue: 2, unit: '', curve: 'exp', decimals: 2 },
-  // BASS FM pair carrier (x the note; set by TIMBRE, no knob): SOLID / ACID run it at 3 under a 2.
+  // LEAD FM pair carrier (x the note; set by TIMBRE, no knob; BASS: FM RATIO sets it).
   { id: 'cratio', name: 'CAR RATIO', min: 0.25, max: 8, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   { id: 'detune', name: 'DETUNE', min: 0, max: 4, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'sub', name: 'SUB', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
@@ -186,9 +221,11 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): every sound equally loud by
   // default, without changing how hard it drives.
   { id: 'ogain', name: 'OUT GAIN', min: 0.05, max: 16, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
-  // BASS (set by TIMBRE, no knob): how much quieter (dB) the sound plays at FM LVL 100 than at
+  // BASS (set by TIMBRE, no knob): how much quieter (dB) the wave plays at FM LVL 100 than at
   // FM LVL 0, so FM LVL changes its colour, not its level (fmGainOf).
   { id: 'fmcomp', name: 'FM COMP', min: -24, max: 24, defaultValue: 0, unit: 'DB', curve: 'linear', decimals: 1 },
+  // BASS: the FM pair's carrier : modulator (FM_PAIRS; a knob on FUNC module 4).
+  { id: 'fmpair', name: 'FM RATIO', min: 0, max: 7, defaultValue: 0, unit: '', curve: 'linear', options: FM_PAIR_NAMES, coarse: true },
   { id: 'attack', name: 'OSC1 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'decay', name: 'OSC1 DEC', min: 0.005, max: 20, defaultValue: 0.4, unit: 'S', curve: 'exp' },
   { id: 'attack2', name: 'OSC2 ATK', min: 0.0005, max: 10, defaultValue: 0.003, unit: 'S', curve: 'exp', decimals: 4 },
@@ -214,8 +251,8 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
 
-function synthParams(ids: string[], defaults: Record<string, number>, names: Record<string, string> = {}): ParamSpec[] {
-  return ids.map((id) => ({ ...BY_ID[id], defaultValue: defaults[id] ?? BY_ID[id].defaultValue, name: names[id] ?? BY_ID[id].name }));
+function synthParams(ids: string[], defaults: Record<string, number>, names: Record<string, string> = {}, max: Record<string, number> = {}): ParamSpec[] {
+  return ids.map((id) => ({ ...BY_ID[id], defaultValue: defaults[id] ?? BY_ID[id].defaultValue, name: names[id] ?? BY_ID[id].name, max: max[id] ?? BY_ID[id].max }));
 }
 /** Plain envelope names (BASS / PLUCK: one envelope; PAD / LEAD: these move both oscillators). */
 const SHARED_NAMES = { attack: 'ATTACK', decay: 'DECAY', sustain: 'SUSTAIN', release: 'RELEASE' };
@@ -232,11 +269,12 @@ const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'fmattack', 'f
 const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
-export const BASS_PARAMS = synthParams([...MORPHED, 'cratio', 'ogain', 'fmcomp', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES);
+export const BASS_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmratio'), 'fmpair', 'ogain', 'fmcomp', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES, { shape: 4 });
 export const BASS_FIXED = { voice: 1, envlink: 1, keyref: 33, squelch: 1, body: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
-export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES);
+// PAD DETUNE: half the other synths' range (any more is unusable on chords).
+export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
 export const PAD_FIXED = { voice: 0, sub: 0, algo: 2 };
 /**
@@ -264,7 +302,20 @@ function anchorPresets(kind: 'bass' | 'pad' | 'lead' | 'pluck'): Preset[] {
   const anchors = MACROS[kind].anchors;
   return anchors.map((a, i) => ({ name: a.name, values: { timbre: i / (anchors.length - 1), intensity: 0.5 } }));
 }
-export const BASS_PRESETS: readonly Preset[] = anchorPresets('bass');
+/**
+ * BASS presets (v70): finished sounds as knob settings on a TIMBRE wave (0 SINE, 0.25 TRIANGLE,
+ * 0.5 SAW, 0.75 SQUARE, 1 PULSE). A preset loads as SOUND page edits (trims), so every knob
+ * shows where it is and turning TIMBRE keeps them (ACID's filter on a saw ...). fmpair = FM
+ * RATIO: 0 1:1, 1 1:2, 2 1:3, 3 3:2. The first five are the v68 TIMBRE sounds (same order).
+ */
+export const BASS_PRESETS: readonly Preset[] = [
+  { name: 'SUB', values: { timbre: 0, intensity: 0.5, fm: 0.12, fmpair: 1, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8 } },
+  { name: 'GROWL', values: { timbre: 0.5, intensity: 0.5, fm: 0.15, fmpair: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+  { name: 'STICK', values: { timbre: 0.25, intensity: 0.5, fm: 0.25, fmpair: 2, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fdecay: 0.4, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 } },
+  { name: 'SOLID', values: { timbre: 0.625, intensity: 0.5, fm: 0.45, fmpair: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
+  { name: 'ACID', values: { timbre: 0.75, intensity: 0.5, cutoff: 380, reso: 0.75, fenv: 0.9, fdecay: 0.18, fmdecay: 0.18, drive: 1.8, glide: 0.08, decay: 0.35, sustain: 0.6 } },
+  { name: 'REESE', values: { timbre: 0.5, intensity: 0.5, sub: 0.3, cutoff: 500, reso: 0.2, fenv: 0.1, fdecay: 0.5, fmdecay: 0.5, drive: 2, decay: 1.2, sustain: 0.9, detune: 0.6, unison: 1 } },
+];
 export const PAD_PRESETS: readonly Preset[] = anchorPresets('pad');
 export const LEAD_PRESETS: readonly Preset[] = anchorPresets('lead');
 export const PLUCK_PRESETS: readonly Preset[] = anchorPresets('pluck');
@@ -325,9 +376,9 @@ export class Synth implements Instrument {
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
   /**
-   * FM pair carrier ratio (BASS FM, algo 0; 1 = on the note). Above 1 with FM RATIO below it
-   * (carrier 3, modulator 2) the pair's lowest sideband lands on the note: a "root-locked"
-   * 3 : 2 that keeps its pitch at every FM LEVEL (BASS SOLID / ACID; TIMBRE's, no knob).
+   * FM pair carrier ratio (algo 0; 1 = on the note). Above 1 with the modulator 1 away from
+   * it (carrier 3, modulator 2 or 4) the pair's lowest sideband lands on the note: "root-locked",
+   * its pitch held at every FM LEVEL (BASS FM RATIO 3:2 / 3:4; LEAD: TIMBRE's).
    */
   private cRatio = 1;
   /** Output gain after DRIVE / CRUSH (evens the sounds out). */
@@ -340,6 +391,8 @@ export class Synth implements Instrument {
    */
   /** FM pair depth (algo 0): FM LVL, or with `squelch` (BASS) its curve above 60. */
   private pairFm = 0; private squelchOn = false;
+  /** BASS FM RATIO's polarity (FM_PAIRS sign). */
+  private pairSign = 1;
   /** BASS: the note's sine under the FM pair (BODY). */
   private bodyOn = false;
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private fm2 = 0; private fm2Index = 0; private carriers = 0.35;
@@ -536,7 +589,7 @@ export class Synth implements Instrument {
   setParam(id: string, value: number): void {
     const sr = this.sr;
     switch (id) {
-      case 'shape': this.shape = Math.min(3, Math.max(0, value)); break;
+      case 'shape': this.shape = Math.min(4, Math.max(0, value)); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
@@ -580,6 +633,13 @@ export class Synth implements Instrument {
       case 'crush': this.crush = value; break;
       case 'level': this.level = value; break;
       case 'ogain': this.oGain = value; break;
+      case 'fmpair': {
+        const pair = FM_PAIRS[Math.min(FM_PAIRS.length - 1, Math.max(0, Math.round(value)))];
+        this.cRatio = pair.c;
+        this.fmRatio = pair.m;
+        this.pairSign = pair.sign ?? 1;
+        break;
+      }
       case 'fmcomp': this.fmComp = value; this.updateFm(); break;
       case 'attack':
         this.attackInc[0] = 1 / (value * sr);
@@ -721,8 +781,8 @@ export class Synth implements Instrument {
       for (let k = 0; k < 4; k++) this.uRatio[k] = Math.pow(2, (UNISON_SPREAD[k] * cents) / 1200);
     }
     const cfbAmt = (this.cFeedback * MAX_CARRIER_FEEDBACK * (1 - 0.8 * Math.min(1, Math.max(0, this.shape - 1)))) / (2 * Math.PI);
-    // SHAPE: the two neighbouring waves and the blend between them.
-    const w = Math.min(2, Math.floor(this.shape));
+    // SHAPE: the two neighbouring waves and the blend between them (past 3: the pulse's width).
+    const w = this.shape > 3 ? 3 : Math.min(2, Math.floor(this.shape));
     const wf = this.shape - w;
     for (let from = start; from < end; from += BLOCK) {
       const to = Math.min(end, from + BLOCK);
@@ -813,7 +873,7 @@ export class Synth implements Instrument {
         v.p5 += dt1 * cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);
         carrier = v.p5;
       }
-      const fmOut = sinRad(2 * Math.PI * carrier + index * sinTurn(v.p4));
+      const fmOut = this.pairSign * sinRad(2 * Math.PI * carrier + index * sinTurn(v.p4));
       o1[j] = o1[j] * (1 - fm) + fmOut * fm;
       o2[j] = o2[j] * (1 - fm) + fmOut * fm;
     }

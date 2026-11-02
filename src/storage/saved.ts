@@ -5,7 +5,7 @@
 import type { SoundKind } from '../engine/project';
 import { INSTRUMENTS, pageParams } from '../instruments/registry';
 import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
-import { bassV68, drumsV43, hatV44, kickV47, leadV58, percV46, rollRateV57 } from '../engine/projectFile';
+import { bassV70, drumsV43, hatV44, kickV47, leadV58, padV70, percV46, rollRateV57 } from '../engine/projectFile';
 
 const PATCHES_KEY = 'groovebox.patches';
 
@@ -60,13 +60,19 @@ export function readUserPatch(kind: SoundKind, patch: UserPatch): LoadedPatch {
   rollRateV57(sound); // USER patches all predate v57
   // USER patches all predate v43 (and the v44 RIDE, the v45 TIMBALE, the v46 PERC order: a
   // HAT / PERC is rebuilt from the new sounds; a v47 KICK keeps its sound).
-  const trims = patch.trims ? { ...patch.trims } : kind === 'hat' || kind === 'perc' || kind === 'lead' || kind === 'bass' ? {} : deriveTrims(kind, sound, params);
+  const trims = patch.trims ? { ...patch.trims } : kind === 'hat' || kind === 'perc' || kind === 'lead' ? {} : deriveTrims(kind, sound, params);
   if (patch.trims) drumsV43(kind, sound, trims);
   hatV44(kind, sound, trims);
   percV46(kind, sound, trims);
   kickV47(kind, sound, trims);
   leadV58(kind, sound, trims);
-  bassV68(kind, sound, trims);
+  if (kind === 'bass') {
+    // v70: the wave it played and its FM pair; its values kept, as trims over the new waves.
+    bassV70(sound, patch.values, 0);
+    for (const id of Object.keys(trims)) delete trims[id];
+    Object.assign(trims, deriveTrims(kind, sound, params));
+  }
+  if (kind === 'pad') padV70(sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, params), pageParams(kind));
   const out: LoadedPatch = { sound, trims, live: [...patch.live] };
   if (patch.liveFunc) out.liveFunc = [...patch.liveFunc];

@@ -146,7 +146,8 @@ function load(): void {
 
 /** FM LVL's trim: the knob's distance from the middle, across the whole range (-1 ... +1). */
 const fmTrim = () => (state.fm - 0.5) * 2;
-const fmSpec = () => INSTRUMENTS[state.kind].params.find((p) => p.id === 'fm');
+/** FM LVL, where the type has the knob (not the PAD: INT sets it there). */
+const fmSpec = () => (INSTRUMENTS[state.kind].layout.includes('fm') ? INSTRUMENTS[state.kind].params.find((p) => p.id === 'fm') : undefined);
 
 function soundOf(c: Candidate | null): Record<string, number> {
   const out = { ...labSound(state.kind, c, state.timbre, state.intensity, built!.base), ...built!.extra };

@@ -203,10 +203,12 @@ switch (never glide, never on a relative live knob).
   sub, per-voice SVF low-pass with its own envelope, an FM envelope (`fmattack` / `fmdecay`: the FM
   index of every algorithm swings with it), ADSR per oscillator (`envlink` = one for both: BASS,
   PLUCK, LEAD), DRIVE / CRUSH / OUT GAIN, per-note pitch effects (LEAD: delayed VIBRATO and BEND,
-  `notePitch`, ramped per block). `algo` 0 (BASS, PLUCK, LEAD): an FM pair (BASS: root-locked ratio
-  ladder via `cratio` / `fmratio`). `algo` 1 (no type now): a sine modulator with DX7-style feedback
+  `notePitch`, ramped per block). SHAPE 0-3 = sine, triangle, saw, square; past 3 (BASS) the square
+  narrows to a pulse (`pulse`). `algo` 0 (BASS, PLUCK, LEAD): an FM pair (BASS: the FM RATIO knob
+  `fmpair` picks a root-locked carrier : modulator from `FM_PAIRS`; BODY keeps a sine on the note under
+  it, FM COMP its level). `algo` 1 (no type now): a sine modulator with DX7-style feedback
   phase-modulating three carriers (1 / RATIO 2 / RATIO 3; `dx7Index` level curve). `algo` 2 (PAD): two
-  stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3, mixed in by CARRIERS, which INTENSITY sets; no CRUSH), DC blocker at 8 Hz.
+  stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3, mixed in by CARRIERS; INTENSITY sets CARRIERS and FM LVL; no CRUSH), DC blocker at 8 Hz.
   PLUCK runs an onboard delay + room (`Instrument.post`); BASS ducks from KICK hits
   (`Instrument.duck`). The engine's ARP (`arp` / `arprate` / `arpoct`) is still there, but no type
   lists those params now.

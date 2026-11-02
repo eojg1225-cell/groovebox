@@ -42,6 +42,7 @@ export interface Excite {
   /**
    * Above the middle instead (modulation, DX7-style taper): up to KNEE at 75 % (or stays if
    * the sound is already past it), then on to TOP at 100 % - the bite is in the top quarter.
+   * TOP without KNEE: straight from the sound's value at the middle to TOP at 100 %.
    */
   knee?: number;
   top?: number;
@@ -172,58 +173,29 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   bass: {
-    // v68: SINE SUB, GROWL, STICK, SOLID, ACID on the ratio ladder (RATIO_LADDER: 1 : 2, 1 : 3,
-    // 3 : 2). Each sound has its own INT 0 (soft) / INT 100 (hard) versions of its filter,
-    // envelope, drive and width (no type-wide INT rule); INT never moves FM LVL (the FM LVL
-    // knob goes from none to full on every sound). At INT 50 every sound but SINE SUB filters
-    // between 420 and 800 Hz, RESO 0.45 at most, FLT ENV 0.2 - 0.6, FLT DEC 0.2 - 0.5 s.
-    // FM COMP (`fmcomp`, dB quieter at FM LVL 100) keeps each sound's level as FM LVL turns,
-    // the engine's BODY its weight (Synth.ts).
+    // v70: TIMBRE is the wave, nothing else: SINE, TRIANGLE, SAW, SQUARE, PULSE (SQUARE -> PULSE
+    // narrows the pulse width, 50 % -> 12.5 %). Filter, envelopes, drive, glide, SUB, DETUNE and
+    // UNISON are the same on every wave (a starting point with room both ways on every knob),
+    // FM LVL 0 (FM is the player's: FM LVL, FM RATIO); only the level (OUT GAIN, and FM COMP:
+    // how much quieter at FM LVL 100, as FM lifts each wave differently) evens them.
+    // INT = how much harmonic content, one rule for every wave (filter, its envelope, drive).
+    // The finished sounds are PRESETS (Synth.ts BASS_PRESETS): knob settings on top.
     anchors: [
-      {
-        // A pure sine; INT 0 rounder still, INT 100 a saturated sub with drive's harmonics.
-        name: 'SINE SUB',
-        values: { ogain: 0.626, fmcomp: 1.75, shape: 0, fm: 0.12, fmratio: 2, cratio: 1, sub: 0, cutoff: 3000, reso: 0, fenv: 0, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8, detune: 0 },
-        soft: { ogain: 0.627, cutoff: 1200 },
-        hard: { ogain: 0.613, cutoff: 3000, fenv: 0.15, drive: 4, sub: 0.3 },
-      },
-      {
-        // A saw with a sub under a resonant filter; INT 0 muted and narrow, INT 100 an open,
-        // driven, wide snarl.
-        name: 'GROWL',
-        values: { ogain: 1.007, fmcomp: 1.25, shape: 2, fm: 0.15, fmratio: 2, cratio: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fattack: 0.0005, fdecay: 0.5, fmattack: 0.0005, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 },
-        soft: { ogain: 1.218, cutoff: 260, reso: 0.1, fenv: 0.05, drive: 1.3, detune: 0.3 },
-        hard: { ogain: 0.824, cutoff: 1400, reso: 0.4, fenv: 0.45, drive: 7, detune: 1.1 },
-      },
-      {
-        // The Boss DR-3's STICK: a tapped Chapman Stick. No pick or finger thump (no woody
-        // body, little sub), every note the same: a hammered start, a steady body, a long even
-        // decay; the 1 : 3 pair rings steel overtones (in tune) over a triangle body, each tap
-        // brightest on the strike (the FM envelope). INT 0: dull, rounder taps; INT 100: bright and
-        // driven. FM LVL: more steel, towards a DX tine bass.
-        name: 'STICK',
-        values: { ogain: 0.881, fmcomp: 5, shape: 1, fm: 0.25, fmratio: 3, cratio: 1, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fattack: 0.0005, fdecay: 0.4, fmattack: 0.0005, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 },
-        soft: { ogain: 1.054, cutoff: 500, reso: 0.1, fenv: 0.1, drive: 1, detune: 0 },
-        hard: { ogain: 0.869, cutoff: 1600, reso: 0.3, fenv: 0.5, drive: 2.2, detune: 0.1 },
-      },
-      {
-        // A saw-square with a sub and a snapping filter; INT 0 round, INT 100 punchy and driven.
-        name: 'SOLID',
-        values: { ogain: 2.421, fmcomp: 8, shape: 2.3, fm: 0.15, fmratio: 2, cratio: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fattack: 0.0005, fdecay: 0.22, fmattack: 0.0005, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 },
-        soft: { ogain: 2.62, cutoff: 220, reso: 0.2, fenv: 0.15, drive: 1.1, detune: 0.05 },
-        hard: { ogain: 1.864, cutoff: 900, reso: 0.5, fenv: 0.9, fdecay: 0.16, fmdecay: 0.16, drive: 4, detune: 0.25 },
-      },
-      {
-        // 303: square, a resonant filter with a snappy envelope, now in step with SOLID
-        // (cutoff 600, RESO 0.45, FLT ENV 0.6; was 350 / 0.75 / 0.9). INT 0 muted, INT 100 the
-        // full squelch. On 3 : 2: FM LVL pushes the square into its odd, bright partials.
-        name: 'ACID',
-        values: { ogain: 0.507, fmcomp: -1.75, shape: 3, fm: 0.18, fmratio: 2, cratio: 3, sub: 0.1, cutoff: 600, reso: 0.45, fenv: 0.6, fattack: 0.0005, fdecay: 0.2, fmattack: 0.0005, fmdecay: 0.2, drive: 1.8, glide: 0.06, decay: 0.35, sustain: 0.6, detune: 0 },
-        soft: { ogain: 0.547, cutoff: 200, reso: 0.2, fenv: 0.15, drive: 1.2 },
-        hard: { ogain: 0.483, cutoff: 700, reso: 0.8, fenv: 1.2, drive: 3.5 },
-      },
+      // The pure note.
+      { name: 'SINE', values: { ogain: 0.773, fmcomp: 0.75, shape: 0, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.753 }, hard: { ogain: 0.698 } },
+      // Soft odd harmonics.
+      { name: 'TRIANGLE', values: { ogain: 0.924, fmcomp: 2, shape: 1, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.916 }, hard: { ogain: 0.809 } },
+      // Every harmonic.
+      { name: 'SAW', values: { ogain: 0.828, fmcomp: 1.75, shape: 2, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.996 }, hard: { ogain: 0.719 } },
+      // Hollow: odd harmonics.
+      { name: 'SQUARE', values: { ogain: 0.526, fmcomp: -1.25, shape: 3, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.576 }, hard: { ogain: 0.499 } },
+      // Narrow and nasal (the square at 12.5 %).
+      { name: 'PULSE', values: { ogain: 0.734, fmcomp: 4.5, shape: 4, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.987 }, hard: { ogain: 0.771 } },
     ],
-    excite: [],
+    excite: [
+      { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
+      { id: 'reso', floor: 0.05, high: 1.2 },
+    ],
   },
   pad: {
     // PAD: 2 STACKS (Synth algo 2), two modulator -> carrier pairs, polyphonic with chords.
@@ -235,21 +207,23 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // musical intervals), so every stop on the way stays in tune with a chord.
     anchors: [
       // Warm: a soft wave with an octave-down modulator on stack 2 (a low growl under it).
-      { name: 'WARM', values: { ogain: 1.343, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 }, hard: { ogain: 1.47 }, soft: { ogain: 1.208 } },
+      { name: 'WARM', values: { ogain: 1.343, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 }, hard: { ogain: 1.507 }, soft: { ogain: 1.089 } },
       // Strings: saws, stack 2 a fifth up, the filter opening slowly.
-      { name: 'STRINGS', values: { ogain: 1.041, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 }, hard: { ogain: 1.17 }, soft: { ogain: 0.972 } },
+      { name: 'STRINGS', values: { ogain: 1.041, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 }, hard: { ogain: 1.235 }, soft: { ogain: 0.811 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { ogain: 0.771, cfeedback: 0, shape: 0, fm: 0.62, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 }, hard: { ogain: 0.966 }, soft: { ogain: 0.665 } },
-      { name: 'GLASS', values: { ogain: 0.915, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 }, hard: { ogain: 0.999 }, soft: { ogain: 0.74 } },
+      { name: 'TINE', values: { ogain: 0.76, cfeedback: 0, shape: 0, fm: 0.56, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 }, hard: { ogain: 0.96 }, soft: { ogain: 0.606 } },
+      { name: 'GLASS', values: { ogain: 0.915, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 }, hard: { ogain: 0.999 }, soft: { ogain: 0.774 } },
       // Ethereal: a 7x modulator over the body, stack 2 a twelfth up under a 5x one - every
       // sideband lands on a harmonic: a bright, high shimmer.
-      { name: 'ETHEREAL', values: { ogain: 1.508, cfeedback: 0, shape: 0.5, fm: 0.6, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 }, hard: { ogain: 1.423 }, soft: { ogain: 1.384 } },
+      { name: 'ETHEREAL', values: { ogain: 1.522, cfeedback: 0, shape: 0.5, fm: 0.56, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 }, hard: { ogain: 1.408 }, soft: { ogain: 1.202 } },
     ],
     excite: [
       // INTENSITY = how much of the carriers: stack 2 fades out below the middle (INT 0 =
-      // carrier 1 alone, clean) and comes up to full in the top quarter. It leaves the
-      // modulation alone: FM LVL and FEEDBACK set it.
+      // carrier 1 alone, clean) and comes up to full in the top quarter; and the modulation
+      // (v70: FM LVL has no knob on the PAD): from none at INT 0 through the sound's own at the
+      // middle to 0.58 at the top (more sounds harsh on chords). FM LVL2 follows FM LVL.
       { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
+      { id: 'fm', floor: 0, top: 0.58 },
       { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
       { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
       // Carrier 1 feeds back into itself above the middle: sines turn saw-like at the top.
@@ -331,15 +305,11 @@ const MIRRORED = [['sustain2', 'sustain'], ['release2', 'release'], ['fm2', 'fm'
 const RATIO_IDS = new Set(['fmratio', 'ratio2', 'ratio3']);
 /**
  * FM ratio ladders (carrier : modulator) across the whole TIMBRE knob in even stretches, each
- * pair with its lowest partial on the note (and none at 0 Hz): BASS 1 : 2 (odd harmonics:
- * SINE SUB, GROWL), 1 : 3 (sidebands on harmonics 2, 4, 5, 7 ...: STICK's steel ring),
- * 3 : 2 (odd harmonics, brighter: SOLID, ACID). Carrier and modulator step together, never
- * blended; a BASS keeps these three steps (no detours as on the PAD: a bass needs its
- * fundamental steady).
+ * pair with its lowest partial on the note; carrier and modulator step together, never
+ * blended. None today (the BASS's went in v70: FM RATIO is its own knob); a lab candidate can
+ * bring one (MacroDef.ladder).
  */
-const RATIO_LADDER: Partial<Record<SoundKind, readonly (readonly [number, number])[]>> = {
-  bass: [[1, 2], [1, 3], [3, 2]],
-};
+const RATIO_LADDER: Partial<Record<SoundKind, readonly (readonly [number, number])[]>> = {};
 
 /** The ladder's ratio pair at a TIMBRE position (`own`: a sound set's own ladder). */
 function ladderAt(kind: SoundKind, timbre: number, own?: MacroDef['ladder']): readonly [number, number] | undefined {
@@ -405,6 +375,7 @@ function excited(e: Excite, spec: ParamSpec, value: number, x: number): number {
     const k = Math.max(a, toNorm(spec, e.knee));
     return toValue(spec, t <= 0.5 ? a + (k - a) * t * 2 : k + (Math.max(k, toNorm(spec, e.top)) - k) * (t - 0.5) * 2);
   }
+  if (e.top !== undefined) return toValue(spec, toNorm(spec, value) + (toNorm(spec, e.top) - toNorm(spec, value)) * (2 * x - 1));
   if (e.high !== undefined) return Math.min(spec.max, Math.max(spec.min, value * Math.pow(e.high, 2 * x - 1)));
   return value;
 }

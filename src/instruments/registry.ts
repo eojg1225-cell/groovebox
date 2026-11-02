@@ -68,7 +68,8 @@ const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
 /** KICK / SNARE FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
 const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
-const BASS_FUNC = funcPage([_, 'sustain', _, _, _, _, 'duck', _], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
+// FM RATIO over MID FREQ (4), UNISON / DETUNE (8): a reese is a SAW with both turned up.
+const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
 /**
  * LEAD FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, VIBRATO / VIB RATE (3), BEND / BEND TIME
  * (7), VIB DELAY / UNISON (8).
@@ -311,9 +312,9 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: 0.413, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    // No CRUSH on the PAD: UNISON under DRIVE; SLIDE (time) on 8 with DETUNE on its FUNC.
-    layout: synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'crush' ? 'unison' : id)),
-    funcLayout: trackFunc(heldFunc([_, 'fm2', _, 'detune'], ['feedback', _, _, _])),
+    // No FM LVL on the PAD (INT sets it) and no CRUSH: DRIVE over RESO (4), DETUNE / UNISON (7).
+    layout: synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'fm' ? 'drive' : id === 'drive' ? 'detune' : id === 'crush' ? 'unison' : id)),
+    funcLayout: trackFunc(heldFunc([_, _, _, _], [_, _, _, _])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.948, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,

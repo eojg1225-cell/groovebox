@@ -1,16 +1,25 @@
 import { emptyChannel, NUM_CHANNELS, PROJECT_VERSION, type ChannelState, type InstrumentKind, type Project, type SoundKind } from './project';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
-import { INSTRUMENTS, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, pageParams, presetSound } from '../instruments/registry';
+import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
 import { defaultBuses } from '../fx/buses';
 import { fromStored } from './projectFile';
 import { defaultLfo } from './lfo';
 import startProject from './startProject.json';
 
-/** Give a channel an instrument kind with one of its presets. */
+/**
+ * Give a channel an instrument kind with one of its presets: its TIMBRE / INT position, and
+ * any knob settings it brings as SOUND page trims on top (so the knobs show them and moving
+ * TIMBRE keeps them).
+ */
 export function applyPreset(c: ChannelState, kind: SoundKind, index: number): void {
+  const specs = INSTRUMENTS[kind].params;
+  const sound = presetSound(kind, index);
+  const trims = deriveTrims(kind, sound, specs);
+  pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   c.instrument = kind;
-  c.sounds[kind] = presetSound(kind, index);
-  c.trims[kind] = {};
+  c.sounds[kind] = sound;
+  c.trims[kind] = trims;
   c.presets[kind] = index;
 }
 
