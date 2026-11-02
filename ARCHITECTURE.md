@@ -204,7 +204,7 @@ switch (never glide, never on a relative live knob).
   index of every algorithm swings with it), ADSR per oscillator (`envlink` = one for both: BASS,
   PLUCK, LEAD), DRIVE / CRUSH / OUT GAIN, per-note pitch effects (LEAD: delayed VIBRATO and BEND,
   `notePitch`, ramped per block). SHAPE 0-3 = sine, triangle, saw, square; past 3 (BASS) the square
-  narrows to a pulse (`pulse`). `algo` 0 (BASS, PLUCK, LEAD): an FM pair (BASS: the FM RATIO knob
+  narrows to a pulse (`pulse`). `algo` 0 (BASS, PLUCK, LEAD): an FM pair (BASS, LEAD: the FM RATIO knob
   `fmpair` picks a root-locked carrier : modulator from `FM_PAIRS`; BODY keeps a sine on the note under
   it, FM COMP its level). `algo` 1 (no type now): a sine modulator with DX7-style feedback
   phase-modulating three carriers (1 / RATIO 2 / RATIO 3; `dx7Index` level curve). `algo` 2 (PAD): two

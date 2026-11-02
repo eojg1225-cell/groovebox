@@ -33,7 +33,7 @@ export function liveDefaults(c: ChannelState): void {
 
 /** Where each type starts along its TIMBRE. */
 const START_SOUND: Record<SoundKind, string> = {
-  kick: 'PUNCH', snare: 'TIGHT', hat: 'HAT', perc: 'LOW TOM', bass: 'SOLID', pad: 'WARM', lead: 'ODD 2:3', pluck: 'GLASS PLUCK',
+  kick: 'PUNCH', snare: 'TIGHT', hat: 'HAT', perc: 'LOW TOM', bass: 'SOLID', pad: 'WARM', lead: 'WHISTLE', pluck: 'GLASS PLUCK',
 };
 
 /**

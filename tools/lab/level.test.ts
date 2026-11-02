@@ -8,14 +8,14 @@
 import { it } from 'vitest';
 import type { SoundKind } from '../../src/engine/project';
 import { MACROS } from '../../src/instruments/macros';
-import { presetSound, SOUND_KINDS } from '../../src/instruments/registry';
+import { defaultSound, SOUND_KINDS } from '../../src/instruments/registry';
 import { CANDIDATES } from './candidates';
 import { loudness } from './loudness';
 import { labSound, type Candidate } from './sound';
 
 it('prints level-matched OUT GAIN values', () => {
   for (const kind of SOUND_KINDS as SoundKind[]) {
-    const base = presetSound(kind, 0);
+    const base = defaultSound(kind); // the TIMBRE sounds alone (a preset's own LEVEL left out)
     const app = MACROS[kind].anchors.some((a) => a.soft || a.hard) ? [null] : [];
     for (const c of [...app, ...(CANDIDATES[kind] ?? [])] as (Candidate | null)[]) {
       const anchors = c ? c.anchors : MACROS[kind].anchors;

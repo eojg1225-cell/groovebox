@@ -58,6 +58,20 @@ export interface MacroDef {
   ladder?: readonly (readonly [number, number])[];
 }
 
+/** The BASS / LEAD waves (TIMBRE = SHAPE 0-4; SQUARE -> PULSE narrows the pulse width 50 % -> 12.5 %). */
+const WAVES = ['SINE', 'TRIANGLE', 'SAW', 'SQUARE', 'PULSE'] as const;
+
+/**
+ * Five TIMBRE sounds that differ only in the wave (and their levels): `common` on every one, FM
+ * LVL 0; `levels` per wave = OUT GAIN at INT 0 / 50 / 100 and FM COMP.
+ */
+function waveAnchors(common: Record<string, number>, levels: readonly (readonly [number, number, number, number])[]): Anchor[] {
+  return WAVES.map((name, i) => {
+    const [soft, plain, hard, fmcomp] = levels[i];
+    return { name, values: { ogain: plain, fmcomp, shape: i, fm: 0, ...common }, soft: { ogain: soft }, hard: { ogain: hard } };
+  });
+}
+
 export const MACROS: Record<SoundKind, MacroDef> = {
   kick: {
     // Each sound runs from its own soft, slow thump (INT 0) to its own extreme (INT 1); INT
@@ -173,25 +187,16 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   bass: {
-    // v70: TIMBRE is the wave, nothing else: SINE, TRIANGLE, SAW, SQUARE, PULSE (SQUARE -> PULSE
-    // narrows the pulse width, 50 % -> 12.5 %). Filter, envelopes, drive, glide, SUB, DETUNE and
-    // UNISON are the same on every wave (a starting point with room both ways on every knob),
-    // FM LVL 0 (FM is the player's: FM LVL, FM RATIO); only the level (OUT GAIN, and FM COMP:
-    // how much quieter at FM LVL 100, as FM lifts each wave differently) evens them.
-    // INT = how much harmonic content, one rule for every wave (filter, its envelope, drive).
-    // The finished sounds are PRESETS (Synth.ts BASS_PRESETS): knob settings on top.
-    anchors: [
-      // The pure note.
-      { name: 'SINE', values: { ogain: 0.773, fmcomp: 0.75, shape: 0, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.753 }, hard: { ogain: 0.698 } },
-      // Soft odd harmonics.
-      { name: 'TRIANGLE', values: { ogain: 0.924, fmcomp: 2, shape: 1, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.916 }, hard: { ogain: 0.809 } },
-      // Every harmonic.
-      { name: 'SAW', values: { ogain: 0.828, fmcomp: 1.75, shape: 2, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.996 }, hard: { ogain: 0.719 } },
-      // Hollow: odd harmonics.
-      { name: 'SQUARE', values: { ogain: 0.526, fmcomp: -1.25, shape: 3, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.576 }, hard: { ogain: 0.499 } },
-      // Narrow and nasal (the square at 12.5 %).
-      { name: 'PULSE', values: { ogain: 0.734, fmcomp: 4.5, shape: 4, fm: 0, sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 }, soft: { ogain: 0.987 }, hard: { ogain: 0.771 } },
-    ],
+    // v70: TIMBRE is the wave, nothing else (WAVES); filter, envelopes, drive, glide, SUB, DETUNE
+    // and UNISON the same on every wave (a starting point with room both ways on every knob),
+    // FM LVL 0 (FM is the player's: FM LVL, FM RATIO). INT = how much harmonic content, one rule
+    // for every wave (filter, its envelope, drive). The finished sounds are PRESETS (Synth.ts
+    // BASS_PRESETS): knob settings on top.
+    anchors: waveAnchors(
+      { sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 },
+      // OUT GAIN (INT 0 / 50 / 100) and FM COMP per wave.
+      [[0.753, 0.773, 0.698, 0.75], [0.916, 0.924, 0.809, 2], [0.996, 0.828, 0.719, 1.75], [0.576, 0.526, 0.499, -1.25], [0.987, 0.734, 0.771, 4.5]],
+    ),
     excite: [
       { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
       { id: 'reso', floor: 0.05, high: 1.2 },
@@ -231,25 +236,17 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     ],
   },
   lead: {
-    // The BASS / PLUCK engine, mono: SHAPE's waves into an FM pair, OSC 2 detuned, UNISON,
-    // plus each sound's VIBRATO (swelling in after VIB DELAY) and BEND (each note bends into
-    // its pitch). Chilled first. INTENSITY opens the filter, its envelope, DRIVE and the width;
-    // it leaves the FM, the vibrato and the bend alone.
-    anchors: [
-      // A sine with a slow, late vibrato and a long slide: theremin / dub siren.
-      { name: 'WHISTLE', soft: { ogain: 0.51 }, hard: { ogain: 0.57 }, values: { ogain: 0.5, shape: 0, fm: 0.04, fmratio: 2, cratio: 1, cutoff: 7000, reso: 0, fenv: 0.1, fattack: 0.0005, fdecay: 0.6, fmattack: 0.0005, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, detune: 0, unison: 0, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35, bend: 0, bendtime: 0.08 } },
-      // Hollow square, a touch of vibrato: chiptune / Detroit.
-      { name: 'SQUARE', soft: { ogain: 0.438 }, hard: { ogain: 0.509 }, values: { ogain: 0.466, shape: 3, fm: 0.06, fmratio: 2, cratio: 1, cutoff: 3500, reso: 0.2, fenv: 0.35, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.3, glide: 0.06, decay: 0.8, sustain: 0.8, detune: 0.08, unison: 0, vibrato: 0.12, vibrate: 5.5, vibdelay: 0.5, bend: 0, bendtime: 0.08 } },
-      // Detuned saws, wide: trance / rave.
-      { name: 'SUPERSAW', soft: { ogain: 1.439 }, hard: { ogain: 1.084 }, values: { ogain: 0.947, shape: 2, fm: 0.04, fmratio: 2, cratio: 1, cutoff: 5000, reso: 0.1, fenv: 0.25, fattack: 0.0005, fdecay: 0.6, fmattack: 0.0005, fmdecay: 0.6, drive: 1.2, glide: 0.06, decay: 1, sustain: 0.85, detune: 0.6, unison: 1.2, vibrato: 0.05, vibrate: 5.5, vibdelay: 0.6, bend: 0, bendtime: 0.08 } },
-      // Detuned saws, wide, each note scooping up from an octave below: the rave hoover.
-      { name: 'HOOVER', soft: { ogain: 1.469 }, hard: { ogain: 1.127 }, values: { ogain: 1.229, shape: 2, fm: 0.08, fmratio: 1, cratio: 1, cutoff: 2200, reso: 0.3, fenv: 0.5, fattack: 0.0005, fdecay: 0.25, fmattack: 0.0005, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
-      // The FM pair at 1 : 2 with a fast FM envelope and a quick zap down from above: it bites.
-      { name: 'FM BITE', soft: { ogain: 0.586 }, hard: { ogain: 0.621 }, values: { ogain: 0.641, shape: 0, fm: 0.55, fmratio: 2, cratio: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fattack: 0.0005, fdecay: 0.15, fmattack: 0.0005, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, unison: 0, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
-    ],
+    // v71: the BASS's design an octave up (WAVES; the same engine, no SUB): TIMBRE is the wave,
+    // everything else the same on every wave, brighter to start; VIBRATO and BEND (what makes
+    // it a lead) start at none. INT = the BASS's rule, a brighter floor; it leaves FM, DETUNE,
+    // VIBRATO and BEND alone. The finished sounds are PRESETS (Synth.ts LEAD_PRESETS).
+    anchors: waveAnchors(
+      { cutoff: 2500, reso: 0.2, fenv: 0.3, fattack: 0.0005, fdecay: 0.4, fmattack: 0.0005, fmdecay: 0.4, drive: 1.2, glide: 0.06, decay: 1, sustain: 0.8, detune: 0, unison: 0, vibrato: 0, vibrate: 5.5, vibdelay: 0.4, bend: 0, bendtime: 0.08 },
+      [[0.57, 0.558, 0.544, 1.5], [0.695, 0.676, 0.643, 2.5], [0.801, 0.675, 0.628, 2], [0.444, 0.402, 0.401, -0.5], [0.86, 0.658, 0.73, 6]],
+    ),
     excite: [
-      { id: 'cutoff', floor: 700, high: 1.4 }, { id: 'reso', floor: 0.05, high: 1.15 }, { id: 'drive', floor: 1, high: 1.5 },
-      { id: 'fenv', floor: 0.05, high: 1.3 }, { id: 'detune', floor: 0.03, high: 1.4 },
+      { id: 'cutoff', floor: 600, high: 1.6 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
+      { id: 'reso', floor: 0.05, high: 1.2 },
     ],
   },
   pluck: {

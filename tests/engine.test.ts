@@ -9,7 +9,7 @@ import { DYNAMIC_VELOCITY, METERS, NUM_PATTERNS, stepPlays, editPattern, emptyPa
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
-import { INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, macroAnchor, presetSound } from '../src/instruments/registry';
+import { defaultSound, INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, macroAnchor, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
 import { IdleGate, midiToHz } from '../src/instruments/dsp';
@@ -1162,15 +1162,16 @@ describe('TIMBRE and INTENSITY macros', () => {
     }
   });
 
-  it('BASS: TIMBRE moves only the wave and its levels; PLUCK sounds bring their own envelope and width', () => {
-    const specs = INSTRUMENTS.bass.params;
-    const waves = [0, 0.25, 0.5, 0.75, 1].map((t) => macroSound('bass', t, 0.5, specs));
-    for (const id of Object.keys(waves[0])) {
-      if (['shape', 'ogain', 'fmcomp'].includes(id)) continue;
-      expect(new Set(waves.map((s) => s[id].toFixed(6))).size, `bass ${id}`).toBe(1);
+  it('BASS / LEAD: TIMBRE moves only the wave and its levels; PLUCK sounds bring their own envelope and width', () => {
+    for (const kind of ['bass', 'lead'] as const) {
+      const waves = [0, 0.25, 0.5, 0.75, 1].map((t) => macroSound(kind, t, 0.5, INSTRUMENTS[kind].params));
+      for (const id of Object.keys(waves[0])) {
+        if (['shape', 'ogain', 'fmcomp'].includes(id)) continue;
+        expect(new Set(waves.map((s) => s[id].toFixed(6))).size, `${kind} ${id}`).toBe(1);
+      }
+      expect(waves.map((s) => s.shape)).toEqual([0, 1, 2, 3, 4]); // SINE, TRIANGLE, SAW, SQUARE, PULSE
+      expect(waves.every((s) => s.fm === 0)).toBe(true); // FM is the player's
     }
-    expect(waves.map((s) => s.shape)).toEqual([0, 1, 2, 3, 4]); // SINE, TRIANGLE, SAW, SQUARE, PULSE
-    expect(waves.every((s) => s.fm === 0)).toBe(true); // FM is the player's
     for (const k of ['bass', 'pluck'] as const) {
       const specs = INSTRUMENTS[k].params;
       const sounds = [0, 0.25, 0.5, 0.75, 1].map((t) => macroSound(k, t, 0.5, specs));
@@ -1322,7 +1323,7 @@ describe('project', () => {
     const stored = toStored(busy());
     const total = stored.channels.reduce((n, c) => n + c.patterns.reduce((m, pat) => m + pat.steps.length, 0), 0);
     expect(total).toBe(3 + 2); // + the ring hit and the rest marker
-    expect(JSON.stringify(stored).length).toBeLessThan(22000); // (v70: the new BASS's SOLID preset brings trims)
+    expect(JSON.stringify(stored).length).toBeLessThan(23000); // (v70 / v71: the BASS's SOLID and LEAD's WHISTLE presets bring trims)
   });
 
   it('starts with every pattern empty', () => {
@@ -2373,11 +2374,12 @@ describe('LEAD: the FM pair engine (and the DX7 level curve PAD uses)', () => {
     }
   });
 
-  it('TIMBRE steps FM ratios through related ratios between sounds', () => {
+  it('TIMBRE steps FM ratios through related ratios between sounds (PLUCK; BASS / LEAD: FM RATIO is a knob)', () => {
     for (let t = 0; t <= 1; t += 0.05) {
-      const s = macroSound('lead', t, 0.5, LEAD_PARAMS);
+      const s = macroSound('pluck', t, 0.5, INSTRUMENTS.pluck.params);
       for (const id of ['fmratio']) expect(RATIO_STEPS.some((r) => Math.abs(r - s[id]) < 1e-9), `${id} @${t}`).toBe(true);
     }
+    expect(macroSound('lead', 0.5, 0.5, LEAD_PARAMS).fmratio).toBeUndefined();
   });
 });
 
@@ -2427,7 +2429,7 @@ describe('a fifth TIMBRE sound (v19)', () => {
     expect(names('hat')).toEqual(['RIDE', 'HAT', 'SPLASH', 'CRASH', 'CHINA']);
     expect(names('bass')).toEqual(['SINE', 'TRIANGLE', 'SAW', 'SQUARE', 'PULSE']);
     expect(names('snare')[1]).toBe('PICCOLO');
-    expect(names('lead')).toEqual(['WHISTLE', 'SQUARE', 'SUPERSAW', 'HOOVER', 'FM BITE']);
+    expect(names('lead')).toEqual(['SINE', 'TRIANGLE', 'SAW', 'SQUARE', 'PULSE']);
     for (const k of SOUND_KINDS) expect(MACROS[k].anchors.length, k).toBe(5);
   });
 
@@ -2890,12 +2892,15 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
   it('every TIMBRE sound on every track is equally loud at its default VOLUME', () => {
     const levels = createDefaultProject().channels.flatMap((c, ch) => {
       const kind = c.instrument as SoundKind;
-      // Each TIMBRE sound (the BASS's waves; its presets are knob settings, not levelled).
+      // Each TIMBRE sound (the BASS's / LEAD's waves), and their presets (knob settings, evened
+      // by their own LEVEL).
       const specs = INSTRUMENTS[kind].params;
-      return MACROS[kind].anchors.map((_, i) => {
+      const waves = MACROS[kind].anchors.map((_, i) => {
         const t = anchorPosition(kind, i);
-        return loudness(ch, kind, { ...presetSound(kind, 0), ...macroSound(kind, t, 0.5, specs), timbre: t, intensity: 0.5 });
+        return loudness(ch, kind, { ...defaultSound(kind), ...macroSound(kind, t, 0.5, specs), timbre: t, intensity: 0.5 });
       });
+      const presets = kind === 'bass' || kind === 'lead' ? INSTRUMENTS[kind].presets.map((_, i) => loudness(ch, kind, presetSound(kind, i))) : [];
+      return [...waves, ...presets];
     });
     expect(Math.max(...levels) - Math.min(...levels)).toBeLessThan(1);
   }, 30_000);
@@ -2906,7 +2911,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
       const specs = INSTRUMENTS[kind].params;
       MACROS[kind].anchors.forEach((a, i) => {
         const t = anchorPosition(kind, i);
-        const level = (x: number) => loudness(ch, kind, { ...presetSound(kind, 0), ...macroSound(kind, t, x, specs), timbre: t, intensity: x });
+        const level = (x: number) => loudness(ch, kind, { ...defaultSound(kind), ...macroSound(kind, t, x, specs), timbre: t, intensity: x });
         const mid = level(0.5);
         for (const x of [0, 1]) expect(Math.abs(level(x) - mid), `${kind} ${a.name} INT ${x * 100}`).toBeLessThan(1);
       });
@@ -2954,14 +2959,16 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.length, k).toBeLessThanOrEqual(LOCK_SLOTS);
   });
 
-  it('BASS: FM LVL 0 ... 100 keeps every sound audible (BODY) and about as loud (FM COMP)', () => {
+  it('BASS / LEAD: FM LVL 0 ... 100 keeps every wave audible (BODY) and about as loud (FM COMP), on every FM RATIO', () => {
+    for (const kind of ['bass', 'lead'] as const) {
     // Weight = the energy up to 1.5x the note's fundamental (what makes it a bass); loudness =
     // the gated measure. Against each sound as designed, at INT 0 / 50 / 100, on three notes.
-    const e = INSTRUMENTS.bass;
-    const measure = (t: number, x: number, fm: number | null, note: number) => {
+    const e = INSTRUMENTS[kind];
+    const measure = (t: number, x: number, fm: number | null, note: number, pair: number) => {
       const inst = e.create(SR);
-      const s: Record<string, number> = { ...presetSound('bass', 0), ...macroSound('bass', t, x, e.params), timbre: t, intensity: x };
+      const s: Record<string, number> = { ...presetSound(kind, 0), ...macroSound(kind, t, x, e.params), timbre: t, intensity: x };
       if (fm !== null) s.fm = fm;
+      s.fmpair = pair;
       for (const id in s) inst.setParam(id, s[id]);
       inst.noteOn(note, 0.8, note, false);
       const l = new Float32Array(SR / 2), r = new Float32Array(SR / 2);
@@ -2971,21 +2978,22 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
       for (let i = 0; i < l.length; i++) { y = (1 - a) * l[i] + a * y; y2 = (1 - a) * y + a * y2; acc += y2 * y2; }
       return { loud: gatedLoudness(l, r), weight: 10 * Math.log10(acc / l.length + 1e-20) };
     };
-    MACROS.bass.anchors.forEach((anchor, i) => {
-      const t = anchorPosition('bass', i);
+    MACROS[kind].anchors.forEach((anchor, i) => {
+      const t = anchorPosition(kind, i);
       for (const x of [0, 0.5, 1]) {
-        for (const note of [28, 40, 52]) {
-          const ref = measure(t, x, null, note);
+        for (const note of kind === 'bass' ? [28, 40, 52] : [45, 57, 69]) for (const pair of [0, 3, 6]) {
+          const ref = measure(t, x, 0, note, pair);
           for (const fm of [0, 0.5, 1]) {
-            const m = measure(t, x, fm, note);
-            const at = `${anchor.name} INT ${x * 100} note ${note} FM ${fm * 100}`;
+            const m = measure(t, x, fm, note, pair);
+            const at = `${kind} ${anchor.name} INT ${x * 100} note ${note} FM ${fm * 100} pair ${pair}`;
             expect(m.weight - ref.weight, at).toBeGreaterThan(-5);
             expect(Math.abs(m.loud - ref.loud), at).toBeLessThan(7.5);
           }
         }
       }
     });
-  }, 60_000);
+    }
+  }, 120_000);
 
   it('INT 0 is dull, never near-silent: every synth sound stays within 5 dB of its INT 50 up to A5', () => {
     for (const kind of ['bass', 'pad', 'lead', 'pluck'] as const) {
@@ -3098,23 +3106,53 @@ describe('MID CUT per track (MIX, FUNC) at the sound\'s MID FREQ', () => {
 
 });
 
-describe('v58: LEAD on the FM pair engine', () => {
-  it('a saved LEAD is rebuilt from the new sounds at its TIMBRE / INT, its SOUND page edits (trims) and envelope kept', () => {
-    const p = createDefaultProject();
-    const stored = JSON.parse(JSON.stringify(toStored(p)));
-    stored.version = 57;
-    const lead = stored.channels[6];
-    lead.sounds.lead = { ...lead.sounds.lead, timbre: 0.75, intensity: 0.5, ratio2: 1.5, carriers: 0.3, shape: 1.2, release: 1.5 };
-    lead.trims = { lead: { cutoff: 0.5 } }; // the cutoff turned up from its TIMBRE value
-    const q = fromStored(stored)!.channels[6];
+describe('v71: LEAD = the BASS\'s design (the wave on TIMBRE, presets as knob settings)', () => {
+  const old = (version: number, edit: (lead: Record<string, any>, p: Record<string, any>) => void) => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = version;
+    edit(stored.channels[6], stored);
+    return fromStored(stored)!;
+  };
+
+  it('a pre-v58 LEAD (3 CARRIER engine) gets its v58 sound, then keeps it on the wave it played', () => {
+    const q = old(57, (lead) => {
+      lead.sounds.lead = { ...lead.sounds.lead, timbre: 0.75, intensity: 0.5, ratio2: 1.5, carriers: 0.3, shape: 1.2, release: 1.5 };
+      lead.trims = { lead: { cutoff: 0.5 } }; // the cutoff turned up from its TIMBRE value
+    }).channels[6];
     const s = q.sounds.lead!;
-    const at = macroSound('lead', 0.75, 0.5, LEAD_PARAMS); // HOOVER
-    expect(s.shape).toBe(at.shape);
-    expect(s.bend).toBe(at.bend);
-    expect(s.cutoff).toBeGreaterThan(at.cutoff * 1.2); // the trim kept on top
+    expect(s.timbre).toBe(0.5); // v58's HOOVER: a SAW
+    expect(s.bend).toBe(-12); // HOOVER's scoop, kept as a knob setting
+    expect(s.unison).toBe(1.3);
+    expect(s.fmpair).toBe(0); // its 1 : 1
+    expect(s.cutoff).toBeGreaterThan(2200 * 1.2); // the trim kept on top
     expect(s.release).toBe(1.5); // not TIMBRE's: as saved
     expect(s.ratio2).toBeUndefined(); // the old engine's settings are gone
-    expect(q.trims.lead).toEqual({ cutoff: 0.5 });
+    const hidden = macroSound('lead', s.timbre, s.intensity, LEAD_PARAMS);
+    expect(applyTrim(paramSpec('lead', 'bend')!, hidden.bend, q.trims.lead!.bend)).toBeCloseTo(-12, 6);
+  });
+
+  it('a v70 LEAD keeps its values: TIMBRE = its SHAPE / 4, FM RATIO its modulator; TIMBRE locks follow', () => {
+    const back = old(70, (lead) => {
+      Object.assign(lead.sounds.lead, { timbre: 0.25, intensity: 0.5, shape: 3, fmratio: 2, cutoff: 3000, vibrato: 0.5 });
+      lead.patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { timbre: 0.25 } }];
+    });
+    const s = back.channels[6].sounds.lead!;
+    expect(s.timbre).toBe(0.75); // SQUARE
+    expect(s.fmpair).toBe(1); // 1:2
+    expect([s.cutoff, s.vibrato]).toEqual([3000, 0.5]);
+    expect(back.channels[6].patterns[0].steps[0].locks!.timbre).toBeCloseTo(0.75, 9);
+  });
+
+  it('presets: WHISTLE, SYNC, BLOOM, HOOVER, FM BITE, loaded as knob settings; INT leaves FM, VIBRATO and BEND alone', () => {
+    expect(INSTRUMENTS.lead.presets.map((x) => x.name)).toEqual(['WHISTLE', 'SYNC', 'BLOOM', 'HOOVER', 'FM BITE']);
+    const c = createDefaultProject().channels[6];
+    applyPreset(c, 'lead', 2); // BLOOM
+    expect(c.sounds.lead!.fmattack).toBeCloseTo(0.35, 9);
+    expect(c.trims.lead!.fmattack).toBeGreaterThan(0);
+    for (const t of [0, 0.5, 1]) for (const id of ['fm', 'vibrato', 'bend', 'detune']) {
+      expect(macroSound('lead', t, 0, LEAD_PARAMS)[id], id).toBe(macroSound('lead', t, 1, LEAD_PARAMS)[id]);
+    }
+    expect(INSTRUMENTS.lead.funcLayout[3]).toBe('fmpair');
   });
 });
 

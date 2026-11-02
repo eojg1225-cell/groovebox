@@ -15,7 +15,7 @@ import {
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { parseAutoKey } from './automation';
-import { macroIds } from '../instruments/macros';
+import { macroIds, macroSoundOf, type MacroDef } from '../instruments/macros';
 import { DEFAULT_ROLL_RATE } from '../instruments/Drum';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
@@ -309,13 +309,65 @@ export function hatV44(kind: SoundKind, sound: Record<string, number>, trims: Re
 }
 
 /**
- * v58: LEAD moved from the 3 CARRIER engine onto the BASS / PLUCK one (WHISTLE, SQUARE,
- * SUPERSAW, HOOVER, FM BITE), so a saved LEAD's TIMBRE / INT values are rebuilt from the new
- * sounds at its TIMBRE / INT under its stored trims (none stored: none kept). Its notes, mix,
- * envelope ATTACK / RELEASE and other edits stay.
+ * The LEAD's TIMBRE sounds v58 - v70 (WHISTLE, SQUARE, SUPERSAW, HOOVER, FM BITE; carrier 1,
+ * `fmratio` its modulator), kept to load older saves: a pre-v58 LEAD (the 3 CARRIER engine) was
+ * rebuilt from them at its TIMBRE / INT under its stored trims (v58), then becomes v71's.
  */
-export function leadV58(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
-  if (kind === 'lead') rebuildMacros(kind, sound, trims);
+const LEAD_SOUNDS_V71: MacroDef = {
+  anchors: [
+    { name: 'WHISTLE', values: { shape: 0, fm: 0.04, cutoff: 7000, reso: 0, fenv: 0.1, fattack: 0.0005, fdecay: 0.6, fmattack: 0.0005, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, detune: 0, unison: 0, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35, bend: 0, bendtime: 0.08 } },
+    { name: 'SQUARE', values: { shape: 3, fm: 0.06, cutoff: 3500, reso: 0.2, fenv: 0.35, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.3, glide: 0.06, decay: 0.8, sustain: 0.8, detune: 0.08, unison: 0, vibrato: 0.12, vibrate: 5.5, vibdelay: 0.5, bend: 0, bendtime: 0.08 } },
+    { name: 'SUPERSAW', values: { shape: 2, fm: 0.04, cutoff: 5000, reso: 0.1, fenv: 0.25, fattack: 0.0005, fdecay: 0.6, fmattack: 0.0005, fmdecay: 0.6, drive: 1.2, glide: 0.06, decay: 1, sustain: 0.85, detune: 0.6, unison: 1.2, vibrato: 0.05, vibrate: 5.5, vibdelay: 0.6, bend: 0, bendtime: 0.08 } },
+    { name: 'HOOVER', values: { shape: 2, fm: 0.08, cutoff: 2200, reso: 0.3, fenv: 0.5, fattack: 0.0005, fdecay: 0.25, fmattack: 0.0005, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
+    { name: 'FM BITE', values: { shape: 0, fm: 0.55, cutoff: 4500, reso: 0.15, fenv: 0.4, fattack: 0.0005, fdecay: 0.15, fmattack: 0.0005, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, unison: 0, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
+  ],
+  excite: [
+    { id: 'cutoff', floor: 700, high: 1.4 }, { id: 'reso', floor: 0.05, high: 1.15 }, { id: 'drive', floor: 1, high: 1.5 },
+    { id: 'fenv', floor: 0.05, high: 1.3 }, { id: 'detune', floor: 0.03, high: 1.4 },
+  ],
+};
+/** Those sounds' FM pair modulators (carrier 1) and SHAPEs. */
+const LEAD_RATIOS_V71 = [2, 2, 2, 1, 2];
+const LEAD_SHAPES_V71 = [0, 3, 2, 2, 0];
+
+/** The SHAPE a v58 - v70 LEAD TIMBRE position played (its sounds' SHAPEs blended). */
+function leadTimbreV71(t: number): number {
+  const u = Math.min(1, Math.max(0, t)) * 4;
+  const i = Math.min(3, Math.floor(u));
+  return (LEAD_SHAPES_V71[i] + (LEAD_SHAPES_V71[i + 1] - LEAD_SHAPES_V71[i]) * (u - i)) / 4;
+}
+
+/** FM RATIO's step for a carrier 1 pair with modulator `m` (the nearest of 1, 2, 3, 4, 5, 7). */
+function leadPairV71(m: number): number {
+  const mods: [number, number][] = [[1, 0], [2, 1], [3, 2], [4, 5], [5, 6], [7, 7]];
+  let best = mods[1];
+  for (const x of mods) if (Math.abs(Math.log(x[0] / m)) < Math.abs(Math.log(best[0] / m))) best = x;
+  return best[1];
+}
+
+/**
+ * v71: the LEAD became the BASS's design (TIMBRE = the wave, finished sounds as presets). A
+ * v58 - v70 LEAD (raw stored `values`) keeps its sound: TIMBRE = the wave it played (stored
+ * SHAPE / 4), FM RATIO its old modulator; the caller takes its trims again over the new waves.
+ * In place.
+ */
+function leadV71(sound: Record<string, number>, values: Record<string, number>): void {
+  if (typeof values.shape === 'number') sound.timbre = Math.min(1, Math.max(0, values.shape / 4));
+  sound.fmpair = leadPairV71(typeof values.fmratio === 'number' && values.fmratio > 0 ? values.fmratio : 2);
+}
+
+/**
+ * v71 for a pre-v58 LEAD (also USER patches, all older): first its v58 sound (the v58 - v70
+ * sounds at its TIMBRE / INT under its stored trims, as v58 rebuilt it), then as leadV71.
+ * In place on the sound; the caller takes the trims again.
+ */
+export function leadOldV71(sound: Record<string, number>, trims: Record<string, number>): void {
+  const specs = INSTRUMENTS.lead.params;
+  const t = sound.timbre ?? 0.33, x = sound.intensity ?? 0.5;
+  const hidden = macroSoundOf(LEAD_SOUNDS_V71, 'lead', t, x, specs);
+  for (const spec of specs) if (hidden[spec.id] !== undefined) sound[spec.id] = applyTrim(spec, hidden[spec.id], trims[spec.id]);
+  sound.timbre = hidden.shape / 4;
+  sound.fmpair = leadPairV71(LEAD_RATIOS_V71[Math.round(Math.min(1, Math.max(0, t)) * 4)]);
 }
 
 /**
@@ -560,8 +612,9 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
   }
 }
 
-/** v70 step locks: a BASS's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go. */
+/** v70 / v71 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
+  if (version < 71 && kind === 'lead' && locks.timbre !== undefined) locks.timbre = leadTimbreV71(locks.timbre);
   if (version >= 70) return;
   if (kind === 'bass' && locks.timbre !== undefined) locks.timbre = bassTimbreV70(locks.timbre, version);
   if (kind === 'pad') for (const id of PAD_GONE_V70) delete locks[id];
@@ -579,6 +632,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   for (const spec of specs) if (typeof values[spec.id] === 'number') sound[spec.id] = values[spec.id];
   if (version < 57) rollRateV57(sound);
   if (version < 70 && kind === 'bass') bassV70(sound, values, version);
+  if (version >= 58 && version < 71 && kind === 'lead') leadV71(sound, values);
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
@@ -597,10 +651,13 @@ export function rollRateV57(sound: Record<string, number>): void {
 /** SOUND page trims as stored (derived from the values when absent), pruned to the page. */
 function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, version: number): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
-  // A rebuilt type (v44 HAT, v45 PERC, v58 LEAD) without stored trims keeps none. A pre-v70
-  // BASS keeps its values: its trims are taken again over the new waves (bassV70).
+  // A rebuilt type (v44 HAT, v45 PERC, pre-v58 LEAD) without stored trims keeps none. A
+  // pre-v70 BASS / pre-v71 LEAD keeps its values: its trims are taken again over the new waves
+  // (bassV70, leadV71; a pre-v58 LEAD first gets its v58 sound, leadOldV71).
   const rebuilt = (version < 44 && kind === 'hat') || (version < 46 && kind === 'perc') || (version < 58 && kind === 'lead');
-  const trims = version < 70 && kind === 'bass' ? deriveTrims(kind, sound, specs) : isObj(x) ? numbers(x) : rebuilt ? {} : deriveTrims(kind, sound, specs);
+  let trims = isObj(x) ? numbers(x) : rebuilt ? {} : deriveTrims(kind, sound, specs);
+  if (version < 58 && kind === 'lead') leadOldV71(sound, trims);
+  if ((version < 70 && kind === 'bass') || (version < 71 && kind === 'lead')) trims = deriveTrims(kind, sound, specs);
   if (version < 41 && isObj(x)) fmEnvV41(trims);
   // Trims stored without a linked parameter's (FM LVL2, added later): the knob's own.
   for (const id of Object.keys(trims)) for (const t of linkedParams(kind, id)) if (isObj(x) && typeof x[t] !== 'number') trims[t] = trims[id];
@@ -608,7 +665,6 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 44) hatV44(kind, sound, trims);
   if (version < 46) percV46(kind, sound, trims);
   if (version < 47) kickV47(kind, sound, trims);
-  if (version < 58) leadV58(kind, sound, trims);
   if (version < 70 && kind === 'pad') padV70(sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
@@ -829,13 +885,15 @@ export function fromStored(data: unknown): Project | null {
     if (isObj(src)) readChannel(src, p.channels[i], version);
   }
   if (version < 49) typeGainV49(p);
-  // v70: SONG lanes as step locks: a BASS's TIMBRE follows its wave, a PAD's FM LVL, FM LVL2
-  // and FEEDBACK lanes go.
-  if (version < 70 && p.song.auto) {
+  // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
+  // LVL, FM LVL2 and FEEDBACK lanes go.
+  if (version < 71 && p.song.auto) {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind !== 's') continue;
       const kind = p.channels[t.index]?.instrument;
+      if (kind === 'lead' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, leadTimbreV71(v)]);
+      if (version >= 70) continue;
       if (kind === 'bass' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, bassTimbreV70(v, version)]);
       if (kind === 'pad' && padGoneV70(t.id)) delete p.song.auto[key];
     }

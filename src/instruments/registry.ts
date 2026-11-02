@@ -71,10 +71,10 @@ const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, 
 // FM RATIO over MID FREQ (4), UNISON / DETUNE (8): a reese is a SAW with both turned up.
 const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
 /**
- * LEAD FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, VIBRATO / VIB RATE (3), BEND / BEND TIME
- * (7), VIB DELAY / UNISON (8).
+ * LEAD FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, VIBRATO / VIB RATE (3), FM RATIO over MID
+ * FREQ (4, as the BASS's), BEND / BEND TIME (7), VIB DELAY / UNISON (8).
  */
-const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', _, _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
+const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', 'fmpair', _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
 /** PLUCK FUNC: DECAY / RELEASE, SLIDE (3), UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
 const PLUCK_FUNC = funcPage([_, 'decay', 'glide', 'unison', _, _, 'track:chord', 'dmix'], [_, 'release', _, _, _, _, 'detune', 'verb']);
 
@@ -365,10 +365,16 @@ export function paramSpec(kind: InstrumentKind, id: string): ParamSpec | undefin
  * Full sound for a preset: defaults, then (when the preset names a TIMBRE position) the
  * sound TIMBRE / INTENSITY produce there, then the preset's own values.
  */
-export function presetSound(kind: SoundKind, index: number): Record<string, number> {
+/** Every parameter of a type at its default (no preset: what the TIMBRE sounds are levelled on). */
+export function defaultSound(kind: SoundKind): Record<string, number> {
   const sound: Record<string, number> = {};
+  for (const p of INSTRUMENTS[kind].params) sound[p.id] = p.defaultValue;
+  return sound;
+}
+
+export function presetSound(kind: SoundKind, index: number): Record<string, number> {
+  const sound = defaultSound(kind);
   const params = INSTRUMENTS[kind].params;
-  for (const p of params) sound[p.id] = p.defaultValue;
   const values = INSTRUMENTS[kind].presets[index].values;
   const macro = values.timbre !== undefined ? macroSound(kind, values.timbre, values.intensity ?? 0.5, params) : {};
   return { ...sound, ...macro, ...values };

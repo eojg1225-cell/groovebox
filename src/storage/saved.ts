@@ -5,7 +5,7 @@
 import type { SoundKind } from '../engine/project';
 import { INSTRUMENTS, pageParams } from '../instruments/registry';
 import { deriveTrims, hiddenSound, pruneTrims } from '../instruments/trims';
-import { bassV70, drumsV43, hatV44, kickV47, leadV58, padV70, percV46, rollRateV57 } from '../engine/projectFile';
+import { bassV70, drumsV43, hatV44, kickV47, leadOldV71, padV70, percV46, rollRateV57 } from '../engine/projectFile';
 
 const PATCHES_KEY = 'groovebox.patches';
 
@@ -65,7 +65,12 @@ export function readUserPatch(kind: SoundKind, patch: UserPatch): LoadedPatch {
   hatV44(kind, sound, trims);
   percV46(kind, sound, trims);
   kickV47(kind, sound, trims);
-  leadV58(kind, sound, trims);
+  if (kind === 'lead') {
+    // v71: its v58 sound, then the wave it played and its FM pair, as trims over the new waves.
+    leadOldV71(sound, trims);
+    for (const id of Object.keys(trims)) delete trims[id];
+    Object.assign(trims, deriveTrims(kind, sound, params));
+  }
   if (kind === 'bass') {
     // v70: the wave it played and its FM pair; its values kept, as trims over the new waves.
     bassV70(sound, patch.values, 0);
