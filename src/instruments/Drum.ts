@@ -5,7 +5,7 @@ import { exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, OCTAVE, OCTAVE_ZERO, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
-import { AirRoom } from './airRoom';
+import { AIR_LEN_MAX, AIR_LEN_MIN, AirRoom, type AirEq } from './airRoom';
 
 /**
  * Drum voice built from layers. Each drum type uses two of them (its two "elements"):
@@ -79,6 +79,13 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'h_rattle', name: 'RATTLE', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'h_time', name: 'HEAD', min: 0, max: 0.5, defaultValue: 0, unit: 'S', curve: 'linear', decimals: 3 },
   { id: 'h_pitch', name: 'H PITCH', min: 20, max: 12000, defaultValue: 420, unit: 'HZ', curve: 'exp', decimals: 0 },
+  // HAT (TIMBRE's, no knob): the MTL PITCH the sound was designed at. Moving MTL PITCH (or the
+  // note) away from it moves the head's pitch and both TONEs by the same ratio, so the hit
+  // keeps its shape (no glide from a head left behind, no partials under a high-pass left behind).
+  { id: 'm_pref', name: 'MTL REF', min: 20, max: 12000, defaultValue: 420, unit: 'HZ', curve: 'exp', decimals: 0 },
+  // HAT FOCUS: from the 808 clang (inharmonic squares, noise) towards a clearly pitched cymbal:
+  // less SPREAD, less noise, more BELL.
+  { id: 'h_focus', name: 'FOCUS', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'h_tone', name: 'H TONE', min: 30, max: 20000, defaultValue: 8500, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'h_noise', name: 'H NOISE', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'h_mode', name: 'H MODE', min: 0, max: 2, defaultValue: 0, unit: '', curve: 'linear' },
@@ -96,7 +103,8 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   choice('rolldiv', 'ROLL RATE', ROLL_DIVS.map((r) => r.name), DEFAULT_ROLL_RATE),
   // AIR (KICK, SNARE): a small room on the drum's own output, its tail through the type's fixed EQ.
   { id: 'air', name: 'AIR LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'airsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
+  // AIR LEN: how long the gated room stays open after a hit (it falls gradually, then tails off).
+  { id: 'airsize', name: 'AIR LEN', min: AIR_LEN_MIN, max: AIR_LEN_MAX, defaultValue: 0.15, unit: 'S', curve: 'exp', decimals: 2 },
   midFreq(1000),
   // OCTAVE (FUNC + OCT): the pitched layers an octave at a time, on top of the note.
   OCTAVE,
@@ -142,7 +150,7 @@ export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
 export const HAT_PARAMS = drumParams(
   [
     'timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm',
-    'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', 'm_bell', 'h_rattle', ...WHOLE,
+    'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', 'm_bell', 'h_rattle', 'm_pref', 'h_focus', ...WHOLE,
   ],
   { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03, midfreq: 2000 },
 );
@@ -175,20 +183,29 @@ interface DrumVoice {
   /** DRIVE level compensation curve (driveComp.ts). */
   driveRise?: readonly number[];
   /**
-   * AIR's fixed pre-EQ (Hz, before its mono room, airRoom.ts): high-passes so it never
-   * muddies the low end, a low-pass so it stays soft; and its level (x AIR_GAIN). No AIR on
-   * the type without it.
+   * AIR's fixed EQ and pre-delay (before its mono gated room, airRoom.ts) and its level
+   * (x AIR_GAIN). No AIR on the type without it.
    */
-  air?: { highPass: number; lowPass: number; gain: number };
+  air?: { eq: AirEq; gain: number };
+  /**
+   * HAT: the metal's squares band-limited (polyBLEP), so high pitches stay metal, not hash; and
+   * its head pitch / TONEs follow MTL PITCH and the note (MTL REF).
+   */
+  hat?: boolean;
 }
-/** AIR's level per type: at the default AIR SIZE, the KICK's first 100 ms as loud as the old stereo room's, the SNARE's 3 dB under it. */
+/**
+ * AIR's level per type: at the default AIR LEN, the KICK's room as loud as before the gated
+ * room (v73; about the old stereo room's first 100 ms), the SNARE's on average (its room now
+ * keeps some body: RIMSHOT / PICCOLO louder, BREAK / INDUSTRIAL quieter than before).
+ */
 const KICK_AIR_GAIN = 3.45;
 const SNARE_AIR_GAIN = 2;
-// KICK's air keeps clear of the sub and the body, and has no treble (only its knock rings);
-// SNARE's is cut higher so it never gets muddy or swamps the hit, and stops short of the fizz.
-export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { highPass: 300, lowPass: 1400, gain: KICK_AIR_GAIN } };
-export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { highPass: 600, lowPass: 5000, gain: SNARE_AIR_GAIN } };
-export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat };
+// KICK's air keeps clear of the sub and the body, and has no treble (only its knock rings),
+// 10 ms after the hit; SNARE's keeps some body (a low shelf, -8 dB under 350 Hz) and rolls
+// off from 2.5 kHz (no fizz), 15 ms after the hit, so neither muddies the transient.
+export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { eq: { highPass: 300, lowPass: 1400, lowPassReso: 0.3, preMs: 10 }, gain: KICK_AIR_GAIN } };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { eq: { lowShelf: { hz: 350, db: -8 }, lowPass: 2500, lowPassReso: 0.1, preMs: 15 }, gain: SNARE_AIR_GAIN } };
+export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat, hat: true };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
@@ -211,6 +228,19 @@ const BELL_LEVELS = [1, 0.7, 0.55, 0.5, 0.45, 0.35, 0.3, 0.25] as const;
 const BELL_FADES = [1, 1.2, 1.4, 1.6, 1.6, 2, 2.4, 2.8] as const;
 const BELL_PARTIALS = BELL_RATIOS.length;
 const BELL_GAIN = 0.12;
+/** FOCUS at 1: SPREAD x (1 - FOCUS_SPREAD), noise x (1 - FOCUS_NOISE), BELL up to FOCUS_BELL. */
+const FOCUS_SPREAD = 0.85;
+const FOCUS_NOISE = 0.8;
+const FOCUS_BELL = 0.6;
+/** The HAT's tracked TONE stays under this (Hz). */
+const TONE_TOP = 18000;
+
+/** A band-limited square (polyBLEP) at phase p, step dt. */
+function blepSquare(p: number, dt: number): number {
+  if (dt >= 0.5) return p < 0.5 ? 1 : -1;
+  let p2 = p + 0.5; if (p2 >= 1) p2 -= 1;
+  return (p < 0.5 ? 1 : -1) + polyBlep(p, dt) - polyBlep(p2, dt);
+}
 /** RATTLE: re-hits after the first, about this far apart (s, jittered), each pulse's fall and the gate's release after the last. */
 const RATTLE_HITS = 4;
 const RATTLE_GAP = 0.011;
@@ -263,6 +293,9 @@ export class Drum implements Instrument {
   // HAT BELL (level, partial phases / fades / fade rates) and RATTLE (amount; per hit: re-hits
   // left, samples to the next, the gate's pulse and depth, and their rates).
   private mBell = 0;
+  /** HAT: MTL REF, FOCUS, BELL with FOCUS, the TONE ratio last set up. */
+  private mPref = 0; private focus = 0; private bellEff = 0; private toneAt = 1;
+  private readonly mInc = new Float64Array(6);
   private readonly bPhase = new Float64Array(BELL_PARTIALS);
   private readonly bEnv = new Float64Array(BELL_PARTIALS);
   private readonly bMul = new Float64Array(BELL_PARTIALS);
@@ -326,7 +359,7 @@ export class Drum implements Instrument {
     this.rRelease = Math.exp(-1 / (RATTLE_RELEASE * sampleRate));
     this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
     this.airGate = new IdleGate(AIR_IDLE_SECONDS, sampleRate);
-    if (voice.air) this.room = new AirRoom(sampleRate, voice.air.highPass, voice.air.lowPass);
+    if (voice.air) this.room = new AirRoom(sampleRate, voice.air.eq);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
     for (const p of params) this.setParam(p.id, p.defaultValue);
@@ -339,6 +372,11 @@ export class Drum implements Instrument {
   private fadeFrom = 0;
   private fadeLeft = 0;
   private fadeLen = 1;
+
+  /** BELL as heard: FOCUS brings it up towards FOCUS_BELL. */
+  private updateFocus(): void {
+    this.bellEff = this.mBell + Math.max(0, FOCUS_BELL - this.mBell) * this.focus;
+  }
 
   noteOn(note: number, velocity: number, _group: number, ring = false): void {
     // Still sounding: hand its last output to the retrigger fade.
@@ -363,7 +401,7 @@ export class Drum implements Instrument {
     this.fCounter = 0;
     this.hEnv = this.hTime > 0 ? 1 : 0;
     this.hCounter = 0;
-    if (this.mBell > 0) {
+    if (this.bellEff > 0) {
       for (let k = 0; k < BELL_PARTIALS; k++) {
         this.bPhase[k] = 0;
         this.bEnv[k] = 1;
@@ -374,6 +412,7 @@ export class Drum implements Instrument {
     this.rLeft = RATTLE_HITS;
     this.rNext = Math.round(this.rGap);
     this.rPulse = 1;
+    this.room?.trigger(); // AIR's gate opens
   }
 
   /** Only a ringing hit responds: it is choked (closed off quickly). */
@@ -419,15 +458,17 @@ export class Drum implements Instrument {
       case 'c_attack': this.cAtkS = v; this.cAtk = attackInc(v, sr); this.updateMetalEnv(); break;
       case 'c_len': this.cLen = v; this.updateMetalEnv(); this.updateDecays(); break;
       case 'm_level': this.mLevel = v; break;
-      case 'm_pitch': if (!this.voice.relative) this.mPitch = v; break;
+      case 'm_pitch': if (!this.voice.relative) { this.mPitch = v; this.toneAt = NaN; } break;
       case 'm_interval': this.intervalMul = Math.pow(2, Math.round(v) / 12); this.updateMetal(); break;
       case 'detune': this.detuneMul = Math.pow(2, v / 12); this.updateMetal(); this.setupClick(); break;
       case 'm_spread': this.mSpread = v; break;
       case 'm_noise': this.mNoise = v; break;
-      case 'm_tone': this.mTone = v; this.mFilter.setup(v, 0.3, sr); break;
+      case 'm_tone': this.mTone = v; this.mFilter.setup(v, 0.3, sr); this.toneAt = NaN; break;
       case 'm_attack': if (!this.voice.relative) this.mAtk = attackInc(v, sr); break;
       case 'm_decay': if (!this.voice.relative) { this.mDecay = v; this.updateDecays(); } break;
-      case 'm_bell': this.mBell = v; break;
+      case 'm_bell': this.mBell = v; this.updateFocus(); break;
+      case 'm_pref': this.mPref = v; this.toneAt = NaN; break;
+      case 'h_focus': this.focus = v; this.updateFocus(); break;
       case 'h_rattle': this.rattle = v; break;
       case 'h_time': this.hTime = v; this.hMul = v > 0 ? Math.exp(-1 / (v * sr)) : 0; break;
       case 'h_pitch': this.hPitch = v; break;
@@ -448,7 +489,7 @@ export class Drum implements Instrument {
       case 'crush': this.crush = v; break;
       case 'ogain': this.oGain = v; break;
       case 'air': this.airTarget = v * v * AIR_GAIN * (this.voice.air?.gain ?? 0); break;
-      case 'airsize': this.room?.setSize(v); break;
+      case 'airsize': this.room?.setLength(v); break;
       case 'octave': this.octave = Math.round(v) - OCTAVE_ZERO; break;
     }
   }
@@ -546,11 +587,22 @@ export class Drum implements Instrument {
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const tPitch = this.tPitch * this.tune * this.pitchMod;
     const tune = this.tune * this.pitchMod;
-    // Metal settings in use: the tail's, or (HAT) morphing from the head's.
+    // Metal settings in use: the tail's, or (HAT) morphing from the head's. HAT: the head's
+    // pitch and the TONEs follow MTL PITCH and the note (x pr, x toneR); FOCUS narrows SPREAD
+    // and lowers the noise.
+    const track = this.voice.hat === true && this.mPref > 0;
+    const pr = track ? this.mPitch / this.mPref : 1;
+    const toneR = track ? pr * tune : 1;
+    const headPitch = this.hPitch * pr;
+    const fSpread = 1 - FOCUS_SPREAD * this.focus, fNoise = 1 - FOCUS_NOISE * this.focus;
     let mPitch = this.mPitch * tune;
-    let mNoise = this.mNoise;
+    let mNoise = this.mNoise * fNoise;
     let mMode = this.mMode;
-    let mSpread = this.mSpread;
+    let mSpread = this.mSpread * fSpread;
+    if (track && this.hEnv === 0 && toneR !== this.toneAt) {
+      this.toneAt = toneR;
+      this.mFilter.setup(Math.min(TONE_TOP, this.mTone * toneR), 0.3, this.sr);
+    }
     this.hCounter = 0; // refresh the head blend on the first sample
 
     for (let i = start; i < end; i++) {
@@ -599,17 +651,18 @@ export class Drum implements Instrument {
           if (this.hEnv < 1e-3) {
             // Head over: the tail's own settings.
             this.hEnv = 0;
-            mPitch = this.mPitch * tune; mNoise = this.mNoise; mMode = this.mMode; mSpread = this.mSpread;
-            this.mFilter.setup(this.mTone, 0.3, this.sr);
+            mPitch = this.mPitch * tune; mNoise = this.mNoise * fNoise; mMode = this.mMode; mSpread = this.mSpread * fSpread;
+            this.mFilter.setup(Math.min(TONE_TOP, this.mTone * toneR), 0.3, this.sr);
+            this.toneAt = toneR;
           } else if (this.hCounter-- <= 0) {
             // Head -> tail, refreshed every 16 samples (frequencies blend in log).
             this.hCounter = FILTER_UPDATE;
             const h = this.hEnv;
-            mPitch = this.mPitch * Math.pow(this.hPitch / this.mPitch, h) * tune;
-            mNoise = this.mNoise + (this.hNoise - this.mNoise) * h;
+            mPitch = this.mPitch * Math.pow(headPitch / this.mPitch, h) * tune;
+            mNoise = (this.mNoise + (this.hNoise - this.mNoise) * h) * fNoise;
             mMode = this.mMode + (this.hMode - this.mMode) * h;
-            mSpread = this.mSpread + (this.hSpread - this.mSpread) * h;
-            this.mFilter.setup(this.mTone * Math.pow(this.hTone / this.mTone, h), 0.3, this.sr);
+            mSpread = (this.mSpread + (this.hSpread - this.mSpread) * h) * fSpread;
+            this.mFilter.setup(Math.min(TONE_TOP, this.mTone * toneR * Math.pow(this.hTone / this.mTone, h)), 0.3, this.sr);
           }
         }
         const spread = mSpread * 2;
@@ -619,13 +672,20 @@ export class Drum implements Instrument {
         const wFm = Math.max(0, mode - 1);
         let m = 0;
         if (wSq > 0 || wRing > 0) {
-          const ph = this.mPhase;
+          const ph = this.mPhase, inc = this.mInc;
           for (let k = 0; k < 6; k++) {
-            ph[k] += mPitch * (1 + (METAL_RATIOS[k] - 1) * spread) * dtBase;
+            inc[k] = mPitch * (1 + (METAL_RATIOS[k] - 1) * spread) * dtBase;
+            ph[k] += inc[k];
             if (ph[k] >= 1) ph[k] -= 1;
           }
-          const s0 = ph[0] < 0.5 ? 1 : -1, s1 = ph[1] < 0.5 ? 1 : -1, s2 = ph[2] < 0.5 ? 1 : -1;
-          const s3 = ph[3] < 0.5 ? 1 : -1, s4 = ph[4] < 0.5 ? 1 : -1, s5 = ph[5] < 0.5 ? 1 : -1;
+          let s0: number, s1: number, s2: number, s3: number, s4: number, s5: number;
+          if (this.voice.hat) {
+            s0 = blepSquare(ph[0], inc[0]); s1 = blepSquare(ph[1], inc[1]); s2 = blepSquare(ph[2], inc[2]);
+            s3 = blepSquare(ph[3], inc[3]); s4 = blepSquare(ph[4], inc[4]); s5 = blepSquare(ph[5], inc[5]);
+          } else {
+            s0 = ph[0] < 0.5 ? 1 : -1; s1 = ph[1] < 0.5 ? 1 : -1; s2 = ph[2] < 0.5 ? 1 : -1;
+            s3 = ph[3] < 0.5 ? 1 : -1; s4 = ph[4] < 0.5 ? 1 : -1; s5 = ph[5] < 0.5 ? 1 : -1;
+          }
           if (wSq > 0) m += wSq * (s0 + s1 + s2 + s3 + s4 + s5) / 6;
           if (wRing > 0) m += wRing * (s0 * s1 + s2 * s3 + s4 * s5) / 3;
         }
@@ -640,7 +700,7 @@ export class Drum implements Instrument {
         this.mFilter.process(m);
         let metal = this.mFilter.high * this.mLevel;
         // BELL: sine partials at a cymbal bell's ratios, past the high-pass, each fading at its own rate.
-        if (this.mBell > 0) {
+        if (this.bellEff > 0) {
           let b = 0;
           const bp = this.bPhase, be = this.bEnv;
           for (let k = 0; k < BELL_PARTIALS; k++) {
@@ -649,7 +709,7 @@ export class Drum implements Instrument {
             b += sinTurn(bp[k]) * BELL_LEVELS[k] * be[k];
             be[k] *= this.bMul[k];
           }
-          metal += b * this.mBell * BELL_GAIN;
+          metal += b * this.bellEff * BELL_GAIN;
         }
         // RATTLE: the jingles' quick re-hits (a gate that snaps open at each and closes fast).
         if (this.rDepth > 0) {

@@ -61,10 +61,12 @@ function funcPage(top: readonly (string | null)[], bottom: readonly (string | nu
 const _ = null;
 /*
  * FUNC layers. Synths: the rest of the amp envelope under module 2, then what each type
- * needs (below). SHAPE and FM RATIO are TIMBRE's. OCTAVE has no knob: OCT - / + in DESIGN
- * (App.stepOctave). Drums: KICK / SNARE SWEEP / SWP TIME (FUNC 2); HAT / PERC have none yet.
+ * needs (below). SHAPE is TIMBRE's (FM RATIO too, but a FUNC knob on BASS / LEAD). OCTAVE has no knob: OCT - / + in DESIGN
+ * (App.stepOctave). Drums: KICK / SNARE SWEEP / SWP TIME (FUNC 2); HAT FOCUS (FUNC 4 top, over
+ * MTL PITCH's module); PERC none yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
+const HAT_FUNC = funcPage([_, _, _, 'h_focus', _, _, _, _], [_, _, _, _, _, _, _, _]);
 /** KICK / SNARE FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
 const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
@@ -298,7 +300,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   hat: {
     name: 'HAT', gain: 1.783, live: ['fx1:dly_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'c_noise'], ['m_tone', 'm_noise']),
-    funcLayout: trackFunc(NO_FUNC),
+    funcLayout: trackFunc(HAT_FUNC),
     presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
   perc: {
     name: 'PERC', gain: 0.537, live: ['fx1:flt', 'intensity'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
