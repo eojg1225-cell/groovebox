@@ -4140,36 +4140,15 @@ describe('AIR (KICK, SNARE)', () => {
     }
   });
 
-  it("the SNARE's AIR: a low shelf keeps some body without the mud, the top rolls off from 2.5 kHz", () => {
-    // A pure tone body (no wires) at each pitch: how much of it comes back, against 1 kHz.
-    const back = (hz: number) => {
-      const h = hit('snare', { air: 1, airsize: 0.3, t_pitch: hz, t_sweep: 0, m_level: 0, c_level: 0, drive: 1 });
-      return rms(h.wet, 0, SR) / rms(h.dry, 0, SR);
-    };
-    const mid = back(1000);
-    expect(back(150)).toBeLessThan(mid * 0.6); // the shelf (-8 dB well under 350 Hz)
-    expect(back(150)).toBeGreaterThan(mid * 0.15); // but some body stays
-    expect(back(7000)).toBeLessThan(mid * 0.25); // the roll-off
+  it("the SNARE's AIR stays out of the low mids (its pre-EQ)", () => {
+    // A low body only (200 Hz tone, no wires, stick or shell): hardly anything comes back.
+    const body = hit('snare', { air: 1, t_pitch: 200, t_sweep: 0, m_level: 0, c_level: 0, t_shell: 0, drive: 1 });
+    expect(stats(body.wet).peak).toBeLessThan(stats(body.dry).peak * 0.05);
   });
 
-  it('AIR LEN gates the room: it falls gradually over LEN, then tails off quickly', () => {
-    const wet = (airsize: number) => hit('kick', { air: 1, airsize }).wet;
-    const ms = (x: Float32Array, a: number, b: number) => rms(x, Math.floor((SR * a) / 1000), Math.floor((SR * b) / 1000));
-    const long = wet(0.6), short = wet(0.08);
-    // Open for LEN, shut soon after: the short gate silent where the long one still sounds.
-    expect(ms(short, 200, 600)).toBeLessThan(ms(long, 200, 600) * 0.001);
-    expect(ms(long, 700, 900)).toBeLessThan(ms(long, 200, 400) * 0.01);
-    // A gradual fall inside LEN, not a cliff: later on, quieter, but still there.
-    expect(ms(long, 450, 550)).toBeLessThan(ms(long, 100, 200));
-    expect(ms(long, 450, 550)).toBeGreaterThan(ms(long, 100, 200) * 0.05);
-  });
-
-  it('AIR waits out a pre-delay (KICK 10 ms, SNARE 15 ms): the transient stays clear', () => {
-    for (const [kind, pre] of [['kick', 10], ['snare', 15]] as const) {
-      const w = hit(kind, { air: 1 }).wet;
-      expect(rms(w, 0, Math.floor((SR * (pre - 1)) / 1000)), kind).toBe(0);
-      expect(rms(w, Math.floor((SR * pre) / 1000), Math.floor((SR * (pre + 30)) / 1000)), kind).toBeGreaterThan(0);
-    }
+  it('AIR SIZE makes the room ring longer (from barely a tail to about a second)', () => {
+    const tail = (airsize: number) => rms(hit('kick', { air: 1, airsize }).wet, Math.floor(SR * 0.2), SR);
+    expect(tail(1)).toBeGreaterThan(tail(0) * 100);
   });
 
   it("the KICK's AIR keeps out of the low end (its fixed EQ)", () => {
@@ -4178,16 +4157,20 @@ describe('AIR (KICK, SNARE)', () => {
     expect(stats(sub.wet).peak).toBeLessThan(stats(sub.dry).peak * 0.03);
   });
 
-  it('v73: a saved AIR SIZE (and its locks, SONG lanes) becomes the same time as AIR LEN', () => {
+  it('v75: a v73 / v74 AIR LEN (s; its locks, SONG lanes) becomes the AIR SIZE with that RT60; older saves keep theirs', () => {
     const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
-    stored.version = 72;
-    stored.channels[0].sounds.kick.airsize = 0.4; // RT60 0.03 x 40^0.4 = 0.131 s
-    stored.channels[1].patterns[0].steps = [{ i: 0, n: 33, v: 0.8, l: { airsize: 1 } }];
-    stored.song.a = { 's:0:airsize': [[0, 0]] };
+    stored.version = 74;
+    stored.channels[0].sounds.kick.airsize = 0.131; // 0.03 x 40^0.4
+    stored.channels[1].patterns[0].steps = [{ i: 0, n: 33, v: 0.8, l: { airsize: 0.8 } }];
+    stored.song.a = { 's:0:airsize': [[0, 0.03]] };
     const p = fromStored(stored)!;
-    expect(p.channels[0].sounds.kick!.airsize).toBeCloseTo(0.03 * Math.pow(40, 0.4), 6);
-    expect(p.channels[1].patterns[0].steps[0].locks!.airsize).toBe(0.8); // 1.2 s, held to AIR LEN's top
-    expect(p.song.auto!['s:0:airsize'][0][1]).toBeCloseTo(0.03, 9);
+    expect(p.channels[0].sounds.kick!.airsize).toBeCloseTo(0.4, 2);
+    expect(p.channels[1].patterns[0].steps[0].locks!.airsize).toBeCloseTo(Math.log(0.8 / 0.03) / Math.log(40), 6);
+    expect(p.song.auto!['s:0:airsize'][0][1]).toBeCloseTo(0, 9);
+    const older = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    older.version = 72;
+    older.channels[0].sounds.kick.airsize = 0.7;
+    expect(fromStored(older)!.channels[0].sounds.kick!.airsize).toBe(0.7);
   });
 
   it('only KICK and SNARE have AIR', () => {

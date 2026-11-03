@@ -5,7 +5,7 @@ import { exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, OCTAVE, OCTAVE_ZERO, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
 import { DRIVE_RISE, driveCompGain } from './driveComp';
-import { AIR_LEN_MAX, AIR_LEN_MIN, AirRoom, type AirEq } from './airRoom';
+import { AirRoom } from './airRoom';
 
 /**
  * Drum voice built from layers. Each drum type uses two of them (its two "elements"):
@@ -106,8 +106,7 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   choice('rolldiv', 'ROLL RATE', ROLL_DIVS.map((r) => r.name), DEFAULT_ROLL_RATE),
   // AIR (KICK, SNARE): a small room on the drum's own output, its tail through the type's fixed EQ.
   { id: 'air', name: 'AIR LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  // AIR LEN: how long the gated room stays open after a hit (it falls gradually, then tails off).
-  { id: 'airsize', name: 'AIR LEN', min: AIR_LEN_MIN, max: AIR_LEN_MAX, defaultValue: 0.15, unit: 'S', curve: 'exp', decimals: 2 },
+  { id: 'airsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
   midFreq(1000),
   // OCTAVE (FUNC + OCT): the pitched layers an octave at a time, on top of the note.
   OCTAVE,
@@ -186,10 +185,11 @@ interface DrumVoice {
   /** DRIVE level compensation curve (driveComp.ts). */
   driveRise?: readonly number[];
   /**
-   * AIR's fixed EQ and pre-delay (before its mono gated room, airRoom.ts) and its level
-   * (x AIR_GAIN). No AIR on the type without it.
+   * AIR's fixed pre-EQ (Hz, before its mono room, airRoom.ts): high-passes so it never
+   * muddies the low end, a low-pass so it stays soft; and its level (x AIR_GAIN). No AIR on
+   * the type without it.
    */
-  air?: { eq: AirEq; gain: number };
+  air?: { highPass: number; lowPass: number; gain: number };
   /**
    * HAT: the metal's squares band-limited (polyBLEP), so high pitches stay metal, not hash; and
    * its head pitch / TONEs follow MTL PITCH and the note (MTL REF).
@@ -201,18 +201,13 @@ interface DrumVoice {
    */
   snare?: boolean;
 }
-/**
- * AIR's level per type: at the default AIR LEN, the KICK's room as loud as before the gated
- * room (v73; about the old stereo room's first 100 ms), the SNARE's on average (its room now
- * keeps some body: RIMSHOT / PICCOLO louder, BREAK / INDUSTRIAL quieter than before).
- */
+/** AIR's level per type: at the default AIR SIZE, the KICK's first 100 ms as loud as the old stereo room's, the SNARE's 3 dB under it. */
 const KICK_AIR_GAIN = 3.45;
 const SNARE_AIR_GAIN = 2;
-// KICK's air keeps clear of the sub and the body, and has no treble (only its knock rings),
-// 10 ms after the hit; SNARE's keeps some body (a low shelf, -8 dB under 350 Hz) and rolls
-// off from 2.5 kHz (no fizz), 15 ms after the hit, so neither muddies the transient.
-export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { eq: { highPass: 300, lowPass: 1400, lowPassReso: 0.3, preMs: 10 }, gain: KICK_AIR_GAIN } };
-export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, snare: true, air: { eq: { lowShelf: { hz: 350, db: -8 }, lowPass: 2500, lowPassReso: 0.1, preMs: 15 }, gain: SNARE_AIR_GAIN } };
+// KICK's air keeps clear of the sub and the body, and has no treble (only its knock rings);
+// SNARE's is cut higher so it never gets muddy or swamps the hit, and stops short of the fizz.
+export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { highPass: 300, lowPass: 1400, gain: KICK_AIR_GAIN } };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, snare: true, air: { highPass: 600, lowPass: 5000, gain: SNARE_AIR_GAIN } };
 export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat, hat: true };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
@@ -376,7 +371,7 @@ export class Drum implements Instrument {
     this.rRelease = Math.exp(-1 / (RATTLE_RELEASE * sampleRate));
     this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
     this.airGate = new IdleGate(AIR_IDLE_SECONDS, sampleRate);
-    if (voice.air) this.room = new AirRoom(sampleRate, voice.air.eq);
+    if (voice.air) this.room = new AirRoom(sampleRate, voice.air.highPass, voice.air.lowPass);
     if (voice.snare) this.wireLp.setup(WIRE_LP_MAX, 0.1, sampleRate);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
@@ -431,7 +426,6 @@ export class Drum implements Instrument {
     this.rLeft = RATTLE_HITS;
     this.rNext = Math.round(this.rGap);
     this.rPulse = 1;
-    this.room?.trigger(); // AIR's gate opens
   }
 
   /** Only a ringing hit responds: it is choked (closed off quickly). */
@@ -512,7 +506,7 @@ export class Drum implements Instrument {
       case 'crush': this.crush = v; break;
       case 'ogain': this.oGain = v; break;
       case 'air': this.airTarget = v * v * AIR_GAIN * (this.voice.air?.gain ?? 0); break;
-      case 'airsize': this.room?.setLength(v); break;
+      case 'airsize': this.room?.setSize(v); break;
       case 'octave': this.octave = Math.round(v) - OCTAVE_ZERO; break;
     }
   }

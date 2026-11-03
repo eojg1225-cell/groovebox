@@ -16,7 +16,6 @@ import {
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { parseAutoKey } from './automation';
 import { macroIds, macroSoundOf, type MacroDef } from '../instruments/macros';
-import { AIR_LEN_MAX, AIR_LEN_MIN } from '../instruments/airRoom';
 import { DEFAULT_ROLL_RATE } from '../instruments/Drum';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
@@ -648,17 +647,19 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
 }
 
 /**
- * v73: AIR SIZE (0-1: the room's RT60, 0.03 s x 40^SIZE) became AIR LEN (the gated room's
- * length, s): a saved value becomes that time.
+ * v75: AIR is the room it was before v73 again (AIR SIZE 0-1: its RT60, 0.03 s x 40^SIZE). A
+ * v73 / v74 save's AIR LEN (s, the gated room's length) becomes the SIZE whose RT60 is that time.
  */
-function airLenV73(v: number): number {
-  return Math.min(AIR_LEN_MAX, Math.max(AIR_LEN_MIN, 0.03 * Math.pow(40, Math.min(1, Math.max(0, v)))));
+function airSizeV75(seconds: number): number {
+  return Math.min(1, Math.max(0, Math.log(Math.max(0.03, seconds) / 0.03) / Math.log(40)));
 }
-const AIR_KINDS_V73: readonly string[] = ['kick', 'snare'];
+const AIR_KINDS_V75: readonly string[] = ['kick', 'snare'];
+/** Saves holding AIR LEN: v73 and v74. */
+const airLenSave = (version: number) => version >= 73 && version < 75;
 
-/** v70 / v71 / v73 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR SIZE -> AIR LEN. */
+/** v70 / v71 / v75 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
-  if (version < 73 && AIR_KINDS_V73.includes(kind) && locks.airsize !== undefined) locks.airsize = airLenV73(locks.airsize);
+  if (airLenSave(version) && AIR_KINDS_V75.includes(kind) && locks.airsize !== undefined) locks.airsize = airSizeV75(locks.airsize);
   if (version < 71 && kind === 'lead' && locks.timbre !== undefined) locks.timbre = leadTimbreV71(locks.timbre);
   if (version >= 70) return;
   if (kind === 'bass' && locks.timbre !== undefined) locks.timbre = bassTimbreV70(locks.timbre, version);
@@ -678,7 +679,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   if (version < 57) rollRateV57(sound);
   if (version < 70 && kind === 'bass') bassV70(sound, values, version);
   if (version >= 58 && version < 71 && kind === 'lead') leadV71(sound, values);
-  if (version < 73 && AIR_KINDS_V73.includes(kind) && typeof values.airsize === 'number') sound.airsize = airLenV73(values.airsize);
+  if (airLenSave(version) && AIR_KINDS_V75.includes(kind) && typeof values.airsize === 'number') sound.airsize = airSizeV75(values.airsize);
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
@@ -934,13 +935,13 @@ export function fromStored(data: unknown): Project | null {
   if (version < 49) typeGainV49(p);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.
-  if (version < 73 && p.song.auto) {
+  if (version < 75 && p.song.auto) {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind !== 's') continue;
       const kind = p.channels[t.index]?.instrument;
       if (version < 71 && kind === 'lead' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, leadTimbreV71(v)]);
-      if (kind !== undefined && AIR_KINDS_V73.includes(kind) && t.id === 'airsize') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, airLenV73(v)]);
+      if (airLenSave(version) && kind !== undefined && AIR_KINDS_V75.includes(kind) && t.id === 'airsize') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, airSizeV75(v)]);
       if (version >= 70) continue;
       if (kind === 'bass' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, bassTimbreV70(v, version)]);
       if (kind === 'pad' && padGoneV70(t.id)) delete p.song.auto[key];
