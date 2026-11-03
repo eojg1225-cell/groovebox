@@ -291,8 +291,8 @@ const SONG_KEEPS = 'SONG: EDIT PATTERNS IN JAM';
 /** DSP load from which the footer shows it in alert (the audio is about to break up). */
 const DSP_ALERT = 0.8;
 type GlobalId = 'bpm' | 'swing' | 'master';
-/** The master knobs beside PLAY. */
-const MASTER_GLOBAL: Readonly<Record<string, GlobalId>> = { mtempo: 'bpm', mmaster: 'master' };
+/** The two knobs beside PLAY: the selected track's VOLUME and PAN (TEMPO / MASTER: DESIGN > PROJECT). */
+const TRACK_KNOBS: Readonly<Record<string, string>> = { mvol: 'mix:volume', mpan: 'mix:pan' };
 
 /** A step's locks on its track's sound (its own params, live knobs) go; mixer / FX / LFO / ARP ones stay. */
 function dropSoundLocks(step: Step, ch: number): void {
@@ -1342,7 +1342,10 @@ export class App {
   private onControl(e: ControlEvent): void {
     this.trackGesture(e);
     if (e.type === 'encoder') return this.onEncoder(e.id, e.delta);
-    if (e.type === 'knob' && e.id.startsWith('m')) return this.onMasterKnob(e.id, e.value);
+    if (e.type === 'knob' && TRACK_KNOBS[e.id]) {
+      const t = this.trackKnob(e.id);
+      return t ? this.onTrackKnob(e.id, toValue(t.spec, e.value)) : undefined;
+    }
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
     if (e.type === 'touch') {
       const slot = Number(e.id.slice(1)) - 1;
@@ -3162,32 +3165,32 @@ export class App {
     if (this.viewPage[this.selected] >= this.pageCount()) this.viewPage[this.selected] = 0;
   }
 
-  /** TEMPO and MASTER master knobs. */
-  private onMasterKnob(id: string, norm: number): void {
-    const gid = MASTER_GLOBAL[id];
-    const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
-    let value = toValue(spec, norm);
-    if (spec.decimals !== undefined) value = Math.round(value * 10 ** spec.decimals) / 10 ** spec.decimals;
-    this.glides.delete(`global:${gid}`);
-    this.setGlobal(gid, value);
-    this.flash(`${spec.name} ${formatValue(spec, value)}`);
+  /** The knob beside PLAY (`mvol` / `mpan`): the selected track's VOLUME / PAN, as on the MIX page. */
+  private trackKnob(id: string): KnobTarget | null {
+    const mix = TRACK_KNOBS[id];
+    if (!mix || this.channel.instrument === 'none') return null;
+    return this.paramTarget(this.selected, mix, mix === 'mix:volume' ? 'VOLUME' : 'PAN', true);
+  }
+
+  /** VOLUME / PAN beside PLAY: straight onto the selected track (no priming, no audition). */
+  private onTrackKnob(id: string, value: number): void {
+    const t = this.trackKnob(id);
+    if (!t) return;
+    if (this.funcHeld) this.funcUsed = true;
+    if (t.key) this.glides.delete(t.key);
+    t.set(value);
+    this.flash(`CH${this.selected + 1} ${t.label} ${formatValue(t.spec, t.get())}`);
     this.save();
   }
 
   /**
    * Relative encoder turn (hardware encoders; the mouse wheel on screen): one detent =
-   * one 0-127 step, one option for discrete choices, 1 BPM for TEMPO.
+   * one 0-127 step, one option for discrete choices.
    */
   private onEncoder(id: string, delta: number): void {
-    const gid = MASTER_GLOBAL[id];
-    if (gid) {
-      const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
-      const step = gid === 'bpm' ? 1 : 1 / 127;
-      const value = Math.min(spec.max, Math.max(spec.min, Math.round((this.project[gid] + delta * step) * 1000) / 1000));
-      this.glides.delete(`global:${gid}`);
-      this.setGlobal(gid, value);
-      this.flash(`${spec.name} ${formatValue(spec, value)}`);
-      this.save();
+    if (TRACK_KNOBS[id]) {
+      const t = this.trackKnob(id);
+      if (t) this.onTrackKnob(id, toValue(t.spec, Math.min(1, Math.max(0, Math.round(toNorm(t.spec, t.get()) * 127 + delta) / 127))));
       this.refreshPanel();
       return;
     }
@@ -4026,8 +4029,7 @@ export class App {
   }
 
   private knobLabel(id: string): string {
-    const gid = MASTER_GLOBAL[id];
-    if (gid) return GLOBAL_PARAMS.find((p) => p.id === gid)?.name ?? 'KNOB';
+    if (TRACK_KNOBS[id]) return this.trackKnob(id)?.label ?? 'KNOB';
     return this.targets[Number(id.slice(1)) - 1]?.label ?? 'KNOB';
   }
 
@@ -4375,7 +4377,7 @@ export class App {
     // COPY a bar: the track keys are the pattern's bars (lit = it has it, yellow = the one copied).
     const copyBars = this.copyShowing && this.copySrc?.kind === 'bar' ? this.copySrc.bar : -1;
     const barKeys = this.stepsMode || copyBars >= 0;
-    this.panel.setTrackColours(this.project.channels.map((c) => (barKeys ? sel : trackColour(c.instrument))), sel, neutralColour());
+    this.panel.setTrackColours(this.project.channels.map((c) => (barKeys ? sel : trackColour(c.instrument))), sel);
 
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -4391,9 +4393,9 @@ export class App {
       this.panel.setButtonLit(`solo${ch + 1}`, this.soloed[ch]);
       this.panel.setButtonText(`ch${ch + 1}`, copyBars >= 0 ? `${ch + 1}<small>BAR</small>` : `${ch + 1}<small>${this.kindName(c)}</small>`);
     }
-    for (const [id, gid] of Object.entries(MASTER_GLOBAL)) {
-      const spec = GLOBAL_PARAMS.find((p) => p.id === gid) as ParamSpec;
-      this.panel.configureMaster(id, toNorm(spec, this.project[gid]), toNorm(spec, this.savedProject()[gid]));
+    for (const id of Object.keys(TRACK_KNOBS)) {
+      const t = this.trackKnob(id);
+      this.panel.configureMaster(id, t && { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), colour: this.knobColour(t) });
     }
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       this.panel.setButtonLit(`fx${n}`, this.fxView === n);

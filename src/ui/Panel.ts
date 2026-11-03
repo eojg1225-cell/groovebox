@@ -18,13 +18,13 @@
  * (held: CLEAR + step / channel), copy (held: COPY + channel = same pattern slot there,
  * COPY + A-D = that pattern of this track),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
- * bottom row; module i holds k(i+1) and k(i+9)); master knobs mtempo, mmaster.
+ * bottom row; module i holds k(i+1) and k(i+9)); beside PLAY mvol, mpan (the selected track's
+ * VOLUME / PAN).
  */
 import { dimOf } from './colours';
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
 import { setRotated } from './orientation';
-import { BPM_MAX, BPM_MIN } from '../engine/mixParams';
 
 const DESIGN_W = 1200;
 const DESIGN_H = 760;
@@ -35,8 +35,8 @@ export const DESIGN_PAGE_BUTTONS = 3;
 /** FX 1-3 then the LFO (fx4): buses the tracks are put on. */
 export const FX_SEND_BUTTONS = 4;
 const MASTER_KNOBS = [
-  { id: 'mtempo', label: 'TEMPO' },
-  { id: 'mmaster', label: 'MASTER' },
+  { id: 'mvol', label: 'VOLUME' },
+  { id: 'mpan', label: 'PAN' },
 ] as const;
 
 export const MODES = [
@@ -197,8 +197,7 @@ export class Panel implements ControlSurface {
     playRow.append(this.makeButton('func', 'FUNC', 'btn func'), this.makeButton('play', 'PLAY', 'btn play'));
     q('.play-area').prepend(playRow);
     for (const m of MASTER_KNOBS) {
-      // TEMPO moves in whole BPM steps; everything else is 0-127.
-      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, m.id === 'mtempo' ? BPM_MAX - BPM_MIN : 127);
+      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, 127);
       knob.el.classList.add('master');
       this.masterKnobs.set(m.id, knob);
       q('.master-knobs').appendChild(knob.el);
@@ -240,12 +239,16 @@ export class Panel implements ControlSurface {
     }
   }
 
-  /** Master knob (TEMPO / MASTER): current value and default, normalised. */
-  configureMaster(id: string, value: number, defaultValue: number): void {
+  /** A knob beside PLAY (the selected track's VOLUME / PAN), or null (no track: off). */
+  configureMaster(id: string, slot: { label: string; value: number; defaultValue: number; colour: string } | null): void {
     const k = this.masterKnobs.get(id);
     if (!k) return;
-    k.defaultValue = defaultValue;
-    k.set(value);
+    k.setEnabled(slot !== null);
+    if (!slot) return;
+    k.el.style.setProperty('--accent', slot.colour);
+    k.setLabel(slot.label);
+    k.defaultValue = slot.defaultValue;
+    k.set(slot.value);
   }
 
   /** LED states for the 16 lights above the strip. */
@@ -261,13 +264,12 @@ export class Panel implements ControlSurface {
    * Track colours: the panel takes the selected track's (strip, LEDs, lit keys), each
    * channel button its own track's.
    */
-  setTrackColours(colours: string[], selected: string, neutral: string): void {
+  setTrackColours(colours: string[], selected: string): void {
     if (this.root.style.getPropertyValue('--accent') !== selected) {
       this.root.style.setProperty('--accent', selected);
       this.root.style.setProperty('--accent-dim', dimOf(selected));
     }
     colours.forEach((c, i) => this.buttons.get(`ch${i + 1}`)?.style.setProperty('--accent', c));
-    for (const k of this.masterKnobs.values()) k.el.style.setProperty('--accent', neutral); // no track's
   }
 
   setButtonLit(id: string, lit: boolean): void {

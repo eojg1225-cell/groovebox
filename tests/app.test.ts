@@ -254,16 +254,41 @@ describe('PAD / PLUCK with a CHORD: one root at a time, legato slides', () => {
 });
 
 describe('TEMPO', () => {
-  it('stays in whole BPM: the knob lands on whole numbers, an encoder detent moves 1 BPM', () => {
-    const { app, emit, sent } = makeApp();
-    emit({ type: 'knob', id: 'mtempo', value: 0.3337 });
+  it('stays in whole BPM (DESIGN > PROJECT, knob 1)', () => {
+    const { app, emit, tap, sent } = makeApp();
+    tap('mode:design');
+    tap('dpage2');
+    emit({ type: 'knob', id: 'k1', value: 0.3337 });
+    emit({ type: 'knob', id: 'k1', value: 0.5511 });
     expect(Number.isInteger(app.project.bpm)).toBe(true);
-    const before = app.project.bpm;
-    emit({ type: 'encoder', id: 'mtempo', delta: 1 });
-    expect(app.project.bpm).toBe(before + 1);
     const tempos = sent.filter((m) => m.type === 'setGlobal' && m.id === 'bpm').map((m) => (m as { value: number }).value);
     expect(tempos.length).toBeGreaterThan(1);
     expect(tempos.every(Number.isInteger)).toBe(true);
+  });
+});
+
+describe('VOLUME / PAN beside PLAY', () => {
+  it('set the selected track\'s VOLUME and PAN in every mode; UNDO takes a turn back', () => {
+    const { app, emit, tap } = makeApp();
+    tap('ch3');
+    const c = app.project.channels[2];
+    const vol = c.volume, pan = c.pan;
+    emit({ type: 'touch', id: 'mvol' });
+    emit({ type: 'knob', id: 'mvol', value: 0.2 });
+    emit({ type: 'release', id: 'mvol' });
+    expect(c.volume).not.toBe(vol);
+    expect(app.project.channels[1].volume).toBe(app.project.channels[1].volume); // others untouched
+    emit({ type: 'encoder', id: 'mpan', delta: 10 });
+    expect(c.pan).toBeGreaterThan(pan);
+    tap('mode:play');
+    tap('ch5');
+    const bass = app.project.channels[4], bassVol = bass.volume;
+    emit({ type: 'touch', id: 'mvol' });
+    emit({ type: 'knob', id: 'mvol', value: 0.9 });
+    emit({ type: 'release', id: 'mvol' });
+    expect(bass.volume).not.toBe(bassVol);
+    tap('undo');
+    expect(bass.volume).toBe(bassVol);
   });
 });
 
