@@ -82,6 +82,9 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   // HAT (TIMBRE's, no knob): the MTL PITCH the sound was designed at. Moving MTL PITCH (or the
   // note) away from it moves the head's pitch and both TONEs by the same ratio, so the hit
   // keeps its shape (no glide from a head left behind, no partials under a high-pass left behind).
+  // SNARE (TIMBRE's, no knob): the shell's second resonance, a sine at SHELL_RATIO x the body,
+  // dying twice as fast (the body's envelope squared): a body with weight, not a tom's boing.
+  { id: 't_shell', name: 'SHELL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'm_pref', name: 'MTL REF', min: 20, max: 12000, defaultValue: 420, unit: 'HZ', curve: 'exp', decimals: 0 },
   // HAT FOCUS: from the 808 clang (inharmonic squares, noise) towards a clearly pitched cymbal:
   // less SPREAD, less noise, more BELL.
@@ -142,7 +145,7 @@ export const KICK_PARAMS = drumParams(
 export const KICK_ELEMENTS = ['t_attack', 't_decay', 'c_attack', 'c_len'];
 
 export const SNARE_PARAMS = drumParams(
-  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE, ...AIR],
+  ['timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave', 't_shell', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_spread', 'm_mode', 'm_fm', ...WHOLE, ...AIR],
   { t_level: 0.55, t_pitch: 190, t_sweep: 7, t_decay: 0.14, m_level: 0.8, m_noise: 0.85, m_pitch: 330, m_tone: 1800, m_decay: 0.2, midfreq: 500 },
 );
 export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
@@ -192,6 +195,11 @@ interface DrumVoice {
    * its head pitch / TONEs follow MTL PITCH and the note (MTL REF).
    */
   hat?: boolean;
+  /**
+   * SNARE: the shell's second resonance (t_shell), and the wires as a band: a low-pass above
+   * MTL TONE's high-pass (x WIRE_SPAN, WIRE_LP_MIN ... WIRE_LP_MAX), so they never fizz.
+   */
+  snare?: boolean;
 }
 /**
  * AIR's level per type: at the default AIR LEN, the KICK's room as loud as before the gated
@@ -204,7 +212,7 @@ const SNARE_AIR_GAIN = 2;
 // 10 ms after the hit; SNARE's keeps some body (a low shelf, -8 dB under 350 Hz) and rolls
 // off from 2.5 kHz (no fizz), 15 ms after the hit, so neither muddies the transient.
 export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { eq: { highPass: 300, lowPass: 1400, lowPassReso: 0.3, preMs: 10 }, gain: KICK_AIR_GAIN } };
-export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, air: { eq: { lowShelf: { hz: 350, db: -8 }, lowPass: 2500, lowPassReso: 0.1, preMs: 15 }, gain: SNARE_AIR_GAIN } };
+export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, snare: true, air: { eq: { lowShelf: { hz: 350, db: -8 }, lowPass: 2500, lowPassReso: 0.1, preMs: 15 }, gain: SNARE_AIR_GAIN } };
 export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat, hat: true };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
@@ -232,6 +240,12 @@ const BELL_GAIN = 0.12;
 const FOCUS_SPREAD = 0.85;
 const FOCUS_NOISE = 0.8;
 const FOCUS_BELL = 0.6;
+/** SNARE: the shell's second resonance (x the body's pitch: a drum membrane's second mode). */
+const SHELL_RATIO = 1.59;
+/** SNARE wires' low-pass: MTL TONE x WIRE_SPAN, held between these (Hz). */
+const WIRE_SPAN = 3;
+const WIRE_LP_MIN = 5000;
+const WIRE_LP_MAX = 12000;
 /** The HAT's tracked TONE stays under this (Hz). */
 const TONE_TOP = 18000;
 
@@ -295,6 +309,9 @@ export class Drum implements Instrument {
   private mBell = 0;
   /** HAT: MTL REF, FOCUS, BELL with FOCUS, the TONE ratio last set up. */
   private mPref = 0; private focus = 0; private bellEff = 0; private toneAt = 1;
+  /** SNARE: SHELL, its phase, and the wires' low-pass. */
+  private tShell = 0; private shellPhase = 0;
+  private readonly wireLp = new Svf();
   private readonly mInc = new Float64Array(6);
   private readonly bPhase = new Float64Array(BELL_PARTIALS);
   private readonly bEnv = new Float64Array(BELL_PARTIALS);
@@ -360,6 +377,7 @@ export class Drum implements Instrument {
     this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
     this.airGate = new IdleGate(AIR_IDLE_SECONDS, sampleRate);
     if (voice.air) this.room = new AirRoom(sampleRate, voice.air.eq);
+    if (voice.snare) this.wireLp.setup(WIRE_LP_MAX, 0.1, sampleRate);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
     for (const p of params) this.setParam(p.id, p.defaultValue);
@@ -391,6 +409,7 @@ export class Drum implements Instrument {
     if (this.voice.relative) this.setupClick();
     this.velocity = velocity;
     this.tPhase = 0;
+    this.shellPhase = 0;
     this.sweepEnv = 1;
     this.sweepFlat = false;
     this.impulse = true;
@@ -463,7 +482,11 @@ export class Drum implements Instrument {
       case 'detune': this.detuneMul = Math.pow(2, v / 12); this.updateMetal(); this.setupClick(); break;
       case 'm_spread': this.mSpread = v; break;
       case 'm_noise': this.mNoise = v; break;
-      case 'm_tone': this.mTone = v; this.mFilter.setup(v, 0.3, sr); this.toneAt = NaN; break;
+      case 'm_tone':
+        this.mTone = v; this.mFilter.setup(v, 0.3, sr); this.toneAt = NaN;
+        if (this.voice.snare) this.wireLp.setup(Math.min(WIRE_LP_MAX, Math.max(WIRE_LP_MIN, v * WIRE_SPAN)), 0.1, sr);
+        break;
+      case 't_shell': this.tShell = v; break;
       case 'm_attack': if (!this.voice.relative) this.mAtk = attackInc(v, sr); break;
       case 'm_decay': if (!this.voice.relative) { this.mDecay = v; this.updateDecays(); } break;
       case 'm_bell': this.mBell = v; this.updateFocus(); break;
@@ -634,6 +657,11 @@ export class Drum implements Instrument {
           default: osc = sinTurn(ph);
         }
         sum += osc * this.tEnv * this.tLevel * this.gT;
+        if (this.tShell > 0) {
+          this.shellPhase += dt * SHELL_RATIO;
+          if (this.shellPhase >= 1) this.shellPhase -= 1;
+          sum += sinTurn(this.shellPhase) * this.tEnv * this.tEnv * this.tShell * this.tLevel * this.gT;
+        }
         this.sweepEnv *= this.sweepMul;
         if (this.tStage === ATTACKING) {
           this.tEnv += this.tAtk;
@@ -698,7 +726,13 @@ export class Drum implements Instrument {
         }
         m = m * (1 - mNoise) + this.noise.next() * mNoise;
         this.mFilter.process(m);
-        let metal = this.mFilter.high * this.mLevel;
+        let metal: number;
+        if (this.voice.snare) {
+          this.wireLp.process(this.mFilter.high);
+          metal = this.wireLp.low * this.mLevel;
+        } else {
+          metal = this.mFilter.high * this.mLevel;
+        }
         // BELL: sine partials at a cymbal bell's ratios, past the high-pass, each fading at its own rate.
         if (this.bellEff > 0) {
           let b = 0;

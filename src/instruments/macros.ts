@@ -122,18 +122,23 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     excite: [],
   },
   snare: {
+    // v74: punch. Each hit = a STICK (the click layer: an 8-12 ms knock + crack at 1.2-3.2 kHz), a body with
+    // a fast, small drop (SWP TIME 12 ms) and its shell's second resonance (SHELL), and wires as
+    // a band (MTL TONE's high-pass + the low-pass above it, Drum WIRE_SPAN) swelling in over
+    // 2-3 ms (MTL ATK), so stick and body lead. Bodies 170-240 Hz, RIMSHOT / PICCOLO higher.
     anchors: [
-      // Jazz rimshot: a woody, high knock with a little wire and a light decay.
-      { name: 'RIMSHOT', values: { ogain: 0.942, t_level: 0.85, t_pitch: 420, t_sweep: 5, m_level: 0.45, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0 } },
+      // Jazz rimshot: a woody, high knock with a little wire and a light decay; the rim's crack.
+      { name: 'RIMSHOT', values: { ogain: 0.927, t_level: 0.85, t_pitch: 420, t_sweep: 4, t_stime: 0.012, t_shell: 0.3, c_level: 0.8, c_tone: 2800, c_reso: 0.6, c_len: 0.008, c_noise: 0.3, m_level: 0.45, m_attack: 0.002, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0 }, soft: { ogain: 0.956 } , hard: { ogain: 0.905 } },
       // Dub piccolo: high, tight and ringing.
-      { name: 'PICCOLO', values: { ogain: 1.078, t_level: 0.7, t_pitch: 330, t_sweep: 4, m_level: 0.7, m_noise: 0.7, m_pitch: 600, m_tone: 4500, m_spread: 0.8, m_mode: 0, m_fm: 0.3, drive: 1.4, crush: 0 } },
-      { name: 'TIGHT', values: { ogain: 1.113, t_level: 0.6, t_pitch: 240, t_sweep: 6, m_level: 0.8, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0 }, soft: { ogain: 1.211 } },
-      { name: 'BREAK', values: { ogain: 1.019, t_level: 0.6, t_pitch: 195, t_sweep: 10, m_level: 0.9, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0 }, soft: { ogain: 1.228 } },
-      { name: 'INDUSTRIAL', values: { ogain: 0.87, t_level: 0.7, t_pitch: 150, t_sweep: 18, m_level: 0.9, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.35 }, hard: { ogain: 0.894 }, soft: { ogain: 1.228 } },
+      { name: 'PICCOLO', values: { ogain: 1.072, t_level: 0.7, t_pitch: 330, t_sweep: 4, t_stime: 0.012, t_shell: 0.35, c_level: 0.7, c_tone: 3200, c_reso: 0.4, c_len: 0.009, c_noise: 0.4, m_level: 0.7, m_attack: 0.002, m_noise: 0.7, m_pitch: 600, m_tone: 4500, m_spread: 0.8, m_mode: 0, m_fm: 0.3, drive: 1.4, crush: 0 }, soft: { ogain: 1.095 } , hard: { ogain: 1.017 } },
+      { name: 'TIGHT', values: { ogain: 1.153, t_level: 0.6, t_pitch: 220, t_sweep: 5, t_stime: 0.012, t_shell: 0.45, c_level: 0.75, c_tone: 2200, c_reso: 0.45, c_len: 0.01, c_noise: 0.45, m_level: 0.8, m_attack: 0.003, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0 }, soft: { ogain: 1.218 } , hard: { ogain: 1.067 } },
+      { name: 'BREAK', values: { ogain: 1.127, t_level: 0.6, t_pitch: 190, t_sweep: 6, t_stime: 0.012, t_shell: 0.5, c_level: 0.7, c_tone: 1600, c_reso: 0.4, c_len: 0.012, c_noise: 0.5, m_level: 0.9, m_attack: 0.003, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0 }, soft: { ogain: 1.25 } , hard: { ogain: 0.995 } },
+      { name: 'INDUSTRIAL', values: { ogain: 0.906, t_level: 0.7, t_pitch: 170, t_sweep: 9, t_stime: 0.012, t_shell: 0.4, c_level: 0.8, c_tone: 1200, c_reso: 0.5, c_len: 0.01, c_noise: 0.6, m_level: 0.9, m_attack: 0.002, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.35 }, hard: { ogain: 0.959 }, soft: { ogain: 1.245 } },
     ],
     excite: [
       { id: 'drive', floor: 1, high: 2 }, { id: 'm_tone', floor: 900, high: 1.5 },
       { id: 't_sweep', floor: 1, high: 1.3 }, { id: 'm_noise', floor: 0.2, high: 1.1 }, { id: 'm_fm', floor: 0, high: 1.3 },
+      { id: 'c_level', floor: 0.15, high: 1.3 },
     ],
   },
   hat: {

@@ -69,6 +69,8 @@ const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
 const HAT_FUNC = funcPage([_, _, _, 'h_focus', _, _, _, _], [_, _, _, _, _, _, _, _]);
 /** KICK / SNARE FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
 const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
+/** SNARE FUNC: SWEEP / SWP TIME (2), the stick's CLK LEVEL / CLK PITCH (3). */
+const SNARE_FUNC = funcPage([_, 't_sweep', 'c_level', _, _, _, _, _], [_, 't_stime', 'c_tone', _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
 // FM RATIO over MID FREQ (4), UNISON / DETUNE (8): a reese is a SAW with both turned up.
 const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
@@ -295,7 +297,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     name: 'SNARE', gain: 0.467, live: ['fx1:mod_vol', 'intensity'], liveFunc: ['mix:volume', 'macro:air'], params: SNARE_PARAMS,
     // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
-    funcLayout: trackFunc(SWEEP_FUNC),
+    funcLayout: trackFunc(SNARE_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
     name: 'HAT', gain: 1.783, live: ['fx1:dly_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,

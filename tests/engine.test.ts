@@ -244,7 +244,7 @@ describe('instruments', () => {
     expect(INSTRUMENTS.pad.funcLayout.filter((id) => id !== null).length).toBe(10); // PRESET, LIVE 1-4, MID FREQ, DECAY / SUSTAIN, OSC 2 ATTACK / RELEASE
     // Drums: only the track setup (PRESET, LIVE, MID FREQ) on FUNC, plus KICK / SNARE SWEEP / SWP TIME, HAT FOCUS.
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) {
-      expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || ((k === 'kick' || k === 'snare') && id.startsWith('t_s')) || (k === 'hat' && id === 'h_focus')), k).toBe(true);
+      expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || ((k === 'kick' || k === 'snare') && id.startsWith('t_s')) || (k === 'snare' && (id === 'c_level' || id === 'c_tone')) || (k === 'hat' && id === 'h_focus')), k).toBe(true);
     }
     expect(INSTRUMENTS.hat.funcLayout[3]).toBe('h_focus');
     // PAD holds its notes: ATTACK / RELEASE on the page, DECAY / SUSTAIN on FUNC.
@@ -861,9 +861,9 @@ describe('chords and gates', () => {
 });
 
 describe('drum layers', () => {
-  it('a kick has no metal layer and a snare no click layer', () => {
+  it('a kick has no metal layer; a snare has a click (v74: its STICK)', () => {
     expect(KICK_PARAMS.some((p) => p.id.startsWith('m_'))).toBe(false);
-    expect(SNARE_PARAMS.some((p) => p.id.startsWith('c_'))).toBe(false);
+    expect(SNARE_PARAMS.some((p) => p.id === 'c_level')).toBe(true);
     expect(INSTRUMENTS.hat.params.some((p) => p.id.startsWith('t_'))).toBe(false);
   });
 
@@ -1324,7 +1324,7 @@ describe('project', () => {
     const stored = toStored(busy());
     const total = stored.channels.reduce((n, c) => n + c.patterns.reduce((m, pat) => m + pat.steps.length, 0), 0);
     expect(total).toBe(3 + 2); // + the ring hit and the rest marker
-    expect(JSON.stringify(stored).length).toBeLessThan(23000); // (v70 / v71: the BASS's SOLID and LEAD's WHISTLE presets bring trims)
+    expect(JSON.stringify(stored).length).toBeLessThan(24000); // (v70 / v71: the BASS's SOLID and LEAD's WHISTLE presets bring trims; v74: the SNARE's click)
   });
 
   it('starts with every pattern empty', () => {
@@ -4192,6 +4192,70 @@ describe('AIR (KICK, SNARE)', () => {
 
   it('only KICK and SNARE have AIR', () => {
     for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(k === 'kick' || k === 'snare');
+  });
+});
+
+describe('SNARE punch (v74): STICK, SHELL, wires as a band', () => {
+  const hit = (values: Record<string, number>, seconds = 0.3) => {
+    const d = new Drum(SR, SNARE_PARAMS, SNARE_VOICE);
+    for (const [id, v] of Object.entries({ ...presetSound('snare', 2), ...values })) d.setParam(id, v);
+    d.noteOn(33, 0.8, 33, false);
+    const n = Math.floor(SR * seconds), l = new Float32Array(n), r = new Float32Array(n);
+    for (let o = 0; o < n; o += BLOCK) d.render(l, r, o, Math.min(n, o + BLOCK));
+    return l;
+  };
+  const rms = (x: Float32Array, a: number, b: number) => {
+    let s = 0;
+    for (let i = a; i < b; i++) s += x[i] * x[i];
+    return Math.sqrt(s / (b - a));
+  };
+  const ms = (t: number) => Math.floor((SR * t) / 1000);
+
+  it('every SNARE sound has a STICK and a SHELL, and the stick makes the first milliseconds', () => {
+    for (let i = 0; i < 5; i++) {
+      const s = presetSound('snare', i);
+      expect(s.c_level, `${i}`).toBeGreaterThan(0.3);
+      expect(s.t_shell, `${i}`).toBeGreaterThan(0.2);
+    }
+    // The attack's first millisecond, weighted to the highs (a first difference): the stick
+    // doubles it (INDUSTRIAL's DRIVE / CRUSH squash it into the rest, by design).
+    const top = (x: Float32Array) => { let s = 0; for (let i = 1; i < ms(1); i++) s += (x[i] - x[i - 1]) ** 2; return Math.sqrt(s); };
+    for (let i = 0; i < 4; i++) {
+      const own = (v: Record<string, number>) => hit({ ...presetSound('snare', i), ...v });
+      expect(top(own({})), `${i}`).toBeGreaterThan(top(own({ c_level: 0 })) * 1.8);
+    }
+  });
+
+  it('the wires swell in (MTL ATK) and stop short of the fizz (a low-pass above MTL TONE)', () => {
+    const wires = (v: Record<string, number>) => hit({ t_level: 0, c_level: 0, ...v });
+    const w = wires({});
+    expect(rms(w, 0, ms(0.5))).toBeLessThan(rms(w, ms(3), ms(4)));
+    // Noise wires through MTL TONE 3.5 kHz (high-pass) and the low-pass at 10.5 kHz: 15 kHz well
+    // under 5 kHz (a high-pass alone leaves them level).
+    const band = wires({ m_noise: 1 });
+    const power = (f0: number, f1: number) => {
+      let p = 0;
+      for (let f = f0; f <= f1; f += 100) {
+        let re = 0, im = 0;
+        for (let i = 0; i < band.length; i++) { re += band[i] * Math.cos((2 * Math.PI * f * i) / SR); im += band[i] * Math.sin((2 * Math.PI * f * i) / SR); }
+        p += re * re + im * im;
+      }
+      return p;
+    };
+    expect(power(14500, 15500)).toBeLessThan(power(4500, 5500) * 0.4);
+  });
+
+  it('a pre-v74 SNARE takes the new sound under its trims; a turned SWP TIME is kept', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 73;
+    Object.assign(stored.channels[1].sounds.snare, { t_stime: 0.08 });
+    delete stored.channels[1].sounds.snare.t_shell;
+    delete stored.channels[1].sounds.snare.c_level;
+    const s = fromStored(stored)!.channels[1].sounds.snare!;
+    const hidden = macroSound('snare', s.timbre, s.intensity, SNARE_PARAMS);
+    expect(s.c_level).toBeCloseTo(hidden.c_level, 9);
+    expect(s.t_shell).toBeCloseTo(hidden.t_shell, 9);
+    expect(s.t_stime).toBeCloseTo(0.08, 6);
   });
 });
 

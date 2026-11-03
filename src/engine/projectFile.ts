@@ -500,6 +500,27 @@ function padGoneV70(id: string): boolean {
 }
 
 /**
+ * v74: the SNARE rebuilt for punch (a STICK click, the shell's second resonance, a fast small
+ * drop, wires as a band swelling in): a saved SNARE's TIMBRE / INT values are rebuilt from the
+ * new sounds under its stored trims. SWP TIME and MTL ATK became TIMBRE's: one turned away from
+ * its old default (0.04 s / 0.5 ms) stays, as a trim over the new value. In place.
+ */
+export function snareV74(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (kind !== 'snare') return;
+  const specs = INSTRUMENTS.snare.params;
+  const kept: Record<string, number> = {};
+  for (const [id, old] of [['t_stime', 0.04], ['m_attack', 0.0005]] as const) {
+    if (trims[id] === undefined && sound[id] !== undefined && Math.abs(sound[id] - old) > 1e-9) kept[id] = sound[id];
+  }
+  const hidden = hiddenSound(kind, sound, specs);
+  for (const [id, v] of Object.entries(kept)) {
+    const spec = specs.find((p) => p.id === id);
+    if (spec && hidden[id] !== undefined) trims[id] = trimFor(spec, v, hidden[id]);
+  }
+  rebuildMacros(kind, sound, trims);
+}
+
+/**
  * v47: the KICK's VINTAGE, TECHNO (INT 100) and PSY DOOF were redone, so a saved KICK's trims
  * are taken again from its stored values over the new sounds: it plays as it was saved (the
  * project that VINTAGE was built from ends up with almost no trims). In place.
@@ -691,6 +712,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 46) percV46(kind, sound, trims);
   if (version < 47) kickV47(kind, sound, trims);
   if (version < 70 && kind === 'pad') padV70(sound, trims);
+  if (version < 74) snareV74(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
