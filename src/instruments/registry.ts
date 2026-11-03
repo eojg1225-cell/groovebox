@@ -38,7 +38,7 @@ export function synthPage(amp: readonly [string, string], perform: readonly [str
 /**
  * Drums: 1 TIMBRE / INT, 2 element 1 ATTACK / DECAY, 3 element 2 ATTACK / DECAY, 4 the
  * elements' pitch (`pitch`), 5 and 6 their character (`five`, `six`: sweep, click or metal
- * colour; KICK 5 CLK RESO / CLK NOISE, SNARE 5 MTL TONE / MTL NOISE, both 6 AIR LVL / AIR SIZE),
+ * colour; KICK 5 CLK RESO / CLK NOISE, SNARE 5 MTL TONE / MTL NOISE, both 6 AIR LVL / AIR TAIL),
  * 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body + click, SNARE
  * body + metal (wires), HAT click + metal, PERC body + click (+ metal halfway between them).
  * No filter per drum (FX 1's FILTER is the kit's).

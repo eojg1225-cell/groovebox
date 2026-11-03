@@ -106,7 +106,8 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   choice('rolldiv', 'ROLL RATE', ROLL_DIVS.map((r) => r.name), DEFAULT_ROLL_RATE),
   // AIR (KICK, SNARE): a small room on the drum's own output, its tail through the type's fixed EQ.
   { id: 'air', name: 'AIR LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'airsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
+  // AIR TAIL (id airsize, was AIR SIZE): the shape of the room's fixed-length envelope (airRoom.ts).
+  { id: 'airsize', name: 'AIR TAIL', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
   midFreq(1000),
   // OCTAVE (FUNC + OCT): the pitched layers an octave at a time, on top of the note.
   OCTAVE,
@@ -426,6 +427,7 @@ export class Drum implements Instrument {
     this.rLeft = RATTLE_HITS;
     this.rNext = Math.round(this.rGap);
     this.rPulse = 1;
+    this.room?.trigger(); // AIR's envelope starts
   }
 
   /** Only a ringing hit responds: it is choked (closed off quickly). */
@@ -506,7 +508,7 @@ export class Drum implements Instrument {
       case 'crush': this.crush = v; break;
       case 'ogain': this.oGain = v; break;
       case 'air': this.airTarget = v * v * AIR_GAIN * (this.voice.air?.gain ?? 0); break;
-      case 'airsize': this.room?.setSize(v); break;
+      case 'airsize': this.room?.setTail(v); break;
       case 'octave': this.octave = Math.round(v) - OCTAVE_ZERO; break;
     }
   }

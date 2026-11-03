@@ -4146,9 +4146,16 @@ describe('AIR (KICK, SNARE)', () => {
     expect(stats(body.wet).peak).toBeLessThan(stats(body.dry).peak * 0.05);
   });
 
-  it('AIR SIZE makes the room ring longer (from barely a tail to about a second)', () => {
-    const tail = (airsize: number) => rms(hit('kick', { air: 1, airsize }).wet, Math.floor(SR * 0.2), SR);
-    expect(tail(1)).toBeGreaterThan(tail(0) * 100);
+  it('AIR TAIL shapes a fixed-length room: low falls steeply at once, high holds then rolls off; silent after 0.5 s', () => {
+    const at = (airsize: number, a: number, b: number) => rms(hit('kick', { air: 1, airsize }).wet, Math.floor(SR * a), Math.floor(SR * b));
+    // Low TAIL: most of it in the first 100 ms. High TAIL: as strong late (0.3-0.4 s) as early on.
+    expect(at(0, 0.3, 0.4)).toBeLessThan(at(0, 0.02, 0.1) * 0.05);
+    expect(at(1, 0.3, 0.4)).toBeGreaterThan(at(1, 0.02, 0.1) * 0.3);
+    // The middle: in between.
+    expect(at(0.5, 0.3, 0.4)).toBeGreaterThan(at(0, 0.3, 0.4));
+    expect(at(0.5, 0.3, 0.4)).toBeLessThan(at(1, 0.3, 0.4));
+    // A fixed length: nothing left after it, whatever the TAIL.
+    for (const t of [0, 0.5, 1]) expect(at(t, 0.52, 1.5), `${t}`).toBe(0);
   });
 
   it("the KICK's AIR keeps out of the low end (its fixed EQ)", () => {

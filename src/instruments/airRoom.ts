@@ -1,15 +1,22 @@
 /**
  * AIR's room (KICK, SNARE): the small mono ambience heard on sampled breaks. The drum goes
  * through the type's fixed EQ first (pre-EQ: two high-passes, then a low-pass, so the tail
- * never carries the sub, the mud or the fizz), then early reflections and a short diffuse
- * tail, all mono. SIZE sets only how long the tail rings (its RT60, AIR_RT_MIN .. AIR_RT_MAX,
- * exponential); the delay lengths stay put, so turning it never clicks. Allocation-free.
+ * never carries the sub, the mud or the fizz), then early reflections and a dense diffuse
+ * tail, all mono. The tail always rings long inside (TAIL_RT, past the old SIZE's longest);
+ * each hit starts one envelope of AIR_LENGTH that shapes what is heard, and TAIL bends it:
+ * low = a steep fall from the start (logarithmic-like), middle = a straight fall, high = the
+ * inverse (it holds, then rolls off steeply: gated). Nothing moves a delay, so turning TAIL
+ * never clicks. Allocation-free.
  */
 import { Svf } from './dsp';
 
-/** The tail's decay (RT60, s) at SIZE 0 and 1. */
-const AIR_RT_MIN = 0.03;
-const AIR_RT_MAX = 1.2;
+/** The tail's own decay (RT60, s): longer than the old SIZE's top (1.2 s), so it is dense. */
+const TAIL_RT = 4;
+/** The envelope each hit starts (s), and its table's points. */
+const AIR_LENGTH = 0.5;
+const ENV_POINTS = 256;
+/** How far TAIL bends the envelope at either end: (1 - t)^k at 0, 1 - t^k at 1. */
+const TAIL_BEND = 10;
 /** Early reflections (ms after the pre-delay) and their gains: a small, close room. */
 const EARLY_MS = [4.3, 7.9, 11.6, 16.3, 21.7, 27.1];
 const EARLY_GAIN = [0.55, -0.45, 0.38, -0.31, 0.25, -0.2];
@@ -21,6 +28,8 @@ const PRE_MS = 3;
 /** The combs' damping (one-pole low-pass in the loop): each round darker. */
 const DAMP = 0.35;
 const EQ_RESO = 0.3;
+/** The room's level at TAIL 0.4: as loud as the old room at its default SIZE (gated measure). */
+const ROOM_GAIN = 1.175;
 /** Tail level against the early reflections. */
 const TAIL_GAIN = 0.32;
 
@@ -39,6 +48,10 @@ export class AirRoom {
   private readonly aps: Float32Array[];
   private readonly apAt = new Int32Array(ALLPASS_MS.length);
   private readonly sr: number;
+  /** The envelope: its shape (ENV_POINTS + 1 points over AIR_LENGTH), where a hit has got to. */
+  private readonly env = new Float32Array(ENV_POINTS + 1);
+  private envPos = ENV_POINTS;
+  private readonly envStep: number;
 
   constructor(sampleRate: number, highPass: number, lowPass: number) {
     this.sr = sampleRate;
@@ -50,14 +63,30 @@ export class AirRoom {
     this.line = new Float32Array(n(PRE_MS + EARLY_MS[EARLY_MS.length - 1]) + 1);
     this.combs = COMB_MS.map((ms) => new Float32Array(n(ms)));
     this.aps = ALLPASS_MS.map((ms) => new Float32Array(n(ms)));
-    this.setSize(0.4);
+    // Each comb loses 60 dB over TAIL_RT: g = 10^(-3 * delay / rt).
+    this.combs.forEach((c, k) => { this.combG[k] = Math.pow(10, (-3 * c.length) / sampleRate / TAIL_RT); });
+    this.envStep = ENV_POINTS / (AIR_LENGTH * sampleRate);
+    this.setTail(0.4);
   }
 
-  /** SIZE 0..1: the tail's RT60 from AIR_RT_MIN to AIR_RT_MAX. */
-  setSize(v: number): void {
-    const rt = AIR_RT_MIN * Math.pow(AIR_RT_MAX / AIR_RT_MIN, Math.min(1, Math.max(0, v)));
-    // Each comb loses 60 dB over rt: g = 10^(-3 * delay / rt).
-    this.combs.forEach((c, k) => { this.combG[k] = Math.pow(10, (-3 * c.length) / this.sr / rt); });
+  /**
+   * TAIL 0..1: the envelope's shape over AIR_LENGTH. Below the middle (1 - t)^k, a steep fall
+   * from the start; above it 1 - t^k, held and then a steep roll-off; k from 1 (the middle, a
+   * straight fall) up to 1 + TAIL_BEND at either end.
+   */
+  setTail(v: number): void {
+    const x = Math.min(1, Math.max(0, v));
+    const k = 1 + TAIL_BEND * Math.abs(2 * x - 1);
+    for (let i = 0; i <= ENV_POINTS; i++) {
+      const t = i / ENV_POINTS;
+      this.env[i] = x < 0.5 ? Math.pow(1 - t, k) : 1 - Math.pow(t, k);
+    }
+    this.env[ENV_POINTS] = 0;
+  }
+
+  /** A hit: the envelope starts again. */
+  trigger(): void {
+    this.envPos = 0;
   }
 
   reset(): void {
@@ -66,6 +95,7 @@ export class AirRoom {
     for (const c of this.combs) c.fill(0);
     for (const a of this.aps) a.fill(0);
     this.combStore.fill(0);
+    this.envPos = ENV_POINTS;
   }
 
   /** Mono in (x), mono wet out (y); may be the same array. */
@@ -113,7 +143,14 @@ export class AirRoom {
         tail = v;
       }
       if (++this.write === len) this.write = 0;
-      y[i] = er + tail * TAIL_GAIN;
+      // The envelope (read between its points); after AIR_LENGTH: silent.
+      let g = 0;
+      if (this.envPos < ENV_POINTS) {
+        const at = this.envPos | 0, f = this.envPos - at;
+        g = this.env[at] + (this.env[at + 1] - this.env[at]) * f;
+        this.envPos += this.envStep;
+      }
+      y[i] = (er + tail * TAIL_GAIN) * g * ROOM_GAIN;
     }
   }
 }
