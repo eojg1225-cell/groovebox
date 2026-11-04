@@ -1976,6 +1976,25 @@ describe('song mode', () => {
     expect(back).toEqual(p.song);
   });
 
+  it('JAM AUTO-FILL: a note tied from the new pattern\'s last step round the loop holds on into it as it lands', () => {
+    const level = (gate: number) => {
+      const p = createDefaultProject();
+      p.bpm = 120;
+      p.master = 0.2;
+      p.channels.forEach((c, n) => { c.patterns = c.patterns.map(() => emptyPattern(c.patterns[0].steps[0].note)); c.mute = n !== 4; });
+      const b = p.channels[4].patterns[1]; // BASS B: its last step tied over B's steps 1-3
+      Object.assign(b.steps[15], { active: true, gate });
+      const e = engineWith(p);
+      e.handleMessage({ type: 'setAutoFill', steps: 4, tracks: [false, false, false, false, true, false, false, false] });
+      e.handleMessage({ type: 'transport', playing: true });
+      render(e, 0.1);
+      e.handleMessage({ type: 'selectPattern', channel: 4, pattern: 1, immediate: false });
+      const l = render(e, 2.5).l.subarray(BAR - 4800 + 6000, BAR - 4800 + 17000); // B's steps 2-3
+      return Math.sqrt(l.reduce((acc, v) => acc + v * v, 0) / l.length);
+    };
+    expect(level(4)).toBeGreaterThan(level(1) * 4); // held, not released at the bar line
+  });
+
   it('JAM AUTO-FILL: before a switch lands the new pattern\'s last steps play; the playing pattern again keeps the fill', () => {
     const p = songProject([]);
     const run = (fill: number, cancelAt = -1) => {

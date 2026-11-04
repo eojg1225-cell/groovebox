@@ -1174,6 +1174,39 @@ describe('STEP EDIT: ties', () => {
     expect((app as unknown as { message: string }).message).toBe('NO NOTE HERE: TAP A NOTE');
   });
 
+  it('a tie past the bar line (or round the loop into bar 1): the strip shows the bar it ends in', () => {
+    const { app, tap, flags, texts } = makeApp();
+    tap('mode:record');
+    tap('ch5'); // BASS
+    const p = app.project.channels[4].patterns[0];
+    p.length = 64;
+    Object.assign(p.steps[14], { active: true, note: 40, gate: 1 });
+    tap('stepedit');
+    tap('step15');
+    tap('cur+');
+    app.updateFrame(0);
+    expect(texts.get('steppage')).toContain('1/4'); // still in bar 1
+    tap('cur+'); // 3 steps: into bar 2
+    app.updateFrame(0);
+    expect(p.steps[14].gate).toBe(3);
+    expect(texts.get('steppage')).toContain('2/4');
+    expect(flags.get('step1')?.has('tie')).toBe(true); // step 17
+    tap('cur-');
+    app.updateFrame(0);
+    expect(texts.get('steppage')).toContain('1/4'); // back in bar 1
+    // Bar 4's last step tied round the loop into bar 1 (as B's lead-in into B).
+    Object.assign(p.steps[63], { active: true, note: 43, gate: 1 });
+    for (let i = 0; i < 3; i++) tap('steppage');
+    tap('step16');
+    tap('cur+');
+    tap('cur+');
+    app.updateFrame(0);
+    expect(p.steps[63].gate).toBe(3);
+    expect(p.steps[0].active).toBe(false);
+    expect(texts.get('steppage')).toContain('1/4');
+    expect(flags.get('step2')?.has('tie')).toBe(true);
+  });
+
   it('PAD: every note on the primed step gets a step longer, each by its own length', () => {
     const { app, tap } = makeApp();
     tap('mode:record');

@@ -480,6 +480,8 @@ export class App {
     cell: number;
     /** STEP EDIT: the pattern whose step it is (cell = its step); absent = a SONG RECORD cell. */
     pattern?: { ch: number; p: number };
+    /** STEP EDIT: the bar shown when ◀ ▶ took the primed note's tie into another bar (its end's). */
+    view?: number;
     staged: Map<string, { t: KnobTarget; v: number }>;
     orig: Map<string, { t: KnobTarget; v: number }>;
     dirty: boolean[];
@@ -806,7 +808,7 @@ export class App {
 
   /** Which block of 16 steps the strip/screen shows for a channel. */
   private visiblePage(ch: number): number {
-    if (this.stepEdit && this.primed && ch === this.selected) return Math.floor(this.primed.cell / 16);
+    if (this.stepEdit && this.primed && ch === this.selected) return this.primed.view ?? Math.floor(this.primed.cell / 16);
     const c = this.project.channels[ch];
     const heard = this.status?.patterns[ch] ?? c.activePattern;
     const head = this.status?.steps[ch] ?? -1;
@@ -2981,6 +2983,11 @@ export class App {
     const gates = stepNotes(step).map((n) => n.gate);
     const lo = Math.min(...gates);
     const hi = Math.max(...gates);
+    // The strip follows the tie's end into another bar (past the bar line, or round the loop
+    // into bar 1); the primed step stays where it is.
+    const len = pattern.length;
+    const endBar = Math.floor(((index + hi - 1) % len) / 16);
+    if (this.primed) this.primed.view = endBar === Math.floor(at / 16) ? undefined : endBar;
     this.relabel(`TIE STEP ${index + 1}`);
     this.flash(`STEP ${index + 1}: ${lo === hi ? lo : `${lo}-${hi}`} STEP${hi > 1 ? 'S' : ''} LONG`);
   }
