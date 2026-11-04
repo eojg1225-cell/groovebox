@@ -195,18 +195,16 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   bass: {
     // v70: TIMBRE is the wave, nothing else (WAVES); filter, envelopes, drive, glide, SUB, DETUNE
     // and UNISON the same on every wave (a starting point with room both ways on every knob),
-    // FM LVL 0 (FM is the player's: FM LVL, FM RATIO). INT = how much harmonic content, one rule
-    // for every wave (filter, its envelope, drive). The finished sounds are PRESETS (Synth.ts
-    // BASS_PRESETS): knob settings on top.
+    // FM LVL 0 (FM is the player's: FM LVL, FM RATIO). v76: INT bends the wave itself (Synth CZ:
+    // a rounded wave at 0, the plain wave at 100) and nothing else: the filter, DRIVE and CRUSH
+    // are the player's. The finished sounds are PRESETS (Synth.ts BASS_PRESETS): knob settings
+    // on top.
     anchors: waveAnchors(
       { sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 },
       // OUT GAIN (INT 0 / 50 / 100) and FM COMP per wave.
-      [[0.753, 0.773, 0.698, 0.75], [0.916, 0.924, 0.809, 2], [0.996, 0.828, 0.719, 1.75], [0.576, 0.526, 0.499, -1.25], [0.987, 0.734, 0.771, 4.5]],
+      [[0.773, 0.773, 0.773, 0.75], [0.786, 0.851, 0.924, 2], [0.751, 0.708, 0.828, 1.75], [0.631, 0.529, 0.526, -1.25], [0.633, 0.578, 0.734, 4.5]],
     ),
-    excite: [
-      { id: 'cutoff', floor: 150, high: 2 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
-      { id: 'reso', floor: 0.05, high: 1.2 },
-    ],
+    excite: [],
   },
   pad: {
     // PAD: 2 STACKS (Synth algo 2), two modulator -> carrier pairs, polyphonic with chords.
@@ -244,16 +242,13 @@ export const MACROS: Record<SoundKind, MacroDef> = {
   lead: {
     // v71: the BASS's design an octave up (WAVES; the same engine, no SUB): TIMBRE is the wave,
     // everything else the same on every wave, brighter to start; VIBRATO and BEND (what makes
-    // it a lead) start at none. INT = the BASS's rule, a brighter floor; it leaves FM, DETUNE,
-    // VIBRATO and BEND alone. The finished sounds are PRESETS (Synth.ts LEAD_PRESETS).
+    // it a lead) start at none. INT = the BASS's: the wave's bend (CZ), nothing else. The
+    // finished sounds are PRESETS (Synth.ts LEAD_PRESETS).
     anchors: waveAnchors(
       { cutoff: 2500, reso: 0.2, fenv: 0.3, fattack: 0.0005, fdecay: 0.4, fmattack: 0.0005, fmdecay: 0.4, drive: 1.2, glide: 0.06, decay: 1, sustain: 0.8, detune: 0, unison: 0, vibrato: 0, vibrate: 5.5, vibdelay: 0.4, bend: 0, bendtime: 0.08 },
-      [[0.57, 0.558, 0.544, 1.5], [0.695, 0.676, 0.643, 2.5], [0.801, 0.675, 0.628, 2], [0.444, 0.402, 0.401, -0.5], [0.86, 0.658, 0.73, 6]],
+      [[0.558, 0.558, 0.558, 1.5], [0.57, 0.619, 0.676, 2.5], [0.557, 0.553, 0.675, 2], [0.476, 0.407, 0.402, -0.5], [0.478, 0.462, 0.658, 6]],
     ),
-    excite: [
-      { id: 'cutoff', floor: 600, high: 1.6 }, { id: 'fenv', floor: 0.05, high: 1.4 }, { id: 'drive', floor: 1, high: 2 },
-      { id: 'reso', floor: 0.05, high: 1.2 },
-    ],
+    excite: [],
   },
   pluck: {
     // Glassy -> a bright saw pluck -> a hollow, buzzy square pluck -> a raging FM donk.

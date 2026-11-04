@@ -30,9 +30,7 @@ export function candidateIds(kind: SoundKind, c: Candidate | null): Set<string> 
 export function labSound(kind: SoundKind, c: Candidate | null, timbre: number, intensity: number, base: Record<string, number>): Record<string, number> {
   const specs = INSTRUMENTS[kind].params;
   const values = c ? macroSoundOf(c, kind, timbre, intensity, specs) : macroSound(kind, timbre, intensity, specs);
-  // A: the WAVE TEST's hidden ids off again (they may have been sent for a candidate).
-  const extra = c?.extra ? c.extra(timbre, intensity) : { wmode: 0, wshape: 1 };
-  return { ...base, ...values, timbre, intensity, ...extra };
+  return { ...base, ...values, timbre, intensity, ...(c?.extra?.(timbre, intensity) ?? {}) };
 }
 
 /** The TIMBRE sounds' names for a candidate (null = A). */

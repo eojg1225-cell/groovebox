@@ -2979,7 +2979,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.length, k).toBeLessThanOrEqual(LOCK_SLOTS);
   });
 
-  it('BASS / LEAD: FM LVL 0 ... 100 keeps every wave audible (BODY) and about as loud (FM COMP), on every FM RATIO', () => {
+  it('BASS / LEAD: FM LVL 0 ... 100 keeps every wave audible (BODY) and about as loud (FM COMP), on every FM RATIO, at every INT', () => {
     for (const kind of ['bass', 'lead'] as const) {
     // Weight = the energy up to 1.5x the note's fundamental (what makes it a bass); loudness =
     // the gated measure. Against each sound as designed, at INT 0 / 50 / 100, on three notes.
@@ -3006,7 +3006,9 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
           for (const fm of [0, 0.5, 1]) {
             const m = measure(t, x, fm, note, pair);
             const at = `${kind} ${anchor.name} INT ${x * 100} note ${note} FM ${fm * 100} pair ${pair}`;
-            expect(m.weight - ref.weight, at).toBeGreaterThan(-5);
+            // The plain waves (INT 100) within 5 dB; a CZ-rounded one (near a sine, its weight all
+            // in the fundamental) within 7.
+            expect(m.weight - ref.weight, at).toBeGreaterThan(x === 1 ? -5 : -7);
             expect(Math.abs(m.loud - ref.loud), at).toBeLessThan(7.5);
           }
         }
@@ -4626,5 +4628,84 @@ describe('fast maths (math.ts, the app) against exact (mathExact.ts)', () => {
       expect(fast.exp2(x), `exp2 ${x}`).toBeCloseTo(Math.pow(2, x), 9);
       expect(fast.sinTurn(x), `sinTurn ${x}`).toBeCloseTo(Math.sin(2 * Math.PI * x), 9);
     }
+  });
+});
+
+describe('BASS / LEAD INT = the wave (v76, CZ)', () => {
+  const play = (kind: 'bass' | 'lead', t: number, x: number, cz = true) => {
+    const e = INSTRUMENTS[kind];
+    const inst = e.create(SR);
+    if (!cz) inst.setParam('cz', 0);
+    const s: Record<string, number> = { ...defaultSound(kind), ...macroSound(kind, t, x, e.params), timbre: t, intensity: x, cutoff: 20000, fenv: 0, reso: 0 };
+    for (const id in s) inst.setParam(id, s[id]);
+    inst.noteOn(45, 0.8, 45, false);
+    const l = new Float32Array(SR / 2);
+    inst.render(l, new Float32Array(l.length), 0, l.length);
+    return l;
+  };
+  /** Harmonic k against the fundamental (dB), over the last 0.25 s (A2 = 110 Hz, the LEAD an octave up). */
+  const harmonic = (l: Float32Array, f: number, k: number) => {
+    const amp = (h: number) => {
+      let re = 0, im = 0;
+      for (let i = l.length / 2; i < l.length; i++) { const a = (2 * Math.PI * f * h * i) / SR; re += l[i] * Math.cos(a); im += l[i] * Math.sin(a); }
+      return Math.hypot(re, im);
+    };
+    return 20 * Math.log10(amp(k) / amp(1));
+  };
+
+  it('INT moves only the wave: no filter, FLT ENV, RESO, DRIVE or CRUSH (only the level evens it)', () => {
+    for (const kind of ['bass', 'lead'] as const) {
+      const specs = INSTRUMENTS[kind].params;
+      for (const t of [0, 0.5, 1]) {
+        const mid = macroSound(kind, t, 0.5, specs);
+        for (const x of [0, 1]) {
+          const s = macroSound(kind, t, x, specs);
+          for (const id of Object.keys(mid)) if (id !== 'ogain') expect(s[id], `${kind} ${id} INT ${x}`).toBe(mid[id]);
+        }
+      }
+      expect(MACROS[kind].excite).toEqual([]);
+    }
+  });
+
+  it('INT 100 is the plain wave exactly; INT 0 rounds a SAW / SQUARE / PULSE towards a sine', () => {
+    for (const kind of ['bass', 'lead'] as const) {
+      const f = 110 * (kind === 'lead' ? 2 : 1);
+      for (const t of [0.25, 0.5, 0.75, 1]) {
+        const a = play(kind, t, 1), b = play(kind, t, 1, false);
+        expect(a.every((v, i) => v === b[i]), `${kind} TIMBRE ${t}`).toBe(true);
+      }
+      for (const t of [0.5, 0.75, 1]) {
+        const plain = play(kind, t, 1), round = play(kind, t, 0), half = play(kind, t, 0.5);
+        const k = t === 0.5 ? 2 : 3; // the saw's 2nd, the square's / pulse's 3rd
+        const [p, r, h] = [plain, round, half].map((l) => harmonic(l, f, k) + harmonic(l, f, 5));
+        expect(r, `${kind} TIMBRE ${t} INT 0`).toBeLessThan(p - 15);
+        expect(h, `${kind} TIMBRE ${t} INT 50`).toBeGreaterThan(r);
+        expect(h, `${kind} TIMBRE ${t} INT 50`).toBeLessThan(p + 1);
+      }
+    }
+  });
+
+  it('v76: a saved BASS / LEAD moves to INT 100 with its values kept as trims; its INT locks and SONG lanes go', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 75;
+    Object.assign(stored.channels[4].sounds.bass, { intensity: 0.2, cutoff: 300, drive: 1.2, reso: 0.12 });
+    stored.channels[4].patterns[0].steps = [{ i: 0, n: 33, v: 0.8, l: { intensity: 0.9, cutoff: 500 } }];
+    stored.song.a = { 's:4:intensity': [[0, 0.3]], 's:4:cutoff': [[0, 400]] };
+    const p = fromStored(stored)!;
+    const c = p.channels[4];
+    expect(c.sounds.bass).toMatchObject({ intensity: 1, cutoff: 300, drive: 1.2, reso: 0.12 });
+    const specs = INSTRUMENTS.bass.params;
+    const hidden = macroSound('bass', c.sounds.bass!.timbre, 1, specs);
+    expect(applyTrim(specs.find((q) => q.id === 'cutoff')!, hidden.cutoff, c.trims.bass!.cutoff)).toBeCloseTo(300, 6);
+    expect(c.patterns[0].steps[0].locks).toEqual({ cutoff: 500 });
+    expect(Object.keys(p.song.auto!)).toEqual(['s:4:cutoff']);
+    // A v76 save keeps its INT.
+    const now = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    now.channels[4].sounds.bass.intensity = 0.2;
+    expect(fromStored(now)!.channels[4].sounds.bass!.intensity).toBe(0.2);
+  });
+
+  it('BASS / LEAD presets play their plain waves (INT 100), as designed', () => {
+    for (const kind of ['bass', 'lead'] as const) for (const p of INSTRUMENTS[kind].presets) expect(p.values.intensity, `${kind} ${p.name}`).toBe(1);
   });
 });

@@ -163,26 +163,29 @@ function shaped(w: number, f: number, phase: number, dt: number): number {
 }
 
 /**
- * Lab only (WAVE TEST, `wmode` / `wshape`: hidden ids no save carries; 0 = off, as the app):
- * INT shaping the wave itself. TONE (1): a two-pole low-pass on each oscillator tracking its
- * own pitch, the fundamental kept level: WSHAPE 0 = cutoff on the fundamental (near a sine),
- * up TONE_OCTAVES octaves, the plain wave from TONE_OPEN up. CZ (2): phase distortion as on a
- * Casio CZ: a cosine whose phase is bent towards the wave (SAW, SQUARE, PULSE; TRIANGLE a
- * crossfade from the sine), the bend's sharpest edge kept 1.5 samples wide, into the
- * band-limited wave from TONE_OPEN up.
+ * CZ (BASS, LEAD: fixed `cz`): INTENSITY bends the wave itself, by phase distortion as on a
+ * Casio CZ (its DCW): a cosine whose phase is bent towards SHAPE's wave (SAW, SQUARE, PULSE;
+ * TRIANGLE a crossfade from the sine; SINE stays). INT 0 = a rounded wave keeping a trace of
+ * its shape (CZ_FLOOR), 100 = the plain band-limited wave (faded in from CZ_OPEN); the bend's
+ * sharpest edge stays 1.5 samples wide, so it never aliases. The filter is the player's.
  */
-const TONE_OCTAVES = 7;
-const TONE_OPEN = 0.9;
-/** CZ at WSHAPE 0: this much of the bend stays. */
+const CZ_OPEN = 0.9;
+/** CZ at INT 0: this much of the bend stays. */
 const CZ_FLOOR = 0.12;
 
-/** CZ: a bent cosine for wave w (0 sine, 1 triangle, 2 saw, 3 square / pulse of width pw); a = bend, L = edge width. */
-function czWave(w: number, phase: number, a: number, edge: number, pw: number): number {
+/**
+ * CZ: a bent cosine for wave w (0 sine, 1 triangle, 2 saw, 3 square / pulse of width pw);
+ * `bend` 0..1, `edge` = how wide its steep part is (phase). Its steep parts start where the
+ * plain wave's edges are, so as the bend sharpens it turns into the plain wave in place.
+ */
+function czWave(w: number, phase: number, bend: number, edge: number, pw: number): number {
   if (w === 0) return sinTurn(phase);
-  if (w === 1) { const s = sinTurn(phase); return s + (4 * Math.abs(phase - 0.5) - 1 - s) * a; }
+  // TRIANGLE: from the cosine in its phase (a sine would partly cancel it on the way).
+  if (w === 1) { const c = cosTurn(phase); return c + (4 * Math.abs(phase - 0.5) - 1 - c) * bend; }
+  // SAW: down over the edge, up over the rest.
   if (w === 2) return cosTurn(phase < edge ? (0.5 * phase) / edge : 0.5 + (0.5 * (phase - edge)) / (1 - edge));
-  // Square / pulse: up over the edge, high until b, down over the edge, low.
-  const b = 0.5 + (pw - 0.5) * a;
+  // SQUARE / PULSE: up over the edge, high until b, down over the edge, low.
+  const b = 0.5 + (pw - 0.5) * bend;
   const e = Math.min(edge, b, 1 - b);
   const q = phase < e ? (0.5 * phase) / e : phase < b ? 0.5 : phase < b + e ? 0.5 + (0.5 * (phase - b)) / e : 1;
   return -cosTurn(q) + 1 - 2 * b;
@@ -295,7 +298,7 @@ const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
 export const BASS_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmratio'), 'fmpair', 'ogain', 'fmcomp', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES, { shape: 4 });
-export const BASS_FIXED = { voice: 1, envlink: 1, keyref: 33, squelch: 1, body: 1 };
+export const BASS_FIXED = { voice: 1, envlink: 1, keyref: 33, squelch: 1, body: 1, cz: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 // PAD DETUNE: half the other synths' range (any more is unusable on chords).
@@ -311,7 +314,7 @@ export const LEAD_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmrati
  * LEAD: mono (a note while one sounds starts fresh, the old one fading), one envelope; the
  * BASS's FM (squelch above FM LVL 60, BODY) without its SUB.
  */
-export const LEAD_FIXED = { voice: 1, sub: 0, envlink: 1, squelch: 1, body: 1 };
+export const LEAD_FIXED = { voice: 1, sub: 0, envlink: 1, squelch: 1, body: 1, cz: 1 };
 /** PLUCK: a polyphonic pluck (the ARP is a track setting now: engine/arp.ts). */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1 };
@@ -335,15 +338,16 @@ function anchorPresets(kind: 'bass' | 'pad' | 'lead' | 'pluck'): Preset[] {
  * 0.5 SAW, 0.75 SQUARE, 1 PULSE). A preset loads as SOUND page edits (trims), so every knob
  * shows where it is and turning TIMBRE keeps them (ACID's filter on a saw ...). fmpair = FM
  * RATIO: 0 1:1, 1 1:2, 2 1:3, 3 3:2. In TIMBRE order (v72; saves renumbered, PRESET_ORDER_V72).
- * `level` (LEVEL, no knob) evens the presets (equally loud, as the TIMBRE waves).
+ * `level` (LEVEL, no knob) evens the presets (equally loud, as the TIMBRE waves). At INT 100 (v76):
+ * the plain wave they were designed on (INT bends it: CZ); turn INT down to round them.
  */
 export const BASS_PRESETS: readonly Preset[] = [
-  { name: 'SUB', values: { timbre: 0, intensity: 0.5, level: 0.599, fm: 0.12, fmpair: 1, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8 } },
-  { name: 'STICK', values: { timbre: 0.25, intensity: 0.5, level: 0.65, fm: 0.25, fmpair: 2, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fdecay: 0.4, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 } },
-  { name: 'GROWL', values: { timbre: 0.5, intensity: 0.5, level: 1.125, fm: 0.15, fmpair: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
-  { name: 'REESE', values: { timbre: 0.5, intensity: 0.5, level: 0.895, sub: 0.3, cutoff: 500, reso: 0.2, fenv: 0.1, fdecay: 0.5, fmdecay: 0.5, drive: 2, decay: 1.2, sustain: 0.9, detune: 0.6, unison: 1 } },
-  { name: 'SOLID', values: { timbre: 0.625, intensity: 0.5, level: 1.194, fm: 0.45, fmpair: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
-  { name: 'ACID', values: { timbre: 0.75, intensity: 0.5, level: 0.745, cutoff: 380, reso: 0.75, fenv: 0.9, fdecay: 0.18, fmdecay: 0.18, drive: 1.8, glide: 0.08, decay: 0.35, sustain: 0.6 } },
+  { name: 'SUB', values: { timbre: 0, intensity: 1, level: 0.599, fm: 0.12, fmpair: 1, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8 } },
+  { name: 'STICK', values: { timbre: 0.25, intensity: 1, level: 0.65, fm: 0.25, fmpair: 2, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fdecay: 0.4, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 } },
+  { name: 'GROWL', values: { timbre: 0.5, intensity: 1, level: 1.125, fm: 0.15, fmpair: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+  { name: 'REESE', values: { timbre: 0.5, intensity: 1, level: 0.895, sub: 0.3, cutoff: 500, reso: 0.2, fenv: 0.1, fdecay: 0.5, fmdecay: 0.5, drive: 2, decay: 1.2, sustain: 0.9, detune: 0.6, unison: 1 } },
+  { name: 'SOLID', values: { timbre: 0.625, intensity: 1, level: 1.194, fm: 0.45, fmpair: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
+  { name: 'ACID', values: { timbre: 0.75, intensity: 1, level: 0.745, cutoff: 380, reso: 0.75, fenv: 0.9, fdecay: 0.18, fmdecay: 0.18, drive: 1.8, glide: 0.08, decay: 0.35, sustain: 0.6 } },
 ];
 export const PAD_PRESETS: readonly Preset[] = anchorPresets('pad');
 /**
@@ -353,18 +357,18 @@ export const PAD_PRESETS: readonly Preset[] = anchorPresets('pad');
  */
 export const LEAD_PRESETS: readonly Preset[] = [
   // A sine with a slow, late vibrato and a long slide: theremin / dub siren.
-  { name: 'WHISTLE', values: { timbre: 0, intensity: 0.5, level: 0.459, fm: 0.04, fmpair: 1, cutoff: 7000, reso: 0, fenv: 0.1, fdecay: 0.6, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35 } },
+  { name: 'WHISTLE', values: { timbre: 0, intensity: 1, level: 0.459, fm: 0.04, fmpair: 1, cutoff: 7000, reso: 0, fenv: 0.1, fdecay: 0.6, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35 } },
   // The FM pair at 1 : 2 with a fast FM envelope and a quick zap down from above: it bites.
-  { name: 'FM BITE', values: { timbre: 0, intensity: 0.5, level: 0.401, fm: 0.55, fmpair: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fdecay: 0.15, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
+  { name: 'FM BITE', values: { timbre: 0, intensity: 1, level: 0.401, fm: 0.55, fmpair: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fdecay: 0.15, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
   // Hard-sync style: a SAW under a deep 1 : 4 pair whose FM envelope sweeps down each note (the
   // tearing, formant-sweeping sync lead), in the squelch range.
-  { name: 'SYNC', values: { timbre: 0.5, intensity: 0.5, level: 0.402, fm: 0.65, fmpair: 5, fmdecay: 0.3, cutoff: 4500, reso: 0.25, fenv: 0.4, fdecay: 0.3, drive: 2, glide: 0.05, decay: 0.8, sustain: 0.8, vibrato: 0.08, vibdelay: 0.5 } },
+  { name: 'SYNC', values: { timbre: 0.5, intensity: 1, level: 0.402, fm: 0.65, fmpair: 5, fmdecay: 0.3, cutoff: 4500, reso: 0.25, fenv: 0.4, fdecay: 0.3, drive: 2, glide: 0.05, decay: 0.8, sustain: 0.8, vibrato: 0.08, vibdelay: 0.5 } },
   // Detuned saws, wide, each note scooping up from an octave below: the rave hoover.
-  { name: 'HOOVER', values: { timbre: 0.5, intensity: 0.5, level: 1.102, fm: 0.08, fmpair: 0, cutoff: 2200, reso: 0.3, fenv: 0.5, fdecay: 0.25, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
+  { name: 'HOOVER', values: { timbre: 0.5, intensity: 1, level: 1.102, fm: 0.08, fmpair: 0, cutoff: 2200, reso: 0.3, fenv: 0.5, fdecay: 0.25, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
   // The engine at once: a narrowed PULSE, wide (UNISON, DETUNE), each note scooping up into
   // pitch, then blooming into glass as a slow FM ATTACK opens the 1 : 5 pair, a delayed
   // vibrato swelling in as it settles; resonant, with a long slide.
-  { name: 'BLOOM', values: { timbre: 0.9, intensity: 0.5, level: 0.826, fm: 0.35, fmpair: 6, fmattack: 0.35, fmdecay: 1.5, cutoff: 3500, reso: 0.35, fenv: 0.3, fdecay: 0.8, drive: 1.4, glide: 0.1, decay: 1.5, sustain: 0.85, detune: 0.3, unison: 0.6, vibrato: 0.25, vibrate: 5, vibdelay: 0.7, bend: -1, bendtime: 0.12 } },
+  { name: 'BLOOM', values: { timbre: 0.9, intensity: 1, level: 0.826, fm: 0.35, fmpair: 6, fmattack: 0.35, fmdecay: 1.5, cutoff: 3500, reso: 0.35, fenv: 0.3, fdecay: 0.8, drive: 1.4, glide: 0.1, decay: 1.5, sustain: 0.85, detune: 0.3, unison: 0.6, vibrato: 0.25, vibrate: 5, vibdelay: 0.7, bend: -1, bendtime: 0.12 } },
 ];
 export const PLUCK_PRESETS: readonly Preset[] = anchorPresets('pluck');
 
@@ -398,8 +402,6 @@ class Voice {
   p5 = 0; p6 = 0; fb1 = 0; fb2 = 0; cf1 = 0; cf2 = 0;
   /** UNISON copies' phases. */
   readonly u = new Float64Array(4);
-  /** Lab TONE: two filter stages per oscillator (OSC 1, OSC 2, four UNISON copies). */
-  readonly wt = new Float64Array(12);
   /** Envelope stage and level per element (OSC 1, OSC 2). */
   readonly stage = new Uint8Array(2);
   readonly amp = new Float64Array(2);
@@ -425,8 +427,8 @@ export class Synth implements Instrument {
   private readonly velK: number;
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
-  /** Lab WAVE TEST (see czWave): 0 off, 1 TONE, 2 CZ; WSHAPE 0..1 (1 = the plain wave). */
-  private wMode = 0; private wShape = 1;
+  /** CZ (see czWave): on for BASS / LEAD; the bend = INTENSITY (1 = the plain wave). */
+  private cz = false; private intensity = 0.5;
   /**
    * FM pair carrier ratio (algo 0; 1 = on the note). Above 1 with the modulator 1 away from
    * it (carrier 3, modulator 2 or 4) the pair's lowest sideband lands on the note: "root-locked",
@@ -475,7 +477,7 @@ export class Synth implements Instrument {
   private readonly bC1 = new Float64Array(BLOCK);
   private readonly bU = [new Float64Array(BLOCK), new Float64Array(BLOCK), new Float64Array(BLOCK), new Float64Array(BLOCK)];
   private readonly bO1 = new Float64Array(BLOCK);
-  /** Lab CZ: the plain wave it fades into at the top. */
+  /** CZ: the plain wave it fades into at the top. */
   private readonly bTop = new Float64Array(BLOCK);
   private readonly bO2 = new Float64Array(BLOCK);
   private slideCoeff = 1;
@@ -587,7 +589,6 @@ export class Synth implements Instrument {
       for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
       v.fb1 = v.fb2 = 0;
       v.cf1 = v.cf2 = 0;
-      v.wt.fill(0);
     }
     v.stage[0] = STAGE_ATTACK;
     v.stage[1] = STAGE_ATTACK;
@@ -645,13 +646,12 @@ export class Synth implements Instrument {
     const sr = this.sr;
     switch (id) {
       case 'shape': this.shape = Math.min(4, Math.max(0, value)); break;
-      case 'wmode': this.wMode = Math.round(value); break;
-      case 'wshape': this.wShape = Math.min(1, Math.max(0, value)); break;
+      case 'cz': this.cz = value > 0; this.setIntensity(this.intensity); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
       case 'fm': this.fm = value; this.updateFm(); break;
-      case 'intensity': this.keyTrack = value < 0.5 ? KEY_TRACK * (1 - 2 * value) : 0; break;
+      case 'intensity': this.setIntensity(value); break;
       case 'keyref': this.keyRef = value; break;
       case 'vibrato': this.vibDepth = value; this.pitchFx = this.vibDepth > 0 || this.bend !== 0; break;
       case 'vibrate': this.vibRate = value; break;
@@ -912,32 +912,23 @@ export class Synth implements Instrument {
     return exp2(st / 12);
   }
 
-  /** SHAPE's waves for oscillator k (OSC 1, OSC 2, UNISON copies); the lab's WAVE TEST shapes them (wmode). */
-  private oscWaves(v: Voice, k: number, w: number, wf: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
-    const a = this.wShape;
-    if (this.wMode === 0 || a >= 1) { waves(w, wf, phase, dt, scale, out, n); return; }
-    // Above TONE_OPEN the plain wave takes over.
-    const top = a > TONE_OPEN ? (a - TONE_OPEN) / (1 - TONE_OPEN) : 0;
-    const d = dt[0] * scale;
-    if (this.wMode === 1) {
-      waves(w, wf, phase, dt, scale, out, n);
-      const r = exp2(a * TONE_OCTAVES);
-      const g = 1 - Math.exp(-2 * Math.PI * Math.min(0.45, d * r));
-      const norm = 1 + 1 / (r * r); // the fundamental stays as loud
-      const st = v.wt;
-      let y1 = st[2 * k], y2 = st[2 * k + 1];
-      for (let j = 0; j < n; j++) {
-        y1 += g * (out[j] - y1);
-        y2 += g * (y1 - y2);
-        out[j] = y2 * norm + (out[j] - y2 * norm) * top;
-      }
-      st[2 * k] = y1; st[2 * k + 1] = y2;
-      return;
-    }
-    // CZ: the bend's edge from nearly half the cycle (CZ_FLOOR: a trace of the wave left, not
-    // a bare cosine) down to 1.5 samples.
+  /**
+   * INTENSITY: with CZ the wave's bend (the filter left alone); otherwise, below the middle,
+   * the filter following the note (KEY_TRACK).
+   */
+  private setIntensity(value: number): void {
+    this.intensity = Math.min(1, Math.max(0, value));
+    this.keyTrack = !this.cz && value < 0.5 ? KEY_TRACK * (1 - 2 * value) : 0;
+  }
+
+  /** SHAPE's waves (OSC 1, OSC 2, UNISON copies); with CZ bent by INTENSITY (czWave). */
+  private oscWaves(w: number, wf: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
+    const a = this.intensity;
+    if (!this.cz || a >= 1) { waves(w, wf, phase, dt, scale, out, n); return; }
+    // The bend's edge from nearly half the cycle (a cosine with a trace of the wave) down to
+    // 1.5 samples; above CZ_OPEN the plain wave takes over.
     const bend = CZ_FLOOR + (1 - CZ_FLOOR) * a;
-    const dmin = Math.min(0.5, 1.5 * d);
+    const dmin = Math.min(0.5, 1.5 * dt[0] * scale);
     const edge = 0.5 * Math.pow(dmin / 0.5, bend);
     const pw = w === 3 ? 0.5 - (0.5 - PULSE_MIN) * wf : 0.5;
     const blend = w < 3 && wf > 0;
@@ -947,7 +938,8 @@ export class Synth implements Instrument {
       if (blend) c += (czWave(w + 1, p, bend, edge, 0.5) - c) * wf;
       out[j] = c;
     }
-    if (top > 0) {
+    if (a > CZ_OPEN) {
+      const top = (a - CZ_OPEN) / (1 - CZ_OPEN);
       waves(w, wf, phase, dt, scale, this.bTop, n);
       for (let j = 0; j < n; j++) out[j] += (this.bTop[j] - out[j]) * top;
     }
@@ -956,8 +948,8 @@ export class Synth implements Instrument {
   /** FM PAIR (algo 0): SHAPE's waves, crossfaded into a sine pair by FM (BASS, PLUCK, LEAD). */
   private oscPair(v: Voice, n: number, det: number, w: number, wf: number): void {
     const o1 = this.bO1, o2 = this.bO2;
-    this.oscWaves(v, 0, w, wf, this.bP1, this.bDt, 1, o1, n);
-    this.oscWaves(v, 1, w, wf, this.bP2, this.bDt, det, o2, n);
+    this.oscWaves(w, wf, this.bP1, this.bDt, 1, o1, n);
+    this.oscWaves(w, wf, this.bP2, this.bDt, det, o2, n);
     const fm = this.fmEff;
     if (fm <= 0) return;
     // The index rises with FM and with the FM envelope (a struck clang).
@@ -1078,7 +1070,7 @@ export class Synth implements Instrument {
         ph[j] = p;
       }
       u[k] = p;
-      this.oscWaves(v, 2 + k, w, wf, ph, this.bDt, r, copies[k], n);
+      this.oscWaves(w, wf, ph, this.bDt, r, copies[k], n);
     }
     for (let j = 0; j < n; j++) {
       const c1 = copies[0][j] + copies[2][j], c2 = copies[1][j] + copies[3][j];
