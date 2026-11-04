@@ -103,3 +103,14 @@ td.knob-id { color: var(--muted); font-family: var(--body); text-align: left; }
 
 .maths { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .maths .mnote { flex-basis: 100%; margin: 0; }
+
+/* Keys C1-C4 (synths). */
+.keys { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.keys[hidden] { display: none; }
+.key {
+  font-family: var(--display); font-weight: 600; font-size: 1.05rem; min-width: 72px; min-height: 64px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--knob); color: var(--fg);
+  touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer;
+}
+.key.on { background: var(--teal); border-color: var(--teal); color: var(--bg); }
+.key:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }

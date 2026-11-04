@@ -162,6 +162,32 @@ function shaped(w: number, f: number, phase: number, dt: number): number {
   return f > 0 ? a + (wave(w + 1, phase, dt) - a) * f : a;
 }
 
+/**
+ * Lab only (WAVE TEST, `wmode` / `wshape`: hidden ids no save carries; 0 = off, as the app):
+ * INT shaping the wave itself. TONE (1): a two-pole low-pass on each oscillator tracking its
+ * own pitch, the fundamental kept level: WSHAPE 0 = cutoff on the fundamental (near a sine),
+ * up TONE_OCTAVES octaves, the plain wave from TONE_OPEN up. CZ (2): phase distortion as on a
+ * Casio CZ: a cosine whose phase is bent towards the wave (SAW, SQUARE, PULSE; TRIANGLE a
+ * crossfade from the sine), the bend's sharpest edge kept 1.5 samples wide, into the
+ * band-limited wave from TONE_OPEN up.
+ */
+const TONE_OCTAVES = 7;
+const TONE_OPEN = 0.9;
+/** CZ at WSHAPE 0: this much of the bend stays. */
+const CZ_FLOOR = 0.12;
+
+/** CZ: a bent cosine for wave w (0 sine, 1 triangle, 2 saw, 3 square / pulse of width pw); a = bend, L = edge width. */
+function czWave(w: number, phase: number, a: number, edge: number, pw: number): number {
+  if (w === 0) return sinTurn(phase);
+  if (w === 1) { const s = sinTurn(phase); return s + (4 * Math.abs(phase - 0.5) - 1 - s) * a; }
+  if (w === 2) return cosTurn(phase < edge ? (0.5 * phase) / edge : 0.5 + (0.5 * (phase - edge)) / (1 - edge));
+  // Square / pulse: up over the edge, high until b, down over the edge, low.
+  const b = 0.5 + (pw - 0.5) * a;
+  const e = Math.min(edge, b, 1 - b);
+  const q = phase < e ? (0.5 * phase) / e : phase < b ? 0.5 : phase < b + e ? 0.5 + (0.5 * (phase - b)) / e : 1;
+  return -cosTurn(q) + 1 - 2 * b;
+}
+
 /** UNISON copies relative to OSC 1 (x the spread), and their start phases. */
 const UNISON_SPREAD = [-1, -0.4, 0.4, 1];
 const UNISON_PHASE = [0.13, 0.61, 0.37, 0.89];
@@ -372,6 +398,8 @@ class Voice {
   p5 = 0; p6 = 0; fb1 = 0; fb2 = 0; cf1 = 0; cf2 = 0;
   /** UNISON copies' phases. */
   readonly u = new Float64Array(4);
+  /** Lab TONE: two filter stages per oscillator (OSC 1, OSC 2, four UNISON copies). */
+  readonly wt = new Float64Array(12);
   /** Envelope stage and level per element (OSC 1, OSC 2). */
   readonly stage = new Uint8Array(2);
   readonly amp = new Float64Array(2);
@@ -397,6 +425,8 @@ export class Synth implements Instrument {
   private readonly velK: number;
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
+  /** Lab WAVE TEST (see czWave): 0 off, 1 TONE, 2 CZ; WSHAPE 0..1 (1 = the plain wave). */
+  private wMode = 0; private wShape = 1;
   /**
    * FM pair carrier ratio (algo 0; 1 = on the note). Above 1 with the modulator 1 away from
    * it (carrier 3, modulator 2 or 4) the pair's lowest sideband lands on the note: "root-locked",
@@ -445,6 +475,8 @@ export class Synth implements Instrument {
   private readonly bC1 = new Float64Array(BLOCK);
   private readonly bU = [new Float64Array(BLOCK), new Float64Array(BLOCK), new Float64Array(BLOCK), new Float64Array(BLOCK)];
   private readonly bO1 = new Float64Array(BLOCK);
+  /** Lab CZ: the plain wave it fades into at the top. */
+  private readonly bTop = new Float64Array(BLOCK);
   private readonly bO2 = new Float64Array(BLOCK);
   private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
@@ -555,6 +587,7 @@ export class Synth implements Instrument {
       for (let k = 0; k < 4; k++) v.u[k] = UNISON_PHASE[k];
       v.fb1 = v.fb2 = 0;
       v.cf1 = v.cf2 = 0;
+      v.wt.fill(0);
     }
     v.stage[0] = STAGE_ATTACK;
     v.stage[1] = STAGE_ATTACK;
@@ -612,6 +645,8 @@ export class Synth implements Instrument {
     const sr = this.sr;
     switch (id) {
       case 'shape': this.shape = Math.min(4, Math.max(0, value)); break;
+      case 'wmode': this.wMode = Math.round(value); break;
+      case 'wshape': this.wShape = Math.min(1, Math.max(0, value)); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
@@ -877,11 +912,52 @@ export class Synth implements Instrument {
     return exp2(st / 12);
   }
 
+  /** SHAPE's waves for oscillator k (OSC 1, OSC 2, UNISON copies); the lab's WAVE TEST shapes them (wmode). */
+  private oscWaves(v: Voice, k: number, w: number, wf: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
+    const a = this.wShape;
+    if (this.wMode === 0 || a >= 1) { waves(w, wf, phase, dt, scale, out, n); return; }
+    // Above TONE_OPEN the plain wave takes over.
+    const top = a > TONE_OPEN ? (a - TONE_OPEN) / (1 - TONE_OPEN) : 0;
+    const d = dt[0] * scale;
+    if (this.wMode === 1) {
+      waves(w, wf, phase, dt, scale, out, n);
+      const r = exp2(a * TONE_OCTAVES);
+      const g = 1 - Math.exp(-2 * Math.PI * Math.min(0.45, d * r));
+      const norm = 1 + 1 / (r * r); // the fundamental stays as loud
+      const st = v.wt;
+      let y1 = st[2 * k], y2 = st[2 * k + 1];
+      for (let j = 0; j < n; j++) {
+        y1 += g * (out[j] - y1);
+        y2 += g * (y1 - y2);
+        out[j] = y2 * norm + (out[j] - y2 * norm) * top;
+      }
+      st[2 * k] = y1; st[2 * k + 1] = y2;
+      return;
+    }
+    // CZ: the bend's edge from nearly half the cycle (CZ_FLOOR: a trace of the wave left, not
+    // a bare cosine) down to 1.5 samples.
+    const bend = CZ_FLOOR + (1 - CZ_FLOOR) * a;
+    const dmin = Math.min(0.5, 1.5 * d);
+    const edge = 0.5 * Math.pow(dmin / 0.5, bend);
+    const pw = w === 3 ? 0.5 - (0.5 - PULSE_MIN) * wf : 0.5;
+    const blend = w < 3 && wf > 0;
+    for (let j = 0; j < n; j++) {
+      const p = phase[j];
+      let c = czWave(w, p, bend, edge, pw);
+      if (blend) c += (czWave(w + 1, p, bend, edge, 0.5) - c) * wf;
+      out[j] = c;
+    }
+    if (top > 0) {
+      waves(w, wf, phase, dt, scale, this.bTop, n);
+      for (let j = 0; j < n; j++) out[j] += (this.bTop[j] - out[j]) * top;
+    }
+  }
+
   /** FM PAIR (algo 0): SHAPE's waves, crossfaded into a sine pair by FM (BASS, PLUCK, LEAD). */
   private oscPair(v: Voice, n: number, det: number, w: number, wf: number): void {
     const o1 = this.bO1, o2 = this.bO2;
-    waves(w, wf, this.bP1, this.bDt, 1, o1, n);
-    waves(w, wf, this.bP2, this.bDt, det, o2, n);
+    this.oscWaves(v, 0, w, wf, this.bP1, this.bDt, 1, o1, n);
+    this.oscWaves(v, 1, w, wf, this.bP2, this.bDt, det, o2, n);
     const fm = this.fmEff;
     if (fm <= 0) return;
     // The index rises with FM and with the FM envelope (a struck clang).
@@ -1002,7 +1078,7 @@ export class Synth implements Instrument {
         ph[j] = p;
       }
       u[k] = p;
-      waves(w, wf, ph, this.bDt, r, copies[k], n);
+      this.oscWaves(v, 2 + k, w, wf, ph, this.bDt, r, copies[k], n);
     }
     for (let j = 0; j < n; j++) {
       const c1 = copies[0][j] + copies[2][j], c2 = copies[1][j] + copies[3][j];

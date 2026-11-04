@@ -1,9 +1,10 @@
 /// <reference path="../../src/worklet/worklet-globals.d.ts" />
 /**
  * Sound lab worklet: the real engine, twice. A = the engine as in the app (fast maths), B =
- * the same engine built with the exact maths (exactEngine.ts). Both get every message and
- * render every block, sample-locked; `labOut` picks what is heard: A, B, or A - B (x gain,
- * the difference made audible). (Their cost is measured offline by bench.ts.)
+ * the same engine built with the exact maths (exactEngine.ts). Both get every message; B
+ * renders only while it is heard (`labOut` B or A - B: x gain, the difference made audible),
+ * so the lab costs what the app does the rest of the time (the page restarts both together
+ * when B comes in, so they stay sample-locked). (Their cost is measured offline by bench.ts.)
  * A non-finite block is muted and that engine starts afresh (main resends the project).
  */
 import { Engine } from '../../src/engine/Engine';
@@ -37,13 +38,16 @@ class LabProcessor extends AudioWorkletProcessor {
     const left = out[0];
     const right = out.length > 1 ? out[1] : out[0];
     const n = Math.min(left.length, this.bL.length);
+    this.engine.process(left, right, n);
+    let sa = 0;
+    for (let i = 0; i < n; i++) sa += left[i] + right[i];
+    if (sa - sa !== 0) { left.fill(0); right.fill(0); this.engine = new Engine(sampleRate); this.port.postMessage('reset'); }
+    if (this.mode === 0) return true;
     this.bL.fill(0, 0, n);
     this.bR.fill(0, 0, n);
-    this.engine.process(left, right, n);
     this.exact.process(this.bL, this.bR, n);
-    let sa = 0, sb = 0;
-    for (let i = 0; i < n; i++) { sa += left[i] + right[i]; sb += this.bL[i] + this.bR[i]; }
-    if (sa - sa !== 0) { left.fill(0); right.fill(0); this.engine = new Engine(sampleRate); this.port.postMessage('reset'); }
+    let sb = 0;
+    for (let i = 0; i < n; i++) sb += this.bL[i] + this.bR[i];
     if (sb - sb !== 0) { this.bL.fill(0); this.bR.fill(0); this.exact = new ExactEngine(sampleRate); this.port.postMessage('reset'); }
     if (this.mode === 1) {
       left.set(this.bL.subarray(0, n));

@@ -6,6 +6,7 @@
  */
 import workletUrl from './worklet.ts?worker&url';
 import BenchWorker from './bench.ts?worker&inline';
+import LevelWorker from './levelWorker.ts?worker&inline';
 import stored from './project.json';
 import stored3 from './project3.json';
 import stored4 from './project4.json';
@@ -18,7 +19,7 @@ import { CANDIDATES } from './candidates';
 import { anchorNames, candidateIds, labSound, type Candidate } from './sound';
 import { grooveProject } from './groove';
 import { stressProject } from './stress';
-import { loudness } from './loudness';
+import { OCTAVE_ZERO } from '../../src/instruments/macroParams';
 
 type Source = 'project' | 'p3' | 'p4' | 'groove' | 'stress';
 type Sweep = 'off' | 'timbre' | 'int' | 'fm';
@@ -88,7 +89,9 @@ const post = (msg: unknown) => node?.port.postMessage(msg);
 
 async function ensureAudio(): Promise<void> {
   if (node) return;
-  ctx = new AudioContext({ latencyHint: 'interactive' });
+  // A larger buffer than the app's: the lab plays whole projects (and two engines for the maths
+  // A / B) on a tablet; the keys need no tightness.
+  ctx = new AudioContext({ latencyHint: 'balanced' });
   await ctx.audioWorklet.addModule(workletUrl);
   node = new AudioWorkletNode(ctx, 'lab-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
   node.connect(ctx.destination);
@@ -121,10 +124,13 @@ function measure(): void {
   bench.postMessage(project);
 }
 $('measure').addEventListener('click', measure);
-$('mnote').textContent = 'The app uses the fast maths. Against exact, measured offline: the difference is about -116 to -128 dB below the sound (median over every drum, synth and FX test), -102 dB on the stress test. The largest are CRUSH (a value can tip into the next step, -72 dB) and strong FM FEEDBACK (small differences grow, -77 dB): the same sound, not the same samples. The lab runs both engines at once (twice the app\'s load). Measure times both on this device.';
+$('mnote').textContent = 'The app uses the fast maths. Against exact, measured offline: the difference is about -116 to -128 dB below the sound (median over every drum, synth and FX test), -102 dB on the stress test. The largest are CRUSH (a value can tip into the next step, -72 dB) and strong FM FEEDBACK (small differences grow, -77 dB): the same sound, not the same samples. The exact engine only runs while B or A − B is heard (then twice the app\'s load). Measure times both on this device.';
 
 function setMaths(m: number): void {
+  // The exact engine renders only while it is heard: starting it, both start afresh together.
+  const resync = (state.maths === 0) !== (m === 0);
   state.maths = m;
+  if (resync && node && built) { load(); if (playing) post({ type: 'transport', playing: true }); }
   document.querySelectorAll<HTMLInputElement>('input[name="maths"]').forEach((r) => { r.checked = Number(r.value) === m; });
   sendMaths();
 }
@@ -178,19 +184,33 @@ function applySound(): void {
 /** dB the current candidate plays louder than A (null = A or not measured yet). */
 let levelDiff: number | null = null;
 let levelTimer: number | undefined;
+/** Measured in a worker (levelWorker.ts), latest request wins: the page never waits on it. */
+let levelWorker: Worker | null = null;
+let levelAsked = 0;
 let levelBusy = false;
+let levelAgain = false;
 
 function scheduleLevel(): void {
   if (state.cand === 0) { levelDiff = null; window.clearTimeout(levelTimer); levelText(); return; }
-  if (levelBusy) return;
+  window.clearTimeout(levelTimer);
+  levelTimer = window.setTimeout(askLevel, state.sweep === 'off' ? 120 : 500);
+}
+
+function askLevel(): void {
+  if (!built || state.cand === 0) return;
+  if (levelBusy) { levelAgain = true; return; }
   levelBusy = true;
-  levelTimer = window.setTimeout(() => {
+  levelWorker ??= new LevelWorker();
+  levelWorker.onmessage = (e: MessageEvent<{ id: number; diff: number }>) => {
     levelBusy = false;
-    if (!built || state.cand === 0) return;
-    levelDiff = loudness(state.kind, soundOf(current())) - loudness(state.kind, soundOf(null));
-    sendVolume();
-    levelText();
-  }, state.sweep === 'off' ? 150 : 600);
+    if (e.data.id === levelAsked && state.cand !== 0) {
+      levelDiff = e.data.diff;
+      sendVolume();
+      levelText();
+    }
+    if (levelAgain) { levelAgain = false; askLevel(); }
+  };
+  levelWorker.postMessage({ id: ++levelAsked, kind: state.kind, a: soundOf(null), b: soundOf(current()) });
 }
 
 function sendVolume(): void {
@@ -389,6 +409,7 @@ function setKind(k: SoundKind): void {
   state.intensity = built.base.intensity ?? 0.5;
   state.fm = 0.5;
   $('fm-wrap').hidden = !fmSpec();
+  $('keys').hidden = INSTRUMENTS[k].drum;
   drawKinds(); drawCandidates(); drawNames(); drawTimbre(); drawInt(); drawFm(); meta();
   if (node) load(); else applySound();
 }
@@ -447,8 +468,44 @@ $<HTMLSelectElement>('bars').addEventListener('change', (e) => {
 $('play').addEventListener('click', () => {
   void togglePlay().catch((err: Error) => { $('err').textContent = `Audio could not start: ${err.message ?? err}. Tap Play again.`; });
 });
+// ------------------------------------------------------------------ keys C1-C4
+
+/** Sounding C1 ... C4 whatever the sound's OCTAVE (the LEAD's is +1). */
+const KEY_NOTES = [24, 36, 48, 60];
+/** Keys down: the note each plays (-1 = waiting for audio to start). */
+const held = new Map<number, number>();
+async function keyDown(k: number): Promise<void> {
+  if (held.has(k) || INSTRUMENTS[state.kind].drum) return;
+  held.set(k, -1);
+  $(`key${k}`).classList.add('on');
+  const fresh = !node;
+  await ensureAudio();
+  if (ctx!.state !== 'running') await ctx!.resume();
+  if (fresh || !built) load();
+  if (!held.has(k)) return; // let go meanwhile
+  const octave = Math.round(soundOf(current()).octave ?? OCTAVE_ZERO) - OCTAVE_ZERO;
+  const note = KEY_NOTES[k] - 12 * octave;
+  held.set(k, note);
+  post({ type: 'trigger', channel: built!.ch, note, velocity: 0.8 });
+}
+function keyUp(k: number): void {
+  const note = held.get(k);
+  if (note === undefined) return;
+  held.delete(k);
+  $(`key${k}`).classList.remove('on');
+  if (built && note >= 0) post({ type: 'release', channel: built.ch, note });
+}
+for (let k = 0; k < 4; k++) {
+  const el = $(`key${k}`);
+  el.addEventListener('pointerdown', (e) => { el.setPointerCapture(e.pointerId); void keyDown(k); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) el.addEventListener(ev, () => keyUp(k));
+}
+document.addEventListener('keyup', (e) => { const k = '1234'.indexOf(e.key); if (k >= 0) keyUp(k); });
+
 document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  const key = '1234'.indexOf(e.key);
+  if (key >= 0) { if (!e.repeat) void keyDown(key); return; }
   if (e.code === 'Space') { e.preventDefault(); $('play').click(); return; }
   if (e.key === 'r' || e.key === 'R') { $('ring').click(); return; }
   if (e.key === 'm' || e.key === 'M') { setMaths((state.maths + 1) % 3); return; }
@@ -457,6 +514,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 const savedAt = (stored as { savedAt?: number }).savedAt;
-$('foot').textContent = `Projects 3 (${stored3.name}) and 4 (${stored4.name}) are copies of those slots; your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. FM LVL (synths) is a trim on top, as the SOUND page's knob: the middle = as designed, the same for A and the candidates. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit.`;
+$('foot').textContent = `Projects 3 (${stored3.name}) and 4 (${stored4.name}) are copies of those slots; your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. FM LVL (synths) is a trim on top, as the SOUND page's knob: the middle = as designed, the same for A and the candidates. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit. On a synth, the keys C1 to C4 (or 1-4 on a keyboard) play those notes, with or without the project playing.`;
 // Open on the track type with candidates to try (KICK when there are none).
 setKind(SOUND_KINDS.find((k) => CANDIDATES[k]?.length) ?? 'kick');

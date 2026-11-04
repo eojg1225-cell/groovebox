@@ -38,6 +38,9 @@ export function loudness(kind: SoundKind, sound: Record<string, number>): number
   Object.assign(pat.steps[0], { active: true, gate: INSTRUMENTS[kind].drum ? 1 : 4 });
   const e = new Engine(SR);
   e.handleMessage({ type: 'loadProject', project: p });
+  // Values outside the type's parameters (the WAVE TEST's hidden ids) go to the sound itself.
+  const specs = INSTRUMENTS[kind].params;
+  for (const id in sound) if (!specs.some((q) => q.id === id)) e.handleMessage({ type: 'setSound', channel: ch, id, value: sound[id] });
   e.handleMessage({ type: 'transport', playing: true });
   const total = Math.floor((1.5 * SR) / BLOCK) * BLOCK;
   const l = new Float32Array(total), r = new Float32Array(total);
