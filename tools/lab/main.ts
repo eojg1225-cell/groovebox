@@ -10,6 +10,7 @@ import LevelWorker from './levelWorker.ts?worker&inline';
 import stored from './project.json';
 import stored3 from './project3.json';
 import stored4 from './project4.json';
+import stored8 from './project8.json';
 import { fromStored } from '../../src/engine/projectFile';
 import { patchOf, type Project, type SoundKind } from '../../src/engine/project';
 import { formatValue } from '../../src/engine/params';
@@ -21,12 +22,12 @@ import { grooveProject } from './groove';
 import { stressProject } from './stress';
 import { OCTAVE_ZERO } from '../../src/instruments/macroParams';
 
-type Source = 'project' | 'p3' | 'p4' | 'groove' | 'stress';
+type Source = 'project' | 'p3' | 'p4' | 'p8' | 'groove' | 'stress';
 type Sweep = 'off' | 'timbre' | 'int' | 'fm';
 
 const state = {
   kind: 'kick' as SoundKind,
-  source: 'p3' as Source,
+  source: 'p8' as Source,
   solo: false,
   /** Every hit on the test track rings (drums: open; the RING step flag, as PLAY's RING). */
   ring: false,
@@ -48,7 +49,7 @@ const LETTERS = 'ABCDE';
 const candidates = (kind: SoundKind): (Candidate | null)[] => [null, ...(CANDIDATES[kind] ?? [])];
 const current = () => candidates(state.kind)[state.cand] ?? null;
 /** The saved projects the lab plays: the app's current one, and slots 3 / 4 (copies from the app's db). */
-const SAVES: Record<string, { name?: string; savedAt?: number; project: unknown }> = { project: stored, p3: stored3, p4: stored4 };
+const SAVES: Record<string, { name?: string; savedAt?: number; project: unknown }> = { project: stored, p3: stored3, p4: stored4, p8: stored8 };
 const isSave = (s: Source) => s in SAVES;
 const snapshot = (): Project | null => fromStored(SAVES[state.source].project);
 
@@ -155,8 +156,15 @@ const fmTrim = () => (state.fm - 0.5) * 2;
 /** FM LVL, where the type has the knob (not the PAD: INT sets it there). */
 const fmSpec = () => (INSTRUMENTS[state.kind].layout.includes('fm') ? INSTRUMENTS[state.kind].params.find((p) => p.id === 'fm') : undefined);
 
+/** Hidden ids any candidate of this type sends (Candidate.extra), off for the others and A. */
+function extraOff(): Record<string, number> {
+  const off: Record<string, number> = {};
+  for (const c of candidates(state.kind)) if (c?.extra) for (const id in c.extra(0.5, 0.5)) if (id !== 'intensity') off[id] = 0;
+  return off;
+}
+
 function soundOf(c: Candidate | null): Record<string, number> {
-  const out = { ...labSound(state.kind, c, state.timbre, state.intensity, built!.base), ...built!.extra };
+  const out = { ...extraOff(), ...labSound(state.kind, c, state.timbre, state.intensity, built!.base), ...built!.extra };
   const spec = fmSpec();
   if (spec && out.fm !== undefined) out.fm = applyTrim(spec, out.fm, fmTrim());
   return out;
@@ -514,6 +522,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 const savedAt = (stored as { savedAt?: number }).savedAt;
-$('foot').textContent = `Projects 3 (${stored3.name}) and 4 (${stored4.name}) are copies of those slots; your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. FM LVL (synths) is a trim on top, as the SOUND page's knob: the middle = as designed, the same for A and the candidates. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit. On a synth, the keys C1 to C4 (or 1-4 on a keyboard) play those notes, with or without the project playing.`;
+$('foot').textContent = `Projects 8 (${stored8.name}), 3 (${stored3.name}) and 4 (${stored4.name}) are copies of those slots; your project is the copy taken ${savedAt ? new Date(savedAt).toLocaleString() : 'when the lab was built'}; the lab is rebuilt with a fresh copy each time new candidates go in. The test track plays without its knob locks and live knob offsets; its other settings (envelopes, mix) are as in the project. FM LVL (synths) is a trim on top: the middle = the sound as designed (its own FM LVL, shown under the knob), the same for A and the candidates. Drag a knob up or down, scroll on it, or use the arrow keys; tap a name to jump to it. Space plays and stops; R rings every hit. On a synth, the keys C1 to C4 (or 1-4 on a keyboard) play those notes, with or without the project playing.`;
 // Open on the track type with candidates to try (KICK when there are none).
 setKind(SOUND_KINDS.find((k) => CANDIDATES[k]?.length) ?? 'kick');

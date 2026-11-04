@@ -1244,8 +1244,9 @@ describe('RING and REST', () => {
     e.handleMessage({ type: 'transport', playing: true });
     const out = render(e, 0.8).l;
     expect(stats(out.subarray(20000, 23900)).peak).toBeGreaterThan(0.01); // the PAD's release still sounding
-    // All cut (the kick long before); the limiter's look-ahead delays it a few ms.
-    expect(stats(out.subarray(24700, 36000)).peak).toBeLessThan(0.001);
+    // All cut (the kick long before); the limiter's look-ahead delays it a few ms, and the PAD's
+    // DC blocker lets go of the offset its FM left over about 30 ms (a smooth decay from -58 dB).
+    expect(stats(out.subarray(25500, 36000)).peak).toBeLessThan(0.001);
     // The kick's cut (frame 6000) fades: no step bigger than the hit's own.
     expect(jump(out, 6000, 6400)).toBeLessThan(jump(out, 5000, 5990) * 1.5 + 0.01);
   });
@@ -3003,13 +3004,13 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
       for (const x of [0, 0.5, 1]) {
         for (const note of kind === 'bass' ? [28, 40, 52] : [45, 57, 69]) for (const pair of [0, 3, 6]) {
           const ref = measure(t, x, 0, note, pair);
-          for (const fm of [0, 0.5, 1]) {
+          for (const fm of [0.25, 0.5, 0.75, 1]) {
             const m = measure(t, x, fm, note, pair);
             const at = `${kind} ${anchor.name} INT ${x * 100} note ${note} FM ${fm * 100} pair ${pair}`;
-            // The plain waves (INT 100) within 5 dB; a CZ-rounded one (near a sine, its weight all
-            // in the fundamental) within 7.
-            expect(m.weight - ref.weight, at).toBeGreaterThan(x === 1 ? -5 : -7);
-            expect(Math.abs(m.loud - ref.loud), at).toBeLessThan(7.5);
+            // The FM pair and BODY start in the wave's phase (never cancelling its note), and FM COMP
+            // takes off FM's rise along its curve.
+            expect(m.weight - ref.weight, at).toBeGreaterThan(-5);
+            expect(Math.abs(m.loud - ref.loud), at).toBeLessThan(3.5);
           }
         }
       }
@@ -4707,5 +4708,18 @@ describe('BASS / LEAD INT = the wave (v76, CZ)', () => {
 
   it('BASS / LEAD presets play their plain waves (INT 100), as designed', () => {
     for (const kind of ['bass', 'lead'] as const) for (const p of INSTRUMENTS[kind].presets) expect(p.values.intensity, `${kind} ${p.name}`).toBe(1);
+  });
+});
+
+describe('FM phase (v77)', () => {
+  it('v77: a saved BASS / LEAD FM COMP is taken again from its TIMBRE; a v77 save keeps its own', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 76;
+    Object.assign(stored.channels[4].sounds.bass, { timbre: 0, fmcomp: 0.75 });
+    const p = fromStored(stored)!;
+    expect(p.channels[4].sounds.bass!.fmcomp).toBeCloseTo(macroSound('bass', 0, p.channels[4].sounds.bass!.intensity, INSTRUMENTS.bass.params).fmcomp, 9);
+    const now = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    now.channels[4].sounds.bass.fmcomp = 3;
+    expect(fromStored(now)!.channels[4].sounds.bass!.fmcomp).toBe(3);
   });
 });

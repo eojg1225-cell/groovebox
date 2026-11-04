@@ -56,7 +56,12 @@ export interface MacroDef {
   excite: readonly Excite[];
   /** Its own FM ratio ladder (carrier : modulator, as RATIO_LADDER) instead of the type's. */
   ladder?: readonly (readonly [number, number])[];
+  /** Its own ratio steps and detours between sounds (as RATIO_SNAP / RATIO_ARC) instead of the type's. */
+  snap?: Readonly<Record<string, readonly number[]>>;
+  arc?: Readonly<Record<string, RatioArc>>;
 }
+/** A ratio's detour between two TIMBRE sounds (RATIO_ARC). */
+interface RatioArc { octaves: number; cycles: number }
 
 /** The BASS / LEAD waves (TIMBRE = SHAPE 0-4; SQUARE -> PULSE narrows the pulse width 50 % -> 12.5 %). */
 const WAVES = ['SINE', 'TRIANGLE', 'SAW', 'SQUARE', 'PULSE'] as const;
@@ -202,7 +207,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     anchors: waveAnchors(
       { sub: 0, cutoff: 700, reso: 0.3, fenv: 0.4, fattack: 0.0005, fdecay: 0.3, fmattack: 0.0005, fmdecay: 0.3, drive: 1.5, glide: 0.04, decay: 0.8, sustain: 0.6, detune: 0, unison: 0 },
       // OUT GAIN (INT 0 / 50 / 100) and FM COMP per wave.
-      [[0.773, 0.773, 0.773, 0.75], [0.786, 0.851, 0.924, 2], [0.751, 0.708, 0.828, 1.75], [0.631, 0.529, 0.526, -1.25], [0.633, 0.578, 0.734, 4.5]],
+      [[0.698, 0.698, 0.698, 4.2], [0.709, 0.768, 0.834, 5.1], [0.678, 0.639, 0.747, 4.1], [0.570, 0.477, 0.475, 1.6], [0.571, 0.522, 0.663, 2.6]],
     ),
     excite: [],
   },
@@ -246,7 +251,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // finished sounds are PRESETS (Synth.ts LEAD_PRESETS).
     anchors: waveAnchors(
       { cutoff: 2500, reso: 0.2, fenv: 0.3, fattack: 0.0005, fdecay: 0.4, fmattack: 0.0005, fmdecay: 0.4, drive: 1.2, glide: 0.06, decay: 1, sustain: 0.8, detune: 0, unison: 0, vibrato: 0, vibrate: 5.5, vibdelay: 0.4, bend: 0, bendtime: 0.08 },
-      [[0.558, 0.558, 0.558, 1.5], [0.57, 0.619, 0.676, 2.5], [0.557, 0.553, 0.675, 2], [0.476, 0.407, 0.402, -0.5], [0.478, 0.462, 0.658, 6]],
+      [[0.542, 0.542, 0.542, 4.3], [0.553, 0.601, 0.656, 5.2], [0.541, 0.537, 0.655, 4.8], [0.462, 0.395, 0.390, 2.3], [0.464, 0.448, 0.639, 3.7]],
     ),
     excite: [],
   },
@@ -254,11 +259,11 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // Glassy -> a bright saw pluck -> a hollow, buzzy square pluck -> a raging FM donk.
     anchors: [
       // Steel: an FM steel-drum pluck (inharmonic 1 : 2.5).
-      { name: 'STEEL', values: { ogain: 1.104, shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, detune: 0.1, unison: 0, dratio: 0.71 }, hard: { ogain: 0.888 }, soft: { ogain: 0.885 } },
-      { name: 'GLASS PLUCK', values: { ogain: 1.382, shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.4, sustain: 0, release: 0.1, detune: 0.2, unison: 0, dratio: 0.75 }, hard: { ogain: 0.874 }, soft: { ogain: 1.101 } },
-      { name: 'SAW PLUCK', values: { ogain: 1.364, shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, decay: 0.4, sustain: 0.05, release: 0.08, detune: 0.35, unison: 0.5, dratio: 0.88 }, hard: { ogain: 1.035 }, soft: { ogain: 0.917 } },
-      { name: 'SQUARE PLUCK', values: { ogain: 0.662, shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, decay: 0.35, sustain: 0.03, release: 0.07, detune: 0.25, unison: 0.2, dratio: 0.86 }, hard: { ogain: 0.801 }, soft: { ogain: 0.51 } },
-      { name: 'RAGE DONK', values: { ogain: 0.729, shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, decay: 0.25, sustain: 0, release: 0.05, detune: 0.1, unison: 0, dratio: 0.72 }, hard: { ogain: 0.695 }, soft: { ogain: 0.928 } },
+      { name: 'STEEL', values: { ogain: 1.136, shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, detune: 0.1, unison: 0, dratio: 0.71 }, hard: { ogain: 0.856 }, soft: { ogain: 0.885 } },
+      { name: 'GLASS PLUCK', values: { ogain: 1.128, shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.4, sustain: 0, release: 0.1, detune: 0.2, unison: 0, dratio: 0.75 }, hard: { ogain: 0.857 }, soft: { ogain: 1.094 } },
+      { name: 'SAW PLUCK', values: { ogain: 1.243, shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, decay: 0.4, sustain: 0.05, release: 0.08, detune: 0.35, unison: 0.5, dratio: 0.88 }, hard: { ogain: 0.952 }, soft: { ogain: 0.915 } },
+      { name: 'SQUARE PLUCK', values: { ogain: 0.662, shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, decay: 0.35, sustain: 0.03, release: 0.07, detune: 0.25, unison: 0.2, dratio: 0.86 }, hard: { ogain: 0.8 }, soft: { ogain: 0.51 } },
+      { name: 'RAGE DONK', values: { ogain: 0.729, shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, decay: 0.25, sustain: 0, release: 0.05, detune: 0.1, unison: 0, dratio: 0.72 }, hard: { ogain: 0.695 }, soft: { ogain: 0.927 } },
     ],
     excite: [
       { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'fenv', floor: 0.1, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
@@ -345,7 +350,7 @@ const RATIO_SNAP: Partial<Record<SoundKind, Record<string, readonly number[]>>> 
  * both sounds). PAD: the FM RATIO climbs an octave and back, RATIO 3 up then down, twice as
  * fast, so their steps fall between each other's.
  */
-const RATIO_ARC: Partial<Record<SoundKind, Record<string, { octaves: number; cycles: number }>>> = {
+const RATIO_ARC: Partial<Record<SoundKind, Record<string, RatioArc>>> = {
   pad: { fmratio: { octaves: 1, cycles: 1 }, ratio3: { octaves: 1, cycles: 2 } },
 };
 
@@ -416,9 +421,9 @@ export function macroSoundOf(def: MacroDef, kind: SoundKind, timbre: number, int
     // FM ratios step through related ratios between sounds instead of smearing through
     // inharmonic ones (1 -> 4/3 -> 3/2 -> 2 ...), some by way of a detour (RATIO_ARC).
     if (RATIO_IDS.has(id)) {
-      const arc = RATIO_ARC[kind]?.[id];
+      const arc = (def.arc ?? RATIO_ARC[kind])?.[id];
       if (arc) out[id] *= Math.pow(2, arc.octaves * Math.sin(arc.cycles * Math.PI * f));
-      out[id] = nearest(RATIO_SNAP[kind]?.[id] ?? RATIO_STEPS, out[id]);
+      out[id] = nearest((def.snap ?? RATIO_SNAP[kind])?.[id] ?? RATIO_STEPS, out[id]);
     }
   }
   const pair = ladderAt(kind, timbre, def.ladder);

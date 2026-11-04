@@ -71,9 +71,18 @@ const FM_PAIRS: readonly { name: string; c: number; m: number; sign?: number }[]
 /** The FM RATIO knob's choices (BASS). */
 const FM_PAIR_NAMES = FM_PAIRS.map((p) => p.name);
 
-/** BASS: the output gain for FM COMP (dB at FM LVL 100) at an FM level. */
+/**
+ * How FM LVL raises the level (the FM pair and BODY in the wave's phase): the same on every wave
+ * and FM RATIO (measured, the mean over INT and every ratio), up to its most at FM 80, at FM 0,
+ * 10 ... 100. FM COMP (TIMBRE's, per wave) is the dB at that peak, taken off along this curve.
+ */
+const FM_RISE = [0, 0.19, 0.36, 0.5, 0.64, 0.76, 0.86, 0.95, 1, 0.9, 0.69];
+/** BASS / LEAD: the output gain for FM COMP (dB at FM_RISE's peak) at an FM level. */
 function fmGainOf(comp: number, fm: number): number {
-  return comp === 0 ? 1 : Math.pow(10, (-comp * fm) / 20);
+  if (comp === 0) return 1;
+  const u = Math.min(1, Math.max(0, fm)) * 10, i = Math.min(9, Math.floor(u));
+  const rise = FM_RISE[i] + (FM_RISE[i + 1] - FM_RISE[i]) * (u - i);
+  return Math.pow(10, (-comp * rise) / 20);
 }
 const SQUELCH_TOP = 8;
 function squelch(fm: number): number {
@@ -116,12 +125,16 @@ function wrap(p: number): number {
   return p - Math.floor(p);
 }
 
-/** 0 sine, 1 triangle, 2 saw, 3 square (band-limited saw / square). */
+/**
+ * 0 sine, 1 triangle, 2 saw, 3 square (band-limited saw / square). The saw falls (1 - 2p): its
+ * fundamental in a sine's and a square's phase, so a blend towards the square adds to the note
+ * (the rising saw's was upside down: SAW -> SQUARE cancelled half-way, -12 dB at FM 0).
+ */
 function wave(w: number, phase: number, dt: number): number {
   switch (w) {
     case 0: return sinTurn(phase);
     case 1: return 4 * Math.abs(phase - 0.5) - 1;
-    case 2: return 2 * phase - 1 - polyBlep(phase, dt);
+    case 2: return 1 - 2 * phase + polyBlep(phase, dt);
     default: {
       let p2 = phase + 0.5; if (p2 >= 1) p2 -= 1;
       return (phase < 0.5 ? 1 : -1) + polyBlep(phase, dt) - polyBlep(p2, dt);
@@ -182,13 +195,47 @@ function czWave(w: number, phase: number, bend: number, edge: number, pw: number
   if (w === 0) return sinTurn(phase);
   // TRIANGLE: from the cosine in its phase (a sine would partly cancel it on the way).
   if (w === 1) { const c = cosTurn(phase); return c + (4 * Math.abs(phase - 0.5) - 1 - c) * bend; }
-  // SAW: down over the edge, up over the rest.
-  if (w === 2) return cosTurn(phase < edge ? (0.5 * phase) / edge : 0.5 + (0.5 * (phase - edge)) / (1 - edge));
+  // SAW (falling, as the plain one): up over the edge, down over the rest.
+  if (w === 2) return -cosTurn(phase < edge ? (0.5 * phase) / edge : 0.5 + (0.5 * (phase - edge)) / (1 - edge));
   // SQUARE / PULSE: up over the edge, high until b, down over the edge, low.
   const b = 0.5 + (pw - 0.5) * bend;
   const e = Math.min(edge, b, 1 - b);
   const q = phase < e ? (0.5 * phase) / e : phase < b ? 0.5 : phase < b + e ? 0.5 + (0.5 * (phase - b)) / e : 1;
   return -cosTurn(q) + 1 - 2 * b;
+}
+
+/**
+ * The phase (turns) of the fundamental of SHAPE's wave (bent by CZ: `bend` < 0 = plain),
+ * against a sine: where the FM pair and BODY start, so fading them in adds to the wave's own
+ * note instead of cancelling it (a plain SAW's fundamental is a half-cycle from a sine's, a
+ * TRIANGLE's a quarter; CZ moves it with the bend). From 64 points of one cycle, at a mid
+ * pitch (the CZ edge's width hardly moves it).
+ */
+const PHASE_POINTS = 64;
+const PHASE_DT = 220 / 48000;
+function fundamentalPhase(shape: number, bend: number): number {
+  const w = shape > 3 ? 3 : Math.min(2, Math.floor(shape));
+  const wf = shape - w;
+  const pw = w === 3 ? 0.5 - (0.5 - PULSE_MIN) * wf : 0.5;
+  const top = bend < 0 ? 1 : bend > CZ_OPEN ? (bend - CZ_OPEN) / (1 - CZ_OPEN) : 0;
+  const b = CZ_FLOOR + (1 - CZ_FLOOR) * Math.max(0, bend);
+  const edge = 0.5 * Math.pow(Math.min(0.5, 1.5 * PHASE_DT) / 0.5, b);
+  let sx = 0, cx = 0;
+  for (let i = 0; i < PHASE_POINTS; i++) {
+    const p = i / PHASE_POINTS;
+    // The plain wave (without its band-limiting: the fundamental is the same).
+    const plainOf = (k: number, width: number) => k === 0 ? sinTurn(p) : k === 1 ? 4 * Math.abs(p - 0.5) - 1 : k === 2 ? 1 - 2 * p : (p < width ? 1 : -1) + 1 - 2 * width;
+    let x = w < 3 && wf > 0 ? plainOf(w, 0.5) + (plainOf(w + 1, 0.5) - plainOf(w, 0.5)) * wf : plainOf(w, pw);
+    if (top < 1) {
+      let c = czWave(w, p, b, edge, pw);
+      if (w < 3 && wf > 0) c += (czWave(w + 1, p, b, edge, 0.5) - c) * wf;
+      x = c + (x - c) * top;
+    }
+    sx += x * sinTurn(p);
+    cx += x * cosTurn(p);
+  }
+  const t = Math.atan2(cx, sx) / (2 * Math.PI);
+  return t < 0 ? t + 1 : t;
 }
 
 /** UNISON copies relative to OSC 1 (x the spread), and their start phases. */
@@ -249,8 +296,9 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): every sound equally loud by
   // default, without changing how hard it drives.
   { id: 'ogain', name: 'OUT GAIN', min: 0.05, max: 16, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
-  // BASS (set by TIMBRE, no knob): how much quieter (dB) the wave plays at FM LVL 100 than at
-  // FM LVL 0, so FM LVL changes its colour, not its level (fmGainOf).
+  // BASS / LEAD (set by TIMBRE, no knob): how much FM LVL would raise the wave's level at its
+  // most (dB, about FM 80), taken off along FM_RISE, so FM LVL changes its colour, not its level
+  // (fmGainOf).
   { id: 'fmcomp', name: 'FM COMP', min: -24, max: 24, defaultValue: 0, unit: 'DB', curve: 'linear', decimals: 1 },
   // BASS: the FM pair's carrier : modulator (FM_PAIRS; a knob on FUNC module 4).
   { id: 'fmpair', name: 'FM RATIO', min: 0, max: 7, defaultValue: 0, unit: '', curve: 'linear', options: FM_PAIR_NAMES, coarse: true },
@@ -342,12 +390,12 @@ function anchorPresets(kind: 'bass' | 'pad' | 'lead' | 'pluck'): Preset[] {
  * the plain wave they were designed on (INT bends it: CZ); turn INT down to round them.
  */
 export const BASS_PRESETS: readonly Preset[] = [
-  { name: 'SUB', values: { timbre: 0, intensity: 1, level: 0.599, fm: 0.12, fmpair: 1, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8 } },
-  { name: 'STICK', values: { timbre: 0.25, intensity: 1, level: 0.65, fm: 0.25, fmpair: 2, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fdecay: 0.4, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 } },
-  { name: 'GROWL', values: { timbre: 0.5, intensity: 1, level: 1.125, fm: 0.15, fmpair: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
-  { name: 'REESE', values: { timbre: 0.5, intensity: 1, level: 0.895, sub: 0.3, cutoff: 500, reso: 0.2, fenv: 0.1, fdecay: 0.5, fmdecay: 0.5, drive: 2, decay: 1.2, sustain: 0.9, detune: 0.6, unison: 1 } },
-  { name: 'SOLID', values: { timbre: 0.625, intensity: 1, level: 1.194, fm: 0.45, fmpair: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
-  { name: 'ACID', values: { timbre: 0.75, intensity: 1, level: 0.745, cutoff: 380, reso: 0.75, fenv: 0.9, fdecay: 0.18, fmdecay: 0.18, drive: 1.8, glide: 0.08, decay: 0.35, sustain: 0.6 } },
+  { name: 'SUB', values: { timbre: 0, intensity: 1, level: 0.731, fm: 0.12, fmpair: 1, cutoff: 3000, reso: 0, fenv: 0, fdecay: 0.3, fmdecay: 0.3, drive: 1, glide: 0.03, decay: 0.7, sustain: 0.8 } },
+  { name: 'STICK', values: { timbre: 0.25, intensity: 1, level: 0.619, fm: 0.25, fmpair: 2, sub: 0.05, cutoff: 800, reso: 0.2, fenv: 0.25, fdecay: 0.4, fmdecay: 0.4, drive: 1.2, glide: 0.03, decay: 1.6, sustain: 0.6, detune: 0.03 } },
+  { name: 'GROWL', values: { timbre: 0.5, intensity: 1, level: 0.594, fm: 0.15, fmpair: 1, sub: 0.5, cutoff: 650, reso: 0.3, fenv: 0.2, fdecay: 0.5, fmdecay: 0.5, drive: 3, glide: 0.04, decay: 1, sustain: 0.9, detune: 0.75 } },
+  { name: 'REESE', values: { timbre: 0.5, intensity: 1, level: 0.850, sub: 0.3, cutoff: 500, reso: 0.2, fenv: 0.1, fdecay: 0.5, fmdecay: 0.5, drive: 2, decay: 1.2, sustain: 0.9, detune: 0.6, unison: 1 } },
+  { name: 'SOLID', values: { timbre: 0.625, intensity: 1, level: 1.398, fm: 0.45, fmpair: 3, sub: 0.4, cutoff: 420, reso: 0.45, fenv: 0.5, fdecay: 0.22, fmdecay: 0.22, drive: 1.6, glide: 0.02, decay: 0.5, sustain: 0.45, detune: 0.15 } },
+  { name: 'ACID', values: { timbre: 0.75, intensity: 1, level: 0.722, cutoff: 380, reso: 0.75, fenv: 0.9, fdecay: 0.18, fmdecay: 0.18, drive: 1.8, glide: 0.08, decay: 0.35, sustain: 0.6 } },
 ];
 export const PAD_PRESETS: readonly Preset[] = anchorPresets('pad');
 /**
@@ -357,18 +405,18 @@ export const PAD_PRESETS: readonly Preset[] = anchorPresets('pad');
  */
 export const LEAD_PRESETS: readonly Preset[] = [
   // A sine with a slow, late vibrato and a long slide: theremin / dub siren.
-  { name: 'WHISTLE', values: { timbre: 0, intensity: 1, level: 0.459, fm: 0.04, fmpair: 1, cutoff: 7000, reso: 0, fenv: 0.1, fdecay: 0.6, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35 } },
+  { name: 'WHISTLE', values: { timbre: 0, intensity: 1, level: 0.494, fm: 0.04, fmpair: 1, cutoff: 7000, reso: 0, fenv: 0.1, fdecay: 0.6, fmdecay: 0.6, drive: 1.1, glide: 0.15, decay: 1.2, sustain: 0.9, vibrato: 0.35, vibrate: 5.2, vibdelay: 0.35 } },
   // The FM pair at 1 : 2 with a fast FM envelope and a quick zap down from above: it bites.
-  { name: 'FM BITE', values: { timbre: 0, intensity: 1, level: 0.401, fm: 0.55, fmpair: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fdecay: 0.15, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
+  { name: 'FM BITE', values: { timbre: 0, intensity: 1, level: 0.592, fm: 0.55, fmpair: 1, cutoff: 4500, reso: 0.15, fenv: 0.4, fdecay: 0.15, fmdecay: 0.15, drive: 1.5, glide: 0.05, decay: 0.6, sustain: 0.7, detune: 0.05, vibrato: 0.1, vibrate: 6, vibdelay: 0.4, bend: 12, bendtime: 0.03 } },
   // Hard-sync style: a SAW under a deep 1 : 4 pair whose FM envelope sweeps down each note (the
   // tearing, formant-sweeping sync lead), in the squelch range.
-  { name: 'SYNC', values: { timbre: 0.5, intensity: 1, level: 0.402, fm: 0.65, fmpair: 5, fmdecay: 0.3, cutoff: 4500, reso: 0.25, fenv: 0.4, fdecay: 0.3, drive: 2, glide: 0.05, decay: 0.8, sustain: 0.8, vibrato: 0.08, vibdelay: 0.5 } },
+  { name: 'SYNC', values: { timbre: 0.5, intensity: 1, level: 0.449, fm: 0.65, fmpair: 5, fmdecay: 0.3, cutoff: 4500, reso: 0.25, fenv: 0.4, fdecay: 0.3, drive: 2, glide: 0.05, decay: 0.8, sustain: 0.8, vibrato: 0.08, vibdelay: 0.5 } },
   // Detuned saws, wide, each note scooping up from an octave below: the rave hoover.
-  { name: 'HOOVER', values: { timbre: 0.5, intensity: 1, level: 1.102, fm: 0.08, fmpair: 0, cutoff: 2200, reso: 0.3, fenv: 0.5, fdecay: 0.25, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
+  { name: 'HOOVER', values: { timbre: 0.5, intensity: 1, level: 0.935, fm: 0.08, fmpair: 0, cutoff: 2200, reso: 0.3, fenv: 0.5, fdecay: 0.25, fmdecay: 0.25, drive: 2, glide: 0.08, decay: 0.9, sustain: 0.8, detune: 1, unison: 1.3, vibrato: 0.25, vibrate: 4, vibdelay: 0.6, bend: -12, bendtime: 0.1 } },
   // The engine at once: a narrowed PULSE, wide (UNISON, DETUNE), each note scooping up into
   // pitch, then blooming into glass as a slow FM ATTACK opens the 1 : 5 pair, a delayed
   // vibrato swelling in as it settles; resonant, with a long slide.
-  { name: 'BLOOM', values: { timbre: 0.9, intensity: 1, level: 0.826, fm: 0.35, fmpair: 6, fmattack: 0.35, fmdecay: 1.5, cutoff: 3500, reso: 0.35, fenv: 0.3, fdecay: 0.8, drive: 1.4, glide: 0.1, decay: 1.5, sustain: 0.85, detune: 0.3, unison: 0.6, vibrato: 0.25, vibrate: 5, vibdelay: 0.7, bend: -1, bendtime: 0.12 } },
+  { name: 'BLOOM', values: { timbre: 0.9, intensity: 1, level: 0.833, fm: 0.35, fmpair: 6, fmattack: 0.35, fmdecay: 1.5, cutoff: 3500, reso: 0.35, fenv: 0.3, fdecay: 0.8, drive: 1.4, glide: 0.1, decay: 1.5, sustain: 0.85, detune: 0.3, unison: 0.6, vibrato: 0.25, vibrate: 5, vibdelay: 0.7, bend: -1, bendtime: 0.12 } },
 ];
 export const PLUCK_PRESETS: readonly Preset[] = anchorPresets('pluck');
 
@@ -447,6 +495,8 @@ export class Synth implements Instrument {
   private pairFm = 0; private squelchOn = false;
   /** BASS FM RATIO's polarity (FM_PAIRS sign). */
   private pairSign = 1;
+  /** Where the FM pair and BODY start (turns): the wave's fundamental (fundamentalPhase). */
+  private pairPhase = 0;
   /** BASS: the note's sine under the FM pair (BODY). */
   private bodyOn = false;
   private algo = 0; private ratio2 = 1; private ratio3 = 1; private feedback = 0; private fmIndex = 0; private fm2 = 0; private fm2Index = 0; private carriers = 0.35;
@@ -645,7 +695,7 @@ export class Synth implements Instrument {
   setParam(id: string, value: number): void {
     const sr = this.sr;
     switch (id) {
-      case 'shape': this.shape = Math.min(4, Math.max(0, value)); break;
+      case 'shape': this.shape = Math.min(4, Math.max(0, value)); this.updatePhase(); break;
       case 'cz': this.cz = value > 0; this.setIntensity(this.intensity); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
@@ -919,6 +969,12 @@ export class Synth implements Instrument {
   private setIntensity(value: number): void {
     this.intensity = Math.min(1, Math.max(0, value));
     this.keyTrack = !this.cz && value < 0.5 ? KEY_TRACK * (1 - 2 * value) : 0;
+    this.updatePhase();
+  }
+
+  /** The FM pair's and BODY's start: the wave's fundamental as SHAPE (and CZ's bend) make it. */
+  private updatePhase(): void {
+    this.pairPhase = fundamentalPhase(this.shape, this.cz && this.intensity < 1 ? this.intensity : -1);
   }
 
   /** SHAPE's waves (OSC 1, OSC 2, UNISON copies); with CZ bent by INTENSITY (czWave). */
@@ -954,6 +1010,10 @@ export class Synth implements Instrument {
     if (fm <= 0) return;
     // The index rises with FM and with the FM envelope (a struck clang).
     const fmRatio = this.fmRatio, cRatio = this.cRatio, depth = this.pairFm;
+    // The pair (and BODY) shifted in time to the wave's fundamental (pairPhase): its note adds.
+    const ph = this.pairPhase, cShift = cRatio * ph, mShift = fmRatio * ph - Math.floor(fmRatio * ph);
+    // CAR FB on the pair (algo 0 has no SHAPE carrier to feed back; off on every type for now).
+    const pairFb = this.cFeedback * MAX_CARRIER_FEEDBACK;
     for (let j = 0; j < n; j++) {
       const dt1 = this.bDt[j];
       v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
@@ -963,15 +1023,26 @@ export class Synth implements Instrument {
         v.p5 += dt1 * cRatio; if (v.p5 >= 1) v.p5 -= Math.floor(v.p5);
         carrier = v.p5;
       }
-      const fmOut = this.pairSign * sinRad(2 * Math.PI * carrier + index * sinTurn(v.p4));
+      let mp = v.p4 + mShift; if (mp >= 1) mp -= 1;
+      let fmOut: number;
+      if (pairFb > 0) {
+        // The pair's carrier into itself (its last two outputs averaged, as on the DX7): the
+        // sine turns saw-like as CAR FB rises.
+        const c = sinRad(2 * Math.PI * (carrier + cShift) + index * sinTurn(mp) + (v.cf1 + v.cf2) * 0.5 * pairFb);
+        v.cf2 = v.cf1;
+        v.cf1 = c;
+        fmOut = this.pairSign * c;
+      } else fmOut = this.pairSign * sinRad(2 * Math.PI * (carrier + cShift) + index * sinTurn(mp));
       o1[j] = o1[j] * (1 - fm) + fmOut * fm;
       o2[j] = o2[j] * (1 - fm) + fmOut * fm;
     }
     if (this.bodyOn) {
       const body = fm * BODY;
       for (let j = 0; j < n; j++) {
-        o1[j] += body * sinTurn(this.bP1[j]);
-        o2[j] += body * sinTurn(this.bP2[j]);
+        let q1 = this.bP1[j] + ph; if (q1 >= 1) q1 -= 1;
+        let q2 = this.bP2[j] + ph; if (q2 >= 1) q2 -= 1;
+        o1[j] += body * sinTurn(q1);
+        o2[j] += body * sinTurn(q2);
       }
     }
   }

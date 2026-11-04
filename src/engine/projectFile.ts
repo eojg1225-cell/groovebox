@@ -668,6 +668,15 @@ export function czV76(kind: SoundKind, sound: Record<string, number>): void {
 }
 const CZ_KINDS_V76: readonly string[] = ['bass', 'lead'];
 
+/**
+ * v77: FM COMP (TIMBRE's, no knob) became the dB at FM LVL's peak rise, taken off along a curve
+ * (the FM pair now starts in the wave's phase, so FM no longer cancels the note): a saved
+ * BASS's / LEAD's old value (dB at FM 100) is taken again from its TIMBRE. In place.
+ */
+export function fmCompV77(kind: SoundKind, sound: Record<string, number>): void {
+  if (CZ_KINDS_V76.includes(kind)) sound.fmcomp = hiddenSound(kind, sound, INSTRUMENTS[kind].params).fmcomp;
+}
+
 /** v70 / v71 / v75 / v76 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
@@ -695,6 +704,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   if (version < 76) czV76(kind, sound);
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
+  if (version < 77) fmCompV77(kind, sound);
   // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
   // the knob's value, as the knob would have set it.
   for (const spec of specs) {
