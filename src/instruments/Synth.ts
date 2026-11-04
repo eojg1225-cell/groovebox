@@ -474,6 +474,8 @@ export class Synth implements Instrument {
   private shape = 2; private fm = 0; private fmRatio = 2;
   /** CZ (see czWave): 0 off, 1 BASS / LEAD, 2 PLUCK (setIntensity); the bend (1 = the plain wave). */
   private cz = 0; private intensity = 0.5; private czBend = 1;
+  /** Lab: CAR FB at full strength on bright waves too (the app takes a fifth on saw / square). */
+  private cfbFull = false;
   /**
    * FM pair carrier ratio (algo 0; 1 = on the note). Above 1 with the modulator 1 away from
    * it (carrier 3, modulator 2 or 4) the pair's lowest sideband lands on the note: "root-locked",
@@ -688,6 +690,7 @@ export class Synth implements Instrument {
     switch (id) {
       case 'shape': this.shape = Math.min(4, Math.max(0, value)); this.updatePhase(); break;
       case 'cz': this.cz = Math.round(value); this.setIntensity(this.intensity); break;
+      case 'cfbfull': this.cfbFull = value > 0; break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
@@ -877,7 +880,8 @@ export class Synth implements Instrument {
       const cents = 12 + 20 * this.detune;
       for (let k = 0; k < 4; k++) this.uRatio[k] = Math.pow(2, (UNISON_SPREAD[k] * cents) / 1200);
     }
-    const cfbAmt = (this.cFeedback * MAX_CARRIER_FEEDBACK * (1 - 0.8 * Math.min(1, Math.max(0, this.shape - 1)))) / (2 * Math.PI);
+    // On saw / square waves (already bright) a fifth of it, unless `cfbfull` (lab).
+    const cfbAmt = (this.cFeedback * MAX_CARRIER_FEEDBACK * (this.cfbFull ? 1 : 1 - 0.8 * Math.min(1, Math.max(0, this.shape - 1)))) / (2 * Math.PI);
     // SHAPE: the two neighbouring waves and the blend between them (past 3: the pulse's width).
     const w = this.shape > 3 ? 3 : Math.min(2, Math.floor(this.shape));
     const wf = this.shape - w;
@@ -1092,6 +1096,11 @@ export class Synth implements Instrument {
   private oscStacks(v: Voice, n: number, det: number, cfbAmt: number, w: number, wf: number): void {
     const fmRatio = this.fmRatio, feedback = this.feedback;
     const fmIndex = this.fmIndex, fm2Index = this.fm2Index, ratio2 = this.ratio2, ratio3 = this.ratio3, c = this.carriers;
+    // CZ (lab): carrier 1's wave bent as oscWaves bends a block (its edge from the block's pitch).
+    const czOn = this.cz > 0 && this.czBend < 1;
+    const bend = CZ_FLOOR + (1 - CZ_FLOOR) * this.czBend;
+    const edge = czOn ? 0.5 * Math.pow(Math.min(0.5, 1.5 * this.bDt[0]) / 0.5, bend) : 0;
+    const pw = w === 3 ? 0.5 - (0.5 - PULSE_MIN) * wf : 0.5;
     for (let j = 0; j < n; j++) {
       const dt1 = this.bDt[j];
       v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
@@ -1108,13 +1117,18 @@ export class Synth implements Instrument {
       const idx2 = fm2Index * env; // stack 2 at FM LVL2
       this.bPb[j] = wrap(v.p5 + m2 * idx2); this.bDb[j] = d5;
       const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
-      const c1 = shaped(w, wf, wrap(this.bP1[j] + m1 * idx + cfb), dt1);
+      const ph = wrap(this.bP1[j] + m1 * idx + cfb);
+      let c1: number;
+      if (czOn) {
+        c1 = czWave(w, ph, bend, edge, pw);
+        if (w < 3 && wf > 0) c1 += (czWave(w + 1, ph, bend, edge, 0.5) - c1) * wf;
+      } else c1 = shaped(w, wf, ph, dt1);
       v.cf2 = v.cf1;
       v.cf1 = c1;
       this.bO1[j] = c1;
     }
     const o1 = this.bO1, o2 = this.bO2;
-    waves(w, wf, this.bPb, this.bDb, 1, o2, n);
+    this.oscWaves(w, wf, this.bPb, this.bDb, 1, o2, n);
     for (let j = 0; j < n; j++) o2[j] = o1[j] * (1 - c) + o2[j] * c;
   }
 
