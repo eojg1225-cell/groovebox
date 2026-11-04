@@ -677,9 +677,22 @@ export function fmCompV77(kind: SoundKind, sound: Record<string, number>): void 
   if (CZ_KINDS_V76.includes(kind)) sound.fmcomp = hiddenSound(kind, sound, INSTRUMENTS[kind].params).fmcomp;
 }
 
-/** v70 / v71 / v75 / v76 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
+/**
+ * v78: PAD and PLUCK INT move only their carriers (PAD: CARRIERS, CAR FB; PLUCK: the CZ bend
+ * below the middle, CAR FB above) and FM LVL is the PAD's knob again. A saved one keeps its
+ * stored values (FM LVL, filter, DRIVE, width as its old INT set them), which become trims over
+ * the new sounds; a PLUCK moves to INT 50 (the plain wave, no CAR FB: as it played). A PLUCK's
+ * INT step locks and SONG lanes go (a PAD's stay: they move its carriers as before). In place.
+ */
+export function carrierV78(kind: SoundKind, sound: Record<string, number>): void {
+  if (kind === 'pluck') sound.intensity = 0.5;
+}
+const CARRIER_KINDS_V78: readonly string[] = ['pad', 'pluck'];
+
+/** v70 / v71 / v75 / v76 / v78 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
+  if (version < 78 && kind === 'pluck') delete locks.intensity;
   if (airLenSave(version) && AIR_KINDS_V75.includes(kind) && locks.airsize !== undefined) locks.airsize = airSizeV75(locks.airsize);
   if (version < 71 && kind === 'lead' && locks.timbre !== undefined) locks.timbre = leadTimbreV71(locks.timbre);
   if (version >= 70) return;
@@ -705,6 +718,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   if (version < 77) fmCompV77(kind, sound);
+  if (version < 78) carrierV78(kind, sound);
   // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
   // the knob's value, as the knob would have set it.
   for (const spec of specs) {
@@ -737,6 +751,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 47) kickV47(kind, sound, trims);
   if (version < 70 && kind === 'pad') padV70(sound, trims);
   if (version < 74) snareV74(kind, sound, trims);
+  if (version < 78 && CARRIER_KINDS_V78.includes(kind)) trims = deriveTrims(kind, sound, specs);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
@@ -958,14 +973,14 @@ export function fromStored(data: unknown): Project | null {
   if (version < 49) typeGainV49(p);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.
-  if (version < 76 && p.song.auto) {
+  if (version < 78 && p.song.auto) {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind !== 's') continue;
       const kind = p.channels[t.index]?.instrument;
       if (version < 71 && kind === 'lead' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, leadTimbreV71(v)]);
       if (airLenSave(version) && kind !== undefined && AIR_KINDS_V75.includes(kind) && t.id === 'airsize') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, airSizeV75(v)]);
-      if (kind !== undefined && CZ_KINDS_V76.includes(kind) && t.id === 'intensity') { delete p.song.auto[key]; continue; }
+      if (kind !== undefined && t.id === 'intensity' && ((version < 76 && CZ_KINDS_V76.includes(kind)) || (version < 78 && kind === 'pluck'))) { delete p.song.auto[key]; continue; }
       if (version >= 70) continue;
       if (kind === 'bass' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, bassTimbreV70(v, version)]);
       if (kind === 'pad' && padGoneV70(t.id)) delete p.song.auto[key];

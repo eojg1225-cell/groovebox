@@ -296,7 +296,7 @@ function knobAt(kind: SoundKind, id: string): string {
   const page = at(INSTRUMENTS[kind].layout);
   if (page) return page;
   const func = at(INSTRUMENTS[kind].funcLayout);
-  return func ? `FUNC ${func}` : 'no knob';
+  return func ? `ALT ${func}` : 'no knob';
 }
 
 let lastTable = '';

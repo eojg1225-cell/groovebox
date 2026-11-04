@@ -194,7 +194,7 @@ export class Panel implements ControlSurface {
     // FUNC (hold: the knobs' second layer; tap: latch) beside PLAY.
     const playRow = document.createElement('div');
     playRow.className = 'play-row';
-    playRow.append(this.makeButton('func', 'FUNC', 'btn func'), this.makeButton('play', 'PLAY', 'btn play'));
+    playRow.append(this.makeButton('func', 'ALT', 'btn func'), this.makeButton('play', 'PLAY', 'btn play'));
     q('.play-area').prepend(playRow);
     for (const m of MASTER_KNOBS) {
       const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, 127);

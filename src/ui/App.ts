@@ -4759,7 +4759,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK / A-D' :  this.func && this.fxView === 0 ? 'FUNC: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
+      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK / A-D' :  this.func && this.fxView === 0 ? 'ALT: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',

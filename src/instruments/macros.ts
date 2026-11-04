@@ -221,26 +221,22 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // musical intervals), so every stop on the way stays in tune with a chord.
     anchors: [
       // Warm: a soft wave with an octave-down modulator on stack 2 (a low growl under it).
-      { name: 'WARM', values: { ogain: 1.343, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 }, hard: { ogain: 1.507 }, soft: { ogain: 1.089 } },
+      { name: 'WARM', values: { ogain: 1.343, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 }, hard: { ogain: 1.481 }, soft: { ogain: 1.063 } },
       // Strings: saws, stack 2 a fifth up, the filter opening slowly.
-      { name: 'STRINGS', values: { ogain: 1.041, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 }, hard: { ogain: 1.235 }, soft: { ogain: 0.811 } },
+      { name: 'STRINGS', values: { ogain: 1.041, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 }, hard: { ogain: 1.097 }, soft: { ogain: 0.742 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { ogain: 0.76, cfeedback: 0, shape: 0, fm: 0.56, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 }, hard: { ogain: 0.96 }, soft: { ogain: 0.606 } },
-      { name: 'GLASS', values: { ogain: 0.915, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 }, hard: { ogain: 0.999 }, soft: { ogain: 0.774 } },
+      { name: 'TINE', values: { ogain: 0.76, cfeedback: 0, shape: 0, fm: 0.56, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 }, hard: { ogain: 0.834 }, soft: { ogain: 0.603 } },
+      { name: 'GLASS', values: { ogain: 0.915, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 }, hard: { ogain: 1.057 }, soft: { ogain: 0.646 } },
       // Ethereal: a 7x modulator over the body, stack 2 a twelfth up under a 5x one - every
       // sideband lands on a harmonic: a bright, high shimmer.
-      { name: 'ETHEREAL', values: { ogain: 1.522, cfeedback: 0, shape: 0.5, fm: 0.56, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 }, hard: { ogain: 1.408 }, soft: { ogain: 1.202 } },
+      { name: 'ETHEREAL', values: { ogain: 1.522, cfeedback: 0, shape: 0.5, fm: 0.56, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 }, hard: { ogain: 1.522 }, soft: { ogain: 1.107 } },
     ],
     excite: [
-      // INTENSITY = how much of the carriers: stack 2 fades out below the middle (INT 0 =
-      // carrier 1 alone, clean) and comes up to full in the top quarter; and the modulation
-      // (v70: FM LVL has no knob on the PAD): from none at INT 0 through the sound's own at the
-      // middle to 0.58 at the top (more sounds harsh on chords). FM LVL2 follows FM LVL.
+      // v78: INTENSITY = the carriers only (FM LVL is a knob again, the filter and DRIVE the
+      // player's): stack 2 fades out below the middle (INT 0 = carrier 1 alone, clean) and comes
+      // up to full in the top quarter; carrier 1 feeds back into itself above the middle (sines
+      // turn saw-like at the top).
       { id: 'carriers', floor: 0, knee: 0.6, top: 1 },
-      { id: 'fm', floor: 0, top: 0.58 },
-      { id: 'fenv', floor: 0, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
-      { id: 'cutoff', floor: 400, high: 1.4 }, { id: 'drive', floor: 1, high: 1.5 },
-      // Carrier 1 feeds back into itself above the middle: sines turn saw-like at the top.
       { id: 'cfeedback', floor: 0, knee: 0.25, top: 1 },
     ],
   },
@@ -259,17 +255,17 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // Glassy -> a bright saw pluck -> a hollow, buzzy square pluck -> a raging FM donk.
     anchors: [
       // Steel: an FM steel-drum pluck (inharmonic 1 : 2.5).
-      { name: 'STEEL', values: { ogain: 1.136, shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, detune: 0.1, unison: 0, dratio: 0.71 }, hard: { ogain: 0.856 }, soft: { ogain: 0.885 } },
-      { name: 'GLASS PLUCK', values: { ogain: 1.128, shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.4, sustain: 0, release: 0.1, detune: 0.2, unison: 0, dratio: 0.75 }, hard: { ogain: 0.857 }, soft: { ogain: 1.094 } },
-      { name: 'SAW PLUCK', values: { ogain: 1.243, shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, decay: 0.4, sustain: 0.05, release: 0.08, detune: 0.35, unison: 0.5, dratio: 0.88 }, hard: { ogain: 0.952 }, soft: { ogain: 0.915 } },
-      { name: 'SQUARE PLUCK', values: { ogain: 0.662, shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, decay: 0.35, sustain: 0.03, release: 0.07, detune: 0.25, unison: 0.2, dratio: 0.86 }, hard: { ogain: 0.8 }, soft: { ogain: 0.51 } },
-      { name: 'RAGE DONK', values: { ogain: 0.729, shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, decay: 0.25, sustain: 0, release: 0.05, detune: 0.1, unison: 0, dratio: 0.72 }, hard: { ogain: 0.695 }, soft: { ogain: 0.927 } },
+      { name: 'STEEL', values: { cfeedback: 0, ogain: 1.136, shape: 0, fm: 0.7, fmratio: 2.5, cutoff: 5000, reso: 0.15, fenv: 0.7, fdecay: 0.2, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, detune: 0.1, unison: 0, dratio: 0.71 }, hard: { ogain: 1.154 }, soft: { ogain: 1.136 } },
+      { name: 'GLASS PLUCK', values: { cfeedback: 0, ogain: 1.128, shape: 1, fm: 0.25, fmratio: 3, cutoff: 3500, reso: 0.2, fenv: 0.5, fdecay: 0.15, fattack: 0.0005, drive: 1.2, attack: 0.001, decay: 0.4, sustain: 0, release: 0.1, detune: 0.2, unison: 0, dratio: 0.75 }, hard: { ogain: 1.150 }, soft: { ogain: 0.993 } },
+      { name: 'SAW PLUCK', values: { cfeedback: 0, ogain: 1.243, shape: 2, fm: 0.05, fmratio: 2, cutoff: 4500, reso: 0.3, fenv: 0.75, fdecay: 0.18, fattack: 0.0005, drive: 2, attack: 0.001, decay: 0.4, sustain: 0.05, release: 0.08, detune: 0.35, unison: 0.5, dratio: 0.88 }, hard: { ogain: 1.248 }, soft: { ogain: 1.080 } },
+      { name: 'SQUARE PLUCK', values: { cfeedback: 0, ogain: 0.662, shape: 3, fm: 0.1, fmratio: 2, cutoff: 4000, reso: 0.35, fenv: 0.7, fdecay: 0.16, fattack: 0.0005, drive: 2.5, attack: 0.001, decay: 0.35, sustain: 0.03, release: 0.07, detune: 0.25, unison: 0.2, dratio: 0.86 }, hard: { ogain: 0.669 }, soft: { ogain: 0.776 } },
+      { name: 'RAGE DONK', values: { cfeedback: 0, ogain: 0.729, shape: 0, fm: 1, fmratio: 2, cutoff: 8000, reso: 0.4, fenv: 1.2, fdecay: 0.12, fattack: 0.0005, drive: 12, attack: 0.0005, decay: 0.25, sustain: 0, release: 0.05, detune: 0.1, unison: 0, dratio: 0.72 }, hard: { ogain: 0.778 }, soft: { ogain: 0.729 } },
     ],
-    excite: [
-      { id: 'fm', floor: 0, knee: 0.6, top: 1 }, { id: 'fenv', floor: 0.1, high: 1.3 }, { id: 'reso', floor: 0.05, high: 1.2 },
-      { id: 'cutoff', floor: 500, high: 1.4 }, { id: 'drive', floor: 1, high: 1.6 },
-      { id: 'unison', floor: 0, high: 1.1 }, { id: 'detune', floor: 0.05, high: 1.1 },
-    ],
+    // v78: INTENSITY = the carrier only, as on the PAD (FM LVL, the filter, DRIVE, UNISON and
+    // DETUNE are the sound's, the knobs on top): below the middle CZ bends the wave (Synth cz 2:
+    // a rounded wave at INT 0, the plain wave from INT 50), above it the FM pair's carrier feeds
+    // back into itself (the PAD's CAR FB rule). INT 50 = each sound as designed.
+    excite: [{ id: 'cfeedback', floor: 0, knee: 0.25, top: 1 }],
   },
 };
 
@@ -337,10 +333,12 @@ function nearest(steps: readonly number[], r: number): number {
 /**
  * Per type, the steps a ratio moves through (default RATIO_STEPS). PAD: its modulators (FM
  * RATIO, RATIO 3) in whole and half steps; stack 2's carrier (RATIO 2) is a note heard, so it
- * keeps the musical intervals (a fourth, a fifth ...).
+ * keeps the musical intervals (a fourth, a fifth ...). PLUCK (v78): its FM RATIO likewise, with
+ * the PAD's octave detour (RATIO_ARC).
  */
 const RATIO_SNAP: Partial<Record<SoundKind, Record<string, readonly number[]>>> = {
   pad: { fmratio: HALF_STEPS, ratio3: HALF_STEPS },
+  pluck: { fmratio: HALF_STEPS },
 };
 
 /**
@@ -352,6 +350,7 @@ const RATIO_SNAP: Partial<Record<SoundKind, Record<string, readonly number[]>>> 
  */
 const RATIO_ARC: Partial<Record<SoundKind, Record<string, RatioArc>>> = {
   pad: { fmratio: { octaves: 1, cycles: 1 }, ratio3: { octaves: 1, cycles: 2 } },
+  pluck: { fmratio: { octaves: 1, cycles: 1 } },
 };
 
 /**

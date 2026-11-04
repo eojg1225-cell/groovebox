@@ -79,8 +79,17 @@ const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], 
  * FREQ (4, as the BASS's), BEND / BEND TIME (7), VIB DELAY / UNISON (8).
  */
 const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', 'fmpair', _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
-/** PLUCK FUNC: DECAY / RELEASE, SLIDE (3), UNISON, CHORD / DETUNE (7), DLY MIX / VERB under the delay (8). */
-const PLUCK_FUNC = funcPage([_, 'decay', 'glide', 'unison', _, _, 'track:chord', 'dmix'], [_, 'release', _, _, _, _, 'detune', 'verb']);
+/**
+ * PLUCK FUNC (ALT; v78): the effects, off the design page: DECAY / SUSTAIN under ATTACK / RELEASE,
+ * DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY TIME / DLY FDBK (8).
+ */
+const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', _, _, _, 'drive', 'dtime'], [_, 'sustain', 'verb', _, _, _, 'crush', 'dfdbk']);
+/**
+ * PAD and PLUCK share one design page (v78): 1 TIMBRE / INT, 2 ATTACK / RELEASE, 3 FM ATK / FM DEC,
+ * 4 FM LVL / RESO, 5 FLT ATK / FLT DEC, 6 FLT ENV / CUTOFF, 7 DETUNE / UNISON, 8 CHORD / SLIDE;
+ * the effects (DRIVE, CRUSH, PLUCK's delay and room) on the FUNC (ALT) layer.
+ */
+const CHORD_PAGE = synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'drive' ? 'detune' : id === 'crush' ? 'unison' : id));
 
 /**
  * PAD FUNC layer: DECAY / SUSTAIN (both oscillators) under module 2, OSC 2's own
@@ -316,9 +325,9 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: 0.413, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    // No FM LVL on the PAD (INT sets it) and no CRUSH: DRIVE over RESO (4), DETUNE / UNISON (7).
-    layout: synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'fm' ? 'drive' : id === 'drive' ? 'detune' : id === 'crush' ? 'unison' : id)),
-    funcLayout: trackFunc(heldFunc([_, _, _, _], [_, _, _, _])),
+    // CHORD_PAGE (FM LVL up to 0.58); no CRUSH, DRIVE on FUNC (ALT) 7.
+    layout: CHORD_PAGE,
+    funcLayout: trackFunc(heldFunc([_, _, 'drive', _], [_, _, _, _])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.948, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
@@ -327,7 +336,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: 1.105, live: ['cutoff', 'macro:space'], liveFunc: ['macro:sustain', 'track:notes'], params: PLUCK_PARAMS,
-    layout: synthPage(['attack', 'sustain'], ['dtime', 'dfdbk']),
+    layout: CHORD_PAGE,
     funcLayout: trackFunc(PLUCK_FUNC),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },
 };

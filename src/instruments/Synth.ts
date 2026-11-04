@@ -33,11 +33,6 @@ const MAX_VOICES = 6;
 function fmEnvGain(env: number): number {
   return 0.6 + 1.8 * env;
 }
-/**
- * How far the filter follows the note at INT 0 (fading out by INT 50): 0.75 keeps every
- * sound's INT 0 within about 4 dB of its INT 50 up to A5 (none: up to 30 dB quieter).
- */
-const KEY_TRACK = 0.75;
 
 /**
  * BASS FM pair: above FM LVL 60 its depth curves up to 8x at the top (index 40 on the strike,
@@ -346,11 +341,13 @@ const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 
 /** One envelope for both oscillators (envlink). */
 const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
 export const BASS_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmratio'), 'fmpair', 'ogain', 'fmcomp', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES, { shape: 4 });
-export const BASS_FIXED = { voice: 1, envlink: 1, keyref: 33, squelch: 1, body: 1, cz: 1 };
+export const BASS_FIXED = { voice: 1, envlink: 1, squelch: 1, body: 1, cz: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
-// PAD DETUNE: half the other synths' range (any more is unusable on chords).
-export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
+// PAD DETUNE: half the other synths' range (any more is unusable on chords); FM LVL up to 0.58
+// (more is harsh on chords).
+const PAD_FM_MAX = 0.58;
+export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2, fm: PAD_FM_MAX });
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
 export const PAD_FIXED = { voice: 0, sub: 0, algo: 2 };
 /**
@@ -364,8 +361,8 @@ export const LEAD_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmrati
  */
 export const LEAD_FIXED = { voice: 1, sub: 0, envlink: 1, squelch: 1, body: 1, cz: 1 };
 /** PLUCK: a polyphonic pluck (the ARP is a track setting now: engine/arp.ts). */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
-export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1 };
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'cfeedback', 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
+export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1, cz: 2 };
 
 /** SIDECHAIN: how fast a KICK hit pulls the level down (no click). */
 const DUCK_ATTACK = 0.003;
@@ -475,8 +472,8 @@ export class Synth implements Instrument {
   private readonly velK: number;
   private readonly voices: Voice[] = [];
   private shape = 2; private fm = 0; private fmRatio = 2;
-  /** CZ (see czWave): on for BASS / LEAD; the bend = INTENSITY (1 = the plain wave). */
-  private cz = false; private intensity = 0.5;
+  /** CZ (see czWave): 0 off, 1 BASS / LEAD, 2 PLUCK (setIntensity); the bend (1 = the plain wave). */
+  private cz = 0; private intensity = 0.5; private czBend = 1;
   /**
    * FM pair carrier ratio (algo 0; 1 = on the note). Above 1 with the modulator 1 away from
    * it (carrier 3, modulator 2 or 4) the pair's lowest sideband lands on the note: "root-locked",
@@ -544,12 +541,6 @@ export class Synth implements Instrument {
   private readonly releaseMul = new Float64Array(2);
   private ageCounter = 0;
   private pitchMod = 1;
-  /**
-   * Below INT 50 the filter follows the note (fully at INT 0): INT pulls the cutoff towards a
-   * dull floor, and without this a note octaves above the type's home note (keyRef, the note
-   * its sounds are levelled on) lost the rest of itself to it. 0 from INT 50 up.
-   */
-  private keyTrack = 0; private keyRef = 45;
   /** LEAD pitch effects (VIBRATO, BEND); pitchFx = either is on. */
   private vibDepth = 0; private vibRate = 5.5; private vibDelay = 0.3; private bend = 0; private bendTime = 0.08; private pitchFx = false;
   /** envlink: OSC 2 follows OSC 1's envelope (DECAY x dratio). */
@@ -696,13 +687,12 @@ export class Synth implements Instrument {
     const sr = this.sr;
     switch (id) {
       case 'shape': this.shape = Math.min(4, Math.max(0, value)); this.updatePhase(); break;
-      case 'cz': this.cz = value > 0; this.setIntensity(this.intensity); break;
+      case 'cz': this.cz = Math.round(value); this.setIntensity(this.intensity); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
       case 'fm': this.fm = value; this.updateFm(); break;
       case 'intensity': this.setIntensity(value); break;
-      case 'keyref': this.keyRef = value; break;
       case 'vibrato': this.vibDepth = value; this.pitchFx = this.vibDepth > 0 || this.bend !== 0; break;
       case 'vibrate': this.vibRate = value; break;
       case 'vibdelay': this.vibDelay = value; break;
@@ -963,24 +953,25 @@ export class Synth implements Instrument {
   }
 
   /**
-   * INTENSITY: with CZ the wave's bend (the filter left alone); otherwise, below the middle,
-   * the filter following the note (KEY_TRACK).
+   * INTENSITY with CZ: the wave's bend (cz 1, BASS / LEAD: over the whole knob; cz 2, PLUCK:
+   * over its lower half, the plain wave from INT 50 up, where its CAR FB takes over). INT never
+   * moves the filter.
    */
   private setIntensity(value: number): void {
     this.intensity = Math.min(1, Math.max(0, value));
-    this.keyTrack = !this.cz && value < 0.5 ? KEY_TRACK * (1 - 2 * value) : 0;
+    this.czBend = this.cz === 1 ? this.intensity : this.cz === 2 ? Math.min(1, 2 * this.intensity) : 1;
     this.updatePhase();
   }
 
   /** The FM pair's and BODY's start: the wave's fundamental as SHAPE (and CZ's bend) make it. */
   private updatePhase(): void {
-    this.pairPhase = fundamentalPhase(this.shape, this.cz && this.intensity < 1 ? this.intensity : -1);
+    this.pairPhase = fundamentalPhase(this.shape, this.cz > 0 && this.czBend < 1 ? this.czBend : -1);
   }
 
   /** SHAPE's waves (OSC 1, OSC 2, UNISON copies); with CZ bent by INTENSITY (czWave). */
   private oscWaves(w: number, wf: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
-    const a = this.intensity;
-    if (!this.cz || a >= 1) { waves(w, wf, phase, dt, scale, out, n); return; }
+    const a = this.czBend;
+    if (this.cz === 0 || a >= 1) { waves(w, wf, phase, dt, scale, out, n); return; }
     // The bend's edge from nearly half the cycle (a cosine with a trace of the wave) down to
     // 1.5 samples; above CZ_OPEN the plain wave takes over.
     const bend = CZ_FLOOR + (1 - CZ_FLOOR) * a;
@@ -1192,8 +1183,7 @@ export class Synth implements Instrument {
       }
       if (v.counter-- <= 0) {
         v.counter = FILTER_UPDATE;
-        const key = this.keyTrack > 0 && v.note > this.keyRef ? exp2((this.keyTrack * (v.note - this.keyRef)) / 12) : 1;
-        v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv) * key, this.reso, sr);
+        v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv), this.reso, sr);
       }
       v.filter.process(mix * 0.5);
 

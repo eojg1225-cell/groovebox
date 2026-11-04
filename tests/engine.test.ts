@@ -11,7 +11,7 @@ import { applyPreset, createDefaultProject, createStartProject } from '../src/en
 import { CHORDS } from '../src/engine/chords';
 import { defaultSound, INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, macroAnchor, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
-import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, dx7Index } from '../src/instruments/Synth';
+import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, PLUCK_FIXED, dx7Index } from '../src/instruments/Synth';
 import { IdleGate, midiToHz } from '../src/instruments/dsp';
 import { Smoother } from '../src/engine/smoother';
 import { gatedLoudness } from '../tools/lab/loudness';
@@ -179,7 +179,7 @@ describe('instruments', () => {
     }
   });
 
-  it('sound page frame: the sound, then DRIVE / CRUSH (7), then the performance pair (8)', () => {
+  it('sound page frame: the sound, then DRIVE / CRUSH (7; PAD / PLUCK: DETUNE / UNISON, effects on FUNC), then the performance pair (8)', () => {
     // Synths follow the sound chain: TIMBRE / INT, amp, FM, filter, DRIVE / CRUSH, module 8.
     expect(synthPage(['a1', 'a2'], ['p1', 'p2'])).toEqual([
       'timbre', 'a1', 'fmattack', 'fm', 'fattack', 'fenv', 'drive', 'p1',
@@ -203,14 +203,22 @@ describe('instruments', () => {
     expect([INSTRUMENTS.snare.layout[3], INSTRUMENTS.snare.layout[11]]).toEqual(['t_pitch', 'm_pitch']); // both layers tuned
     expect([INSTRUMENTS.perc.layout[3], INSTRUMENTS.perc.layout[11]]).toEqual(['detune', 'm_interval']);
     expect(INSTRUMENTS.hat.layout.slice(9, 11)).toEqual(['c_len', 'm_decay']);
-    // Every synth: FM ATK / FM DEC (3), FM LVL / RESO (4), FLT ATK / FLT DEC (5), FLT ENV / CUTOFF (6);
-    // the PAD has no FM LVL (INT sets it): DRIVE over RESO, DETUNE / UNISON on 7.
+    // Every synth: FM ATK / FM DEC (3), FM LVL / RESO (4), FLT ATK / FLT DEC (5), FLT ENV / CUTOFF (6).
     for (const k of ['bass', 'pad', 'lead', 'pluck'] as const) {
       const l = INSTRUMENTS[k].layout;
-      expect([l[2], l[10], l[3], l[11], l[4], l[12], l[5], l[13]], k).toEqual(['fmattack', 'fmdecay', k === 'pad' ? 'drive' : 'fm', 'reso', 'fattack', 'fdecay', 'fenv', 'cutoff']);
+      expect([l[2], l[10], l[3], l[11], l[4], l[12], l[5], l[13]], k).toEqual(['fmattack', 'fmdecay', 'fm', 'reso', 'fattack', 'fdecay', 'fenv', 'cutoff']);
     }
-    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14]]).toEqual(['detune', 'unison']);
-    for (const id of ['fm', 'fm2', 'feedback']) expect([...INSTRUMENTS.pad.layout, ...INSTRUMENTS.pad.funcLayout], id).not.toContain(id);
+    // v78: PAD and PLUCK share the design page (DETUNE / UNISON 7, CHORD / SLIDE 8); their effects
+    // are on FUNC (ALT): the PAD's DRIVE on 7, PLUCK's DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY
+    // TIME / DLY FDBK (8). The PAD's FM LVL stops at 0.58.
+    expect(INSTRUMENTS.pluck.layout).toEqual(INSTRUMENTS.pad.layout);
+    expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14], INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['detune', 'unison', 'track:chord', 'glide']);
+    expect(INSTRUMENTS.pad.funcLayout[6]).toBe('drive');
+    const pf = INSTRUMENTS.pluck.funcLayout;
+    expect([pf[2], pf[10], pf[6], pf[14], pf[7], pf[15]]).toEqual(['dmix', 'verb', 'drive', 'crush', 'dtime', 'dfdbk']);
+    for (const k of ['pad', 'pluck'] as const) for (const id of ['drive', 'crush', 'dtime', 'dfdbk', 'dmix', 'verb']) expect(INSTRUMENTS[k].layout, `${k} ${id}`).not.toContain(id);
+    expect(paramSpec('pad', 'fm')!.max).toBe(0.58);
+    for (const id of ['fm2', 'feedback']) expect([...INSTRUMENTS.pad.layout, ...INSTRUMENTS.pad.funcLayout], id).not.toContain(id);
     expect(paramSpec('pad', 'detune')!.max).toBe(2); // half the others' range (chords)
     // BASS FUNC: FM RATIO over MID FREQ (4), UNISON / DETUNE (8).
     expect(INSTRUMENTS.bass.funcLayout[3]).toBe('fmpair');
@@ -221,13 +229,10 @@ describe('instruments', () => {
     expect([INSTRUMENTS.pad.layout[1], INSTRUMENTS.pad.layout[9]]).toEqual(['attack', 'release']);
     expect([INSTRUMENTS.pad.funcLayout[1], INSTRUMENTS.pad.funcLayout[9]]).toEqual(['decay', 'sustain']);
     expect([INSTRUMENTS.pad.funcLayout[2], INSTRUMENTS.pad.funcLayout[10]]).toEqual(['attack2', 'release2']); // OSC 2's own
-    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
+    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'release']);
     // BASS SIDECHAIN under DRIVE / CRUSH with FUNC.
     expect([INSTRUMENTS.bass.funcLayout[6], INSTRUMENTS.bass.funcLayout[14]]).toEqual(['duck', 'duckrel']);
-    // PLUCK: its delay at the end, DLY MIX / VERB under it, CHORD / DETUNE with FUNC on 7; no ARP.
-    expect([INSTRUMENTS.pluck.layout[7], INSTRUMENTS.pluck.layout[15]]).toEqual(['dtime', 'dfdbk']);
-    expect([INSTRUMENTS.pluck.funcLayout[7], INSTRUMENTS.pluck.funcLayout[15]]).toEqual(['dmix', 'verb']);
-    expect([INSTRUMENTS.pluck.funcLayout[6], INSTRUMENTS.pluck.funcLayout[14]]).toEqual(['track:chord', 'detune']);
+    // PLUCK (v78): no ARP.
     expect(INSTRUMENTS.pluck.params.some((p) => p.id.startsWith('arp'))).toBe(false);
     expect([INSTRUMENTS.bass.layout[7], INSTRUMENTS.bass.layout[15]]).toEqual(['glide', 'sub']);
     expect([INSTRUMENTS.lead.layout[7], INSTRUMENTS.lead.layout[15]]).toEqual(['glide', 'detune']);
@@ -240,8 +245,8 @@ describe('instruments', () => {
     expect([lf[2], lf[10], lf[6], lf[14], lf[7], lf[15]]).toEqual(['vibrato', 'vibrate', 'bend', 'bendtime', 'vibdelay', 'unison']);
     expect(linkedParams('bass', 'attack')).toEqual([]);
     expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'glide']);
-    expect([INSTRUMENTS.pad.layout[3], INSTRUMENTS.pad.layout[11]]).toEqual(['drive', 'reso']); // DRIVE where FM LVL would be
-    expect(INSTRUMENTS.pad.funcLayout.filter((id) => id !== null).length).toBe(10); // PRESET, LIVE 1-4, MID FREQ, DECAY / SUSTAIN, OSC 2 ATTACK / RELEASE
+    expect([INSTRUMENTS.pad.layout[3], INSTRUMENTS.pad.layout[11]]).toEqual(['fm', 'reso']); // v78: FM LVL back (DRIVE on FUNC)
+    expect(INSTRUMENTS.pad.funcLayout.filter((id) => id !== null).length).toBe(11); // PRESET, LIVE 1-4, MID FREQ, DECAY / SUSTAIN, OSC 2 ATTACK / RELEASE, DRIVE
     // Drums: only the track setup (PRESET, LIVE, MID FREQ) on FUNC, plus KICK / SNARE SWEEP / SWP TIME, HAT FOCUS.
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) {
       expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || ((k === 'kick' || k === 'snare') && id.startsWith('t_s')) || (k === 'snare' && (id === 'c_level' || id === 'c_tone')) || (k === 'hat' && id === 'h_focus')), k).toBe(true);
@@ -2045,10 +2050,10 @@ describe('drum RING follows the decay knobs', () => {
 });
 
 describe('PLUCK and ARP', () => {
-  it('has its five sounds, from steel to the FM donk; CHORD / DETUNE on FUNC, no ARP knobs', () => {
+  it('has its five sounds, from steel to the FM donk; CHORD / DETUNE on its page, no ARP knobs', () => {
     expect(INSTRUMENTS.pluck.presets.map((p) => p.name)).toEqual(['STEEL', 'GLASS PLUCK', 'SAW PLUCK', 'SQUARE PLUCK', 'RAGE DONK']);
     const f = INSTRUMENTS.pluck.funcLayout;
-    expect([f[6], f[14]]).toEqual(['track:chord', 'detune']);
+    expect([INSTRUMENTS.pluck.layout[7], INSTRUMENTS.pluck.layout[6]]).toEqual(['track:chord', 'detune']);
     expect([...INSTRUMENTS.pluck.layout, ...f].some((id) => id?.startsWith('arp'))).toBe(false);
     const s = new Synth(SR, INSTRUMENTS.pluck.params, { voice: 0 });
     const donk = presetSound('pluck', 3);
@@ -2272,14 +2277,41 @@ describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => 
   };
   const octaves = (a: number, b: number) => Math.abs(Math.log2(a / b));
 
-  it('INTENSITY 0 pulls SAW PLUCK and GLASS PLUCK together without making them the same', () => {
-    const mid = octaves(at('pluck', 'SAW PLUCK', 0.5).cutoff, at('pluck', 'GLASS PLUCK', 0.5).cutoff);
-    const low = octaves(at('pluck', 'SAW PLUCK', 0).cutoff, at('pluck', 'GLASS PLUCK', 0).cutoff);
-    expect(low).toBeLessThan(mid * 0.12 + 1e-9);
-    expect(at('pluck', 'SAW PLUCK', 0).drive).toBeLessThan(at('pluck', 'SAW PLUCK', 0.5).drive);
-    // TIMBRE still matters at 0: FM keeps a tenth of each sound's own amount.
-    expect(at('pluck', 'RAGE DONK', 0).fm).toBeGreaterThan(at('pluck', 'GLASS PLUCK', 0).fm);
-    expect(at('pluck', 'RAGE DONK', 0).fm).toBeGreaterThan(0);
+  it('PLUCK INT (v78) moves only its carrier: CAR FB above the middle; FM LVL, filter, DRIVE, width stay the sound\'s', () => {
+    const specs = INSTRUMENTS.pluck.params;
+    for (const a of MACROS.pluck.anchors) {
+      const mid = at('pluck', a.name, 0.5);
+      expect(mid.cfeedback).toBe(0);
+      for (const x of [0, 1]) {
+        const s = at('pluck', a.name, x);
+        for (const id of Object.keys(mid)) if (id !== 'ogain' && id !== 'cfeedback') expect(s[id], `${a.name} ${id} INT ${x}`).toBe(mid[id]);
+      }
+      expect(at('pluck', a.name, 0).cfeedback).toBe(0);
+      expect(at('pluck', a.name, 0.75).cfeedback).toBeCloseTo(0.25, 6);
+      expect(at('pluck', a.name, 1).cfeedback).toBeCloseTo(1, 6);
+    }
+    // The FM ratio steps as on the PAD: whole and half steps, an octave's detour between sounds.
+    const ratios = new Set<number>();
+    for (let k = 0; k <= 100; k++) ratios.add(macroSound('pluck', k / 100, 0.5, specs).fmratio);
+    for (const r of ratios) expect(HALF_STEPS, `ratio ${r}`).toContain(r);
+    expect(Math.max(...ratios)).toBeGreaterThanOrEqual(4);
+  });
+
+  it('PLUCK INT (v78): CZ rounds the wave below the middle, the plain wave from INT 50; CAR FB above', () => {
+    const play = (x: number, cz = true, fm?: number) => {
+      const s = new Synth(SR, INSTRUMENTS.pluck.params, { ...PLUCK_FIXED, cz: cz ? 2 : 0 });
+      const sound: Record<string, number> = { ...presetSound('pluck', 2), ...macroSound('pluck', 0.5, x, INSTRUMENTS.pluck.params), intensity: x, dmix: 0, verb: 0, ...(fm === undefined ? {} : { fm }) };
+      for (const id in sound) s.setParam(id, sound[id]);
+      s.noteOn(45, 0.8, 45, false);
+      const l = new Float32Array(SR / 4);
+      s.render(l, new Float32Array(l.length), 0, l.length);
+      return l;
+    };
+    const same = (a: Float32Array, b: Float32Array) => a.every((v, i) => v === b[i]);
+    expect(same(play(0.5), play(0.5, false))).toBe(true); // INT 50: the plain wave, as designed
+    expect(same(play(0.2), play(0.2, false))).toBe(false); // below: bent
+    const diff = (a: Float32Array, b: Float32Array) => a.reduce((d, v, i) => d + (v - b[i]) ** 2, 0) / a.reduce((d, v) => d + v * v, 0);
+    expect(diff(play(1, true, 0.6), play(0.5, true, 0.6))).toBeGreaterThan(0.01); // CAR FB heard with FM up
   });
 
   it('INTENSITY 0.5 is the sound as designed; 0 makes PERC dull thuds (less sweep, click, drive)', () => {
@@ -2469,15 +2501,18 @@ describe('PAD on the 3 carrier engine', () => {
       expect(st.nan, `pad ${i}`).toBe(false);
       expect(st.peak, `pad ${i}`).toBeGreaterThan(0.02);
     }
-    // CARRIERS: 0.85 on every sound (no knob); INTENSITY 0 fades stack 2 out; INTENSITY
-    // leaves FM LVL as the sound sets it.
+    // CARRIERS: 0.85 on every sound (no knob); INTENSITY 0 fades stack 2 out.
     for (let t = 0; t <= 1; t += 0.25) expect(macroSound('pad', t, 0.5, PAD_PARAMS).carriers).toBeCloseTo(0.85);
     expect(macroSound('pad', 0.5, 0, PAD_PARAMS).carriers).toBeLessThan(0.02); // 2 % of the sound's own (CONVERGE)
-    // v70: INT sets FM LVL too (no knob): none at INT 0, the sound's own at 50, 0.58 at 100.
+    // v78: INT moves only the carriers (CARRIERS, CAR FB): FM LVL is a knob again (the sound's
+    // own, up to 0.58), the filter and DRIVE the player's.
     for (let t = 0; t <= 1; t += 0.25) {
-      expect(macroSound('pad', t, 0, PAD_PARAMS).fm).toBeLessThan(0.02);
-      expect(macroSound('pad', t, 0.5, PAD_PARAMS).fm).toBeLessThanOrEqual(0.58);
-      expect(macroSound('pad', t, 1, PAD_PARAMS).fm).toBeCloseTo(0.58, 6);
+      const mid = macroSound('pad', t, 0.5, PAD_PARAMS);
+      expect(mid.fm).toBeLessThanOrEqual(0.58);
+      for (const x of [0, 1]) {
+        const s = macroSound('pad', t, x, PAD_PARAMS);
+        for (const id of Object.keys(mid)) if (!['ogain', 'carriers', 'cfeedback'].includes(id)) expect(s[id], `TIMBRE ${t} ${id} INT ${x}`).toBe(mid[id]);
+      }
     }
   });
 
@@ -3052,7 +3087,8 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     const m = LIVE_MACROS.pluck.find((x) => x.id === 'macro:sustain')!;
     expect(m.targets.map((t) => t.id)).toEqual(['attack', 'decay', 'sustain', 'fdecay']);
     expect(INSTRUMENTS.pluck.liveFunc).toEqual(['macro:sustain', 'track:notes']);
-    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
+    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'release']);
+    expect([INSTRUMENTS.pluck.funcLayout[1], INSTRUMENTS.pluck.funcLayout[9]]).toEqual(['decay', 'sustain']);
     const held = play(synth('pluck', { sustain: 0.6, dmix: 0, verb: 0 }), 0.8, 0.8);
     const plucked = play(synth('pluck', { sustain: 0, dmix: 0, verb: 0 }), 0.8, 0.8);
     expect(rms(held, SR * 0.6, SR * 0.7)).toBeGreaterThan(rms(plucked, SR * 0.6, SR * 0.7) * 10 + 1e-3);
@@ -3996,7 +4032,9 @@ describe('v41: the FM envelope', () => {
     const back = fromStored(stored)!;
     const b = back.channels[7];
     expect([b.sounds.pluck!.fmattack, b.sounds.pluck!.fmdecay]).toEqual([0.02, 0.7]);
-    expect(b.trims.pluck!.fmdecay).toBe(0.1);
+    // Its trims (v78: taken again from its values) still make the FM DEC it had.
+    const specs = INSTRUMENTS.pluck.params, spec = specs.find((q) => q.id === 'fmdecay')!;
+    expect(applyTrim(spec, hiddenSound('pluck', b.sounds.pluck!, specs).fmdecay, b.trims.pluck!.fmdecay)).toBeCloseTo(0.7, 6);
     expect(b.patterns[0].steps[0].locks).toEqual({ fdecay: 0.4, fmdecay: 0.4 });
     expect([back.channels[5].fxSend, back.channels[6].fxSend]).toEqual([2, 3]);
     expect(back.buses).toEqual(createDefaultProject().buses);
@@ -4028,9 +4066,9 @@ describe('PAD / PLUCK chord slides, FM LVL2', () => {
     }
   });
 
-  it('PAD / PLUCK have a SLIDE knob (PAD on its page, PLUCK on FUNC); PAD FM LVL2 follows FM LVL (both INT\'s)', () => {
+  it('PAD / PLUCK have a SLIDE knob on their page; PAD FM LVL2 follows FM LVL', () => {
     expect(INSTRUMENTS.pad.layout).toContain('glide');
-    expect(INSTRUMENTS.pluck.funcLayout).toContain('glide');
+    expect(INSTRUMENTS.pluck.layout).toContain('glide');
     expect(linkedParams('pad', 'fm')).toEqual(['fm2']);
     for (let t = 0; t <= 1; t += 0.25) for (const x of [0, 0.5, 1]) expect(macroSound('pad', t, x, PAD_PARAMS).fm2).toBe(macroSound('pad', t, x, PAD_PARAMS).fm);
   });
@@ -4721,5 +4759,26 @@ describe('FM phase (v77)', () => {
     const now = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
     now.channels[4].sounds.bass.fmcomp = 3;
     expect(fromStored(now)!.channels[4].sounds.bass!.fmcomp).toBe(3);
+  });
+});
+
+describe('PAD / PLUCK carriers (v78)', () => {
+  it('v78: a saved PAD keeps its INT, a PLUCK moves to INT 50; their values stay (as trims); PLUCK INT locks / lanes go', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 77;
+    Object.assign(stored.channels[5].sounds.pad, { intensity: 0.3, fm: 0.1, cutoff: 700, drive: 1.3 });
+    Object.assign(stored.channels[7].sounds.pluck, { intensity: 0.2, fm: 0.03, cutoff: 900, unison: 0.1 });
+    stored.channels[7].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { intensity: 0.9, cutoff: 500 } }];
+    stored.song.a = { 's:7:intensity': [[0, 0.3]], 's:5:intensity': [[0, 0.6]] };
+    const p = fromStored(stored)!;
+    expect(p.channels[5].sounds.pad).toMatchObject({ intensity: 0.3, fm: 0.1, cutoff: 700, drive: 1.3 });
+    expect(p.channels[7].sounds.pluck).toMatchObject({ intensity: 0.5, fm: 0.03, cutoff: 900, unison: 0.1, cfeedback: 0 });
+    for (const [ch, kind, id, v] of [[5, 'pad', 'fm', 0.1], [7, 'pluck', 'cutoff', 900]] as const) {
+      const c = p.channels[ch], specs = INSTRUMENTS[kind].params;
+      const hidden = macroSound(kind, c.sounds[kind]!.timbre, c.sounds[kind]!.intensity, specs);
+      expect(applyTrim(specs.find((q) => q.id === id)!, hidden[id], c.trims[kind]![id]), `${kind} ${id}`).toBeCloseTo(v, 6);
+    }
+    expect(p.channels[7].patterns[0].steps[0].locks).toEqual({ cutoff: 500 });
+    expect(Object.keys(p.song.auto!)).toEqual(['s:5:intensity']);
   });
 });

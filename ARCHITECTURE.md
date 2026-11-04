@@ -187,7 +187,7 @@ ramping across the run.
 ## Instruments
 
 `src/instruments/registry.ts` maps a track type (`kick` `snare` `hat` `perc` `bass` `pad` `lead`
-`pluck`) to its class, `ParamSpec[]`, SOUND page `layout` and FUNC `funcLayout` (16 slots each),
+`pluck`) to its class, `ParamSpec[]`, SOUND page `layout` and ALT `funcLayout` (16 slots each),
 default live knobs, output `gain` and presets. Each channel preallocates one instance of every type.
 `ParamSpec.options` marks discrete choices (stored as an index) and `coarse` marks settings that only
 switch (never glide, never on a relative live knob).
