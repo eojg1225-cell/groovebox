@@ -4929,3 +4929,23 @@ describe('v81: PAD effects, HAT AIR, one send', () => {
     expect(back.song.auto).toEqual({ 'b:1:vrb_size': [[0, 0.2]] });
   });
 });
+
+describe('v82: PAD MOD TYPE', () => {
+  it('CHORUS / FLANGER / PHASER; a v81 ENSEMBLE (sound, locks, SONG lanes) becomes CHORUS, PHASER stays', () => {
+    expect(paramSpec('pad', 'modtype')!.options).toEqual(['CHORUS', 'FLANGER', 'PHASER']);
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 81;
+    stored.channels[5].sounds.pad.modtype = 1;
+    stored.channels[5].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { modtype: 1 } }, { i: 1, n: 57, v: 0.8, l: { modtype: 2 } }];
+    stored.song = { rows: [{ b: 4, p: [0, 0, 0, 0, 0, 0, 0, 0] }], a: { 's:5:modtype': [[0, 1], [16, 2]] } };
+    const back = fromStored(stored)!;
+    expect(back.channels[5].sounds.pad!.modtype).toBe(0);
+    expect(back.channels[5].patterns[0].steps.slice(0, 2).map((s) => s.locks?.modtype)).toEqual([0, 2]);
+    expect(back.song.auto!['s:5:modtype']).toEqual([[0, 0], [16, 2]]);
+    // A v80 PAD on FX 2's ENSEMBLE (its default) gets the CHORUS.
+    const v80 = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    v80.version = 80;
+    v80.channels[5].fxSend = 2;
+    expect(fromStored(v80)!.channels[5].sounds.pad!.modtype).toBe(0);
+  });
+});

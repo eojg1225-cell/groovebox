@@ -254,8 +254,8 @@ const FILTER_UPDATE = 16;
 /** Voices render in blocks of up to this many samples (the engine's chunk). */
 const BLOCK = 64;
 
-/** PAD MOD TYPE: the ModFx modes it offers (as FX 2 did), each at FX 2's RATE (Hz) / DEPTH. */
-const PAD_MOD_TYPES = ['CHORUS', 'ENSEMBLE', 'PHASER'];
+/** PAD MOD TYPE (v82: FLANGER in ENSEMBLE's place): the ModFx modes it offers, each at FX 2's old RATE (Hz) / DEPTH. */
+const PAD_MOD_TYPES = ['CHORUS', 'FLANGER', 'PHASER'];
 const PAD_MOD_RATE = 0.5;
 const PAD_MOD_DEPTH = 0.5;
 /** PAD VERB: FX 2's HALL at its SIZE / LENGTH. */
@@ -343,7 +343,7 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'verb', name: 'VERB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // PAD's own effects (v81, ALT; all off by default): LOW CUT (a high-pass, off at 20 Hz), then
-  // MOD (CHORUS / ENSEMBLE / PHASER, FX 2's old units, at their old RATE / DEPTH), then VERB (a hall).
+  // MOD (CHORUS / FLANGER / PHASER, FX 2's old units, at its old RATE / DEPTH), then VERB (a hall).
   { id: 'lowcut', name: 'LOW CUT', min: 20, max: 1000, defaultValue: 20, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'modmix', name: 'MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   choice('modtype', 'MOD TYPE', PAD_MOD_TYPES),
