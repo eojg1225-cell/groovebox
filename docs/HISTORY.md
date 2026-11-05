@@ -177,3 +177,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Load fix (2026-11-05): a knob's followers (PAD FM LVL2, OSC 2 DECAY / SUSTAIN) keep their edits on reload (they snapped back to TIMBRE's).
 - PLUCK amp knobs (2026-11-05): back to ATTACK / SUSTAIN on the page, DECAY / RELEASE on ALT (v78 had made them the PAD's).
 - RING x2 (2026-11-05): a RING note's decays run twice as long on every track: synths' amp DECAY / FM DEC / FLT DEC (new), drums' layers (were x3).
+- PAD / PLUCK presets as before (2026-11-05): the PAD keeps its rising saw (WARM), PLUCK's FM pair is not phase-aligned and its levels are back; the FM-phase wrap bug (a sine's phase read as a whole turn, moving a fractional-ratio modulator half a cycle: STEEL) fixed; fundamentalPhase no longer allocates on the audio thread.

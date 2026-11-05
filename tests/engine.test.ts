@@ -4827,3 +4827,19 @@ describe('RING on synths', () => {
     expect(rms(ring, SR * 0.4, SR * 0.5)).toBeGreaterThan(rms(plain, SR * 0.4, SR * 0.5) * 3);
   });
 });
+
+describe('FM pair phase on a sine', () => {
+  it('a sine needs no shift: aligning the pair changes nothing, even on a fractional FM ratio', () => {
+    const play = (align: number) => {
+      const s = new Synth(SR, INSTRUMENTS.pluck.params, { ...PLUCK_FIXED, align });
+      const sound: Record<string, number> = { ...presetSound('pluck', 0), dmix: 0, verb: 0, fmratio: 2.5, fm: 0.7 };
+      for (const id in sound) s.setParam(id, sound[id]);
+      s.noteOn(57, 0.8, 57, false);
+      const l = new Float32Array(SR / 4);
+      s.render(l, new Float32Array(l.length), 0, l.length);
+      return l;
+    };
+    const a = play(0), b = play(1);
+    expect(a.every((v, i) => v === b[i])).toBe(true);
+  });
+});

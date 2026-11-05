@@ -131,13 +131,14 @@ function wrap(p: number): number {
 /**
  * 0 sine, 1 triangle, 2 saw, 3 square (band-limited saw / square). The saw falls (1 - 2p): its
  * fundamental in a sine's and a square's phase, so a blend towards the square adds to the note
- * (the rising saw's was upside down: SAW -> SQUARE cancelled half-way, -12 dB at FM 0).
+ * (the rising saw's was upside down: SAW -> SQUARE cancelled half-way, -12 dB at FM 0). `ss` -1:
+ * the rising saw (the PAD's, `sawrise`: its sounds were designed on it, WARM's triangle-saw blend).
  */
-function wave(w: number, phase: number, dt: number): number {
+function wave(w: number, phase: number, dt: number, ss: number): number {
   switch (w) {
     case 0: return sinTurn(phase);
     case 1: return 4 * Math.abs(phase - 0.5) - 1;
-    case 2: return 1 - 2 * phase + polyBlep(phase, dt);
+    case 2: return ss * (1 - 2 * phase + polyBlep(phase, dt));
     default: {
       let p2 = phase + 0.5; if (p2 >= 1) p2 -= 1;
       return (phase < 0.5 ? 1 : -1) + polyBlep(phase, dt) - polyBlep(p2, dt);
@@ -157,25 +158,25 @@ function pulse(phase: number, dt: number, f: number): number {
 }
 
 /** A block of SHAPE's wave: out[j] = shaped(phase[j], dt[j] x scale); w = 3: the pulse. */
-function waves(w: number, f: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
+function waves(w: number, f: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number, ss: number): void {
   if (w === 3) {
     for (let j = 0; j < n; j++) out[j] = pulse(phase[j], dt[j] * scale, f);
   } else if (f > 0) {
     for (let j = 0; j < n; j++) {
       const d = dt[j] * scale;
-      const a = wave(w, phase[j], d);
-      out[j] = a + (wave(w + 1, phase[j], d) - a) * f;
+      const a = wave(w, phase[j], d, ss);
+      out[j] = a + (wave(w + 1, phase[j], d, ss) - a) * f;
     }
   } else {
-    for (let j = 0; j < n; j++) out[j] = wave(w, phase[j], dt[j] * scale);
+    for (let j = 0; j < n; j++) out[j] = wave(w, phase[j], dt[j] * scale, ss);
   }
 }
 
 /** SHAPE's continuous wave: wave w crossfaded by f (0..1) towards wave w + 1 (w = 3: the pulse). */
-function shaped(w: number, f: number, phase: number, dt: number): number {
+function shaped(w: number, f: number, phase: number, dt: number, ss: number): number {
   if (w === 3) return pulse(phase, dt, f);
-  const a = wave(w, phase, dt);
-  return f > 0 ? a + (wave(w + 1, phase, dt) - a) * f : a;
+  const a = wave(w, phase, dt, ss);
+  return f > 0 ? a + (wave(w + 1, phase, dt, ss) - a) * f : a;
 }
 
 /**
@@ -194,12 +195,12 @@ const CZ_FLOOR = 0.12;
  * `bend` 0..1, `edge` = how wide its steep part is (phase). Its steep parts start where the
  * plain wave's edges are, so as the bend sharpens it turns into the plain wave in place.
  */
-function czWave(w: number, phase: number, bend: number, edge: number, pw: number): number {
+function czWave(w: number, phase: number, bend: number, edge: number, pw: number, ss: number): number {
   if (w === 0) return sinTurn(phase);
   // TRIANGLE: from the cosine in its phase (a sine would partly cancel it on the way).
   if (w === 1) { const c = cosTurn(phase); return c + (4 * Math.abs(phase - 0.5) - 1 - c) * bend; }
   // SAW (falling, as the plain one): up over the edge, down over the rest.
-  if (w === 2) return -cosTurn(phase < edge ? (0.5 * phase) / edge : 0.5 + (0.5 * (phase - edge)) / (1 - edge));
+  if (w === 2) return -ss * cosTurn(phase < edge ? (0.5 * phase) / edge : 0.5 + (0.5 * (phase - edge)) / (1 - edge));
   // SQUARE / PULSE: up over the edge, high until b, down over the edge, low.
   const b = 0.5 + (pw - 0.5) * bend;
   const e = Math.min(edge, b, 1 - b);
@@ -216,7 +217,11 @@ function czWave(w: number, phase: number, bend: number, edge: number, pw: number
  */
 const PHASE_POINTS = 64;
 const PHASE_DT = 220 / 48000;
-function fundamentalPhase(shape: number, bend: number): number {
+/** The plain wave k at p (without its band-limiting: the fundamental is the same). */
+function plainWave(k: number, p: number, width: number, ss: number): number {
+  return k === 0 ? sinTurn(p) : k === 1 ? 4 * Math.abs(p - 0.5) - 1 : k === 2 ? ss * (1 - 2 * p) : (p < width ? 1 : -1) + 1 - 2 * width;
+}
+function fundamentalPhase(shape: number, bend: number, ss: number): number {
   const w = shape > 3 ? 3 : Math.min(2, Math.floor(shape));
   const wf = shape - w;
   const pw = w === 3 ? 0.5 - (0.5 - PULSE_MIN) * wf : 0.5;
@@ -226,19 +231,19 @@ function fundamentalPhase(shape: number, bend: number): number {
   let sx = 0, cx = 0;
   for (let i = 0; i < PHASE_POINTS; i++) {
     const p = i / PHASE_POINTS;
-    // The plain wave (without its band-limiting: the fundamental is the same).
-    const plainOf = (k: number, width: number) => k === 0 ? sinTurn(p) : k === 1 ? 4 * Math.abs(p - 0.5) - 1 : k === 2 ? 1 - 2 * p : (p < width ? 1 : -1) + 1 - 2 * width;
-    let x = w < 3 && wf > 0 ? plainOf(w, 0.5) + (plainOf(w + 1, 0.5) - plainOf(w, 0.5)) * wf : plainOf(w, pw);
+    let x = w < 3 && wf > 0 ? plainWave(w, p, 0.5, ss) + (plainWave(w + 1, p, 0.5, ss) - plainWave(w, p, 0.5, ss)) * wf : plainWave(w, p, pw, ss);
     if (top < 1) {
-      let c = czWave(w, p, b, edge, pw);
-      if (w < 3 && wf > 0) c += (czWave(w + 1, p, b, edge, 0.5) - c) * wf;
+      let c = czWave(w, p, b, edge, pw, ss);
+      if (w < 3 && wf > 0) c += (czWave(w + 1, p, b, edge, 0.5, ss) - c) * wf;
       x = c + (x - c) * top;
     }
     sx += x * sinTurn(p);
     cx += x * cosTurn(p);
   }
+  // -0.5 ... 0.5, a hair either side of 0 as 0: a shift of a whole turn is no shift for the
+  // carrier, but on a fractional FM ratio (PLUCK's 2.5) it moved the modulator half a cycle.
   const t = Math.atan2(cx, sx) / (2 * Math.PI);
-  return t < 0 ? t + 1 : t;
+  return Math.abs(t) < 1e-9 ? 0 : t;
 }
 
 /** UNISON copies relative to OSC 1 (x the spread), and their start phases. */
@@ -355,7 +360,7 @@ const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 
 // PAD DETUNE: half the other synths' range (any more is unusable on chords).
 export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
-export const PAD_FIXED = { voice: 0, sub: 0, algo: 2, cz: 2 };
+export const PAD_FIXED = { voice: 0, sub: 0, algo: 2, cz: 2, sawrise: 1 };
 /**
  * LEAD: the BASS / PLUCK engine (SHAPE's waves into an FM pair, OSC 2 detuned, one envelope),
  * mono with slides, plus what makes a lead: delayed VIBRATO and a pitch envelope (BEND).
@@ -368,7 +373,7 @@ export const LEAD_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmrati
 export const LEAD_FIXED = { voice: 1, sub: 0, envlink: 1, squelch: 1, body: 1, cz: 1 };
 /** PLUCK: a polyphonic pluck (the ARP is a track setting now: engine/arp.ts). */
 export const PLUCK_PARAMS = synthParams([...MORPHED, 'cfeedback', 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
-export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1, cz: 2 };
+export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1, cz: 2, align: 0 };
 
 /** SIDECHAIN: how fast a KICK hit pulls the level down (no click). */
 const DUCK_ATTACK = 0.003;
@@ -482,6 +487,8 @@ export class Synth implements Instrument {
   private shape = 2; private fm = 0; private fmRatio = 2;
   /** CZ (see czWave): 0 off, 1 BASS / LEAD, 2 PLUCK (setIntensity); the bend (1 = the plain wave). */
   private cz = 0; private intensity = 0.5; private czBend = 1;
+  /** The saw's direction (-1 = rising: the PAD's `sawrise`) and whether the FM pair follows the wave's phase (`align`; PLUCK's sounds keep their own). */
+  private sawSign = 1; private align = true;
   /**
    * FM pair carrier ratio (algo 0; 1 = on the note). Above 1 with the modulator 1 away from
    * it (carrier 3, modulator 2 or 4) the pair's lowest sideband lands on the note: "root-locked",
@@ -701,6 +708,8 @@ export class Synth implements Instrument {
     switch (id) {
       case 'shape': this.shape = Math.min(4, Math.max(0, value)); this.updatePhase(); break;
       case 'cz': this.cz = Math.round(value); this.setIntensity(this.intensity); break;
+      case 'sawrise': this.sawSign = value > 0 ? -1 : 1; this.updatePhase(); break;
+      case 'align': this.align = value > 0; this.updatePhase(); break;
       case 'wave': this.shape = LEGACY_WAVE_TO_SHAPE[Math.round(value)] ?? 2; break; // old saves
       case 'fmratio': this.fmRatio = value; break;
       case 'cratio': this.cRatio = value > 0 ? value : 1; break;
@@ -980,13 +989,13 @@ export class Synth implements Instrument {
 
   /** The FM pair's and BODY's start: the wave's fundamental as SHAPE (and CZ's bend) make it. */
   private updatePhase(): void {
-    this.pairPhase = fundamentalPhase(this.shape, this.cz > 0 && this.czBend < 1 ? this.czBend : -1);
+    this.pairPhase = this.align ? fundamentalPhase(this.shape, this.cz > 0 && this.czBend < 1 ? this.czBend : -1, this.sawSign) : 0;
   }
 
   /** SHAPE's waves (OSC 1, OSC 2, UNISON copies); with CZ bent by INTENSITY (czWave). */
   private oscWaves(w: number, wf: number, phase: Float64Array, dt: Float64Array, scale: number, out: Float64Array, n: number): void {
     const a = this.czBend;
-    if (this.cz === 0 || a >= 1) { waves(w, wf, phase, dt, scale, out, n); return; }
+    if (this.cz === 0 || a >= 1) { waves(w, wf, phase, dt, scale, out, n, this.sawSign); return; }
     // The bend's edge from nearly half the cycle (a cosine with a trace of the wave) down to
     // 1.5 samples; above CZ_OPEN the plain wave takes over.
     const bend = CZ_FLOOR + (1 - CZ_FLOOR) * a;
@@ -996,13 +1005,13 @@ export class Synth implements Instrument {
     const blend = w < 3 && wf > 0;
     for (let j = 0; j < n; j++) {
       const p = phase[j];
-      let c = czWave(w, p, bend, edge, pw);
-      if (blend) c += (czWave(w + 1, p, bend, edge, 0.5) - c) * wf;
+      let c = czWave(w, p, bend, edge, pw, this.sawSign);
+      if (blend) c += (czWave(w + 1, p, bend, edge, 0.5, this.sawSign) - c) * wf;
       out[j] = c;
     }
     if (a > CZ_OPEN) {
       const top = (a - CZ_OPEN) / (1 - CZ_OPEN);
-      waves(w, wf, phase, dt, scale, this.bTop, n);
+      waves(w, wf, phase, dt, scale, this.bTop, n, this.sawSign);
       for (let j = 0; j < n; j++) out[j] += (this.bTop[j] - out[j]) * top;
     }
   }
@@ -1045,8 +1054,8 @@ export class Synth implements Instrument {
     if (this.bodyOn) {
       const body = fm * BODY;
       for (let j = 0; j < n; j++) {
-        let q1 = this.bP1[j] + ph; if (q1 >= 1) q1 -= 1;
-        let q2 = this.bP2[j] + ph; if (q2 >= 1) q2 -= 1;
+        let q1 = this.bP1[j] + ph; if (q1 >= 1) q1 -= 1; else if (q1 < 0) q1 += 1;
+        let q2 = this.bP2[j] + ph; if (q2 >= 1) q2 -= 1; else if (q2 < 0) q2 += 1;
         o1[j] += body * sinTurn(q1);
         o2[j] += body * sinTurn(q2);
       }
@@ -1083,14 +1092,14 @@ export class Synth implements Instrument {
       this.bPb[j] = wrap(v.p5 + pm2); this.bDb[j] = d5;
       // Carrier 1 into itself (its last two outputs averaged), scaled down on bright waves.
       const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
-      const c1 = shaped(w, wf, wrap(this.bP1[j] + pm + cfb), dt1);
+      const c1 = shaped(w, wf, wrap(this.bP1[j] + pm + cfb), dt1, this.sawSign);
       v.cf2 = v.cf1;
       v.cf1 = c1;
       this.bC1[j] = c1;
     }
     const c3 = this.bO1, c2 = this.bO2;
-    waves(w, wf, this.bPa, this.bDa, 1, c3, n);
-    waves(w, wf, this.bPb, this.bDb, 1, c2, n);
+    waves(w, wf, this.bPa, this.bDa, 1, c3, n, this.sawSign);
+    waves(w, wf, this.bPb, this.bDb, 1, c2, n, this.sawSign);
     for (let j = 0; j < n; j++) {
       const c1 = this.bC1[j];
       c3[j] = c1 * (1 - 0.4 * c) + c3[j] * 0.6 * c;
@@ -1131,9 +1140,9 @@ export class Synth implements Instrument {
       const ph = wrap(this.bP1[j] + m1 * idx + cfb);
       let c1: number;
       if (czOn) {
-        c1 = czWave(w, ph, bend, edge, pw);
-        if (w < 3 && wf > 0) c1 += (czWave(w + 1, ph, bend, edge, 0.5) - c1) * wf;
-      } else c1 = shaped(w, wf, ph, dt1);
+        c1 = czWave(w, ph, bend, edge, pw, this.sawSign);
+        if (w < 3 && wf > 0) c1 += (czWave(w + 1, ph, bend, edge, 0.5, this.sawSign) - c1) * wf;
+      } else c1 = shaped(w, wf, ph, dt1, this.sawSign);
       v.cf2 = v.cf1;
       v.cf1 = c1;
       this.bO1[j] = c1;
