@@ -261,7 +261,7 @@ const RATTLE_RELEASE = 0.03;
 const METAL_RATIOS = [1, 1.4471, 1.617, 1.9265, 2.5028, 2.6637];
 const TWO_PI = Math.PI * 2;
 /** RING: each layer's decay x this (plus RING LEN), so longer DECAY knobs mean longer rings. */
-const RING_STRETCH = 3;
+const RING_STRETCH = 2;
 /**
  * A drum hit again while still sounding (rolls, fast repeats) would cut the old hit off
  * dead - a click. The old hit's last output fades out over this long instead, under the new one.

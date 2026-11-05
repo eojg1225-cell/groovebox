@@ -4808,3 +4808,22 @@ describe('PAD FM LVL curve (v79)', () => {
     expect(fromStored(now)!.channels[5].sounds.pad!.fm).toBe(0.5);
   });
 });
+
+describe('RING on synths', () => {
+  it('a RING note\'s amp, FM and filter decays run twice as long (a pluck rings on)', () => {
+    const play = (ring: boolean) => {
+      const s = new Synth(SR, INSTRUMENTS.pluck.params, PLUCK_FIXED);
+      const sound: Record<string, number> = { ...presetSound('pluck', 2), dmix: 0, verb: 0, sustain: 0 };
+      for (const id in sound) s.setParam(id, sound[id]);
+      s.noteOn(57, 0.8, 57, ring);
+      const l = new Float32Array(SR);
+      s.render(l, new Float32Array(l.length), 0, l.length);
+      return l;
+    };
+    const rms = (l: Float32Array, a: number, b: number) => Math.sqrt(l.subarray(a, b).reduce((d, v) => d + v * v, 0) / (b - a));
+    const plain = play(false), ring = play(true);
+    // The strike is the same; later the ringing note is clearly louder.
+    expect(Math.abs(20 * Math.log10(rms(ring, 0, 480) / rms(plain, 0, 480)))).toBeLessThan(0.5);
+    expect(rms(ring, SR * 0.4, SR * 0.5)).toBeGreaterThan(rms(plain, SR * 0.4, SR * 0.5) * 3);
+  });
+});

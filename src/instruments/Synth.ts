@@ -86,6 +86,13 @@ function squelch(fm: number): number {
   return fm * (1 + (SQUELCH_TOP - 1) * x * x);
 }
 
+/**
+ * RING (the step flag, or RING held in PLAY / DESIGN): a ringing note's decays (amp DECAY, FM
+ * DEC, FLT DEC) run this many times as long, as the drums' layers do (Drum RING_STRETCH), so it
+ * keeps its strike and brightness while it is held.
+ */
+const RING_STRETCH = 2;
+
 /** SLIDE time of the sounds without a SLIDE knob (pad, pluck), and the default. */
 const SLIDE_SECONDS = 0.06;
 /**
@@ -441,6 +448,8 @@ class Voice {
   glide = 1;
   /** Part of a slide: its envelopes hold at full level (SLIDE_SUSTAIN) until released. */
   hold = false;
+  /** A RING note: its decays run RING_STRETCH times as long. */
+  ring = false;
   p1 = 0; p2 = 0; p3 = 0; p4 = 0;
   /** 3 CARRIER: carriers 2 / 3 phases and the modulator's last two outputs (feedback). */
   p5 = 0; p6 = 0; fb1 = 0; fb2 = 0; cf1 = 0; cf2 = 0;
@@ -529,12 +538,15 @@ export class Synth implements Instrument {
   private slideCoeff = 1;
   private cutoff = 1200; private reso = 0.3; private fenvAmt = 0.4; private fdecayMul = 0; private fattackInc = 0;
   private fmDecayMul = 0; private fmAttackInc = 0;
+  /** The same decays for a RING note (x RING_STRETCH). */
+  private fmDecayRingMul = 0; private fdecayRingMul = 0;
   private filterMod = 0;
   private drive = 1; private crush = 0; private level = 0.7; private driveComp = 1;
   private crushPhase = 1; private held = 0;
   /** Per element (OSC 1, OSC 2). */
   private readonly attackInc = new Float64Array([1, 1]);
   private readonly decayMul = new Float64Array(2);
+  private readonly decayRingMul = new Float64Array(2);
   /** Per element: SUSTAIN and the RELEASE multiplier. */
   private readonly sustain = new Float64Array([0.5, 0.5]);
   private readonly releaseMul = new Float64Array(2);
@@ -573,7 +585,7 @@ export class Synth implements Instrument {
     for (const p of params) this.setParam(p.id, p.defaultValue);
   }
 
-  noteOn(note: number, velocity: number, group: number, _ring = false, slideFrom = -1, slide = false): void {
+  noteOn(note: number, velocity: number, group: number, ring = false, slideFrom = -1, slide = false): void {
     const n = note + this.octave * 12;
     const freq = midiToHz(n);
     if (slideFrom >= 0) {
@@ -592,6 +604,7 @@ export class Synth implements Instrument {
         s.velocity = velocity;
         // The slide has landed: the note stays held at full level until it is released.
         s.hold = true;
+        s.ring = ring;
         return;
       }
     }
@@ -623,6 +636,7 @@ export class Synth implements Instrument {
     v.targetFreq = freq;
     v.glide = 1;
     v.hold = slide;
+    v.ring = ring;
     v.velocity = velocity;
     if (!sounding(v)) {
       v.vel = velocity;
@@ -721,9 +735,9 @@ export class Synth implements Instrument {
       case 'cutoff': this.cutoff = value; break;
       case 'reso': this.reso = value; break;
       case 'fenv': this.fenvAmt = value; break;
-      case 'fdecay': this.fdecayMul = decayMul(value, sr); break;
+      case 'fdecay': this.fdecayMul = decayMul(value, sr); this.fdecayRingMul = decayMul(value * RING_STRETCH, sr); break;
       case 'fattack': this.fattackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
-      case 'fmdecay': this.fmDecayMul = decayMul(value, sr); break;
+      case 'fmdecay': this.fmDecayMul = decayMul(value, sr); this.fmDecayRingMul = decayMul(value * RING_STRETCH, sr); break;
       case 'fmattack': this.fmAttackInc = value <= 0.0006 ? 0 : 1 / (value * sr); break;
       case 'drive': this.drive = value; this.driveComp = driveCompGain(this.driveRise, value); break;
       case 'crush': this.crush = value; break;
@@ -770,6 +784,7 @@ export class Synth implements Instrument {
 
   private setDecay(k: number, seconds: number): void {
     this.decayMul[k] = decayMul(seconds, this.sr);
+    this.decayRingMul[k] = decayMul(seconds * RING_STRETCH, this.sr);
   }
 
   setTempo(bpm: number): void {
@@ -907,7 +922,7 @@ export class Synth implements Instrument {
    */
   private phases(v: Voice, n: number, det: number): void {
     const sr = this.sr, pitchMod = this.pitchMod, sub = this.sub;
-    const fmAttackInc = this.fmAttackInc, fmDecayMul = this.fmDecayMul;
+    const fmAttackInc = this.fmAttackInc, fmDecayMul = v.ring ? this.fmDecayRingMul : this.fmDecayMul;
     // LEAD VIBRATO / BEND: the pitch at the block's start and end, ramped across it.
     let pm0 = 1, pmStep = 0;
     if (this.pitchFx) {
@@ -1168,7 +1183,7 @@ export class Synth implements Instrument {
             if (a >= 1) { a = 1; v.stage[k] = STAGE_DECAY; }
             break;
           case STAGE_DECAY:
-            a = sus + (a - sus) * this.decayMul[k];
+            a = sus + (a - sus) * (v.ring ? this.decayRingMul[k] : this.decayMul[k]);
             if (a - sus < 1e-4) v.stage[k] = STAGE_SUSTAIN;
             break;
           case STAGE_SUSTAIN:
@@ -1189,7 +1204,7 @@ export class Synth implements Instrument {
         v.fenv += this.fattackInc;
         if (v.fenv >= 1) { v.fenv = 1; v.fattacking = false; }
       } else {
-        v.fenv *= this.fdecayMul;
+        v.fenv *= v.ring ? this.fdecayRingMul : this.fdecayMul;
       }
       if (v.counter-- <= 0) {
         v.counter = FILTER_UPDATE;
