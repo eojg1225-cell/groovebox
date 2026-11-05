@@ -62,11 +62,11 @@ export type MainToWorklet =
    * notes and knob moves land where they were heard, not where the engine is.
    */
   | { type: 'setListenLatency'; ms: number }
-  /** Route a track to send FX 2 or FX 3 (0 = none). */
+  /** Route a track to the send FX 2 (send 2; 0 = none). */
   | { type: 'setRouting'; channel: number; send: number }
   /** Pass a track through FX 1, the drum bus, or not. */
   | { type: 'setDrumBus'; channel: number; on: boolean }
-  /** An FX bus parameter (bus 0-2 = FX 1-3; BUS_PARAMS id), real units / TYPE index. */
+  /** An FX bus parameter (bus 0-1 = FX 1 / 2; BUS_PARAMS id), real units / TYPE index. */
   | { type: 'setBus'; bus: number; id: string; value: number }
   /** LFO setting (rate/shape as option indices, vol / pan 0..1, pitch in semitones, filter in octaves). */
   | { type: 'setLfo'; id: LfoId; value: number }

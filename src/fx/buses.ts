@@ -1,5 +1,6 @@
 /**
- * The three FX buses (pure data: shared by the engine, the UI and the save file).
+ * The two FX buses (pure data: shared by the engine, the UI and the save file). v81: the old
+ * FX 2 (the PAD's send) went (the PAD has its own LOW CUT / MOD / VERB); the old FX 3 is FX 2.
  *
  * Every bus is four units of two knob modules each (no FUNC layer). An effect unit's first
  * module is VOLUME (its return level; labelled with the effect) over TYPE, its second the
@@ -8,10 +9,7 @@
  *        (FLANGER, PHASER), DELAY (TAPE, SWEEP, REVERSE), FILTER (FILTER / RESO, ENV / ENV
  *        REL). The drums stay in the mix (through COMP); MOD and DELAY return alongside
  *        them, and FILTER (after COMP) takes the drums and both returns.
- *  FX 2  PAD (a send): MOD (CHORUS, ENSEMBLE, PHASER), DELAY (STEREO, PING-PONG, TAPE),
- *        VERB (HALL, PLATE, SHIMMER), TONE (LOW CUT / HI CUT on the returns, PUMP / PUMP
- *        REL: every KICK hit ducks the returns).
- *  FX 3  LEAD (a send): DIST (TUBE, FUZZ, BIT), DELAY (PING-PONG, DUB TAPE, SLAPBACK), VERB
+ *  FX 2  LEAD (a send): DIST (TUBE, FUZZ, BIT), DELAY (PING-PONG, DUB TAPE, SLAPBACK), VERB
  *        (ROOM, PLATE, SPRING), TONE (LOW CUT / HI CUT, DUCK / DUCK REL: the lead's own
  *        playing ducks its echoes, so they bloom in the gaps).
  * FILTER: one knob, low-pass left of the centre, high-pass right, off in the middle
@@ -22,7 +20,7 @@
 import { choice, type ParamSpec } from '../engine/params';
 import { COMP_PARAMS } from './Compressor';
 
-export const NUM_BUSES = 3;
+export const NUM_BUSES = 2;
 
 export type UnitKind = 'comp' | 'mod' | 'delay' | 'verb' | 'drive' | 'tone' | 'filter';
 
@@ -70,14 +68,6 @@ export const BUSES: readonly BusDef[] = [
   },
   {
     name: 'FX 2', insert: false, units: [
-      { kind: 'mod', types: ['CHORUS', 'ENSEMBLE', 'PHASER'], defaults: { mod_vol: 0.3, mod_type: 1, mod_rate: 0.5, mod_depth: 0.5 } },
-      { kind: 'delay', types: ['STEREO', 'PING-PONG', 'TAPE'], defaults: { dly_vol: 0.15, dly_rate: 8, dly_fdbk: 0.45 } },
-      { kind: 'verb', types: ['HALL', 'PLATE', 'SHIMMER'], defaults: { vrb_vol: 0.45, vrb_size: 0.7, vrb_len: 0.6 } },
-      { kind: 'tone', duck: 'kick', defaults: { tone_low: 150, tone_high: 14000, tone_duck: 0, tone_rel: 0.25 } },
-    ],
-  },
-  {
-    name: 'FX 3', insert: false, units: [
       { kind: 'drive', types: ['TUBE', 'FUZZ', 'BIT'], defaults: { drv_vol: 0, drv_drive: 0.4, drv_tone: 5000 } },
       { kind: 'delay', types: ['PING-PONG', 'DUB TAPE', 'SLAPBACK'], defaults: { dly_vol: 0.35, dly_rate: 5, dly_fdbk: 0.4 } },
       { kind: 'verb', types: ['ROOM', 'PLATE', 'SPRING'], defaults: { vrb_vol: 0.25, vrb_type: 1, vrb_size: 0.5, vrb_len: 0.5 } },

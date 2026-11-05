@@ -379,7 +379,7 @@ export class Engine {
 
 
   // FX 1-3 (buses.ts). FX 1: member tracks pass through it (COMP) instead of going straight
-  // out. FX 2 / FX 3 (index 1 / 2) are sends: each track feeds at most one.
+  // out. FX 2 (index 1) is the send.
   private readonly buses: FxBus[] = [];
   private readonly inDrumBus = new Uint8Array(NUM_CHANNELS);
   private readonly route = new Int8Array(NUM_CHANNELS).fill(-1); // bus index or -1
@@ -677,7 +677,7 @@ export class Engine {
     for (const set of this.instruments) for (const k in set) set[k].setTempo?.(this.bpm);
   }
 
-  /** SIDECHAIN: a KICK hit ducks every track that listens (BASS DUCK) and pumps FX 2 (PUMP). */
+  /** SIDECHAIN: a KICK hit ducks every track that listens (BASS DUCK) and pumps any bus whose TONE ducks on the KICK (none now). */
   private kickHit(ch: number): void {
     if (this.kind[ch] !== 'kick') return;
     for (let c = 0; c < NUM_CHANNELS; c++) if (c !== ch) this.current[c]?.duck?.();
@@ -1006,7 +1006,7 @@ export class Engine {
     this.peakR = 0;
   }
 
-  /** Send number (FX 2 / FX 3) -> bus index; anything else = no send. */
+  /** Send number (2 = FX 2) -> bus index; anything else = no send. */
   private busIndex(send: number): number {
     return send >= 2 && send <= NUM_SENDS ? send - 1 : -1;
   }

@@ -14,7 +14,7 @@
  *   (the strip's right divider sits under the groove between modules 7 and 8)
  *
  * Control ids: mode:record|play|design, menu, ch1..8, mute1..8, solo1..8, cancel, saveproject,
- * reset, patA..D (beside the FX buttons), dpage0..2, fx1..fx3 + fx4 (LFO), play, clear
+ * reset, patA..D (beside the FX buttons), dpage0..2, fx1 / fx2 (FX 1 / 2), fx3 (ARP), fx4 (LFO), play, clear
  * (held: CLEAR + step / channel), copy (held: COPY + channel = same pattern slot there,
  * COPY + A-D = that pattern of this track),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
@@ -32,7 +32,7 @@ export const KNOB_COUNT = 16;
 export const KNOBS_PER_ROW = 8;
 export const STEP_BUTTONS = 16;
 export const DESIGN_PAGE_BUTTONS = 3;
-/** FX 1-3 then the LFO (fx4): buses the tracks are put on. */
+/** FX 1, FX 2, ARP (fx3: the selected track's ARP view) and the LFO (fx4). */
 export const FX_SEND_BUTTONS = 4;
 const MASTER_KNOBS = [
   { id: 'mvol', label: 'VOLUME' },
@@ -133,7 +133,7 @@ export class Panel implements ControlSurface {
     q('.tool-buttons').appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn save'));
     for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
-    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : String(i), 'btn fxsend'));
+    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : i === 3 ? 'ARP' : String(i), 'btn fxsend'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel; the
     // track's channel button sits between its two knobs, MUTE left of it, SOLO right.

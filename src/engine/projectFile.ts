@@ -708,8 +708,9 @@ export function padFmV79(kind: SoundKind, sound: Record<string, number>): void {
   for (const id of FM_IDS_V79) if (typeof sound[id] === 'number') sound[id] = fmLevelV79(sound[id]);
 }
 
-/** v70 / v71 / v75 / v76 / v78 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
+/** v70 / v71 / v75 / v76 / v78 / v81 step locks: FX 3's become FX 2's (busKeysV81); a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
+  if (version < 81) busKeysV81(locks);
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
   if (version < 78 && kind === 'pluck') delete locks.intensity;
   if (version < 79 && kind === 'pad') for (const id of FM_IDS_V79) if (locks[id] !== undefined) locks[id] = fmLevelV79(locks[id]);
@@ -735,6 +736,8 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   if (version >= 58 && version < 71 && kind === 'lead') leadV71(sound, values);
   if (airLenSave(version) && AIR_KINDS_V75.includes(kind) && typeof values.airsize === 'number') sound.airsize = airSizeV75(values.airsize);
   if (version < 76) czV76(kind, sound);
+  // v81: the PAD has CRUSH now; a value left in an older save played nothing.
+  if (version < 81 && kind === 'pad') sound.crush = 0;
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   if (version < 77) fmCompV77(kind, sound);
@@ -756,6 +759,44 @@ function scaleV80(p: Project, chromatic: boolean): void {
   for (const c of p.channels) {
     if (p.root !== undefined) c.root = p.root;
     if (chromatic) c.chromatic = true;
+  }
+}
+
+/** v81: an automation key on FX 3 (b:2:) is FX 2's (b:1:); the old FX 2's (b:1:) go (null). */
+function busKeyV81(key: string): string | null {
+  if (key.startsWith('b:1:')) return null;
+  return key.startsWith('b:2:') ? `b:1:${key.slice(4)}` : key;
+}
+
+/** v81 on step locks, in place. */
+function busKeysV81(locks: Record<string, number>): void {
+  for (const key of Object.keys(locks)) {
+    const to = busKeyV81(key);
+    if (to === key) continue;
+    if (to) locks[to] = locks[key];
+    delete locks[key];
+  }
+}
+
+/** The old FX 2's settings a PAD's own effects stand in for (its defaults, for saves without them). */
+const FX2_V81 = { mod_vol: 0.3, mod_type: 1, vrb_vol: 0.45 };
+
+/**
+ * v81: the old FX 2 (the PAD's send) went, FX 3 is FX 2: send 3 -> 2, send 2 -> none. A PAD
+ * that was on FX 2 gets its own MOD / VERB at what it sent there (send level x the return's
+ * VOLUME, MOD TYPE as FX 2's), so it keeps its chorus and hall (FX 2's DELAY and TONE are
+ * gone). In place.
+ */
+function sendsV81(p: Project, oldFx2: unknown): void {
+  const fx = { ...FX2_V81, ...(isObj(oldFx2) ? numbers(oldFx2) : {}) };
+  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+  for (const c of p.channels) {
+    if (c.fxSend === 2 && c.instrument === 'pad') {
+      const own = { verb: clamp(fx.vrb_vol * c.sendLevel), modmix: clamp(fx.mod_vol * c.sendLevel), modtype: Math.max(0, Math.min(2, Math.round(fx.mod_type))) };
+      const sounds = [c.sounds.pad, ...c.patterns.flatMap((pat) => [pat.patch?.sound, pat.savedPatch?.sound])];
+      for (const sound of sounds) if (sound) Object.assign(sound, own);
+    }
+    c.fxSend = c.fxSend === 3 ? 2 : 0;
   }
 }
 
@@ -820,6 +861,12 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     Array.isArray(x) && x.length === 2 && x.every((y) => typeof y === 'string') ? [x[0] as string, x[1] as string] : null;
   ch.live = pair(src.live) ?? ch.live;
   ch.liveFunc = pair(src.liveFunc) ?? ch.liveFunc;
+  if (version < 81) {
+    // v81: FX 3 is FX 2; the old FX 2's knobs are gone (an unknown id: the type's defaults below).
+    const id = (x: string) => (x.startsWith('fx3:') ? `fx2:${x.slice(4)}` : x.startsWith('fx2:') ? 'gone' : x);
+    ch.live = [id(ch.live[0]), id(ch.live[1])];
+    ch.liveFunc = [id(ch.liveFunc[0]), id(ch.liveFunc[1])];
+  }
   if (isObj(src.liveOffset)) {
     const offsets = numbers(src.liveOffset);
     for (const id in offsets) if (offsets[id] !== 0) ch.liveOffset[id] = Math.max(-1, Math.min(1, version < 66 ? macroOffsetV66(offsets[id]) : offsets[id]));
@@ -853,7 +900,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.midCut = num(src.midCut, 0, 0, 1);
   ch.mute = src.mute === true;
   ch.fx1 = src.fx1 === true;
-  const send = Math.round(num(src.fxSend, 0, 0, NUM_SENDS));
+  // Before v81 sends 2 / 3 (FX 2 / FX 3); sendsV81 (fromStored) moves them on.
+  const send = Math.round(num(src.fxSend, 0, 0, version < 81 ? 3 : NUM_SENDS));
   ch.fxSend = send >= 2 ? send : 0;
   // v41: FX 2 is the PAD's bus and FX 3 the LEAD's (before: FX 2 the dub delay for bass /
   // lead, FX 3 the pad reverb), so older routings swap.
@@ -911,12 +959,14 @@ const TYPE_GAIN_V48: Record<SoundKind, number> = { kick: 0.565, snare: 0.797, ha
 const TYPE_GAIN_V49: Record<SoundKind, number> = { kick: 0.565, snare: 0.467, hat: 1.783, perc: 0.537, bass: 0.557, pad: 0.413, lead: 0.948, pluck: 1.105 };
 
 /** SONG automation as stored: known keys, finite [position, value] pairs, in position order, one per position. */
-function readAuto(x: unknown): Record<string, [number, number][]> {
+function readAuto(x: unknown, version: number): Record<string, [number, number][]> {
   const out: Record<string, [number, number][]> = {};
   if (!isObj(x)) return out;
-  for (const key in x) {
-    const pts = x[key];
-    if (!parseAutoKey(key) || !Array.isArray(pts)) continue;
+  for (const stored in x) {
+    const pts = x[stored];
+    const key = version < 81 ? busKeyV81(stored) : stored;
+    const t = key && parseAutoKey(key);
+    if (!key || !t || (t.kind === 'b' && t.index >= NUM_BUSES) || !Array.isArray(pts)) continue;
     const ok = pts.filter((q): q is [number, number] => Array.isArray(q) && q.length === 2 && Number.isFinite(q[0]) && Number.isFinite(q[1]) && q[0] >= 0);
     ok.sort((a, b) => a[0] - b[0]);
     const lane = ok.filter((q, i) => i === 0 || q[0] !== ok[i - 1][0]).map(([a, b]) => [a, b] as [number, number]);
@@ -974,7 +1024,8 @@ export function fromStored(data: unknown): Project | null {
   // FX 1-3 (v41; older FX settings take the new buses' defaults).
   if (version >= 41 && Array.isArray(data.buses)) {
     for (let k = 0; k < NUM_BUSES; k++) {
-      const src = data.buses[k];
+      // v81: the old FX 2 (index 1) went; FX 3 (2) is FX 2 (1).
+      const src = data.buses[version < 81 && k === 1 ? 2 : k];
       if (!isObj(src)) continue;
       for (const spec of BUS_PARAMS[k]) {
         const v = num(src[spec.id], p.buses[k][spec.id], spec.min, spec.max);
@@ -995,7 +1046,7 @@ export function fromStored(data: unknown): Project | null {
       if (entry) row.entry = entry;
       p.song.rows.push(row);
     }
-    const auto = readAuto(data.song.a);
+    const auto = readAuto(data.song.a, version);
     if (version < 66) for (const key in auto) if (key.startsWith('o:')) auto[key] = auto[key].map(([at, v]) => [at, macroOffsetV66(v)]);
     if (Object.keys(auto).length > 0) p.song.auto = auto;
   }
@@ -1004,6 +1055,7 @@ export function fromStored(data: unknown): Project | null {
     if (isObj(src)) readChannel(src, p.channels[i], version);
   }
   if (version < 80) scaleV80(p, data.chromatic === true);
+  if (version < 81) sendsV81(p, version >= 41 && Array.isArray(data.buses) ? data.buses[1] : undefined);
   if (version < 49) typeGainV49(p);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.

@@ -7,6 +7,7 @@ import { MACROS } from './macros';
 import { driveCompGain } from './driveComp';
 import { DELAY_DIVISIONS, Delay } from '../fx/Delay';
 import { Reverb } from '../fx/Reverb';
+import { FX_BLOCK, ModFx, VerbFx } from '../fx/units';
 
 /**
  * Polyphonic synth (6 voices) for basses, pads and leads.
@@ -253,6 +254,16 @@ const FILTER_UPDATE = 16;
 /** Voices render in blocks of up to this many samples (the engine's chunk). */
 const BLOCK = 64;
 
+/** PAD MOD TYPE: the ModFx modes it offers (as FX 2 did), each at FX 2's RATE (Hz) / DEPTH. */
+const PAD_MOD_TYPES = ['CHORUS', 'ENSEMBLE', 'PHASER'];
+const PAD_MOD_RATE = 0.5;
+const PAD_MOD_DEPTH = 0.5;
+/** PAD VERB: FX 2's HALL at its SIZE / LENGTH. */
+const PAD_VERB = { vrb_size: 0.7, vrb_len: 0.6 };
+/** PAD LOW CUT: at (or under) this it is off and skipped. */
+const LOW_CUT_OFF = 20.5;
+const LOW_CUT_RESO = 0.3;
+
 const SYNTH_PARAMS: readonly ParamSpec[] = [
   TIMBRE,
   INTENSITY,
@@ -331,6 +342,11 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'dfdbk', name: 'DLY FDBK', min: 0, max: 0.95, defaultValue: 0.35, unit: '', curve: 'linear' },
   { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'verb', name: 'VERB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // PAD's own effects (v81, ALT; all off by default): LOW CUT (a high-pass, off at 20 Hz), then
+  // MOD (CHORUS / ENSEMBLE / PHASER, FX 2's old units, at their old RATE / DEPTH), then VERB (a hall).
+  { id: 'lowcut', name: 'LOW CUT', min: 20, max: 1000, defaultValue: 20, unit: 'HZ', curve: 'exp', decimals: 0 },
+  { id: 'modmix', name: 'MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  choice('modtype', 'MOD TYPE', PAD_MOD_TYPES),
 ];
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
@@ -358,9 +374,9 @@ export const BASS_FIXED = { voice: 1, envlink: 1, squelch: 1, body: 1, cz: 1 };
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 // PAD DETUNE: half the other synths' range (any more is unusable on chords).
-export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
-/** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
-export const PAD_FIXED = { voice: 0, sub: 0, algo: 2, cz: 2, sawrise: 1 };
+export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq', 'lowcut', 'verb', 'modmix', 'modtype'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
+/** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); its own LOW CUT / MOD / VERB (padfx). */
+export const PAD_FIXED = { voice: 0, sub: 0, algo: 2, cz: 2, sawrise: 1, padfx: 1 };
 /**
  * LEAD: the BASS / PLUCK engine (SHAPE's waves into an FM pair, OSC 2 detuned, one envelope),
  * mono with slides, plus what makes a lead: delayed VIBRATO and a pitch envelope (BEND).
@@ -569,6 +585,9 @@ export class Synth implements Instrument {
   private readonly duckAttackInc: number;
   private readonly delay: Delay | null = null;
   private readonly room: Reverb | null = null;
+  /** PAD's LOW CUT / MOD / VERB (padfx), their levels and the wet block. */
+  private readonly pad: { hpL: Svf; hpR: Svf; mod: ModFx; verb: VerbFx; wetL: Float32Array; wetR: Float32Array } | null = null;
+  private lowCut = 20; private modMix = 0; private verbMix = 0;
   /** The onboard delay + room are skipped once they have died away (longer than the longest echo). */
   private readonly postIdle: IdleGate;
 
@@ -585,6 +604,15 @@ export class Synth implements Instrument {
       this.delay.setParam('dly_tone', ONBOARD_DLY_TONE);
       this.room = new Reverb(sampleRate);
       for (const id in ONBOARD_ROOM) this.room.setParam(id, ONBOARD_ROOM[id as keyof typeof ONBOARD_ROOM]);
+    }
+    if (fixed.padfx) {
+      const mod = new ModFx(sampleRate);
+      mod.set('mod_rate', PAD_MOD_RATE);
+      mod.set('mod_depth', PAD_MOD_DEPTH);
+      const verb = new VerbFx(sampleRate);
+      verb.setMode('HALL');
+      for (const id in PAD_VERB) verb.set(id, PAD_VERB[id as keyof typeof PAD_VERB]);
+      this.pad = { hpL: new Svf(), hpR: new Svf(), mod, verb, wetL: new Float32Array(FX_BLOCK), wetR: new Float32Array(FX_BLOCK) };
     }
     for (let i = 0; i < MAX_VOICES; i++) this.voices.push(new Voice());
     for (const p of SYNTH_PARAMS) this.setParam(p.id, p.defaultValue);
@@ -787,7 +815,21 @@ export class Synth implements Instrument {
       case 'dtime': this.delay?.setParam('dly_time', value); break;
       case 'dfdbk': this.delay?.setParam('dly_fdbk', value); break;
       case 'dmix': this.delay?.setParam('dly_return', value); break;
-      case 'verb': this.room?.setParam('rev_return', value * ONBOARD_VERB_GAIN); break;
+      case 'verb':
+        this.room?.setParam('rev_return', value * ONBOARD_VERB_GAIN);
+        if (this.pad && this.verbMix <= 0 && value > 0) this.pad.verb.reset(); // comes in clean
+        this.verbMix = value;
+        break;
+      case 'lowcut':
+        this.lowCut = value;
+        this.pad?.hpL.setup(value, LOW_CUT_RESO, sr);
+        this.pad?.hpR.setup(value, LOW_CUT_RESO, sr);
+        break;
+      case 'modmix':
+        if (this.pad && this.modMix <= 0 && value > 0) this.pad.mod.reset();
+        this.modMix = value;
+        break;
+      case 'modtype': this.pad?.mod.setMode(PAD_MOD_TYPES[Math.max(0, Math.min(PAD_MOD_TYPES.length - 1, Math.round(value)))]); break;
     }
   }
 
@@ -809,11 +851,37 @@ export class Synth implements Instrument {
 
   /** PLUCK's delay, then its room (on the track's output, in place). */
   post(l: Float32Array, r: Float32Array, n: number): void {
+    if (this.pad) { this.padPost(l, r, n); return; }
     if (!this.delay || !this.room || this.postIdle.skip(l, r, n)) return;
     this.delay.process(l, r, l, r, 0, n);
     this.room.process(l, r, l, r, 0, n);
     this.postIdle.done(l, r, n);
   }
+  /** PAD: LOW CUT, then MOD (wet added to the dry, as the send did), then VERB; each skipped while off. */
+  private padPost(l: Float32Array, r: Float32Array, n: number): void {
+    const fx = this.pad!;
+    const cut = this.lowCut > LOW_CUT_OFF;
+    if (!cut && this.modMix <= 0 && this.verbMix <= 0) return;
+    if (this.postIdle.skip(l, r, n)) return;
+    if (cut) {
+      const hl = fx.hpL, hr = fx.hpR;
+      for (let i = 0; i < n; i++) {
+        hl.process(l[i]); l[i] = hl.high;
+        hr.process(r[i]); r[i] = hr.high;
+      }
+    }
+    // The engine's chunks (64) are within a unit's block (FX_BLOCK).
+    if (this.modMix > 0) this.addWet(fx.mod, l, r, n, this.modMix);
+    if (this.verbMix > 0) this.addWet(fx.verb, l, r, n, this.verbMix);
+    this.postIdle.done(l, r, n);
+  }
+
+  private addWet(unit: ModFx | VerbFx, l: Float32Array, r: Float32Array, n: number, mix: number): void {
+    const wl = this.pad!.wetL, wr = this.pad!.wetR;
+    unit.render(l, r, wl, wr, n);
+    for (let i = 0; i < n; i++) { l[i] += wl[i] * mix; r[i] += wr[i] * mix; }
+  }
+
 
   /**
    * Renders into outL/outR[start, end). The engine hands each instrument its own zeroed

@@ -8,7 +8,7 @@ src/engine       Pure engine: project model (project.ts), stored format + load m
                  params, smoothing, protocol, chords, LFO, Engine (sequencer, mixer, buses, master). No DOM/Web Audio.
 src/instruments  Instrument interface, registry (8 track types, their pages, live knobs), Drum (layered),
                  Synth (up to 6 voices, FM algorithms), macros (TIMBRE / INTENSITY), trims, driveComp, DSP. No DOM/Web Audio.
-src/fx           buses.ts (FX 1-3: units, TYPE lists, knob specs, layout, defaults), FxBus (one bus),
+src/fx           buses.ts (FX 1 / 2: units, TYPE lists, knob specs, layout, defaults), FxBus (one bus),
                  units.ts (MOD, DELAY, VERB, DIST; FX 1's FILTER lives in FxBus), Compressor, TrackCut (per-track MID CUT), Limiter,
                  Delay + Reverb (PLUCK's onboard delay / room). No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
@@ -63,9 +63,9 @@ Main -> worklet:
 | `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut` `ring`), `value` | Track mixer (`gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
 | `setGlobal` | `id` (`bpm` `swing` `master` `meter`), `value` | Project-wide settings; `meter` changes at the next bar line |
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
-| `setRouting` | `channel`, `send` | Send FX 2 / FX 3 (0 = none) |
+| `setRouting` | `channel`, `send` | Send FX 2 (2; 0 = none) |
 | `setDrumBus` | `channel`, `on` | Through FX 1, the drum bus |
-| `setBus` | `bus` (0-2 = FX 1-3), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
+| `setBus` | `bus` (0-1 = FX 1 / 2), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
 | `setArp` | `channel`, `id` (`on` / `mode` / `rate` / `oct`), `value` | A track's ARP (engine/arp.ts): plays when on and MODE is not OFF |
@@ -235,9 +235,10 @@ scales and sums them:
   REVERSE) returning alongside at their VOLUMEs; drums + returns then pass the FILTER (one SVF:
   `djCutoff` maps the knob to LP left / HP right / OFF centre, where it is skipped and reset; RESO;
   ENV raises or lowers the cutoff from a peak follower, ENV REL its fall) on to the mix.
-- **FX 2 / FX 3** (sends): a track feeds at most one, post-fader, by its send level; only the returns
-  reach the mix, through TONE: LOW CUT / HI CUT (12 dB SVFs) and ducking (FX 2 PUMP: every KICK hit,
-  `FxBus.kick` from `Engine.kickHit`; FX 3 DUCK: a peak follower on the bus input).
+- **FX 2** (the send, LEAD's; the old FX 2, the PAD's send, went in v81, the PAD has its own LOW CUT /
+  MOD / VERB in `Synth.padPost`): post-fader, by the track's send level; only the returns reach the
+  mix, through TONE: LOW CUT / HI CUT (12 dB SVFs) and DUCK (a peak follower on the bus input).
+  `FxBus.kick` (from `Engine.kickHit`) pumps a TONE set to `duck: 'kick'`; no bus has one now.
 - Units: `ModFx` (CHORUS, ENSEMBLE, FLANGER, PHASER; RATE in Hz), `DelayFx` (STEREO, PING-PONG, TAPE,
   DUB TAPE, SWEEP, REVERSE, SLAPBACK; RATE = `FX_DELAY_TIMES`, tempo-synced, FEEDBACK up to 1.1 into
   tanh), `VerbFx` (Freeverb combs stretched by SIZE (fractional while moving, whole samples at rest):

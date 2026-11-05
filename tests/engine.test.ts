@@ -209,14 +209,15 @@ describe('instruments', () => {
       expect([l[2], l[10], l[3], l[11], l[4], l[12], l[5], l[13]], k).toEqual(['fmattack', 'fmdecay', 'fm', 'reso', 'fattack', 'fdecay', 'fenv', 'cutoff']);
     }
     // v78: PAD and PLUCK share the design page (DETUNE / UNISON 7, CHORD / SLIDE 8); their effects
-    // are on FUNC (ALT): the PAD's DRIVE on 7, PLUCK's DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY
-    // TIME / DLY FDBK (8). The PAD's FM LVL has the full range again.
+    // are on FUNC (ALT; v81): DRIVE / CRUSH on 4 on both; PAD LOW CUT / VERB (7), MOD / MOD TYPE (8);
+    // PLUCK DLY MIX / VERB (7), DLY TIME / DLY FDBK (8). The PAD's FM LVL has the full range again.
     // PLUCK: the same page, but its amp envelope ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
     expect(INSTRUMENTS.pluck.layout.map((id, i) => (i === 9 ? 'release' : id))).toEqual(INSTRUMENTS.pad.layout);
     expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14], INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['detune', 'unison', 'track:chord', 'glide']);
-    expect(INSTRUMENTS.pad.funcLayout[6]).toBe('drive');
+    const af = INSTRUMENTS.pad.funcLayout;
+    expect([af[3], af[11], af[6], af[14], af[7], af[15]]).toEqual(['drive', 'crush', 'lowcut', 'verb', 'modmix', 'modtype']);
     const pf = INSTRUMENTS.pluck.funcLayout;
-    expect([pf[2], pf[10], pf[6], pf[14], pf[7], pf[15]]).toEqual(['dmix', 'verb', 'drive', 'crush', 'dtime', 'dfdbk']);
+    expect([pf[3], pf[11], pf[6], pf[14], pf[7], pf[15]]).toEqual(['drive', 'crush', 'dmix', 'verb', 'dtime', 'dfdbk']);
     for (const k of ['pad', 'pluck'] as const) for (const id of ['drive', 'crush', 'dtime', 'dfdbk', 'dmix', 'verb']) expect(INSTRUMENTS[k].layout, `${k} ${id}`).not.toContain(id);
     expect(paramSpec('pad', 'fm')!.max).toBe(1);
     for (const id of ['fm2', 'feedback']) expect([...INSTRUMENTS.pad.layout, ...INSTRUMENTS.pad.funcLayout], id).not.toContain(id);
@@ -247,12 +248,13 @@ describe('instruments', () => {
     expect(linkedParams('bass', 'attack')).toEqual([]);
     expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'glide']);
     expect([INSTRUMENTS.pad.layout[3], INSTRUMENTS.pad.layout[11]]).toEqual(['fm', 'reso']); // v78: FM LVL back (DRIVE on FUNC)
-    expect(INSTRUMENTS.pad.funcLayout.filter((id) => id !== null).length).toBe(11); // PRESET, LIVE 1-4, MID FREQ, DECAY / SUSTAIN, OSC 2 ATTACK / RELEASE, DRIVE
+    expect(INSTRUMENTS.pad.funcLayout.filter((id) => id !== null).length).toBe(16); // PRESET / MID FREQ, DECAY / SUSTAIN, OSC 2 ATTACK / RELEASE, DRIVE / CRUSH, LIVE 1-4, LOW CUT / VERB, MOD / MOD TYPE
     // Drums: only the track setup (PRESET, LIVE, MID FREQ) on FUNC, plus KICK / SNARE SWEEP / SWP TIME, HAT FOCUS.
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) {
-      expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || ((k === 'kick' || k === 'snare') && id.startsWith('t_s')) || (k === 'snare' && (id === 'c_level' || id === 'c_tone')) || (k === 'hat' && id === 'h_focus')), k).toBe(true);
+      expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || ((k === 'kick' || k === 'snare') && id.startsWith('t_s')) || (k === 'snare' && (id === 'c_level' || id === 'c_tone')) || (k === 'hat' && (id === 'h_focus' || id === 'c_reso' || id === 'c_noise'))), k).toBe(true);
     }
     expect(INSTRUMENTS.hat.funcLayout[3]).toBe('h_focus');
+    expect([INSTRUMENTS.hat.funcLayout[2], INSTRUMENTS.hat.funcLayout[10]]).toEqual(['c_reso', 'c_noise']); // the click's character (v81)
     // PAD holds its notes: ATTACK / RELEASE on the page, DECAY / SUSTAIN on FUNC.
     for (const k of ['pad'] as const) {
       const l = INSTRUMENTS[k].layout;
@@ -925,12 +927,12 @@ describe('send effects', () => {
     expect(stats(outL).peak).toBeLessThan(2.5);
   });
 
-  it('a track routed to a send gets that send\'s effects (FX 3 delay = 1/4 note)', () => {
+  it('a track routed to a send gets that send\'s effects (FX 2 delay = 1/4 note)', () => {
     const dry = kickProject([0], { bpm: 120 });
     const wet = kickProject([0], { bpm: 120 });
-    wet.channels[0].fxSend = 3;
+    wet.channels[0].fxSend = 2;
     wet.channels[0].sendLevel = 1;
-    onlyBus(wet, 2, { dly_vol: 1, dly_type: 0, dly_rate: TIME('1/4') }); // only the delay (PING-PONG), full
+    onlyBus(wet, 1, { dly_vol: 1, dly_type: 0, dly_rate: TIME('1/4') }); // only the delay (PING-PONG), full
     const tail = (p: Project) => {
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
@@ -1269,13 +1271,13 @@ describe('project', () => {
     p.channels[4].patterns[1].length = 32;
     const s = p.channels[4].patterns[1].steps[20];
     Object.assign(s, { active: true, note: 41, gate: 3, velocity: 0.45, locks: { cutoff: 900 } });
-    p.channels[5].fxSend = 3;
+    p.channels[5].fxSend = 2;
     p.channels[5].sendLevel = 0.7;
-    p.buses[2].vrb_vol = 0.9;
+    p.buses[1].vrb_vol = 0.9;
     p.buses[0].cmp_ratio = 4;
     p.buses[0].cmp_thresh = -30;
     p.buses[1].dly_fdbk = 0.8;
-    p.buses[1].mod_type = 2;
+    p.buses[1].vrb_type = 2;
     p.buses[0].dly_type = 2;
     p.channels[4].fx1 = true;
     p.lfo = { rate: 7, shape: 5, morph: 0.3, fm: 0.4, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
@@ -1889,8 +1891,8 @@ describe('PERC track', () => {
   it('a new project has 8 tracks: track 4 PERC, track 8 PLUCK', () => {
     const p = createDefaultProject();
     expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']);
-    // Drums on FX 1, PAD on FX 2, LEAD on FX 3; no LFO; PLUCK's delay / room dry.
-    expect(p.channels.map((c) => (c.fx1 ? 1 : 0) + c.fxSend)).toEqual([1, 1, 1, 1, 0, 2, 3, 0]);
+    // Drums on FX 1, LEAD on FX 2; no LFO; PLUCK's delay / room dry.
+    expect(p.channels.map((c) => (c.fx1 ? 1 : 0) + c.fxSend)).toEqual([1, 1, 1, 1, 0, 0, 2, 0]);
     expect(p.channels.every((c) => !c.lfoOn)).toBe(true);
     expect(p.channels[7].sounds.pluck!.dmix).toBe(0);
     expect(p.channels[7].sounds.pluck!.verb).toBe(0);
@@ -2183,7 +2185,7 @@ describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
       expect(entry.funcLayout.length).toBe(16);
       for (const id of entry.funcLayout) if (id && !id.startsWith('track:')) expect(entry.params.some((p) => p.id === id), `${k}:${id}`).toBe(true);
       // Every type's FUNC layer holds its setup in the same slots.
-      expect([entry.funcLayout[0], entry.funcLayout[11], entry.funcLayout[4], entry.funcLayout[12], entry.funcLayout[5], entry.funcLayout[13]], k)
+      expect([entry.funcLayout[0], entry.funcLayout[8], entry.funcLayout[4], entry.funcLayout[12], entry.funcLayout[5], entry.funcLayout[13]], k)
         .toEqual(['track:preset', 'midfreq', 'track:live1', 'track:live2', 'track:live3', 'track:live4']);
     }
   });
@@ -2525,14 +2527,15 @@ describe('PAD on the 3 carrier engine', () => {
     const p = createDefaultProject();
     const warm = MACROS.pad.anchors.findIndex((a) => a.name === 'WARM') / 4;
     const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 80;
     const sound = stored.channels[5].sounds.pad;
     sound.timbre = warm;
-    sound.crush = 0.5; // CRUSH from older saves is dropped (the PAD has none)
+    sound.crush = 0.5; // CRUSH from saves before v81 is dropped (the PAD had none)
     for (const id of ['ratio2', 'ratio3', 'feedback', 'carriers']) delete sound[id];
     const q = fromStored(stored)!.channels[5].sounds.pad!;
     expect(q.ratio3).toBe(0.5);
     expect(q.carriers).toBeCloseTo(0.85);
-    expect(q.crush).toBeUndefined();
+    expect(q.crush).toBe(0);
   });
 });
 
@@ -3806,23 +3809,17 @@ describe('FX buses (v41)', () => {
       'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'RESO', 'ENV REL',
     ]);
     expect(names(1)).toEqual([
-      'MOD', 'RATE', 'DELAY', 'RATE', 'VERB', 'SIZE', 'LOW CUT', 'PUMP',
-      'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'TYPE', 'LENGTH', 'HI CUT', 'PUMP REL',
-    ]);
-    expect(names(2)).toEqual([
       'DIST', 'DRIVE', 'DELAY', 'RATE', 'VERB', 'SIZE', 'LOW CUT', 'DUCK',
       'TYPE', 'TONE', 'TYPE', 'FDBK', 'TYPE', 'LENGTH', 'HI CUT', 'DUCK REL',
     ]);
     const types = (k: number, kind: string) => BUSES[k].units.find((u) => u.kind === kind)!.types;
     expect(types(0, 'mod')).toEqual(['FLANGER', 'PHASER']);
     expect(types(0, 'delay')).toEqual(['TAPE', 'SWEEP', 'REVERSE']);
-    expect(types(1, 'mod')).toEqual(['CHORUS', 'ENSEMBLE', 'PHASER']);
-    expect(types(1, 'delay')).toEqual(['STEREO', 'PING-PONG', 'TAPE']);
-    expect(types(1, 'verb')).toEqual(['HALL', 'PLATE', 'SHIMMER']);
-    expect(types(2, 'drive')).toEqual(['TUBE', 'FUZZ', 'BIT']);
-    expect(types(2, 'delay')).toEqual(['PING-PONG', 'DUB TAPE', 'SLAPBACK']);
-    expect(types(2, 'verb')).toEqual(['ROOM', 'PLATE', 'SPRING']);
-    expect(formatValue(BUS_PARAMS[1].find((p) => p.id === 'vrb_type')!, 2)).toBe('SHIMMER');
+    expect(types(1, 'drive')).toEqual(['TUBE', 'FUZZ', 'BIT']);
+    expect(types(1, 'delay')).toEqual(['PING-PONG', 'DUB TAPE', 'SLAPBACK']);
+    expect(types(1, 'verb')).toEqual(['ROOM', 'PLATE', 'SPRING']);
+    expect(formatValue(BUS_PARAMS[1].find((p) => p.id === 'vrb_type')!, 2)).toBe('SPRING');
+    expect(BUSES.length).toBe(2); // v81: the PAD's send went
   });
 
   it('every TYPE of every effect on every bus makes a sound from a hit, finite and bounded', () => {
@@ -3901,25 +3898,15 @@ describe('FX buses (v41)', () => {
 
   it('DELAY FEEDBACK sets how many repeats come back', () => {
     const tail = (fdbk: number) => {
-      const out = runBus(1, only(1, { dly_vol: 1, dly_type: 0, dly_rate: TIME('1/4'), dly_fdbk: fdbk }), burst(2.2));
-      return stats(out.subarray(95000, 98000)).peak; // FX 2 STEREO: the 4th repeat at 120 BPM
+      const out = runBus(1, only(1, { dly_vol: 1, dly_type: 1, dly_rate: TIME('1/4'), dly_fdbk: fdbk }), burst(2.2));
+      return stats(out.subarray(95000, 98000)).peak; // FX 2 DUB TAPE: the 4th repeat at 120 BPM
     };
     expect(tail(0.9)).toBeGreaterThan(tail(0.1) * 5);
   });
 
-  it('FX 2 PUMP: every KICK ducks the returns, which come back over PUMP REL', () => {
-    const tone = Float32Array.from({ length: SR }, (_, i) => Math.sin(i * 0.05) * 0.5);
-    const settings = only(1, { mod_vol: 1, mod_type: 0, tone_duck: 1, tone_rel: 0.2 });
-    const steady = runBus(1, settings, tone);
-    const pumped = runBus(1, settings, tone, 120, 24000);
-    const at = (l: Float32Array, a: number) => stats(l.subarray(a, a + 480)).peak;
-    expect(at(pumped, 24000 + 480)).toBeLessThan(at(steady, 24000 + 480) * 0.3); // just after a kick
-    expect(at(pumped, 24000 + 14400)).toBeGreaterThan(at(steady, 24000 + 14400) * 0.8); // recovered
-  });
-
-  it('FX 3 DUCK: the lead playing ducks its own echoes', () => {
+  it('FX 2 DUCK: the lead playing ducks its own echoes', () => {
     const held = Float32Array.from({ length: SR }, (_, i) => Math.sin(i * 0.05) * 0.5);
-    const echo = (duck: number) => stats(runBus(2, only(2, { dly_vol: 1, dly_rate: TIME('1/16'), tone_duck: duck }), held).subarray(SR / 2)).peak;
+    const echo = (duck: number) => stats(runBus(1, only(1, { dly_vol: 1, dly_rate: TIME('1/16'), tone_duck: duck }), held).subarray(SR / 2)).peak;
     expect(echo(1)).toBeLessThan(echo(0) * 0.3);
   });
 
@@ -3955,12 +3942,12 @@ describe('FX buses (v41)', () => {
   it('a TYPE change while running fades over (no jump)', () => {
     const tone = Float32Array.from({ length: SR }, (_, i) => Math.sin(i * 0.02) * 0.5);
     const bus = new FxBus(SR, 1);
-    for (const [id, v] of Object.entries(only(1, { mod_vol: 1, mod_type: 0 }))) bus.setParam(id, v);
+    for (const [id, v] of Object.entries(only(1, { drv_vol: 1, drv_type: 0 }))) bus.setParam(id, v);
     bus.settle();
     const out = new Float32Array(SR);
     const oL = new Float32Array(BLOCK), oR = new Float32Array(BLOCK);
     for (let o = 0; o < SR; o += BLOCK) {
-      if (o === SR / 2) bus.setParam('mod_type', 2); // CHORUS -> PHASER
+      if (o === SR / 2) bus.setParam('drv_type', 1); // TUBE -> FUZZ
       oL.fill(0);
       bus.process(tone.subarray(o, o + BLOCK), tone.subarray(o, o + BLOCK), oL, oR, 0, BLOCK);
       out.set(oL, o);
@@ -3970,19 +3957,19 @@ describe('FX buses (v41)', () => {
     expect(jump).toBeLessThan(0.05);
   });
 
-  it('a new project routes the drums to FX 1, PAD to FX 2, LEAD to FX 3; BASS and PLUCK dry', () => {
+  it('a new project routes the drums to FX 1, LEAD to FX 2; BASS, PAD and PLUCK dry (their own effects off)', () => {
     const p = createDefaultProject();
     const by = (k: string) => p.channels.find((c) => c.instrument === k)!;
     for (const k of ['kick', 'snare', 'hat', 'perc']) expect(by(k).fx1, k).toBe(true);
-    expect(by('pad').fxSend).toBe(2);
-    expect(by('lead').fxSend).toBe(3);
-    for (const k of ['bass', 'pluck']) expect([by(k).fx1, by(k).fxSend], k).toEqual([false, 0]);
+    expect(by('lead').fxSend).toBe(2);
+    for (const k of ['bass', 'pad', 'pluck']) expect([by(k).fx1, by(k).fxSend], k).toEqual([false, 0]);
+    expect([by('pad').sounds.pad!.verb, by('pad').sounds.pad!.modmix, by('pad').sounds.pad!.lowcut]).toEqual([0, 0, 20]);
   });
 
   it('bus settings are saved', () => {
     const p = createDefaultProject();
     p.buses[0].dly_type = 2;
-    p.buses[2].vrb_size = 0.83;
+    p.buses[1].vrb_size = 0.83;
     const back = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
     expect(back.buses).toEqual(p.buses);
   });
@@ -4041,7 +4028,10 @@ describe('v41: the FM envelope', () => {
     const specs = INSTRUMENTS.pluck.params, spec = specs.find((q) => q.id === 'fmdecay')!;
     expect(applyTrim(spec, hiddenSound('pluck', b.sounds.pluck!, specs).fmdecay, b.trims.pluck!.fmdecay)).toBeCloseTo(0.7, 6);
     expect(b.patterns[0].steps[0].locks).toEqual({ fdecay: 0.4, fmdecay: 0.4 });
-    expect([back.channels[5].fxSend, back.channels[6].fxSend]).toEqual([2, 3]);
+    // v41 swapped them (PAD on the pad bus, LEAD on its own); v81: the PAD's bus went (its own
+    // VERB / MOD stand in), the LEAD's is FX 2.
+    expect([back.channels[5].fxSend, back.channels[6].fxSend]).toEqual([0, 2]);
+    expect(back.channels[5].sounds.pad!.verb).toBeCloseTo(0.45 * back.channels[5].sendLevel, 9);
     expect(back.buses).toEqual(createDefaultProject().buses);
   });
 });
@@ -4245,8 +4235,9 @@ describe('AIR (KICK, SNARE)', () => {
     expect(fromStored(older)!.channels[0].sounds.kick!.airsize).toBe(0.7);
   });
 
-  it('only KICK and SNARE have AIR', () => {
-    for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(k === 'kick' || k === 'snare');
+  it('only KICK, SNARE and HAT have AIR (the HAT its natural room, AIR SIZE)', () => {
+    for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(k === 'kick' || k === 'snare' || k === 'hat');
+    expect([INSTRUMENTS.hat.layout[5], INSTRUMENTS.hat.layout[13]]).toEqual(['air', 'hairsize']);
   });
 });
 
@@ -4841,5 +4832,100 @@ describe('FM pair phase on a sine', () => {
     };
     const a = play(0), b = play(1);
     expect(a.every((v, i) => v === b[i])).toBe(true);
+  });
+});
+
+describe('v81: PAD effects, HAT AIR, one send', () => {
+  /** A PAD chord through its own effects (post in the engine's 64-sample chunks). */
+  const padOut = (fx: Record<string, number>, seconds = 1.5) => {
+    const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+    const sound = { ...presetSound('pad', 0), ...fx };
+    for (const id in sound) s.setParam(id, sound[id]);
+    s.noteOn(45, 1, 45);
+    const n = Math.round(SR * seconds);
+    const l = new Float32Array(n), r = new Float32Array(n);
+    for (let at = 0; at < n; at += 64) {
+      const bl = l.subarray(at, at + 64), br = r.subarray(at, at + 64);
+      s.render(bl, br, 0, bl.length);
+      s.post(bl, br, bl.length);
+      if (at === SR / 2) s.noteOff(45);
+    }
+    return l;
+  };
+  const energy = (l: Float32Array, a: number, b: number) => l.subarray(a, b).reduce((e, v) => e + v * v, 0);
+
+  it('the PAD\'s LOW CUT / MOD / VERB start off: its sound is untouched', () => {
+    const off = padOut({});
+    const sound = presetSound('pad', 0);
+    expect([sound.lowcut, sound.modmix, sound.verb]).toEqual([20, 0, 0]);
+    const plain = (() => {
+      const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
+      for (const id in sound) s.setParam(id, sound[id]);
+      s.noteOn(45, 1, 45);
+      const n = off.length, l = new Float32Array(n), r = new Float32Array(n);
+      for (let at = 0; at < n; at += 64) {
+        s.render(l.subarray(at, at + 64), r.subarray(at, at + 64), 0, Math.min(64, n - at));
+        if (at === SR / 2) s.noteOff(45);
+      }
+      return l;
+    })();
+    expect(off).toEqual(plain);
+  });
+
+  it('VERB rings on after the note, LOW CUT takes the lows, MOD changes the sound', () => {
+    const dry = padOut({});
+    const wet = padOut({ verb: 0.8 });
+    const tail = (l: Float32Array) => energy(l, Math.round(SR * 1.1), Math.round(SR * 1.4));
+    expect(tail(wet)).toBeGreaterThan(tail(dry) * 50 + 1e-6);
+    const lows = (l: Float32Array) => { let y = 0, e = 0; for (let i = 0; i < SR / 2; i++) { y += (l[i] - y) * 0.01; e += y * y; } return e; };
+    expect(lows(padOut({ lowcut: 800 }))).toBeLessThan(lows(dry) * 0.3);
+    for (const t of [0, 1, 2]) {
+      const m = padOut({ modmix: 1, modtype: t }, 0.5);
+      let d = 0; for (let i = 0; i < m.length; i++) d += (m[i] - dry[i]) ** 2;
+      expect(d, `MOD TYPE ${t}`).toBeGreaterThan(energy(dry, 0, m.length) * 0.01);
+    }
+  });
+
+  it('HAT AIR: the natural room rings on past the hit, longer with AIR SIZE', () => {
+    const hit = (extra: Record<string, number>) => {
+      const d = new Drum(SR, HAT_PARAMS, HAT_VOICE);
+      const sound: Record<string, number> = { ...presetSound('hat', 1), ...extra };
+      for (const id in sound) d.setParam(id, sound[id]);
+      d.noteOn(33, 1, 33);
+      const n = SR, l = new Float32Array(n), r = new Float32Array(n);
+      for (let at = 0; at < n; at += 128) {
+        const bl = l.subarray(at, at + 128), br = r.subarray(at, at + 128);
+        d.render(bl, br, 0, 128);
+        d.post(bl, br, 128);
+      }
+      return l;
+    };
+    const late = (l: Float32Array, a: number) => energy(l, Math.round(SR * a), Math.round(SR * (a + 0.1)));
+    const dry = hit({});
+    expect(late(hit({ air: 1 }), 0.1)).toBeGreaterThan(late(dry, 0.1) * 10 + 1e-12); // the default SIZE (0.6)
+    expect(late(hit({ air: 1, hairsize: 1 }), 0.3)).toBeGreaterThan(late(hit({ air: 1 }), 0.3) * 10 + 1e-12);
+  });
+
+  it('a v80 save: FX 3 is FX 2 (routing, settings, locks, SONG lanes, live knobs); a PAD on the old FX 2 keeps its MOD / VERB', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 80;
+    stored.channels[5].fxSend = 2; // PAD on the old FX 2
+    stored.channels[5].sendLevel = 0.5;
+    stored.channels[6].fxSend = 3; // LEAD on FX 3
+    stored.channels[6].liveFunc = ['fx3:dly_vol', 'fx2:vrb_vol'];
+    stored.buses = [stored.buses[0], { mod_vol: 0.4, mod_type: 2, vrb_vol: 0.6 }, { ...stored.buses[1], dly_vol: 0.77 }];
+    stored.channels[6].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { 'b:2:dly_vol': 0.3, 'b:1:vrb_vol': 0.2 } }];
+    stored.song = { rows: [{ b: 4, p: [0, 0, 0, 0, 0, 0, 0, 0] }], a: { 'b:2:vrb_size': [[0, 0.2]], 'b:1:mod_vol': [[0, 0.5]] } };
+    const back = fromStored(stored)!;
+    expect(back.channels.map((c) => c.fxSend)).toEqual([0, 0, 0, 0, 0, 0, 2, 0]);
+    expect(back.buses.length).toBe(2);
+    expect(back.buses[1].dly_vol).toBe(0.77);
+    const pad = back.channels[5].sounds.pad!;
+    expect([pad.verb, pad.modmix, pad.modtype]).toEqual([0.3, 0.2, 2]);
+    expect(back.channels[5].patterns.every((pat) => !pat.patch || pat.patch.sound.verb === 0.3)).toBe(true);
+    expect(back.channels[6].liveFunc).toEqual(INSTRUMENTS.lead.liveFunc); // an old FX 2 knob: the defaults
+    expect(back.channels[6].patterns[0].steps[0].locks).toEqual({ 'b:1:dly_vol': 0.3 });
+    expect(back.song.auto).toEqual({ 'b:1:vrb_size': [[0, 0.2]] });
   });
 });

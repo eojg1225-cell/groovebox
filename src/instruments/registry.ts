@@ -66,25 +66,25 @@ const _ = null;
  * MTL PITCH's module); PERC none yet.
  */
 const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
-const HAT_FUNC = funcPage([_, _, _, 'h_focus', _, _, _, _], [_, _, _, _, _, _, _, _]);
+/** HAT FUNC: CLK RESO / CLK NOISE (3, as the SNARE's stick), FOCUS (4 top). */
+const HAT_FUNC = funcPage([_, _, 'c_reso', 'h_focus', _, _, _, _], [_, _, 'c_noise', _, _, _, _, _]);
 /** KICK / SNARE FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
 const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
 /** SNARE FUNC: SWEEP / SWP TIME (2), the stick's CLK LEVEL / CLK PITCH (3). */
 const SNARE_FUNC = funcPage([_, 't_sweep', 'c_level', _, _, _, _, _], [_, 't_stime', 'c_tone', _, _, _, _, _]);
 /** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
-// FM RATIO over MID FREQ (4), UNISON / DETUNE (8): a reese is a SAW with both turned up.
+// FM RATIO (4 top), UNISON / DETUNE (8): a reese is a SAW with both turned up.
 const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
 /**
- * LEAD FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, VIBRATO / VIB RATE (3), FM RATIO over MID
- * FREQ (4, as the BASS's), BEND / BEND TIME (7), VIB DELAY / UNISON (8).
+ * LEAD FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, VIBRATO / VIB RATE (3), FM RATIO (4 top, as
+ * the BASS's), BEND / BEND TIME (7), VIB DELAY / UNISON (8).
  */
 const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', 'fmpair', _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
 /**
- * PLUCK FUNC (ALT; v78): DECAY / RELEASE under ATTACK / SUSTAIN (a pluck's own envelope, as before
- * v78), and the effects, off the design page: DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY TIME /
- * DLY FDBK (8).
+ * PLUCK FUNC (ALT; v81): DECAY / RELEASE under ATTACK / SUSTAIN (a pluck's own envelope), DRIVE /
+ * CRUSH (4, as the PAD's), its SPACE effects on 7 / 8: DLY MIX / VERB, DLY TIME / DLY FDBK.
  */
-const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', _, _, _, 'drive', 'dtime'], [_, 'release', 'verb', _, _, _, 'crush', 'dfdbk']);
+const PLUCK_FUNC = funcPage([_, 'decay', _, 'drive', _, _, 'dmix', 'dtime'], [_, 'release', _, 'crush', _, _, 'verb', 'dfdbk']);
 /**
  * PAD and PLUCK share one design page (v78): 1 TIMBRE / INT, 2 ATTACK / RELEASE (PLUCK: ATTACK /
  * SUSTAIN), 3 FM ATK / FM DEC,
@@ -103,6 +103,11 @@ function heldFunc(top: readonly (string | null)[], bottom: readonly (string | nu
     [bottom[0], 'sustain', 'release2', bottom[1], _, _, bottom[2], bottom[3]],
   );
 }
+/**
+ * PAD FUNC (v81): DRIVE / CRUSH (4), its own effects (all off by default): LOW CUT / VERB (7),
+ * MOD / MOD TYPE (8: CHORUS, ENSEMBLE, PHASER, as FX 2's were).
+ */
+const PAD_FUNC = heldFunc([_, 'drive', 'lowcut', 'modmix'], [_, 'crush', 'verb', 'modtype']);
 
 /**
  * PAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;
@@ -121,11 +126,11 @@ export function linkedParams(kind: InstrumentKind, id: string): readonly string[
 
 /**
  * Every track's FUNC layer also holds the track's setup (the same slots on every type):
- * PRESET (module 1 top), MID FREQ (4 bottom: the MID CUT's centre), LIVE 1 / 2 (5) and
+ * PRESET / MID FREQ (module 1: MID FREQ = the MID CUT's centre), LIVE 1 / 2 (5) and
  * LIVE 3 / 4 (6) - what the live knobs control.
  */
 const TRACK_FUNC: Readonly<Record<number, string>> = {
-  0: 'track:preset', [ROW + 3]: 'midfreq', 4: 'track:live1', [ROW + 4]: 'track:live2', 5: 'track:live3', [ROW + 5]: 'track:live4',
+  0: 'track:preset', [ROW]: 'midfreq', 4: 'track:live1', [ROW + 4]: 'track:live2', 5: 'track:live3', [ROW + 5]: 'track:live4',
 };
 function trackFunc(func: readonly (string | null)[]): (string | null)[] {
   const out = [...func];
@@ -312,7 +317,8 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
   hat: {
     name: 'HAT', gain: 1.783, live: ['fx1:dly_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
-    layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['c_reso', 'c_noise'], ['m_tone', 'm_noise']),
+    // The metal's character on 5, AIR (its natural room, v81) on 6; the click's on FUNC 3.
+    layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'hairsize']),
     funcLayout: trackFunc(HAT_FUNC),
     presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
   perc: {
@@ -327,9 +333,9 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: 0.413, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    // CHORD_PAGE; no CRUSH, DRIVE on FUNC (ALT) 7.
+    // CHORD_PAGE; DRIVE / CRUSH and the effects on FUNC (ALT).
     layout: CHORD_PAGE,
-    funcLayout: trackFunc(heldFunc([_, _, 'drive', _], [_, _, _, _])),
+    funcLayout: trackFunc(PAD_FUNC),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
   lead: {
     name: 'LEAD', gain: 0.948, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,

@@ -5,7 +5,7 @@
  * A position counts strip cells from the song's first bar: bar x 16 + step (0-15, the cell on
  * the strip; a time signature's dark cells are simply never reached). A lane's key names its
  * knob: s:<track>:<sound param>, m:<track>:<mix id>, o:<track>:<live id> (a relative live knob,
- * -1..1), b:<bus 0-2>:<bus param>, l:<lfo param>, a:<track>:<ARP setting>.
+ * -1..1), b:<bus 0-1>:<bus param>, l:<lfo param>, a:<track>:<ARP setting>.
  * Pattern step locks (`Step.locks`) use the same keys, except that the pattern's own track's
  * sound params are stored by their bare id.
  */

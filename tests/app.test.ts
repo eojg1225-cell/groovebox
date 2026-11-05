@@ -420,7 +420,8 @@ describe('live knobs', () => {
   it('a live knob can take every sound page parameter, the FX volumes and CHORD', () => {
     const { app } = makeApp();
     const ids = (ch: number) => (app as unknown as { liveCandidates(c: unknown): { id: string }[] }).liveCandidates(app.project.channels[ch]).map((x) => x.id);
-    expect(ids(0)).toEqual(expect.arrayContaining(['rolldiv', 'fx1:mod_vol', 'fx1:dly_vol', 'fx1:flt', 'fx2:vrb_vol', 'fx3:drv_vol']));
+    expect(ids(0)).toEqual(expect.arrayContaining(['rolldiv', 'fx1:mod_vol', 'fx1:dly_vol', 'fx1:flt', 'fx2:vrb_vol', 'fx2:drv_vol']));
+    expect(ids(0).some((id) => id.startsWith('fx3:'))).toBe(false);
     expect(ids(0)).not.toContain('fx1:cmp_ratio');
     expect(ids(5)).toContain('track:chord');
     expect(ids(7)).toEqual(expect.arrayContaining(['dtime', 'track:chord']));
@@ -1882,7 +1883,7 @@ describe('the sound\'s OCTAVE in sight', () => {
 });
 
 describe('ARP key', () => {
-  it('tap = on / off for the selected track; FUNC + ARP = its knobs; MODE starts OFF', () => {
+  it('the ARP key = on / off for the selected track (ALT too); the ARP button (FX row) = its knobs; MODE starts OFF', () => {
     const { app, tap, press, release, sent, emit } = makeApp();
     tap('ch1');
     tap('arp');
@@ -1890,32 +1891,40 @@ describe('ARP key', () => {
     expect(sent.some((m) => m.type === 'setArp' && m.id === 'on' && m.value === 1)).toBe(true);
     expect(app.project.channels[0].arp?.mode).toBe(0);
     press('func');
-    tap('arp');
+    tap('arp'); // ALT + the ARP key: still on / off
     release('func');
+    expect(app.project.channels[0].arp?.on).toBe(false);
+    expect(app.arpOpen).toBe(false);
+    tap('arp');
+    tap('fx3'); // the ARP button: the knobs
     expect(app.arpOpen).toBe(true);
     const t = (app as unknown as { targets: ({ label: string } | null)[] }).targets;
     expect(t[0]?.label).toBe('ARP MODE');
     emit({ type: 'knob', id: 'k1', value: 1 / 6 }); // UP
     expect(app.project.channels[0].arp?.mode).toBe(1);
-    tap('arp'); // in the view: only back, still on
-    expect(app.arpOpen).toBe(false);
-    expect(app.project.channels[0].arp?.on).toBe(true);
-    tap('arp');
+    tap('arp'); // the key in the view: on / off, the view stays
+    expect(app.arpOpen).toBe(true);
     expect(app.project.channels[0].arp?.on).toBe(false);
+    tap('fx3'); // again = back
+    expect(app.arpOpen).toBe(false);
+    press('func');
+    tap('fx3'); // ALT + ARP button = on / off
+    release('func');
+    expect(app.project.channels[0].arp?.on).toBe(true);
+    expect(app.arpOpen).toBe(false);
     const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;
-    expect(back.channels[0].arp).toEqual({ on: false, mode: 1, rate: 3, oct: 0 });
+    expect(back.channels[0].arp).toEqual({ on: true, mode: 1, rate: 3, oct: 0 });
   });
 
-  it('FUNC + ARP lets go of FUNC (latched or held): the ARP knobs show, not an empty page', () => {
-    const { app, tap, press } = makeApp();
-    const t = () => (app as unknown as { targets: ({ label: string } | null)[] }).targets;
-    tap('func'); // latched
-    tap('arp');
+  it('the ARP view and a bus view replace each other', () => {
+    const { app, tap } = makeApp();
+    tap('fx3');
     expect(app.arpOpen).toBe(true);
-    expect((app as unknown as { func: boolean }).func).toBe(false);
-    expect(t()[0]?.label).toBe('ARP MODE');
-    press('func'); // held again: still the ARP knobs
-    expect(t()[0]?.label).toBe('ARP MODE');
+    tap('fx2');
+    expect(app.arpOpen).toBe(false);
+    expect(app.sendOpen).toBe(true);
+    tap('fx3');
+    expect([app.arpOpen, app.sendOpen]).toEqual([true, false]);
   });
 });
 

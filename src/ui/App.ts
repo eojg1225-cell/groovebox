@@ -726,7 +726,7 @@ export class App {
     return !this.songGrid && this.fxView > 0;
   }
 
-  /** Whether a track is on bus n (1 = the drum bus, 2-3 = its send, 4 = the LFO). */
+  /** Whether a track is on bus n (1 = the drum bus, 2 = the send FX 2, 4 = the LFO; 3 is the ARP key). */
   private onBus(c: ChannelState, n: number): boolean {
     return n === 1 ? c.fx1 : n === 4 ? c.lfoOn : c.fxSend === n;
   }
@@ -1169,7 +1169,7 @@ export class App {
   }
 
   /**
-   * A bus's knobs (k = 0-2: FX 1-3; 3: the LFO): four units of two modules each (buses.ts),
+   * A bus's knobs (k = 0-1: FX 1 / 2; 3: the LFO): four units of two modules each (buses.ts),
    * the same in RECORD, PLAY and DESIGN. No FUNC layer.
    */
   private sendTargets(k: number): (KnobTarget | null)[] {
@@ -1361,7 +1361,7 @@ export class App {
     if (this.fxView > 0) {
       const bus = this.fxView;
       return step(this.func ? new Array(KNOB_COUNT).fill(null)
-        : this.sendTargets(bus - 1).map((t, i) => t && (bus <= 3 ? { ...t, colour: fxColour(bus, i % KNOBS_PER_ROW) } : { ...t, neutral: true })));
+        : this.sendTargets(bus - 1).map((t, i) => t && (bus <= 2 ? { ...t, colour: fxColour(bus, i % KNOBS_PER_ROW) } : { ...t, neutral: true })));
     }
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
     if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
@@ -1405,7 +1405,8 @@ export class App {
       else this.heldChannels.delete(Number(m[1]) - 1);
     }
     if ((m = /^fx([1-4])$/.exec(id))) {
-      if (e.pressed) {
+      // fx3 is ARP, not a bus (HOLD + RESET leaves it out).
+      if (m[1] === '3') { /* nothing held */ } else if (e.pressed) {
         if (this.heldBuses.size === 0) this.fxViewBefore = this.fxView; // the view before the first one
         this.heldBuses.add(Number(m[1]));
       } else this.heldBuses.delete(Number(m[1]));
@@ -1659,10 +1660,12 @@ export class App {
       this.fxView = 0; // back from a bus to the DESIGN pages
       this.arpView = false;
       this.touchedKnob = -1;
+    } else if (id === 'fx3') {
+      this.onArpButton();
     } else if ((m = /^fx([1-4])$/.exec(id))) {
       const n = Number(m[1]);
       if (this.func) {
-        // FUNC + FX 1-3 / LFO: put the selected track on / off this bus.
+        // FUNC + FX 1 / 2 / LFO: put the selected track on / off this bus.
         this.toggleBus(this.selected, n);
         if (this.funcHeld) this.funcUsed = true; // not a latching tap
       } else {
@@ -1823,27 +1826,30 @@ export class App {
   }
 
   /**
-   * ARP: on / off for the selected track; FUNC + ARP = its knobs on screen. With them open, ARP
-   * (with FUNC or not) only goes back: on / off waits until the view is closed.
+   * The ARP button (in the FX row, fx3): the selected track's ARP knobs on screen (again = back),
+   * as FX 1 / 2 / LFO open theirs; FUNC + ARP = the track's ARP on / off.
    */
+  private onArpButton(): void {
+    if (this.songGrid) return;
+    if (this.func) {
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+      this.toggleArp();
+      return;
+    }
+    this.arpView = !this.arpView;
+    this.fxView = 0;
+    this.touchedKnob = -1;
+  }
+
+  /** The ARP key above the strip: the selected track's ARP on / off (FUNC or not). */
   private onArp(): void {
     if (this.songGrid) return;
+    if (this.funcHeld) this.funcUsed = true;
+    this.toggleArp();
+  }
+
+  private toggleArp(): void {
     const c = this.channel;
-    if (this.arpView) {
-      if (this.funcHeld) this.funcUsed = true;
-      this.arpView = false;
-      this.touchedKnob = -1;
-      return;
-    }
-    if (this.func) {
-      // FUNC + ARP: the ARP view; FUNC lets go (held or latched), the view has no FUNC layer.
-      if (this.funcHeld) this.funcUsed = true; // not a latching tap
-      this.funcLatched = false;
-      this.arpView = true;
-      this.fxView = 0;
-      this.touchedKnob = -1;
-      return;
-    }
     const arp = (c.arp = { ...(c.arp ?? defaultArp()) });
     arp.on = !arp.on;
     this.send({ type: 'setArp', channel: this.selected, id: 'on', value: arp.on ? 1 : 0 });
@@ -4452,7 +4458,7 @@ export class App {
       this.panel.configureMaster(id, t && { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), colour: this.knobColour(t) });
     }
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
-      this.panel.setButtonLit(`fx${n}`, this.fxView === n);
+      this.panel.setButtonLit(`fx${n}`, n === 3 ? this.arpOpen : this.fxView === n);
     }
     // DESIGN: SOUND / MIX / PROJECT. PLAY: SOUND (live knobs) / MIX; PROJECT shown but off.
     const names = this.pageNames();
@@ -4522,7 +4528,7 @@ export class App {
     this.panel.setButtonEnabled('stepedit', rec && !this.song);
     this.panel.setButtonLit('stepedit', this.stepEdit);
     this.panel.setButtonEnabled('arp', !this.songGrid);
-    this.panel.setButtonLit('arp', !!this.channel.arp?.on || this.arpOpen);
+    this.panel.setButtonLit('arp', !!this.channel.arp?.on);
     if (kb || !rec) this.restArm = false;
     this.panel.setButtonLit('rest', this.restArm);
     // The SAVE / LOAD menu's slots look the same in every mode (never as keys).
@@ -4922,10 +4928,10 @@ export class App {
     const members = this.project.channels.flatMap((c, i) => (this.onBus(c, n) ? [String(i + 1)] : []));
     return {
       ...this.header(),
-      channelLabel: n === 1 ? 'FX 1 DRUMS' : n === 2 ? 'FX 2 PAD' : n === 3 ? 'FX 3 LEAD' : 'LFO',
+      channelLabel: n === 1 ? 'FX 1 DRUMS' : n === 2 ? 'FX 2 LEAD' : 'LFO',
       patternLabel: '',
       kindLabel: this.mode.toUpperCase(),
-      pages: ['FX 1', 'FX 2', 'FX 3', 'LFO'],
+      pages: ['FX 1', 'FX 2', 'ARP', 'LFO'],
       page: n - 1,
       slots: this.slots(),
       touchedSlot: this.touchedKnob,

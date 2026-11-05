@@ -10,6 +10,14 @@
  */
 import { Svf } from './dsp';
 
+/**
+ * NATURAL (HAT): the pre-v76 room (as before AIR TAIL): no envelope, the sparse tail rings on
+ * its own, SIZE = its RT60 from NATURAL_RT_MIN to NATURAL_RT_MAX (exponential). Less dense,
+ * so it carries a cymbal's shimmer instead of thickening the hit.
+ */
+const NATURAL_RT_MIN = 0.03;
+const NATURAL_RT_MAX = 1.2;
+
 /** The tail's own decay (RT60, s): longer than the old SIZE's top (1.2 s), so it is dense. */
 const TAIL_RT = 4;
 /** The envelope each hit starts (s), and its table's points. */
@@ -53,7 +61,8 @@ export class AirRoom {
   private envPos = ENV_POINTS;
   private readonly envStep: number;
 
-  constructor(sampleRate: number, highPass: number, lowPass: number) {
+  /** natural: the HAT's room (above); else the dense room under its envelope. */
+  constructor(sampleRate: number, highPass: number, lowPass: number, private readonly natural = false) {
     this.sr = sampleRate;
     const n = (ms: number) => Math.max(1, Math.round((ms / 1000) * sampleRate));
     this.hp1.setup(highPass, EQ_RESO, sampleRate);
@@ -76,6 +85,12 @@ export class AirRoom {
    */
   setTail(v: number): void {
     const x = Math.min(1, Math.max(0, v));
+    if (this.natural) {
+      // NATURAL: SIZE = the tail's RT60; each comb loses 60 dB over it.
+      const rt = NATURAL_RT_MIN * Math.pow(NATURAL_RT_MAX / NATURAL_RT_MIN, x);
+      this.combs.forEach((c, k) => { this.combG[k] = Math.pow(10, (-3 * c.length) / this.sr / rt); });
+      return;
+    }
     const k = 1 + TAIL_BEND * Math.abs(2 * x - 1);
     for (let i = 0; i <= ENV_POINTS; i++) {
       const t = i / ENV_POINTS;
@@ -145,12 +160,13 @@ export class AirRoom {
       if (++this.write === len) this.write = 0;
       // The envelope (read between its points); after AIR_LENGTH: silent.
       let g = 0;
-      if (this.envPos < ENV_POINTS) {
+      if (this.natural) g = 1 / ROOM_GAIN;
+      else if (this.envPos < ENV_POINTS) {
         const at = this.envPos | 0, f = this.envPos - at;
         g = this.env[at] + (this.env[at + 1] - this.env[at]) * f;
         this.envPos += this.envStep;
       }
-      y[i] = (er + tail * TAIL_GAIN) * g * ROOM_GAIN;
+      y[i] = (er + tail * TAIL_GAIN) * g * ROOM_GAIN; // NATURAL: x 1, as the old room
     }
   }
 }

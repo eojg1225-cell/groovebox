@@ -73,12 +73,11 @@ export function createDefaultProject(): Project {
     c.patterns.forEach((p) => p.steps.forEach((s) => (s.note = base)));
     return c;
   });
-  // Routing: the drums through FX 1 (transparent until its effects are turned up), PAD to
-  // FX 2, LEAD to FX 3; BASS and PLUCK carry their own effects. No track on the LFO.
+  // Routing: the drums through FX 1 (transparent until its effects are turned up), LEAD to
+  // FX 2; BASS, PAD and PLUCK carry their own effects. No track on the LFO.
   const of = (kind: SoundKind) => channels.find((c) => c.instrument === kind) as ChannelState;
   for (const c of channels) if (INSTRUMENTS[c.instrument as SoundKind].drum) c.fx1 = true;
-  of('pad').fxSend = 2;
-  of('lead').fxSend = 3;
+  of('lead').fxSend = 2;
   for (const c of channels) c.volume = defaultVolume(c.instrument as SoundKind);
   return {
     version: PROJECT_VERSION, bpm: 128, swing: 50, master: 0.8,

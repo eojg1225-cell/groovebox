@@ -27,8 +27,8 @@ export const TRACK_COLOURS: Record<InstrumentKind, string> = {
   pluck: '#d3b6c4',
 };
 
-/** FX 1-3: the two colours their knob modules alternate in (modules 1-2, 5-6 / 3-4, 7-8). */
-const FX_PAIRS: [InstrumentKind, InstrumentKind][] = [['kick', 'perc'], ['snare', 'bass'], ['hat', 'pad']];
+/** FX 1 / 2: the two colours their knob modules alternate in (modules 1-2, 5-6 / 3-4, 7-8). */
+const FX_PAIRS: [InstrumentKind, InstrumentKind][] = [['kick', 'perc'], ['snare', 'bass']];
 
 export const THEMES = ['CLASSIC', 'COLOUR', 'MONO', 'REVERSE'] as const;
 export const SATURATIONS = ['LOW', 'MEDIUM', 'HIGH'] as const;
@@ -129,7 +129,7 @@ export function neutralColour(): string {
   return theme === 'COLOUR' ? GREY : primary();
 }
 
-/** FX bus n (1-3), knob module m (0-7): its pair's colour. */
+/** FX bus n (1-2), knob module m (0-7): its pair's colour. */
 export function fxColour(bus: number, module: number): string {
   const pair = FX_PAIRS[bus - 1];
   return pair ? trackColour(pair[(module >> 1) & 1]) : neutralColour();

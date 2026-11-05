@@ -2,9 +2,9 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 80;
-/** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
-export const NUM_SENDS = 3;
+export const PROJECT_VERSION = 81;
+/** FX 1 = the drum bus (tracks pass through it), FX 2 = the send (buses.ts); fxSend 2 = on FX 2. */
+export const NUM_SENDS = 2;
 export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 4;
 export const MAX_STEPS = 128;
@@ -299,7 +299,7 @@ export interface ChannelState {
   pan: number; // -1..1
   /** The track passes through FX 1, the drum bus (independent of its send). */
   fx1: boolean;
-  /** Which send the track feeds: 0 = none, 2 or 3 = FX 2 / FX 3. */
+  /** Which send the track feeds: 0 = none, 2 = FX 2. */
   fxSend: number;
   /** How much of the track goes to its send, 0..1. */
   sendLevel: number;

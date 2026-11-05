@@ -108,6 +108,8 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   { id: 'air', name: 'AIR LVL', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // AIR TAIL (id airsize, was AIR SIZE): the shape of the room's fixed-length envelope (airRoom.ts).
   { id: 'airsize', name: 'AIR TAIL', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
+  // HAT's AIR SIZE (v81): its natural room's RT60 (airRoom.ts NATURAL).
+  { id: 'hairsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.6, unit: '', curve: 'linear' },
   midFreq(1000),
   // OCTAVE (FUNC + OCT): the pitched layers an octave at a time, on top of the note.
   OCTAVE,
@@ -127,8 +129,9 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 
 /** Controls every drum has (after its layer parameters). */
 const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq', 'octave'];
-/** AIR: KICK and SNARE (DrumVoice.air sets each one's EQ). */
+/** AIR: KICK and SNARE (DrumVoice.air sets each one's EQ); HAT its natural room (AIR SIZE). */
 const AIR = ['air', 'airsize'];
+const HAT_AIR = ['air', 'hairsize'];
 
 /*
  * Each drum type: its parameters (set by TIMBRE / INTENSITY and presets, except the tail
@@ -153,7 +156,7 @@ export const SNARE_ELEMENTS = ['t_attack', 't_decay', 'm_attack', 'm_decay'];
 export const HAT_PARAMS = drumParams(
   [
     'timbre', 'intensity', 'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise', 'm_level', 'm_pitch', 'm_spread', 'm_noise', 'm_tone', 'm_attack', 'm_decay', 'm_mode', 'm_fm',
-    'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', 'm_bell', 'h_rattle', 'm_pref', 'h_focus', ...WHOLE,
+    'h_time', 'h_pitch', 'h_tone', 'h_noise', 'h_mode', 'h_spread', 'm_bell', 'h_rattle', 'm_pref', 'h_focus', ...WHOLE, ...HAT_AIR,
   ],
   { c_level: 0.2, c_tone: 9000, c_len: 0.002, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_decay: 0.1, h_time: 0.03, midfreq: 2000 },
 );
@@ -190,7 +193,7 @@ interface DrumVoice {
    * muddies the low end, a low-pass so it stays soft; and its level (x AIR_GAIN). No AIR on
    * the type without it.
    */
-  air?: { highPass: number; lowPass: number; gain: number };
+  air?: { highPass: number; lowPass: number; gain: number; natural?: boolean };
   /**
    * HAT: the metal's squares band-limited (polyBLEP), so high pitches stay metal, not hash; and
    * its head pitch / TONEs follow MTL PITCH and the note (MTL REF).
@@ -205,11 +208,13 @@ interface DrumVoice {
 /** AIR's level per type: at the default AIR SIZE, the KICK's first 100 ms as loud as the old stereo room's, the SNARE's 3 dB under it. */
 const KICK_AIR_GAIN = 3.45;
 const SNARE_AIR_GAIN = 2;
+const HAT_AIR_GAIN = 1;
 // KICK's air keeps clear of the sub and the body, and has no treble (only its knock rings);
 // SNARE's is cut higher so it never gets muddy or swamps the hit, and stops short of the fizz.
 export const KICK_VOICE: DrumVoice = { balance: ['t', 'c'], ringExtra: 0.6, driveRise: DRIVE_RISE.kick, air: { highPass: 300, lowPass: 1400, gain: KICK_AIR_GAIN } };
 export const SNARE_VOICE: DrumVoice = { balance: ['t', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.snare, snare: true, air: { highPass: 600, lowPass: 5000, gain: SNARE_AIR_GAIN } };
-export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat, hat: true };
+// HAT's air (v81): the natural room, only the shimmer (high-passed at 3 kHz, soft above 14 kHz).
+export const HAT_VOICE: DrumVoice = { balance: ['c', 'm'], ringExtra: 0.6, driveRise: DRIVE_RISE.hat, hat: true, air: { highPass: 3000, lowPass: 14000, gain: HAT_AIR_GAIN, natural: true } };
 export const PERC_VOICE: DrumVoice = { balance: ['t', 'cm'], ringExtra: 0.6, relative: true, driveRise: DRIVE_RISE.perc };
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
@@ -372,7 +377,7 @@ export class Drum implements Instrument {
     this.rRelease = Math.exp(-1 / (RATTLE_RELEASE * sampleRate));
     this.airK = 1 - Math.exp(-1 / (AIR_SMOOTH * sampleRate));
     this.airGate = new IdleGate(AIR_IDLE_SECONDS, sampleRate);
-    if (voice.air) this.room = new AirRoom(sampleRate, voice.air.highPass, voice.air.lowPass);
+    if (voice.air) this.room = new AirRoom(sampleRate, voice.air.highPass, voice.air.lowPass, voice.air.natural);
     if (voice.snare) this.wireLp.setup(WIRE_LP_MAX, 0.1, sampleRate);
     for (const p of Object.values(ALL)) this.setParam(p.id, p.defaultValue);
     this.tLevel = 0; this.cLevel = 0; this.mLevel = 0;
@@ -508,7 +513,7 @@ export class Drum implements Instrument {
       case 'crush': this.crush = v; break;
       case 'ogain': this.oGain = v; break;
       case 'air': this.airTarget = v * v * AIR_GAIN * (this.voice.air?.gain ?? 0); break;
-      case 'airsize': this.room?.setTail(v); break;
+      case 'airsize': case 'hairsize': this.room?.setTail(v); break;
       case 'octave': this.octave = Math.round(v) - OCTAVE_ZERO; break;
     }
   }
