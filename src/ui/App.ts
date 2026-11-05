@@ -90,6 +90,8 @@ const FILL_NAMES = FILL_STEPS.map((n) => `${n} ST`);
 const CURVE_SPEC = choice('glideCurve', 'CURVE', GLIDE_CURVES);
 const AUTO_FILL_SPEC = choice('autoFill', 'AUTO-FILL', AUTO_FILL_NAMES);
 const FILL_ON_SPEC = choice('fillOn', 'FILL', ['OFF', 'ON']);
+/** DESIGN > PROJECT KEY: the project's default SCALE root (C ... B). */
+const KEY_SPEC = choice('key', 'KEY', ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], 9);
 /** SONG DESIGN's clip knobs: GLIDE START / END, FILL (pattern) / FILL LEN. */
 const CLIP_SPECS = {
   glideStart: choice('glideStart', 'GLIDE START', GLIDE_NAMES, GLIDE_STEPS.indexOf(CLIP_ENTRY.glideStart as never)),
@@ -499,6 +501,9 @@ export class App {
    * FUNC, page and view changes until it is let go (MENU / name entry take it over).
    */
   private readonly heldKnobs = new Map<number, KnobTarget | null>();
+  /** The KEY knob's turn: the tracks it moves (on the default key when it began), null = none yet. */
+  private keyFollowers: number[] | null = null;
+  private keyTurnAt = 0;
   /** The knobs' jobs before the SONG / primed / playhead wrappers (what a held knob keeps). */
   private rawTargets: (KnobTarget | null)[] = [];
   /** The look applied last (syncLook). */
@@ -681,14 +686,20 @@ export class App {
     return stepsOnStrip(this.project.channels[ch].instrument) !== this.stripFlip[ch];
   }
 
-  /** SCALE's root (pitch class; A unless set). */
-  private get root(): number {
-    return this.project.root ?? 9;
+  /** Track ch's SCALE root (pitch class; A unless set): each track has its own (v80). */
+  private trackRoot(ch = this.selected): number {
+    return this.project.channels[ch].root ?? 9;
   }
 
-  /** SCALE as named on its key and screen: A MIN / A CHR. */
-  private scaleName(): string {
-    return `${NOTE_NAMES[this.root]} ${this.project.chromatic ? 'CHR' : 'MIN'}`;
+  /** Track ch's SCALE as named on its key and screen: A MIN / A CHR. */
+  private scaleName(ch = this.selected): string {
+    return `${NOTE_NAMES[this.trackRoot(ch)]} ${this.project.channels[ch].chromatic ? 'CHR' : 'MIN'}`;
+  }
+
+  /** Track ch's SCALE root set (the strip's keys follow; the engine's KEY chords too). */
+  private setTrackRoot(ch: number, root: number): void {
+    this.project.channels[ch].root = ((root % 12) + 12) % 12;
+    this.send({ type: 'setRoot', channel: ch, root: this.project.channels[ch].root! });
   }
 
   /**
@@ -697,12 +708,12 @@ export class App {
    * semitone at a time, jumping an octave between D and D#). `blackKey` colours them.
    */
   private keyNote(ch: number, button: number): number {
-    return this.octave[ch] + ((this.root - 9 + 6 + 12) % 12) - 6 + button;
+    return this.octave[ch] + ((this.trackRoot(ch) - 9 + 6 + 12) % 12) - 6 + button;
   }
 
-  /** A strip key shows black: off SCALE's minor scale (CHROMATIC: a piano's sharps). */
-  private blackKey(note: number): boolean {
-    return this.project.chromatic ? isBlackKey(note) : !MINOR.includes((note - this.root + 120) % 12);
+  /** A strip key of track ch shows black: off its SCALE's minor scale (CHROMATIC: a piano's sharps). */
+  private blackKey(ch: number, note: number): boolean {
+    return this.project.channels[ch].chromatic ? isBlackKey(note) : !MINOR.includes((note - this.trackRoot(ch) + 120) % 12);
   }
 
   /** The ARP view open (FUNC + ARP): knobs and screen show the selected track's ARP. */
@@ -1203,7 +1214,7 @@ export class App {
       get: () => this.getGlobal(spec.id as GlobalId),
       set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
     }));
-    top.push(this.settingTarget('glideCurve', CURVE_SPEC), this.settingTarget('autoFill', AUTO_FILL_SPEC));
+    top.push(this.settingTarget('glideCurve', CURVE_SPEC), this.settingTarget('autoFill', AUTO_FILL_SPEC), this.keyTarget());
     while (top.length < KNOBS_PER_ROW) top.push(null);
     if (this.func) {
       const bottom = this.project.channels.map((c, ch) => (c.instrument === 'none' ? null
@@ -1226,6 +1237,31 @@ export class App {
       set: (v: number) => {
         (this.project.settings ??= {})[key] = Math.round(v);
         this.syncTransitions();
+      },
+    };
+  }
+
+  /**
+   * DESIGN > PROJECT KEY: the project's default SCALE root. A turn moves only the tracks
+   * whose SCALE root was the default when it began (`keyFollowers`), so a track set to a key
+   * of its own is never picked up as the knob passes it.
+   */
+  private keyTarget(): KnobTarget {
+    return {
+      label: KEY_SPEC.name, spec: KEY_SPEC, channel: this.selected, key: 'project:key', neutral: true,
+      base: () => this.savedProject().root ?? 9,
+      get: () => this.project.root ?? 9,
+      set: (v: number) => {
+        const root = Math.round(v);
+        const now = performance.now();
+        if (this.keyFollowers && !this.heldKnobs.size && now - this.keyTurnAt > 1000) this.keyFollowers = null;
+        this.keyTurnAt = now;
+        const from = this.project.root ?? 9;
+        this.keyFollowers ??= this.project.channels.map((_, ch) => ch).filter((ch) => this.trackRoot(ch) === from);
+        if (root === from) return;
+        this.project.root = root;
+        for (const ch of this.keyFollowers) this.setTrackRoot(ch, root);
+        this.save();
       },
     };
   }
@@ -1351,11 +1387,13 @@ export class App {
     if (e.type === 'knob') return this.onKnob(Number(e.id.slice(1)) - 1, e.value);
     if (e.type === 'touch') {
       const slot = Number(e.id.slice(1)) - 1;
+      this.keyFollowers = null;
       if (!e.id.startsWith('m') && !this.menu && !this.projMenu && !this.songGrid) this.heldKnobs.set(slot, this.rawTargets[slot] ?? null);
       return this.onTouch(slot);
     }
     if (e.type === 'release') {
       // Let go: the knob takes the job the panel now gives it.
+      this.keyFollowers = null;
       if (this.heldKnobs.delete(Number(e.id.slice(1)) - 1)) this.refreshPanel();
       return;
     }
@@ -1431,11 +1469,12 @@ export class App {
         this.refreshPanel();
       }
       if (id === 'scale' && this.scaleHeld) {
-        // SCALE tapped (no ◀ / ▶ meanwhile): minor keys / chromatic keys.
+        // SCALE tapped (no ◀ / ▶ or key meanwhile): the track's minor keys / chromatic keys.
         this.scaleHeld = false;
         if (!this.scaleUsed) {
-          if (this.project.chromatic) delete this.project.chromatic;
-          else this.project.chromatic = true;
+          const c = this.channel;
+          if (c.chromatic) delete c.chromatic;
+          else c.chromatic = true;
           this.flash(`SCALE: ${this.scaleName()}`);
           this.save();
         }
@@ -1695,12 +1734,20 @@ export class App {
       this.scaleHeld = true;
       this.scaleUsed = false;
     } else if ((id === 'cur-' || id === 'cur+') && this.scaleHeld) {
-      // SCALE + ◀ / ▶: the root a semitone down / up (the strip's keys follow).
-      this.project.root = (this.root + (id === 'cur+' ? 1 : 11)) % 12;
-      this.send({ type: 'setRoot', root: this.project.root });
+      // SCALE + ◀ / ▶: the track's root a semitone down / up (the strip's keys follow).
+      this.setTrackRoot(this.selected, this.trackRoot() + (id === 'cur+' ? 1 : 11));
       this.scaleUsed = true;
       this.flash(`SCALE: ${this.scaleName()}`);
       this.save();
+    } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleHeld) {
+      // SCALE held + a strip key: the track's key becomes that note (the keys re-lay from it).
+      this.scaleUsed = true;
+      if (!this.keyboard) this.flash('SCALE: SHOW THE KEYS (STRIP) TO PICK A NOTE');
+      else {
+        this.setTrackRoot(this.selected, this.keyNote(this.selected, Number(m[1]) - 1));
+        this.flash(`SCALE: ${this.scaleName()}`);
+        this.save();
+      }
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
       // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip.
       this.changeBar(id === 'cur+' ? 1 : -1);
@@ -4584,7 +4631,7 @@ export class App {
         const id = `step${i + 1}`;
         const note = this.keyNote(ch, i);
         this.panel.setButtonText(id, noteName(note));
-        this.panel.setButtonFlag(id, 'black', this.blackKey(note));
+        this.panel.setButtonFlag(id, 'black', this.blackKey(ch, note));
         this.panel.setButtonFlag(id, 'lit', note === sounding || under.includes(note));
         this.panel.setButtonFlag(id, 'cursor', cursorNotes.includes(note));
         for (const f of ['note', 'accent', 'ghost', 'head', 'off', 'ring', 'rest', 'tie', 'skip']) this.panel.setButtonFlag(id, f, false);
@@ -4763,7 +4810,7 @@ export class App {
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',
-      keyboardLabel: this.keyboard ? `KEYS ${noteName(this.keyNote(ch, 0))} ${this.project.chromatic ? 'CHR' : 'MIN'}` : '',
+      keyboardLabel: this.keyboard ? `KEYS ${noteName(this.keyNote(ch, 0))} ${this.project.channels[ch].chromatic ? 'CHR' : 'MIN'}` : '',
       dynamicLabel: this.dynamic === 'normal' ? '' : this.dynamic.toUpperCase(),
       slots: this.slots(),
       touchedSlot: this.touchedKnob,

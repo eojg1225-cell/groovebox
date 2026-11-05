@@ -147,6 +147,9 @@ interface StoredChannel {
   gateLength?: number;
   /** v50 on (older: 1 = as designed). */
   ringLength?: number;
+  /** v80: the track's SCALE root / chromatic keys. */
+  root?: number;
+  chromatic?: boolean;
   midCut?: number;
   lfoOn: boolean;
   /** v55: ARP (on, mode, rate, oct); absent = off. */
@@ -201,7 +204,7 @@ interface StoredProject {
   meter?: number;
   /** v52: the project's own GLOBAL settings (option indices; absent = DEFAULT). */
   settings?: Record<string, number>;
-  /** v59: SCALE's root (pitch class; absent = A) and chromatic keys (absent = minor). */
+  /** v59: SCALE's root (pitch class; absent = A); v80: the default key (each track has its own `root` / `chromatic`); before v80 also the project's chromatic keys. */
   root?: number;
   chromatic?: boolean;
   channels: StoredChannel[];
@@ -216,7 +219,6 @@ export function toStored(p: Project): StoredProject {
     master: p.master,
     meter: p.meter,
     ...(p.root !== undefined ? { root: p.root } : {}),
-    ...(p.chromatic ? { chromatic: true } : {}),
     settings: { ...p.settings },
     ...(p.fillTracks?.some((v) => v >= 0) ? { ft: [...p.fillTracks] } : {}),
     lfo: { ...p.lfo },
@@ -240,6 +242,8 @@ export function toStored(p: Project): StoredProject {
       dynamics: c.dynamics,
       gateLength: c.gateLength,
       ringLength: c.ringLength,
+      ...(c.root !== undefined ? { root: c.root } : {}),
+      ...(c.chromatic ? { chromatic: true } : {}),
       midCut: c.midCut,
       lfoOn: c.lfoOn,
       ...(c.arp && (c.arp.on || c.arp.mode || c.arp.rate !== defaultArp().rate || c.arp.oct) ? { arp: { ...c.arp } } : {}),
@@ -744,6 +748,17 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   return sound;
 }
 
+/**
+ * v80: SCALE is each track's own (root, chromatic keys); the project's root stays as the default
+ * key (the PROJECT page's KEY knob). Every track takes the project's SCALE as it was. In place.
+ */
+function scaleV80(p: Project, chromatic: boolean): void {
+  for (const c of p.channels) {
+    if (p.root !== undefined) c.root = p.root;
+    if (chromatic) c.chromatic = true;
+  }
+}
+
 /** v57: ROLL RATE became a note value (1/4 ... 1/64); every older save's drums roll at 1/16. */
 export function rollRateV57(sound: Record<string, number>): void {
   if (sound.rolldiv !== undefined) sound.rolldiv = DEFAULT_ROLL_RATE;
@@ -833,6 +848,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.dynamics = num(src.dynamics, 100, 0, 200);
   ch.gateLength = num(src.gateLength, 1, GATE_MIN, GATE_MAX);
   ch.ringLength = num(src.ringLength, 1, RING_MIN, RING_MAX);
+  if (typeof src.root === 'number') ch.root = Math.round(num(src.root, 9, 0, 11));
+  if (src.chromatic === true) ch.chromatic = true;
   ch.midCut = num(src.midCut, 0, 0, 1);
   ch.mute = src.mute === true;
   ch.fx1 = src.fx1 === true;
@@ -941,7 +958,6 @@ export function fromStored(data: unknown): Project | null {
   p.master = num(data.master, p.master, 0, 1);
   p.meter = Math.round(num(data.meter, 0, 0, METERS.length - 1));
   if (typeof data.root === 'number') p.root = Math.round(num(data.root, 9, 0, 11));
-  if (data.chromatic === true) p.chromatic = true;
   p.settings = {};
   if (isObj(data.settings)) {
     for (const k of SETTING_KEYS) {
@@ -987,6 +1003,7 @@ export function fromStored(data: unknown): Project | null {
     const src = data.channels[i];
     if (isObj(src)) readChannel(src, p.channels[i], version);
   }
+  if (version < 80) scaleV80(p, data.chromatic === true);
   if (version < 49) typeGainV49(p);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.

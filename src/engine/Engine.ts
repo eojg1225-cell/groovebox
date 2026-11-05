@@ -267,8 +267,8 @@ export class Engine {
   private readonly typeGain = new Float32Array(NUM_CHANNELS).fill(1);
   /** Chord mode per channel (index into CHORDS). */
   private readonly chord = new Uint8Array(NUM_CHANNELS);
-  /** SCALE's root (pitch class): the KEY chords follow its natural minor. */
-  private scaleRoot = 9;
+  /** Each track's SCALE root (pitch class): its KEY chords follow that natural minor. */
+  private readonly scaleRoot = new Uint8Array(NUM_CHANNELS).fill(9);
   private readonly notes = new Uint8Array(NUM_CHANNELS).fill(MAX_CHORD_NOTES);
   /**
    * PAD / PLUCK: sequenced notes held each by its own length (each its own voice group), so a note
@@ -522,7 +522,7 @@ export class Engine {
       case 'release': this.release(msg.channel, msg.note); break;
       case 'setInstrument': this.setInstrument(msg.channel, msg.kind, msg.sound); break;
       case 'setChord': this.chord[msg.channel] = msg.chord; break;
-      case 'setRoot': this.scaleRoot = msg.root; break;
+      case 'setRoot': this.scaleRoot[msg.channel] = msg.root; break;
       case 'setNotes': this.notes[msg.channel] = msg.notes; break;
       case 'setForce':
         this.forceRing[msg.channel] = msg.ring ? 1 : 0;
@@ -694,7 +694,7 @@ export class Engine {
       bus.settle();
     });
     this.setSong(p.song ?? { rows: [] });
-    this.scaleRoot = p.root ?? 9;
+    p.channels.forEach((c, ch) => { this.scaleRoot[ch] = c.root ?? 9; });
     this.pendingMeter = -1;
     this.applyMeter(Math.max(0, Math.min(METERS.length - 1, Math.round(p.meter ?? 0))));
     for (const id in p.lfo) this.setLfo(id as LfoId, p.lfo[id as LfoId]);
@@ -1607,7 +1607,7 @@ export class Engine {
       this.arpIndex[ch] = 0;
       this.arpStep(ch);
     } else {
-      const intervals = chordVoicing(this.chord[ch], this.notes[ch], note, this.scaleRoot);
+      const intervals = chordVoicing(this.chord[ch], this.notes[ch], note, this.scaleRoot[ch]);
       for (let i = 0; i < intervals.length; i++) inst.noteOn(note + intervals[i], velocity, note, ring, slideFrom, slide);
     }
     // RETRIG NOTE: the LFO restarts with each new note (not on slides).
@@ -1718,7 +1718,7 @@ export class Engine {
     const k = ++this.rollIndex[ch];
     if (!inst) return;
     const note = this.rollNote[ch];
-    const intervals = chordVoicing(this.chord[ch], this.notes[ch], note, this.scaleRoot);
+    const intervals = chordVoicing(this.chord[ch], this.notes[ch], note, this.scaleRoot[ch]);
     const v0 = this.rollVel[ch];
     const ramp = this.rollRamp[ch] > 0 ? Math.min(1, k / this.rollRamp[ch]) : 0;
     const vel = dynVelocity(v0 + (this.rollVelEnd[ch] - v0) * ramp, this.dynDepth[ch]);
@@ -1731,7 +1731,7 @@ export class Engine {
     const inst = this.current[ch];
     if (!inst) return;
     if (this.arpNote[ch] >= 0) inst.noteOff(this.arpNote[ch]);
-    const intervals = chordVoicing(this.chord[ch], this.notes[ch], this.arpRoot[ch], this.scaleRoot);
+    const intervals = chordVoicing(this.chord[ch], this.notes[ch], this.arpRoot[ch], this.scaleRoot[ch]);
     const mode = this.arpMode[ch];
     const count = intervals.length * this.arpOct[ch]; // chord tones over ARP OCT octaves
     const i = this.arpIndex[ch]++;

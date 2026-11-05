@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 79;
+export const PROJECT_VERSION = 80;
 /** FX 1-3: FX 1 = the drum bus (tracks pass through it), FX 2 / FX 3 = sends of four effects (fx/index.ts EFFECTS). */
 export const NUM_SENDS = 3;
 export const NUM_CHANNELS = 8;
@@ -315,6 +315,12 @@ export interface ChannelState {
   lfoOn: boolean;
   /** ARP (engine/arp.ts; absent = off, MODE OFF). */
   arp?: ArpState;
+  /**
+   * The track's SCALE (v80): its strip keyboard's root (pitch class; absent = 9, A) and CHROMATIC
+   * (absent = the minor scale's colours); PAD / PLUCK KEY chords follow its minor.
+   */
+  root?: number;
+  chromatic?: boolean;
   mute: boolean;
   patterns: Pattern[];
   activePattern: number;
@@ -345,9 +351,12 @@ export interface Project {
   song: Song;
   /** Time signature: index into METERS (0 = 4/4). */
   meter: number;
-  /** SCALE: the strip keyboard's root (pitch class; absent = 9, A) and CHROMATIC (absent = the minor scale). */
+  /**
+   * The default key (pitch class; absent = 9, A): DESIGN > PROJECT's KEY knob. Turning it moves
+   * every track whose own SCALE root was the default when the turn began (v80; each track has
+   * its own, ChannelState.root).
+   */
   root?: number;
-  chromatic?: boolean;
   channels: ChannelState[];
 }
 

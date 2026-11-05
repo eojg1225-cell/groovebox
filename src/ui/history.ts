@@ -162,6 +162,7 @@ export function changes(a: Project, b: Project): MainToWorklet[] {
       if ((o.liveOffset[id] ?? 0) !== (c.liveOffset[id] ?? 0)) out.push({ type: 'setOffset', channel: ch, id, value: c.liveOffset[id] ?? 0 });
     }
     if (kind || c.chord !== o.chord) out.push({ type: 'setChord', channel: ch, chord: c.chord });
+    if ((c.root ?? 9) !== (o.root ?? 9)) out.push({ type: 'setRoot', channel: ch, root: c.root ?? 9 });
     if (kind || c.notes !== o.notes) out.push({ type: 'setNotes', channel: ch, notes: c.notes });
     for (const id of Object.keys(MIX_FIELD) as (keyof typeof MIX_FIELD)[]) {
       const f = MIX_FIELD[id];

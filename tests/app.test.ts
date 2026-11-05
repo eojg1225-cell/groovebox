@@ -75,7 +75,7 @@ describe('PAD step entry: every note with its own tie', () => {
   const padApp = () => {
     const r = makeApp();
     r.app.project.channels[5].chord = 0;
-    r.app.project.chromatic = true; // the notes below count semitones
+    r.app.project.channels[5].chromatic = true; // the notes below count semitones
     return r;
   };
 
@@ -196,7 +196,7 @@ describe('PAD step entry: every note with its own tie', () => {
 
   it('BASS still replaces the note on a step', () => {
     const { app, tap } = makeApp();
-    app.project.chromatic = true;
+    app.project.channels[4].chromatic = true;
     tap('mode:record');
     tap('ch5');
     tap('step1');
@@ -243,7 +243,7 @@ describe('PAD / PLUCK with a CHORD: one root at a time, legato slides', () => {
 
   it('step entry with a CHORD: a key while another is held goes on the next step', () => {
     const { app, press, tap } = makeApp();
-    app.project.chromatic = true;
+    app.project.channels[5].chromatic = true;
     tap('mode:record');
     tap('ch6');
     press('step1');
@@ -1258,7 +1258,7 @@ describe('SCALE key', () => {
     press('scale');
     tap('cur+');
     release('scale');
-    expect(app.project.root).toBe(10);
+    expect(app.project.channels[4].root).toBe(10);
     tap('step1');
     expect(notes(app)[4]).toBe(34); // A#
     app.updateFrame(0);
@@ -1266,7 +1266,53 @@ describe('SCALE key', () => {
     tap('scale'); // a tap: a piano's colours
     app.updateFrame(0);
     expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([true, false, false, true]);
-    expect(fromStored(toStored(app.project))).toMatchObject({ root: 10, chromatic: true });
+    expect(fromStored(toStored(app.project))!.channels[4]).toMatchObject({ root: 10, chromatic: true });
+  });
+
+  it('each track has its own SCALE; SCALE held + a strip key = that key', () => {
+    const { app, tap, press, release, sent } = makeApp();
+    tap('mode:record');
+    tap('ch6'); // PAD
+    press('scale');
+    tap('step6'); // A minor from A: step 6 = D
+    release('scale');
+    expect(app.project.channels[5].root).toBe(2);
+    expect(app.project.channels[4].root ?? 9).toBe(9); // BASS keeps A
+    expect(sent).toContainEqual({ type: 'setRoot', channel: 5, root: 2 });
+    app.updateFrame(0);
+    tap('scale'); // a tap without a note: CHR on the PAD only
+    expect(app.project.channels[5].chromatic).toBe(true);
+    expect(app.project.channels[4].chromatic).toBeFalsy();
+  });
+
+  it('PROJECT KEY moves only the tracks on the default key when the turn began', () => {
+    const { app, tap, emit } = makeApp();
+    tap('mode:design');
+    tap('dpage2');
+    app.project.channels[5].root = 2; // PAD in D
+    const turn = (from: number, to: number) => {
+      emit({ type: 'touch', id: 'k7' });
+      const dir = Math.sign(to - from);
+      for (let k = from + dir; dir && k !== to + dir; k += dir) emit({ type: 'knob', id: 'k7', value: k / 11 });
+      emit({ type: 'release', id: 'k7' });
+    };
+    turn(9, 0); // A down to C, past D
+    expect(app.project.root).toBe(0);
+    expect(app.project.channels.map((c) => c.root ?? 9)).toEqual([0, 0, 0, 0, 0, 2, 0, 0]);
+    turn(0, 2); // C up to D: the PAD (in D) is not picked up
+    expect(app.project.channels.map((c) => c.root ?? 9)).toEqual([2, 2, 2, 2, 2, 2, 2, 2]);
+    turn(2, 4); // now every track is on the default: all move
+    expect(app.project.channels.map((c) => c.root ?? 9)).toEqual([4, 4, 4, 4, 4, 4, 4, 4]);
+  });
+
+  it('a v79 save: the project\'s SCALE becomes every track\'s', () => {
+    const p = createDefaultProject();
+    const stored = toStored(p) as unknown as Record<string, unknown>;
+    stored.version = 79;
+    stored.root = 2;
+    stored.chromatic = true;
+    const back = fromStored(stored)!;
+    expect(back.channels.map((c) => [c.root, c.chromatic])).toEqual(new Array(8).fill([2, true]));
   });
 
   it('the STRIP view is the same in every mode: a drum shows steps in PLAY, keys once switched', () => {
@@ -1628,13 +1674,13 @@ describe('painted steps', () => {
     const { app, tap, sent } = makeApp();
     tap('mode:record');
     tap('ch1'); // KICK: steps
-    app.project.root = 0; // SCALE: C
+    app.project.channels[0].root = 0; // SCALE: C
     tap('step3');
     const step = app.project.channels[0].patterns[0].steps[2];
     expect(step.active).toBe(true);
     expect(step.note % 12).toBe(0);
     expect(sent).toContainEqual(expect.objectContaining({ type: 'trigger', channel: 0, note: step.note }));
-    app.project.root = 9; // A
+    app.project.channels[0].root = 9; // A
     tap('step5');
     expect(app.project.channels[0].patterns[0].steps[4].note % 12).toBe(9);
   });
