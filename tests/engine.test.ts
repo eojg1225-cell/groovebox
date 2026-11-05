@@ -210,14 +210,14 @@ describe('instruments', () => {
     }
     // v78: PAD and PLUCK share the design page (DETUNE / UNISON 7, CHORD / SLIDE 8); their effects
     // are on FUNC (ALT): the PAD's DRIVE on 7, PLUCK's DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY
-    // TIME / DLY FDBK (8). The PAD's FM LVL stops at 0.58.
+    // TIME / DLY FDBK (8). The PAD's FM LVL has the full range again.
     expect(INSTRUMENTS.pluck.layout).toEqual(INSTRUMENTS.pad.layout);
     expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14], INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['detune', 'unison', 'track:chord', 'glide']);
     expect(INSTRUMENTS.pad.funcLayout[6]).toBe('drive');
     const pf = INSTRUMENTS.pluck.funcLayout;
     expect([pf[2], pf[10], pf[6], pf[14], pf[7], pf[15]]).toEqual(['dmix', 'verb', 'drive', 'crush', 'dtime', 'dfdbk']);
     for (const k of ['pad', 'pluck'] as const) for (const id of ['drive', 'crush', 'dtime', 'dfdbk', 'dmix', 'verb']) expect(INSTRUMENTS[k].layout, `${k} ${id}`).not.toContain(id);
-    expect(paramSpec('pad', 'fm')!.max).toBe(0.58);
+    expect(paramSpec('pad', 'fm')!.max).toBe(1);
     for (const id of ['fm2', 'feedback']) expect([...INSTRUMENTS.pad.layout, ...INSTRUMENTS.pad.funcLayout], id).not.toContain(id);
     expect(paramSpec('pad', 'detune')!.max).toBe(2); // half the others' range (chords)
     // BASS FUNC: FM RATIO over MID FREQ (4), UNISON / DETUNE (8).
@@ -2505,7 +2505,7 @@ describe('PAD on the 3 carrier engine', () => {
     for (let t = 0; t <= 1; t += 0.25) expect(macroSound('pad', t, 0.5, PAD_PARAMS).carriers).toBeCloseTo(0.85);
     expect(macroSound('pad', 0.5, 0, PAD_PARAMS).carriers).toBeLessThan(0.02); // 2 % of the sound's own (CONVERGE)
     // v78: INT moves only the carriers (CARRIERS, CAR FB): FM LVL is a knob again (the sound's
-    // own, up to 0.58), the filter and DRIVE the player's.
+    // own, 0-1), the filter and DRIVE the player's.
     for (let t = 0; t <= 1; t += 0.25) {
       const mid = macroSound('pad', t, 0.5, PAD_PARAMS);
       expect(mid.fm).toBeLessThanOrEqual(0.58);

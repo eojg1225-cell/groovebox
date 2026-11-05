@@ -325,7 +325,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
   pad: {
     name: 'PAD', gain: 0.413, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
-    // CHORD_PAGE (FM LVL up to 0.58); no CRUSH, DRIVE on FUNC (ALT) 7.
+    // CHORD_PAGE; no CRUSH, DRIVE on FUNC (ALT) 7.
     layout: CHORD_PAGE,
     funcLayout: trackFunc(heldFunc([_, _, 'drive', _], [_, _, _, _])),
     presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
