@@ -175,3 +175,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - PAD FM LVL (2026-11-05): back to the full 0-100 range (the v78 cap at 0.58 dropped); the lab's PAD CZ candidates dropped, the PAD stays as v78.
 - v79 PAD (2026-11-05): INT = PLUCK's recipe (CZ bends the carriers' waves below INT 50, full-strength CAR FB above; the lab's option C); FM LVL on a square law instead of the DX7 curve (even across the knob, no jumps at the top); v79 load converts saved FM LVL to the same index.
 - Load fix (2026-11-05): a knob's followers (PAD FM LVL2, OSC 2 DECAY / SUSTAIN) keep their edits on reload (they snapped back to TIMBRE's).
+- PLUCK amp knobs (2026-11-05): back to ATTACK / SUSTAIN on the page, DECAY / RELEASE on ALT (v78 had made them the PAD's).

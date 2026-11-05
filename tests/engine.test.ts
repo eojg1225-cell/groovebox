@@ -211,7 +211,8 @@ describe('instruments', () => {
     // v78: PAD and PLUCK share the design page (DETUNE / UNISON 7, CHORD / SLIDE 8); their effects
     // are on FUNC (ALT): the PAD's DRIVE on 7, PLUCK's DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY
     // TIME / DLY FDBK (8). The PAD's FM LVL has the full range again.
-    expect(INSTRUMENTS.pluck.layout).toEqual(INSTRUMENTS.pad.layout);
+    // PLUCK: the same page, but its amp envelope ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
+    expect(INSTRUMENTS.pluck.layout.map((id, i) => (i === 9 ? 'release' : id))).toEqual(INSTRUMENTS.pad.layout);
     expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14], INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['detune', 'unison', 'track:chord', 'glide']);
     expect(INSTRUMENTS.pad.funcLayout[6]).toBe('drive');
     const pf = INSTRUMENTS.pluck.funcLayout;
@@ -229,7 +230,7 @@ describe('instruments', () => {
     expect([INSTRUMENTS.pad.layout[1], INSTRUMENTS.pad.layout[9]]).toEqual(['attack', 'release']);
     expect([INSTRUMENTS.pad.funcLayout[1], INSTRUMENTS.pad.funcLayout[9]]).toEqual(['decay', 'sustain']);
     expect([INSTRUMENTS.pad.funcLayout[2], INSTRUMENTS.pad.funcLayout[10]]).toEqual(['attack2', 'release2']); // OSC 2's own
-    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'release']);
+    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
     // BASS SIDECHAIN under DRIVE / CRUSH with FUNC.
     expect([INSTRUMENTS.bass.funcLayout[6], INSTRUMENTS.bass.funcLayout[14]]).toEqual(['duck', 'duckrel']);
     // PLUCK (v78): no ARP.
@@ -3091,8 +3092,8 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     const m = LIVE_MACROS.pluck.find((x) => x.id === 'macro:sustain')!;
     expect(m.targets.map((t) => t.id)).toEqual(['attack', 'decay', 'sustain', 'fdecay']);
     expect(INSTRUMENTS.pluck.liveFunc).toEqual(['macro:sustain', 'track:notes']);
-    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'release']);
-    expect([INSTRUMENTS.pluck.funcLayout[1], INSTRUMENTS.pluck.funcLayout[9]]).toEqual(['decay', 'sustain']);
+    expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
+    expect([INSTRUMENTS.pluck.funcLayout[1], INSTRUMENTS.pluck.funcLayout[9]]).toEqual(['decay', 'release']);
     const held = play(synth('pluck', { sustain: 0.6, dmix: 0, verb: 0 }), 0.8, 0.8);
     const plucked = play(synth('pluck', { sustain: 0, dmix: 0, verb: 0 }), 0.8, 0.8);
     expect(rms(held, SR * 0.6, SR * 0.7)).toBeGreaterThan(rms(plucked, SR * 0.6, SR * 0.7) * 10 + 1e-3);

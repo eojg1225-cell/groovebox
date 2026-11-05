@@ -80,12 +80,14 @@ const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], 
  */
 const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', 'fmpair', _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
 /**
- * PLUCK FUNC (ALT; v78): the effects, off the design page: DECAY / SUSTAIN under ATTACK / RELEASE,
- * DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY TIME / DLY FDBK (8).
+ * PLUCK FUNC (ALT; v78): DECAY / RELEASE under ATTACK / SUSTAIN (a pluck's own envelope, as before
+ * v78), and the effects, off the design page: DLY MIX / VERB (3), DRIVE / CRUSH (7), DLY TIME /
+ * DLY FDBK (8).
  */
-const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', _, _, _, 'drive', 'dtime'], [_, 'sustain', 'verb', _, _, _, 'crush', 'dfdbk']);
+const PLUCK_FUNC = funcPage([_, 'decay', 'dmix', _, _, _, 'drive', 'dtime'], [_, 'release', 'verb', _, _, _, 'crush', 'dfdbk']);
 /**
- * PAD and PLUCK share one design page (v78): 1 TIMBRE / INT, 2 ATTACK / RELEASE, 3 FM ATK / FM DEC,
+ * PAD and PLUCK share one design page (v78): 1 TIMBRE / INT, 2 ATTACK / RELEASE (PLUCK: ATTACK /
+ * SUSTAIN), 3 FM ATK / FM DEC,
  * 4 FM LVL / RESO, 5 FLT ATK / FLT DEC, 6 FLT ENV / CUTOFF, 7 DETUNE / UNISON, 8 CHORD / SLIDE;
  * the effects (DRIVE, CRUSH, PLUCK's delay and room) on the FUNC (ALT) layer.
  */
@@ -336,7 +338,8 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
   pluck: {
     name: 'PLUCK', gain: 1.105, live: ['cutoff', 'macro:space'], liveFunc: ['macro:sustain', 'track:notes'], params: PLUCK_PARAMS,
-    layout: CHORD_PAGE,
+    // CHORD_PAGE, but module 2 ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
+    layout: CHORD_PAGE.map((id) => (id === 'release' ? 'sustain' : id)),
     funcLayout: trackFunc(PLUCK_FUNC),
     presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },
 };
