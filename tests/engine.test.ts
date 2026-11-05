@@ -11,7 +11,7 @@ import { applyPreset, createDefaultProject, createStartProject } from '../src/en
 import { CHORDS } from '../src/engine/chords';
 import { defaultSound, INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, macroAnchor, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
-import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, PLUCK_FIXED, dx7Index } from '../src/instruments/Synth';
+import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, PLUCK_FIXED, stackIndex } from '../src/instruments/Synth';
 import { IdleGate, midiToHz } from '../src/instruments/dsp';
 import { Smoother } from '../src/engine/smoother';
 import { gatedLoudness } from '../tools/lab/loudness';
@@ -2405,11 +2405,15 @@ describe('LEAD: the FM pair engine (and the DX7 level curve PAD uses)', () => {
     return d / e;
   };
 
-  it('DX7 level curve: subtle for most of FM, brutal at the top', () => {
-    expect(dx7Index(0)).toBe(0);
-    expect(dx7Index(0.6)).toBeGreaterThan(0.3);
-    expect(dx7Index(0.6)).toBeLessThan(0.6);
-    expect(dx7Index(1)).toBeCloseTo(13);
+  it('PAD FM LVL (v79): a square law, even across the knob, no big steps at the top', () => {
+    expect(stackIndex(0)).toBe(0);
+    expect(stackIndex(0.5)).toBeCloseTo(13 / 4, 9);
+    expect(stackIndex(1)).toBeCloseTo(13, 9);
+    // The last knob step (of 127) adds under 2 % (the DX7 curve's added 7 %).
+    expect(stackIndex(1) / stackIndex(126 / 127)).toBeLessThan(1.02);
+    // Every PAD sound keeps its v78 index (the DX7 curve at its old FM LVL).
+    const old = [0.4, 0.45, 0.56, 0.55, 0.56];
+    MACROS.pad.anchors.forEach((a, i) => expect(stackIndex(a.values.fm) / (13 * Math.pow(2, ((old[i] - 1) * 99) / 8)), a.name).toBeCloseTo(1, 2));
   });
 
   it('PAD / LEAD: FM ATK / FM DEC shape the modulation (a struck burst settling to FM LVL)', () => {
@@ -4771,14 +4775,35 @@ describe('PAD / PLUCK carriers (v78)', () => {
     stored.channels[7].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { intensity: 0.9, cutoff: 500 } }];
     stored.song.a = { 's:7:intensity': [[0, 0.3]], 's:5:intensity': [[0, 0.6]] };
     const p = fromStored(stored)!;
-    expect(p.channels[5].sounds.pad).toMatchObject({ intensity: 0.3, fm: 0.1, cutoff: 700, drive: 1.3 });
+    // (v79 then moves the PAD's FM LVL onto its new curve, the same index.)
+    expect(p.channels[5].sounds.pad).toMatchObject({ intensity: 0.3, fm: Math.pow(2, ((0.1 - 1) * 99) / 16), cutoff: 700, drive: 1.3 });
     expect(p.channels[7].sounds.pluck).toMatchObject({ intensity: 0.5, fm: 0.03, cutoff: 900, unison: 0.1, cfeedback: 0 });
-    for (const [ch, kind, id, v] of [[5, 'pad', 'fm', 0.1], [7, 'pluck', 'cutoff', 900]] as const) {
+    for (const [ch, kind, id, v] of [[5, 'pad', 'fm', Math.pow(2, ((0.1 - 1) * 99) / 16)], [7, 'pluck', 'cutoff', 900]] as const) {
       const c = p.channels[ch], specs = INSTRUMENTS[kind].params;
       const hidden = macroSound(kind, c.sounds[kind]!.timbre, c.sounds[kind]!.intensity, specs);
       expect(applyTrim(specs.find((q) => q.id === id)!, hidden[id], c.trims[kind]![id]), `${kind} ${id}`).toBeCloseTo(v, 6);
     }
     expect(p.channels[7].patterns[0].steps[0].locks).toEqual({ cutoff: 500 });
     expect(Object.keys(p.song.auto!)).toEqual(['s:5:intensity']);
+  });
+});
+
+describe('PAD FM LVL curve (v79)', () => {
+  it('v79: a saved PAD FM LVL / FM LVL2 (values, locks, SONG lanes) moves onto the new curve with the same index', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 78;
+    Object.assign(stored.channels[5].sounds.pad, { fm: 0.5, fm2: 0.5 });
+    stored.channels[5].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { fm: 0.8 } }];
+    stored.song.a = { 's:5:fm': [[0, 0.9]] };
+    const p = fromStored(stored)!;
+    const dx7 = (v: number) => 13 * Math.pow(2, ((v - 1) * 99) / 8);
+    expect(stackIndex(p.channels[5].sounds.pad!.fm)).toBeCloseTo(dx7(0.5), 9);
+    expect(stackIndex(p.channels[5].sounds.pad!.fm2)).toBeCloseTo(dx7(0.5), 9);
+    expect(stackIndex(p.channels[5].patterns[0].steps[0].locks!.fm)).toBeCloseTo(dx7(0.8), 9);
+    expect(stackIndex(p.song.auto!['s:5:fm'][0][1])).toBeCloseTo(dx7(0.9), 9);
+    // A v79 save keeps its own.
+    const now = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    now.channels[5].sounds.pad.fm = 0.5;
+    expect(fromStored(now)!.channels[5].sounds.pad!.fm).toBe(0.5);
   });
 });

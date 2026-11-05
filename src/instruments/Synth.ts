@@ -96,13 +96,14 @@ const SLIDE_SUSTAIN = 1;
 /** A held note's level follows a new velocity (slide, mono retrigger) over about this long, s. */
 const VEL_SMOOTH = 0.004;
 /**
- * 3 CARRIER modulation index from FM (0..1) on a DX7-like level curve: like an operator's
- * OUTPUT LEVEL (FM 1 = 99), about 6 dB per 8 levels, so most of the knob is subtle (FM 0.6
- * = level 60, index ~0.45) and the last part goes from tasteful to brutal (index ~13).
+ * PAD (2 STACKS) modulation index from FM LVL (0..1), v79: a square law up to FM_MAX_INDEX, so
+ * the brightness rises evenly across the knob (the old DX7 level curve, 6 dB per 8 levels, did
+ * almost nothing below 60 and then rose ~7 % per knob step at the top). The v78 sounds keep
+ * their index (projectFile padFmV79).
  */
-const DX7_MAX_INDEX = 13;
-export function dx7Index(fm: number): number {
-  return fm <= 0 ? 0 : DX7_MAX_INDEX * Math.pow(2, ((fm - 1) * 99) / 8);
+const FM_MAX_INDEX = 13;
+export function stackIndex(fm: number): number {
+  return fm <= 0 ? 0 : FM_MAX_INDEX * fm * fm;
 }
 /** Feedback at FEEDBACK 1 (DX7 feedback 7: just short of noise). */
 const MAX_FEEDBACK = 1.6;
@@ -347,7 +348,7 @@ const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 
 // PAD DETUNE: half the other synths' range (any more is unusable on chords).
 export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE.filter((id) => id !== 'crush'), 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
 /** PAD: 2 STACKS (two modulator -> carrier pairs, see macros.ts); no CRUSH. */
-export const PAD_FIXED = { voice: 0, sub: 0, algo: 2 };
+export const PAD_FIXED = { voice: 0, sub: 0, algo: 2, cz: 2 };
 /**
  * LEAD: the BASS / PLUCK engine (SHAPE's waves into an FM pair, OSC 2 detuned, one envelope),
  * mono with slides, plus what makes a lead: delayed VIBRATO and a pitch envelope (BEND).
@@ -661,9 +662,9 @@ export class Synth implements Instrument {
     this.fmEff = f < 0 ? 0 : f > 1 ? 1 : f;
     this.pairFm = this.squelchOn ? squelch(this.fmEff) : this.fmEff;
     this.fmGain = fmGainOf(this.fmComp, this.fmEff);
-    this.fmIndex = dx7Index(this.fmEff);
+    this.fmIndex = stackIndex(this.fmEff);
     const f2 = this.fm2 + this.fmMod;
-    this.fm2Index = dx7Index(f2 < 0 ? 0 : f2 > 1 ? 1 : f2);
+    this.fm2Index = stackIndex(f2 < 0 ? 0 : f2 > 1 ? 1 : f2);
   }
 
   cut(): void {
@@ -875,7 +876,8 @@ export class Synth implements Instrument {
       const cents = 12 + 20 * this.detune;
       for (let k = 0; k < 4; k++) this.uRatio[k] = Math.pow(2, (UNISON_SPREAD[k] * cents) / 1200);
     }
-    const cfbAmt = (this.cFeedback * MAX_CARRIER_FEEDBACK * (1 - 0.8 * Math.min(1, Math.max(0, this.shape - 1)))) / (2 * Math.PI);
+    // v79: at full strength on every wave (it was a fifth on saw / square: INT did little there).
+    const cfbAmt = (this.cFeedback * MAX_CARRIER_FEEDBACK) / (2 * Math.PI);
     // SHAPE: the two neighbouring waves and the blend between them (past 3: the pulse's width).
     const w = this.shape > 3 ? 3 : Math.min(2, Math.floor(this.shape));
     const wf = this.shape - w;
@@ -1090,6 +1092,11 @@ export class Synth implements Instrument {
   private oscStacks(v: Voice, n: number, det: number, cfbAmt: number, w: number, wf: number): void {
     const fmRatio = this.fmRatio, feedback = this.feedback;
     const fmIndex = this.fmIndex, fm2Index = this.fm2Index, ratio2 = this.ratio2, ratio3 = this.ratio3, c = this.carriers;
+    // CZ (PAD, cz 2): carrier 1's wave bent as oscWaves bends a block (its edge from the block's pitch).
+    const czOn = this.cz > 0 && this.czBend < 1;
+    const bend = CZ_FLOOR + (1 - CZ_FLOOR) * this.czBend;
+    const edge = czOn ? 0.5 * Math.pow(Math.min(0.5, 1.5 * this.bDt[0]) / 0.5, bend) : 0;
+    const pw = w === 3 ? 0.5 - (0.5 - PULSE_MIN) * wf : 0.5;
     for (let j = 0; j < n; j++) {
       const dt1 = this.bDt[j];
       v.p4 += dt1 * fmRatio; if (v.p4 >= 1) v.p4 -= 1;
@@ -1106,13 +1113,18 @@ export class Synth implements Instrument {
       const idx2 = fm2Index * env; // stack 2 at FM LVL2
       this.bPb[j] = wrap(v.p5 + m2 * idx2); this.bDb[j] = d5;
       const cfb = (v.cf1 + v.cf2) * 0.5 * cfbAmt;
-      const c1 = shaped(w, wf, wrap(this.bP1[j] + m1 * idx + cfb), dt1);
+      const ph = wrap(this.bP1[j] + m1 * idx + cfb);
+      let c1: number;
+      if (czOn) {
+        c1 = czWave(w, ph, bend, edge, pw);
+        if (w < 3 && wf > 0) c1 += (czWave(w + 1, ph, bend, edge, 0.5) - c1) * wf;
+      } else c1 = shaped(w, wf, ph, dt1);
       v.cf2 = v.cf1;
       v.cf1 = c1;
       this.bO1[j] = c1;
     }
     const o1 = this.bO1, o2 = this.bO2;
-    waves(w, wf, this.bPb, this.bDb, 1, o2, n);
+    this.oscWaves(w, wf, this.bPb, this.bDb, 1, o2, n);
     for (let j = 0; j < n; j++) o2[j] = o1[j] * (1 - c) + o2[j] * c;
   }
 

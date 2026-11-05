@@ -689,10 +689,26 @@ export function carrierV78(kind: SoundKind, sound: Record<string, number>): void
 }
 const CARRIER_KINDS_V78: readonly string[] = ['pad', 'pluck'];
 
+/**
+ * v79: the PAD's FM LVL moved from the DX7 level curve (index 13 x 2^((FM - 1) x 99 / 8)) to a
+ * square law (13 x FM^2, Synth.stackIndex): a saved FM LVL / FM LVL2 (values, step locks, SONG
+ * lanes) becomes the level with the same index, so it plays as saved.
+ */
+function fmLevelV79(v: number): number {
+  return v <= 0 ? 0 : Math.pow(2, ((v - 1) * 99) / 16);
+}
+const FM_IDS_V79: readonly string[] = ['fm', 'fm2'];
+/** v79 on a PAD's sound values, in place. */
+export function padFmV79(kind: SoundKind, sound: Record<string, number>): void {
+  if (kind !== 'pad') return;
+  for (const id of FM_IDS_V79) if (typeof sound[id] === 'number') sound[id] = fmLevelV79(sound[id]);
+}
+
 /** v70 / v71 / v75 / v76 / v78 step locks: a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
   if (version < 78 && kind === 'pluck') delete locks.intensity;
+  if (version < 79 && kind === 'pad') for (const id of FM_IDS_V79) if (locks[id] !== undefined) locks[id] = fmLevelV79(locks[id]);
   if (airLenSave(version) && AIR_KINDS_V75.includes(kind) && locks.airsize !== undefined) locks.airsize = airSizeV75(locks.airsize);
   if (version < 71 && kind === 'lead' && locks.timbre !== undefined) locks.timbre = leadTimbreV71(locks.timbre);
   if (version >= 70) return;
@@ -719,6 +735,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   if (version < 77) fmCompV77(kind, sound);
   if (version < 78) carrierV78(kind, sound);
+  if (version < 79) padFmV79(kind, sound);
   // A parameter stored without one its knob sets along with it (FM LVL2, added later) takes
   // the knob's value, as the knob would have set it.
   for (const spec of specs) {
@@ -751,7 +768,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 47) kickV47(kind, sound, trims);
   if (version < 70 && kind === 'pad') padV70(sound, trims);
   if (version < 74) snareV74(kind, sound, trims);
-  if (version < 78 && CARRIER_KINDS_V78.includes(kind)) trims = deriveTrims(kind, sound, specs);
+  if ((version < 78 && CARRIER_KINDS_V78.includes(kind)) || (version < 79 && kind === 'pad')) trims = deriveTrims(kind, sound, specs);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
@@ -973,7 +990,7 @@ export function fromStored(data: unknown): Project | null {
   if (version < 49) typeGainV49(p);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.
-  if (version < 78 && p.song.auto) {
+  if (version < 79 && p.song.auto) {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind !== 's') continue;
@@ -981,6 +998,7 @@ export function fromStored(data: unknown): Project | null {
       if (version < 71 && kind === 'lead' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, leadTimbreV71(v)]);
       if (airLenSave(version) && kind !== undefined && AIR_KINDS_V75.includes(kind) && t.id === 'airsize') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, airSizeV75(v)]);
       if (kind !== undefined && t.id === 'intensity' && ((version < 76 && CZ_KINDS_V76.includes(kind)) || (version < 78 && kind === 'pluck'))) { delete p.song.auto[key]; continue; }
+      if (version < 79 && kind === 'pad' && FM_IDS_V79.includes(t.id)) p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, fmLevelV79(v)]);
       if (version >= 70) continue;
       if (kind === 'bass' && t.id === 'timbre') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, bassTimbreV70(v, version)]);
       if (kind === 'pad' && padGoneV70(t.id)) delete p.song.auto[key];

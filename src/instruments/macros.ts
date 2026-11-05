@@ -221,15 +221,15 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // musical intervals), so every stop on the way stays in tune with a chord.
     anchors: [
       // Warm: a soft wave with an octave-down modulator on stack 2 (a low growl under it).
-      { name: 'WARM', values: { ogain: 1.343, cfeedback: 0, shape: 1.5, fm: 0.4, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 }, hard: { ogain: 1.481 }, soft: { ogain: 1.063 } },
+      { name: 'WARM', values: { ogain: 1.343, cfeedback: 0, shape: 1.5, fm: 0.0763, fmratio: 1, ratio2: 1, ratio3: 0.5, feedback: 0.35, carriers: 0.85, cutoff: 1000, reso: 0.15, fattack: 0.0005, fenv: 0.1, fdecay: 1, drive: 1.1 }, hard: { ogain: 1.550 }, soft: { ogain: 1.669 } },
       // Strings: saws, stack 2 a fifth up, the filter opening slowly.
-      { name: 'STRINGS', values: { ogain: 1.041, cfeedback: 0, shape: 2, fm: 0.45, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 }, hard: { ogain: 1.097 }, soft: { ogain: 0.742 } },
+      { name: 'STRINGS', values: { ogain: 1.041, cfeedback: 0, shape: 2, fm: 0.0945, fmratio: 1, ratio2: 1.5, ratio3: 2, feedback: 0.45, carriers: 0.85, cutoff: 2600, reso: 0.1, fattack: 0.3, fenv: 0.15, fdecay: 1.5, drive: 1.1 }, hard: { ogain: 1.218 }, soft: { ogain: 0.609 } },
       // Tine: a DX7 electric-piano pad - 1 : 1 body with a 4x tine, struck by the envelope.
-      { name: 'TINE', values: { ogain: 0.76, cfeedback: 0, shape: 0, fm: 0.56, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 }, hard: { ogain: 0.834 }, soft: { ogain: 0.603 } },
-      { name: 'GLASS', values: { ogain: 0.915, cfeedback: 0, shape: 0, fm: 0.55, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 }, hard: { ogain: 1.057 }, soft: { ogain: 0.646 } },
+      { name: 'TINE', values: { ogain: 0.76, cfeedback: 0, shape: 0, fm: 0.1515, fmratio: 1, ratio2: 1, ratio3: 4, feedback: 0.15, carriers: 0.85, cutoff: 6000, reso: 0.1, fattack: 0.0005, fenv: 0.7, fdecay: 0.5, drive: 1.1 }, hard: { ogain: 0.834 }, soft: { ogain: 0.603 } },
+      { name: 'GLASS', values: { ogain: 0.915, cfeedback: 0, shape: 0, fm: 0.1452, fmratio: 2, ratio2: 2, ratio3: 3, feedback: 0.1, carriers: 0.85, cutoff: 8000, reso: 0.1, fattack: 0.0005, fenv: 0.25, fdecay: 0.8, drive: 1 }, hard: { ogain: 1.057 }, soft: { ogain: 0.646 } },
       // Ethereal: a 7x modulator over the body, stack 2 a twelfth up under a 5x one - every
       // sideband lands on a harmonic: a bright, high shimmer.
-      { name: 'ETHEREAL', values: { ogain: 1.522, cfeedback: 0, shape: 0.5, fm: 0.56, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 }, hard: { ogain: 1.522 }, soft: { ogain: 1.107 } },
+      { name: 'ETHEREAL', values: { ogain: 1.522, cfeedback: 0, shape: 0.5, fm: 0.1515, fmratio: 7, ratio2: 3, ratio3: 5, feedback: 0.2, carriers: 0.85, cutoff: 9000, reso: 0.1, fattack: 0.0005, fenv: 0.3, fdecay: 1.5, drive: 1 }, hard: { ogain: 1.522 }, soft: { ogain: 1.022 } },
     ],
     excite: [
       // v78: INTENSITY = the carriers only (FM LVL is a knob again, the filter and DRIVE the

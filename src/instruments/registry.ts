@@ -343,10 +343,13 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];
 
-/** The parameters with a knob on a type's SOUND page (main or FUNC layer). */
+/** The parameters with a knob on a type's SOUND page (main or FUNC layer), and those a knob sets along with it. */
 export function pageParams(kind: SoundKind): ReadonlySet<string> {
   const e = INSTRUMENTS[kind];
-  return new Set([...e.layout, ...e.funcLayout].filter((id): id is string => !!id));
+  const ids = [...e.layout, ...e.funcLayout].filter((id): id is string => !!id);
+  // A knob's followers (PAD FM LVL2, OSC 2 DECAY / SUSTAIN) keep their edits too: without them a
+  // reload put them back to TIMBRE's while their knob kept its own.
+  return new Set([...ids, ...ids.flatMap((id) => linkedParams(kind, id))]);
 }
 
 function instrumentParams(kind: InstrumentKind): readonly ParamSpec[] {
