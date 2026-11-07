@@ -332,6 +332,32 @@ describe('sequencer', () => {
     near(onsets(render(f, 0.5).l), [0, 6000]);
   });
 
+  it('TIME changed while playing takes over at the next bar line, where the loop would be at the new speed', () => {
+    const e = engineWith(kickProject([0, 4, 8, 12]));
+    e.handleMessage({ type: 'transport', playing: true });
+    const a = render(e, 0.5).l; // mid-bar (a bar = 96000 frames)
+    e.handleMessage({ type: 'setPatternSpeed', channel: 0, pattern: 0, speed: 'double' });
+    const b = render(e, 2.1).l;
+    const all = new Float32Array(a.length + b.length);
+    all.set(a);
+    all.set(b, a.length);
+    // Normal to the bar line (every 24000), then X2 (every 12000) from 96000.
+    near(onsets(all), [0, 24000, 48000, 72000, 96000, 108000, 120000]);
+    // A /2 pattern (2 bars) back to normal in its first bar: at the bar line its second bar would
+    // start, so the normal loop starts there on step 1 (a hit), not on step 9.
+    const p = kickProject([0]);
+    p.channels[0].patterns[0].speed = 'half';
+    const f = engineWith(p);
+    f.handleMessage({ type: 'transport', playing: true });
+    const c = render(f, 0.5).l;
+    f.handleMessage({ type: 'setPatternSpeed', channel: 0, pattern: 0, speed: 'normal' });
+    const d = render(f, 2.1).l;
+    const both = new Float32Array(c.length + d.length);
+    both.set(c);
+    both.set(d, c.length);
+    near(onsets(both), [0, 96000]);
+  });
+
   it('applies swing to the off-beat 16ths', () => {
     const e = engineWith(kickProject([1], { swing: 75 }));
     e.handleMessage({ type: 'transport', playing: true });
@@ -3573,13 +3599,15 @@ describe('v34: half / double time per pattern', () => {
     }
   });
 
-  it('switching speed takes effect on the next steps', () => {
+  it('switching speed while playing takes effect at the next bar line (stopped: at once)', () => {
     const { e, hits, run } = setup('normal');
     e.handleMessage({ type: 'transport', playing: true });
     run(bar / 2 - 128); // 8 steps
     e.handleMessage({ type: 'setPatternSpeed', channel: 0, pattern: 0, speed: 'double' });
     run(bar / 2);
-    expect(hits.length).toBe(8 + 16);
+    expect(hits.length).toBe(16); // the rest of the bar at normal speed
+    run(bar / 2);
+    expect(hits.length).toBe(16 + 16); // half a bar at X2
   });
 
   it('live recording in half time lands on the track\'s own step', () => {

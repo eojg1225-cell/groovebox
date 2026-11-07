@@ -2099,6 +2099,7 @@ export class App {
    * (its steps last a 16th, a 32nd, an 8th or a triplet 16th). An unsaved edit of its notes,
    * like LENGTH.
    */
+  /** TIME: the selected track's pattern speed, normal -> double -> half -> triplet (playing: from the next bar line). */
   private cycleSpeed(): void {
     const pat = this.pattern;
     const next = PATTERN_SPEEDS[(PATTERN_SPEEDS.indexOf(pat.speed ?? 'normal') + 1) % PATTERN_SPEEDS.length];
@@ -2106,7 +2107,8 @@ export class App {
     else pat.speed = next;
     pat.notesDirty = true;
     this.send({ type: 'setPatternSpeed', channel: this.selected, pattern: this.channel.activePattern, speed: next });
-    this.flash(`${this.kindName(this.channel)} PAT ${PATTERN_NAMES[this.channel.activePattern]} ${next.toUpperCase()} TIME`);
+    // Playing, the engine takes it at the next bar line (the track stays in time).
+    this.flash(`${this.kindName(this.channel)} PAT ${PATTERN_NAMES[this.channel.activePattern]} ${next.toUpperCase()} TIME${this.playing ? ' AT NEXT BAR' : ''}`);
     this.save();
   }
 

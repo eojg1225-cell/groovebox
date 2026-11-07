@@ -73,6 +73,11 @@ export type RecordedMsg = Extract<WorkletToMain, { type: 'recordedNote' | 'recor
  * switches, song rows, RESET); steps that do not play (time signature, triplet time,
  * STEPS) take no time.
  */
+/** Step slots per 16-step bar at a pattern rate (master steps per step): X2 32, normal / triplet 16, /2 8. */
+function slotsPerBar(rate: number): number {
+  return rate < 1 ? 32 : rate >= 2 ? 8 : 16;
+}
+
 export class Engine {
   readonly sampleRate: number;
   playing = false;
@@ -246,6 +251,9 @@ export class Engine {
   /** RESET (notes too): a pattern's saved notes, swapped in at the next bar line. */
   private readonly pendingNotes: ({ length: number; steps: Step[]; speed?: PatternSpeed } | null)[] = new Array(NUM_CHANNELS * NUM_PATTERNS).fill(null);
   private notesPending = false;
+  /** TIME changed while playing: each pattern's new rate (0 = none), taken at the next bar line (applyPendingRate). */
+  private readonly pendingRate = new Float64Array(NUM_CHANNELS * NUM_PATTERNS);
+  private ratePending = false;
   /** A pattern lock holds this channel / param slot now (base value changes wait). */
   private readonly lockApplied = new Uint8Array(NUM_CHANNELS * LOCK_SLOTS);
   /**
@@ -470,9 +478,11 @@ export class Engine {
         this.patternLength[msg.channel * NUM_PATTERNS + msg.pattern] = Math.max(1, Math.min(MAX_STEPS, msg.length));
         break;
       case 'setPatternSpeed': {
+        // Playing: at the next bar line, so the track stays in time; stopped: at once.
         const k = msg.channel * NUM_PATTERNS + msg.pattern;
-        this.patternRate[k] = speedSteps(msg.speed);
-        this.refreshOn(k);
+        this.pendingRate[k] = speedSteps(msg.speed);
+        this.ratePending = true;
+        if (!this.playing) this.applyPendingRates();
         break;
       }
       case 'selectPattern': this.selectPattern(msg.channel, msg.pattern, msg.immediate); break;
@@ -698,6 +708,8 @@ export class Engine {
   }
 
   loadProject(p: Project): void {
+    this.pendingRate.fill(0); // TIME changes waiting for the bar: the project's own speeds instead
+    this.ratePending = false;
     this.autoBase.clear();
     this.bpm = p.bpm;
     this.instrumentTempo();
@@ -790,6 +802,7 @@ export class Engine {
     this.heldEntry.fill(0);
     this.songCell = NaN;
     this.applyPendingNotes();
+    this.applyPendingRates();
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       // A switch waiting for its bar line happens now, and every patch glide lands.
       this.landAt[ch] = -1;
@@ -1133,6 +1146,7 @@ export class Engine {
     const stepLen = this.stepFrames(g);
     if (this.clickOn && this.beatAt[pos]) this.click.trigger(pos === 0);
     if (atBar && this.notesPending) this.applyPendingNotes();
+    if (atBar && this.ratePending) this.applyPendingRates(true);
     if (this.songOn && atBar) this.songBarLine();
     if (this.songOn) this.runSongEdges(g);
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -2649,6 +2663,32 @@ export class Engine {
     this.pendingNotes[ch * NUM_PATTERNS + pat] = { length, steps, speed };
     this.notesPending = true;
     if (!this.playing) this.applyPendingNotes();
+  }
+
+  /**
+   * TIME's waiting changes take over. On a bar line (`moving`), a track whose playing pattern
+   * changes speed goes on at the step where its loop would be at the new speed (the same
+   * place in its bars: a step slot is a 32nd at X2, a 16th normal or in triplets, an 8th at /2),
+   * so it stays in time.
+   */
+  private applyPendingRates(moving = false): void {
+    if (!this.ratePending) return;
+    this.ratePending = false;
+    for (let k = 0; k < this.pendingRate.length; k++) {
+      const rate = this.pendingRate[k];
+      if (rate === 0) continue;
+      this.pendingRate[k] = 0;
+      const ch = Math.floor(k / NUM_PATTERNS);
+      const old = this.patternRate[k];
+      this.patternRate[k] = rate;
+      this.refreshOn(k);
+      if (!moving || old === rate || k !== ch * NUM_PATTERNS + this.seqPattern(ch)) continue;
+      const len = this.patternLength[k];
+      const pos = Math.round((this.position[ch] * slotsPerBar(rate)) / slotsPerBar(old)) % len;
+      const at = this.nextOn(k * MAX_STEPS, pos, len);
+      this.position[ch] = at < 0 ? 0 : at;
+      this.loopStart[ch] = this.position[ch] === 0 ? 1 : 0;
+    }
   }
 
   private applyPendingNotes(): void {
