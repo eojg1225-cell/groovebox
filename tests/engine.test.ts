@@ -1423,6 +1423,22 @@ describe('slides and rolls', () => {
     near(onsets(render(e, 0.8).l, 0.005, 1500), [0, 3000, 6000, 9000, 12000, 15000, 36000]); // 3 steps x 2, then step 7
   });
 
+  it('ALT + ROLL (every note rolls): a tied hit rolls to its tie\'s end, also as the last hit of a run, with no separate ending hit', () => {
+    const roll = (hits: number[], tied: number) => {
+      const p = kickProject(hits, { bpm: 120 });
+      p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick, t_decay: 0.01, c_level: 0, rolldiv: 4 }; // 1/32: 2 a step
+      p.channels[0].patterns[0].steps[tied].gate = 3;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'setForce', channel: 0, ring: false, slide: true });
+      e.handleMessage({ type: 'transport', playing: true });
+      return onsets(render(e, 0.8).l, 0.005, 1500);
+    };
+    // A lone tied hit: 3 steps x 2, then step 7 alone (a lone untied hit does not roll).
+    near(roll([0, 6], 0), [0, 3000, 6000, 9000, 12000, 15000, 36000]);
+    // Steps 1-2, step 2 tied over 3: one run of 4 steps x 2, rolling on to the tie's end.
+    near(roll([0, 1, 6], 1), [0, 3000, 6000, 9000, 12000, 15000, 18000, 21000, 36000]);
+  });
+
   it('ROLL RATE is a note value, 1/4 ... 1/64, 1/16 by default; slower than a step a run plays every few steps', () => {
     expect(INSTRUMENTS.kick.params.find((x) => x.id === 'rolldiv')?.options).toEqual(['1/4', '1/8.', '1/8', '1/16', '1/32', '1/32T', '1/64']);
     for (const kind of ['kick', 'snare', 'hat', 'perc'] as const) {
