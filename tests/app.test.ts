@@ -333,24 +333,117 @@ describe('RECORD strip: the same as PLAY', () => {
   });
 });
 
-describe('PLAY flags carry into DESIGN', () => {
+describe('ALT + flag = every note plays that way, in every mode', () => {
   const lastForce = (sent: MainToWorklet[], ch: number) => [...sent].reverse().find((m) => m.type === 'setForce' && m.channel === ch);
+  const alt = (press: (id: string) => void, release: (id: string) => void, id: string) => { press('func'); press(id); release(id); release('func'); };
 
-  it('SLIDE all notes stays on from PLAY into DESIGN, can be turned off there, and ends in RECORD', () => {
-    const { sent, tap } = makeApp();
+  it('ALT + SLIDE all notes stays on through the modes and can be turned off anywhere', () => {
+    const { sent, tap, press, release } = makeApp();
     tap('mode:play');
     tap('ch7');
-    tap('slide');
+    alt(press, release, 'slide');
     expect(lastForce(sent, 6)).toMatchObject({ slide: true });
     const before = sent.length;
     tap('mode:design');
-    expect(sent.slice(before).some((m) => m.type === 'setForce')).toBe(false); // still on
-    tap('slide');
-    expect(lastForce(sent, 6)).toMatchObject({ slide: false });
-    tap('ring');
-    expect(lastForce(sent, 6)).toMatchObject({ ring: true });
     tap('mode:record');
-    expect(lastForce(sent, 6)).toMatchObject({ ring: false, slide: false });
+    expect(sent.slice(before).some((m) => m.type === 'setForce')).toBe(false); // still on
+    alt(press, release, 'slide');
+    expect(lastForce(sent, 6)).toMatchObject({ slide: false });
+    alt(press, release, 'ring');
+    expect(lastForce(sent, 6)).toMatchObject({ ring: true });
+  });
+
+  it('a plain flag tap places the flag in PLAY and DESIGN too (no all-notes effect)', () => {
+    const { app, sent, tap } = makeApp();
+    tap('mode:record');
+    tap('ch7');
+    tap('step1'); // a note on step 1
+    const steps = () => app.project.channels[6].patterns[app.project.channels[6].activePattern].steps;
+    expect(steps()[0].active).toBe(true);
+    for (const mode of ['play', 'design']) {
+      tap(`mode:${mode}`);
+      const before = sent.length;
+      tap('dyn:accent');
+      tap('step1');
+      expect(steps()[0].accent).toBe(mode === 'play');
+      expect(sent.slice(before).some((m) => m.type === 'setForce')).toBe(false);
+      tap('dyn:accent'); // back to the keys
+    }
+  });
+});
+
+describe('SCALE keys, STEP EDIT notes, drum ties', () => {
+  const steps = (app: App, ch: number) => app.project.channels[ch].patterns[app.project.channels[ch].activePattern].steps;
+  const keyNote = (app: App, ch: number, i: number) => (app as unknown as { keyNote(ch: number, i: number): number }).keyNote(ch, i);
+
+  it('RECORD, strip on steps: SCALE held brings up the keys, each key a note at the cursor', () => {
+    const { app, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch1'); // KICK: steps
+    press('scale');
+    tap('step5');
+    tap('step3');
+    release('scale');
+    const s = steps(app, 0);
+    expect([s[0].active, s[0].note, s[1].active, s[1].note]).toEqual([true, keyNote(app, 0, 4), true, keyNote(app, 0, 2)]);
+    expect(app.project.channels[0].chromatic).toBeUndefined(); // keys played: not a SCALE tap
+    tap('step9'); // the steps again: paints a hit
+    expect(s[8].active).toBe(true);
+  });
+
+  it('STEP EDIT: OCT moves the primed note an octave, SCALE + key gives it a new note; a PAD chord moves whole', () => {
+    const { app, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch7'); // LEAD
+    tap('step1');
+    const before = steps(app, 6)[0].note;
+    tap('stepedit'); // primes the cursor's step (2)
+    tap('step1'); // step 1 primed
+    tap('oct+');
+    expect(steps(app, 6)[0].note).toBe(before + 12);
+    press('scale');
+    tap('step3');
+    release('scale');
+    expect(steps(app, 6)[0].note).toBe(keyNote(app, 6, 2));
+    tap('stepedit');
+    // PAD: a chord of two notes moves to the key, its lowest note on it.
+    tap('ch6');
+    const pad = steps(app, 5)[0];
+    Object.assign(pad, { active: true, note: 57, gate: 1, extra: [64] });
+    const gap = Math.max(pad.note, ...(pad.extra ?? [])) - Math.min(pad.note, ...(pad.extra ?? []));
+    expect(pad.extra?.length).toBe(1);
+    tap('stepedit');
+    tap('step1');
+    press('scale');
+    tap('step5');
+    release('scale');
+    const lo = Math.min(pad.note, ...(pad.extra ?? []));
+    expect(lo).toBe(keyNote(app, 5, 4));
+    expect(Math.max(pad.note, ...(pad.extra ?? [])) - lo).toBe(gap);
+    tap('oct-');
+    expect(Math.min(pad.note, ...(pad.extra ?? []))).toBe(keyNote(app, 5, 4) - 12);
+  });
+
+  it('drum lane: hold a step + ▶ ◀ ties it (a held hit stays and ties); STEP EDIT ties drums too', () => {
+    const { app, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    press('step1'); // adds a hit
+    tap('cur+');
+    tap('cur+');
+    release('step1');
+    expect([steps(app, 0)[0].active, steps(app, 0)[0].gate]).toEqual([true, 3]);
+    press('step1'); // a hit pressed: would erase, but ◀ shortens it instead
+    tap('cur-');
+    release('step1');
+    expect([steps(app, 0)[0].active, steps(app, 0)[0].gate]).toEqual([true, 2]);
+    tap('step1'); // a plain tap still erases
+    expect(steps(app, 0)[0].active).toBe(false);
+    tap('step5');
+    tap('stepedit');
+    tap('step5'); // prime it (step 1 was primed on entry)
+    tap('cur+');
+    expect(steps(app, 0)[4].gate).toBe(2);
   });
 });
 
@@ -1929,13 +2022,15 @@ describe('ARP key', () => {
 });
 
 describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
-  it('PLAY on a drum: ROLL held repeats (holdRoll on / off); a quick tap still sets every note rolling', () => {
+  it('ALT + ROLL on a drum: held repeats (holdRoll on / off); a quick tap still sets every note rolling', () => {
     const { app, press, release, tap, sent } = makeApp();
     tap('mode:play');
     tap('ch1');
+    press('func');
     press('slide');
     expect(sent.some((m) => m.type === 'holdRoll' && m.on)).toBe(true);
     release('slide'); // quick: a tap
+    release('func');
     expect(sent.some((m) => m.type === 'holdRoll' && !m.on)).toBe(true);
     expect((app as unknown as { forceSlide: boolean[] }).forceSlide[0]).toBe(true);
   });

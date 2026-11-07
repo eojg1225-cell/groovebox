@@ -56,7 +56,7 @@ Main -> worklet:
 | `setChord` | `channel`, `chord` | Chord index (0 = off) |
 | `setRoot` | `channel`, `root` | a track's SCALE root (pitch class) for its KEY chords |
 | `setNotes` | `channel`, `notes` | NOTES: how many of the chord's tones play |
-| `setForce` | `channel`, `ring`, `slide`, `velocity?` | PLAY's RING / SLIDE (ROLL) / ACCENT / GHOST on every note of the track |
+| `setForce` | `channel`, `ring`, `slide`, `velocity?` | ALT + RING / SLIDE (ROLL) / ACCENT / GHOST (any mode) on every note of the track |
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setSound` | `channel`, `id`, `value`, `pattern?` | Instrument parameter (real units) in that pattern's patch |
 | `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred); the engine sums each knob's push per param (`liveTargets` / `liveContribution` in the registry) on top of the base or locked value |
@@ -69,7 +69,7 @@ Main -> worklet:
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
 | `setArp` | `channel`, `id` (`on` / `mode` / `rate` / `oct`), `value` | A track's ARP (engine/arp.ts): plays when on and MODE is not OFF |
-| `holdRoll` | `channel`, `on`, `note` | ROLL held (PLAY / DESIGN, drums): the track repeats at ROLL RATE, normal velocity, its own hits as set |
+| `holdRoll` | `channel`, `on`, `note` | ALT + ROLL held (any mode, drums): the track repeats at ROLL RATE, normal velocity, its own hits as set |
 | `transport` | `playing`, `song?`, `fromRow?`, `fromBar?`, `fromChannel?`, `fromStep?`, `countIn?`, `gen?` | Start / stop; `fromBar` = the bar inside row `fromRow` the song starts on (`Engine.startSongAt`); `countIn` = bars of clicks before the music (COUNT-IN: the sequencer, LFO and recording wait); `song` = play the song from row `fromRow`. Patterns: `fromStep` (a bar line of track `fromChannel`'s pattern; absent = the top) = every track starts where it would be had all played from the top until that track reached that step (`Engine.startAt` moves the step counters on silently; notes started earlier don't sound). `gen` = the UI's PLAY / STOP count: a STOP also sets the node's `stop` AudioParam to it (it gets through an overloaded audio thread that holds messages back), and the processor drops a transport message older than a STOP already applied |
 | `setSong` | `song` | Replace the song: rows, and the automation lanes (`song.auto`, compiled into `Engine.lanes`, played by `runAuto` while the song plays) |
 | `setClick` | `on`, `level` | METRONOME: click on the beats while playing (`on`), level 0..1 (also the count-in's) |

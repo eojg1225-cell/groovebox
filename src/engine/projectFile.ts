@@ -17,7 +17,7 @@ import { applyPreset, liveDefaults, createDefaultProject } from './defaultProjec
 import { parseAutoKey } from './automation';
 import { macroIds, macroSoundOf, type MacroDef } from '../instruments/macros';
 import { DEFAULT_ROLL_RATE } from '../instruments/Drum';
-import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
+import { INSTRUMENTS, LIVE_MACROS, isDrum, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { BUS_PARAMS, FX_LIVE, NUM_BUSES } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
@@ -632,6 +632,7 @@ function readNotes(sp: Obj, pat: { length: number; steps: Step[]; speed?: Patter
     if (version < 62) step.note = drumRootV62(kind, step.note);
     step.velocity = num(s.v, 0.8, 0, 1);
     step.gate = Math.round(num(s.g, 1, 1, MAX_STEPS));
+    if (version < 83) step.gate = drumTieV83(kind, step.gate);
     step.accent = s.a === 1;
     step.slide = s.s === 1;
     if (s.r === 1) step.ring = true;
@@ -692,6 +693,15 @@ export function carrierV78(kind: SoundKind, sound: Record<string, number>): void
   if (kind === 'pluck') sound.intensity = 0.5;
 }
 const CARRIER_KINDS_V78: readonly string[] = ['pad', 'pluck'];
+
+/**
+ * v83: a tied drum hit strikes again on every step it is tied over. Before, a drum played out
+ * whatever its length, so an older save's drum notes (copied or recorded with a length) go back
+ * to one step and play as saved.
+ */
+function drumTieV83(kind: InstrumentKind, gate: number): number {
+  return isDrum(kind) ? 1 : gate;
+}
 
 /**
  * v79: the PAD's FM LVL moved from the DX7 level curve (index 13 x 2^((FM - 1) x 99 / 8)) to a

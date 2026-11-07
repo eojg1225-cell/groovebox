@@ -318,6 +318,20 @@ describe('sequencer', () => {
     near(onsets(render(e, 0.8).l), [0, 18000, 36000]);
   });
 
+  it('a tied drum hit strikes again on every step it is tied over; a REST ends it', () => {
+    const p = kickProject([0, 8]);
+    p.channels[0].patterns[0].steps[0].gate = 4;
+    const e = engineWith(p);
+    e.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(e, 1.1).l), [0, 6000, 12000, 18000, 48000]);
+    const q = kickProject([0]);
+    q.channels[0].patterns[0].steps[0].gate = 4;
+    q.channels[0].patterns[0].steps[2].rest = true;
+    const f = engineWith(q);
+    f.handleMessage({ type: 'transport', playing: true });
+    near(onsets(render(f, 0.5).l), [0, 6000]);
+  });
+
   it('applies swing to the off-beat 16ths', () => {
     const e = engineWith(kickProject([1], { swing: 75 }));
     e.handleMessage({ type: 'transport', playing: true });
@@ -2536,6 +2550,20 @@ describe('PAD on the 3 carrier engine', () => {
     expect(q.ratio3).toBe(0.5);
     expect(q.carriers).toBeCloseTo(0.85);
     expect(q.crush).toBe(0);
+  });
+});
+
+describe('v83 drum ties', () => {
+  it('an older save\'s drum note lengths go back to one hit; synth ties stay', () => {
+    const p = createDefaultProject();
+    p.channels[0].patterns[0].steps[0] = { ...p.channels[0].patterns[0].steps[0], active: true, gate: 3 };
+    p.channels[4].patterns[0].steps[0] = { ...p.channels[4].patterns[0].steps[0], active: true, gate: 3 };
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 82;
+    const q = fromStored(stored)!;
+    expect(q.channels[0].patterns[0].steps[0].gate).toBe(1);
+    expect(q.channels[4].patterns[0].steps[0].gate).toBe(3);
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[0].patterns[0].steps[0].gate).toBe(3);
   });
 });
 

@@ -355,6 +355,11 @@ export class Engine {
   private readonly rollRamp = new Uint16Array(NUM_CHANNELS);
   private readonly rollIndex = new Uint16Array(NUM_CHANNELS);
   private readonly runLeft = new Uint16Array(NUM_CHANNELS);
+  /** Drums: a tied hit (gate above 1) strikes again on each step it is tied over; steps still to strike, its note and velocity. */
+  private readonly tieLeft = new Uint16Array(NUM_CHANNELS);
+  private readonly tieNote = new Int16Array(NUM_CHANNELS);
+  private readonly tieVel = new Float64Array(NUM_CHANNELS);
+  private readonly tieRing = new Uint8Array(NUM_CHANNELS);
   /** ROLL held down (PLAY / DESIGN, drums): the track repeats at ROLL RATE, and the note it strikes. */
   private readonly holdRoll = new Uint8Array(NUM_CHANNELS);
   private readonly holdRollNote = new Float32Array(NUM_CHANNELS).fill(DRUM_ROOT);
@@ -766,6 +771,7 @@ export class Engine {
     this.rollLeft.fill(0);
     this.hitStep.fill(-1);
     this.runLeft.fill(0);
+    this.tieLeft.fill(0);
     this.subAt.fill(-1);
     this.subLeft.fill(0);
     this.loopStart.fill(1);
@@ -1206,6 +1212,7 @@ export class Engine {
       this.releaseHolds(ch);
       this.rollLeft[ch] = 0;
       this.runLeft[ch] = 0;
+      this.tieLeft[ch] = 0;
       this.currentStep[ch] = -1;
       this.position[ch] = 0;
       this.loopStart[ch] = 1;
@@ -1293,6 +1300,27 @@ export class Engine {
         this.sliding[ch] = slide ? 1 : 0;
       }
       if (drumRoll && !this.holdRoll[ch]) this.startRollRun(ch, pat, idx, len, vel);
+      // Drums: a tied hit strikes once more on every step it is tied over.
+      this.tieLeft[ch] = this.rollDiv[ch] > 0 ? this.stepGate[s] - 1 : 0;
+      this.tieNote[ch] = root;
+      this.tieVel[ch] = vel;
+      this.tieRing[ch] = ring ? 1 : 0;
+    } else if (this.stepActive[s] === 1 || rest) {
+      this.tieLeft[ch] = 0; // another hit (muted, or inside a roll run) or a REST ends the tie
+    } else if (this.tieLeft[ch] > 0) {
+      this.tieLeft[ch]--;
+      if (!inRun && this.songOff[ch] === 0 && this.muted[ch] === 0 && this.skipStep[ch] !== idx) {
+        const ring = this.tieRing[ch] === 1;
+        this.noteOn(ch, this.tieNote[ch], this.tieVel[ch], ring);
+        if (ring) {
+          // As the first hit: it rings until the next hit or REST.
+          this.gateGroup[ch] = this.tieNote[ch];
+          this.gateSteps[ch] = 1;
+          this.ringing[ch] = 1;
+        }
+        this.hitStep[ch] = at;
+        this.hitNote[ch] = this.tieNote[ch];
+      }
     }
     if (hit) {
       this.hitStep[ch] = at;
@@ -1836,7 +1864,8 @@ export class Engine {
     this.recNote[ch] = -1;
     if (!this.playing) return;
     const pattern = this.recPattern[ch];
-    const gate = this.heldLength(ch, pattern, this.recStart[ch]);
+    // Drums: a held key is one hit (a tie would strike again on every step).
+    const gate = this.rollDiv[ch] > 0 ? 1 : this.heldLength(ch, pattern, this.recStart[ch]);
     const index = this.recIndex[ch];
     this.stepGate[(ch * NUM_PATTERNS + pattern) * MAX_STEPS + index] = gate;
     this.onRecorded?.({

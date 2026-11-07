@@ -154,6 +154,8 @@ const PLAY_PAGES = 2;
 const SPEED_MARK = { normal: '', double: ' X2', half: ' /2', triplet: ' T' } as const;
 
 /** What a drum-lane paint stroke does to each step it reaches. */
+const FLAG_IDS = ['ring', 'slide', 'dyn:accent', 'dyn:ghost'] as const;
+
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
 /** A relative live knob: -100..+100 % around the sound as set (centre). */
 const OFFSET_SPEC: ParamSpec = { id: 'offset', name: 'OFFSET', min: -100, max: 100, defaultValue: 0, unit: '%', curve: 'linear', decimals: 0 };
@@ -313,6 +315,12 @@ function lowestNoteOnly(step: Step): void {
   delete step.extraGate;
 }
 
+/** A note onto a drum from another type: one hit (a drum's tie strikes again on every step it covers). */
+function oneHit(step: Step): void {
+  step.gate = 1;
+  delete step.extraGate;
+}
+
 export class App {
   selected = 0;
   mode: Mode = 'play';
@@ -320,15 +328,15 @@ export class App {
   /** PLAY's page: 0 = SOUND (the live knobs), 1 = MIX (as in DESIGN). PROJECT is DESIGN only. */
   playPage = 0;
   /**
-   * RECORD: RING / SLIDE / ACCENT / GHOST tapped on = placing that flag: the strip shows the steps and a tap
+   * Any mode: RING / SLIDE / ACCENT / GHOST tapped on = placing that flag: the strip shows the steps and a tap
    * puts it on / takes it off a note (drum lanes: new hits get it too); tapped again = back.
    */
   ring = false;
   slideArm = false;
-  /** PLAY: RING / SLIDE per track = every note plays as a RING / SLIDE (ROLL) note. */
+  /** ALT + RING / SLIDE per track (any mode) = every note plays as a RING / SLIDE (ROLL) note. */
   private readonly forceRing: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private readonly forceSlide: boolean[] = new Array(NUM_CHANNELS).fill(false);
-  /** PLAY: ACCENT / GHOST per track = every note at that dynamic ('normal' = its own). */
+  /** ALT + ACCENT / GHOST per track = every note at that dynamic ('normal' = its own). */
   private readonly forceDyn: Dynamic[] = new Array(NUM_CHANNELS).fill('normal');
   /** Counts PLAY / STOP presses: the engine drops transport messages a STOP has overtaken. */
   private transportGen = 0;
@@ -433,7 +441,8 @@ export class App {
    * the finger slides onto gets (a hit with the armed flags, the flags set / cleared, a rest,
    * or erased). It lasts while any strip button is down.
    */
-  private stroke: { kind: StrokeKind } | null = null;
+  /** A drum-lane paint stroke; `index` = the step pressed last, `before` = it as it was (a press that erased it, then ◀ ▶, ties it instead). */
+  private stroke: { kind: StrokeKind; index: number; before?: Step } | null = null;
   private readonly stripDown = new Set<number>();
   /** BAR held: ◀ / ▶ move the strip's bar; released unused = next bar. */
   private barHeld = false;
@@ -447,7 +456,7 @@ export class App {
   /** STEPS mode (RECORD / PLAY): the strip shows which steps play; a tap switches one on / off. */
   private stepsMode = false;
   /** Note sounding from a ◀ / ▶ step preview, released after the step's length. */
-  private preview: { channel: number; note: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  private preview: { channel: number; notes: number[]; timer: ReturnType<typeof setTimeout> } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
   private message = '';
   private messageUntil = 0;
@@ -669,13 +678,25 @@ export class App {
    * Holding CLEAR turns the strip into steps (to clear) in RECORD and PLAY.
    */
   private get keyboard(): boolean {
+    if (this.scaleKeys) return true;
     if (this.autoSteps || this.stepEdit) return false;
     if (this.copyHeld && !this.song) return false; // COPY: the strip shows the steps
     if (this.song) return true; // SONG never edits a pattern's steps
     if (this.clearHeld && this.mode !== 'design') return false;
     if (this.stepsMode) return false;
-    if (this.placing && this.mode === 'record') return false;
+    if (this.placing) return false;
     return !this.stripSteps();
+  }
+
+  /**
+   * SCALE held in RECORD where the strip shows steps: the keys come up. Step entry (strip on
+   * STEPS): a key writes its note at the cursor, as on the keys; STEP EDIT: a key = the primed
+   * note's new note (a chord moves with it).
+   */
+  private get scaleKeys(): boolean {
+    if (!this.scaleHeld || this.song || this.mode !== 'record' || this.menu || this.projMenu) return false;
+    if (this.stepEdit) return true;
+    return this.stripSteps() && !this.stepsMode && !this.placing && !this.copyHeld && !this.clearHeld;
   }
 
   /**
@@ -829,7 +850,7 @@ export class App {
     const following = this.playing && (ch !== this.selected || (this.followsPlayhead && !this.stepsMode));
     let page: number;
     if (following) page = head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : this.viewPage[ch];
-    else if (!this.stripSteps(ch) && this.mode === 'record' && !this.stepsMode) {
+    else if ((!this.stripSteps(ch) || (ch === this.selected && this.scaleKeys)) && this.mode === 'record' && !this.stepsMode) {
       // Step entry: the cursor's block, or while a note is being tied, the block its end is in
       // (a tie runs on past the bar line into the next block, and round past the loop end).
       const at = this.entry && ch === this.selected ? (this.entry.index + this.entryLength() - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
@@ -1471,7 +1492,9 @@ export class App {
       }
       if (id === 'scale' && this.scaleHeld) {
         // SCALE tapped (no ◀ / ▶ or key meanwhile): the track's minor keys / chromatic keys.
+        const keys = this.scaleKeys && !this.stepEdit;
         this.scaleHeld = false;
+        if (keys) this.viewPage[this.selected] = Math.floor(this.cursor[this.selected] / 16); // the bar entry got to
         if (!this.scaleUsed) {
           const c = this.channel;
           if (c.chromatic) delete c.chromatic;
@@ -1501,7 +1524,7 @@ export class App {
       return;
     }
     // The other strip modes (flag placing, REST) end STEP EDIT.
-    if (this.stepEdit && (id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost' || id === 'rest')) this.leaveStepEdit();
+    if (this.stepEdit && (((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && !this.func) || id === 'rest')) this.leaveStepEdit();
     if (id === 'copy') {
       this.copyHeld = true;
       this.copyUsed = false;
@@ -1592,7 +1615,7 @@ export class App {
     // SONG: the keys that edit a pattern (STEPS, TIME, REST, flag placing, the sound's OCTAVE)
     // do nothing to it.
     const flag = id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost';
-    if (this.song && (id === 'len' || id === 'speed' || id === 'rest' || (flag && (this.mode === 'record' || this.songGrid)) || ((id === 'oct-' || id === 'oct+') && this.func))) {
+    if (this.song && (id === 'len' || id === 'speed' || id === 'rest' || (flag && (!this.func || this.songGrid)) || ((id === 'oct-' || id === 'oct+') && this.func))) {
       if (this.funcHeld) this.funcUsed = true;
       this.flash(SONG_KEEPS);
       this.refreshPanel();
@@ -1693,21 +1716,24 @@ export class App {
       // SAVE PROJECT = name + slot; FUNC + SAVE PROJECT = load another (stopped only).
       if (this.funcHeld) this.funcUsed = true;
       this.openProjectMenu(this.func ? 'load' : 'save');
-    } else if (id === 'slide' && this.forcing && isDrum(this.channel.instrument)) {
-      // PLAY / DESIGN on a drum: ROLL held = the track repeats at ROLL RATE (while playing);
+    } else if (id === 'slide' && this.func && isDrum(this.channel.instrument)) {
+      // ALT + ROLL on a drum (any mode): held = the track repeats at ROLL RATE (while playing);
       // a tap (on release) = every note rolls, on / off.
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
       const c = this.channel;
       this.rollHeldAt = performance.now();
       this.rollHeldCh = this.selected;
       this.send({ type: 'holdRoll', channel: this.selected, on: true, note: c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote });
-    } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.forcing) {
+    } else if (flag && this.func) {
+      // ALT + RING / SLIDE / ACCENT / GHOST (any mode): every note on the track plays that way.
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
       this.toggleForce(id);
-    } else if ((id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost') && this.mode === 'record') {
-      // RECORD: tap = place this flag on the strip (one at a time), tap again = back.
+    } else if (flag) {
+      // Any mode: tap = place this flag on the strip (one at a time), tap again = back.
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : id === 'dyn:ghost' ? 'ghost' : 'normal';
       const on = id === 'ring' ? !this.ring : id === 'slide' ? !this.slideArm : this.dynamic !== d;
       // Placing opens on the bar step entry is in (the cursor's).
-      if (on && !this.placing && this.flagPaintable && !this.recording) this.viewPage[this.selected] = Math.floor(this.cursor[this.selected] / 16);
+      if (on && !this.placing && this.flagPaintable && this.mode === 'record' && !this.recording) this.viewPage[this.selected] = Math.floor(this.cursor[this.selected] / 16);
       this.ring = id === 'ring' && on;
       this.slideArm = id === 'slide' && on;
       this.dynamic = on ? d : 'normal';
@@ -1728,20 +1754,39 @@ export class App {
       // FUNC + OCT ▼ / ▲ (any mode): the sound's OCTAVE, part of the patch (synths only).
       if (this.funcHeld) this.funcUsed = true; // not a latching tap
       if (!this.stepOctave(id === 'oct+' ? 1 : -1)) this.flash('NO OCTAVE');
+    } else if ((id === 'oct-' || id === 'oct+') && this.stepEdit && !this.scaleHeld && this.primedNote() >= 0) {
+      // STEP EDIT: the primed note (a chord: all of it) an octave down / up.
+      this.movePrimedNote(id === 'oct+' ? 12 : -12);
     } else if (id === 'oct-' || id === 'oct+') {
       const o = this.octave[this.selected] + (id === 'oct+' ? 12 : -12);
       this.octave[this.selected] = Math.max(12, Math.min(96, o));
       // Shown, as the strip may be on steps: the keyboard's lowest key.
       this.flash(`KEYS FROM ${noteName(this.keyNote(this.selected, 0))}`);
     } else if (id === 'scale') {
+      const ch = this.selected;
+      const page = this.visiblePage(ch);
       this.scaleHeld = true;
       this.scaleUsed = false;
-    } else if ((id === 'cur-' || id === 'cur+') && this.scaleHeld) {
+      if (this.scaleKeys && !this.stepEdit && !this.recording && Math.floor(this.cursor[ch] / 16) !== page) {
+        // The keys write into the bar the steps showed.
+        this.cursor[ch] = Math.min(page * 16 + (this.cursor[ch] % 16), this.pattern.length - 1);
+        if (!this.plays(this.cursor[ch])) this.moveCursor(1);
+      }
+    } else if ((id === 'cur-' || id === 'cur+') && this.scaleHeld && !this.entry) {
       // SCALE + ◀ / ▶: the track's root a semitone down / up (the strip's keys follow).
       this.setTrackRoot(this.selected, this.trackRoot() + (id === 'cur+' ? 1 : 11));
       this.scaleUsed = true;
       this.flash(`SCALE: ${this.scaleName()}`);
       this.save();
+    } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleKeys && !this.stepEdit) {
+      // SCALE held, the strip on steps: the keys enter notes at the cursor, one by one.
+      this.scaleUsed = true;
+      this.onStrip(Number(m[1]) - 1);
+    } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleHeld && this.stepEdit && this.primedNote() >= 0) {
+      // STEP EDIT, SCALE held: the key = the primed note's new note (a chord moves with it).
+      this.scaleUsed = true;
+      const step = this.pattern.steps[this.primedNote()];
+      this.movePrimedNote(this.keyNote(this.selected, Number(m[1]) - 1) - Math.min(...stepNotes(step).map((n) => n.note)));
     } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleHeld) {
       // SCALE held + a strip key: the track's key becomes that note (the keys re-lay from it).
       this.scaleUsed = true;
@@ -1767,6 +1812,9 @@ export class App {
     } else if ((id === 'cur-' || id === 'cur+') && this.entry) {
       // Holding a key: ▶ ties the note over one more step, ◀ shortens it.
       this.tie(id === 'cur+' ? 1 : -1);
+    } else if ((id === 'cur-' || id === 'cur+') && this.stroke && this.stripDown.size > 0) {
+      // The strip on steps, a step held: ▶ ties its note over one more step, ◀ shortens it.
+      this.tieHeldStep(id === 'cur+' ? 1 : -1);
     } else if (id === 'cur-' || id === 'cur+') {
       this.moveCursor(id === 'cur+' ? 1 : -1);
       this.previewCursor();
@@ -1800,7 +1848,7 @@ export class App {
     this.refreshPanel();
   }
 
-  /** PLAY / DESIGN: RING / SLIDE / ACCENT / GHOST = a live effect on the selected track's notes, tap on / tap off. */
+  /** ALT + RING / SLIDE / ACCENT / GHOST (any mode) = a live effect on the selected track's notes, tap on / tap off. */
   private toggleForce(id: string): void {
     const ch = this.selected;
     const ring = id === 'ring' ? !this.forceRing[ch] : this.forceRing[ch];
@@ -1821,7 +1869,7 @@ export class App {
     const ch = this.rollHeldCh;
     this.rollHeldCh = -1;
     this.send({ type: 'holdRoll', channel: ch, on: false, note: 36 });
-    if (performance.now() - this.rollHeldAt < HOLD_TIMES[deviceSettings.holdTime].ms && ch === this.selected && this.forcing) this.toggleForce('slide');
+    if (performance.now() - this.rollHeldAt < HOLD_TIMES[deviceSettings.holdTime].ms && ch === this.selected) this.toggleForce('slide');
     this.refreshPanel();
   }
 
@@ -2285,7 +2333,8 @@ export class App {
   }
 
   private velocity(): number {
-    const d = this.forcing ? this.forceDyn[this.selected] : this.dynamic;
+    // RECORD: the armed dynamic; PLAY / DESIGN: ALT + ACCENT / GHOST's (every note on the track).
+    const d = this.mode === 'record' ? this.dynamic : this.forceDyn[this.selected];
     return DYNAMIC_VELOCITY[d];
   }
 
@@ -2324,7 +2373,7 @@ export class App {
     }
     // Keyboard track placing RING / SLIDE / ACCENT / GHOST: a tap puts the flag on / off
     // that step's note (another dynamic -> the placed one, the same one -> back to normal).
-    if (this.placing && this.mode === 'record' && this.flagPaintable) {
+    if (this.placing && this.flagPaintable) {
       const index = this.visiblePage(ch) * 16 + button;
       const id = this.ring ? 'ring' : this.slideArm ? 'slide' : `dyn:${this.dynamic}`;
       if (index < this.pattern.length) this.paintStep(index, [id]);
@@ -2410,7 +2459,10 @@ export class App {
         : !step.active ? 'add'
         : !armed ? 'erase'
         : this.flagsOn(step) ? 'flags-off' : 'flags-on';
-      this.stroke = { kind };
+      this.stroke = { kind, index, before: kind === 'erase' ? JSON.parse(JSON.stringify(step)) : undefined };
+    } else {
+      this.stroke.index = index;
+      this.stroke.before = undefined;
     }
     // Every track (drums too): a new hit takes the strip keys' lowest note (SCALE's root).
     this.paintNote(index, this.stroke.kind);
@@ -2513,14 +2565,14 @@ export class App {
     }
   }
 
-  /** RECORD: a flag (RING / SLIDE / ACCENT / GHOST) is being placed on the strip. */
+  /** A flag (RING / SLIDE / ACCENT / GHOST) is being placed on the strip (any mode). */
   private get placing(): boolean {
     return this.ring || this.slideArm || this.dynamic !== 'normal';
   }
 
-  /** RECORD on a keyboard track: placing a flag shows the steps instead of the keys. */
+  /** A keyboard track (any mode): placing a flag shows the steps instead of the keys. */
   private get flagPaintable(): boolean {
-    return this.mode === 'record' && !this.stripSteps();
+    return !this.stripSteps();
   }
 
   /** Paint flags onto the note on a step. */
@@ -2553,14 +2605,10 @@ export class App {
     this.mode = mode;
     this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
-    // RING / SLIDE belong to their mode: placing in RECORD, the all-notes effect in PLAY and
-    // DESIGN (kept going between those two).
-    if (this.mode !== 'record') { this.ring = false; this.slideArm = false; this.dynamic = 'normal'; }
-    if (!this.forcing) {
-      for (let ch = 0; ch < NUM_CHANNELS; ch++) {
-        if (this.forceRing[ch] || this.forceSlide[ch] || this.forceDyn[ch] !== 'normal') this.setForce(ch, false, false, 'normal');
-      }
-    }
+    // Placing a flag ends with the mode; ALT + flag's all-notes effects play on in every mode.
+    this.ring = false;
+    this.slideArm = false;
+    this.dynamic = 'normal';
     this.touchedKnob = -1;
   }
 
@@ -2584,7 +2632,6 @@ export class App {
     } else this.setMode('play');
   }
 
-  /** PLAY: every note on a track as RING / SLIDE (ROLL) / ACCENT / GHOST notes, or back. */
   /** The strip shows the bar playing: PLAY, DESIGN and live recording (RECORD while playing; not in STEP EDIT, which keeps its primed bar). */
   private get followsPlayhead(): boolean {
     return this.playing && !this.stepEdit && (this.mode === 'play' || this.mode === 'design' || this.recording);
@@ -2604,11 +2651,6 @@ export class App {
       this.viewPage[ch] = page;
       this.cursor[ch] = Math.min(page * 16 + (this.cursor[ch] % 16), c.patterns[c.activePattern].length - 1);
     }
-  }
-
-  /** PLAY and DESIGN: RING / SLIDE / ACCENT / GHOST make every note on the track play that way. */
-  private get forcing(): boolean {
-    return this.mode === 'play' || this.mode === 'design';
   }
 
   private setForce(ch: number, ring: boolean, slide: boolean, dyn: Dynamic): void {
@@ -2687,6 +2729,8 @@ export class App {
     // A drum's hits onto a pitched track land on its keyboard's base note.
     const fromDrum = from.instrument !== 'none' && stepsOnStrip(from.instrument) && !plainDrum;
     const base = to.instrument === 'none' ? 36 : INSTRUMENTS[to.instrument].baseNote;
+    // A synth's note lengths onto a drum would strike again on every step: one hit each.
+    const toDrumTies = isDrum(to.instrument) && !isDrum(from.instrument);
     dst.length = src.length;
     this.send({ type: 'setPatternLength', channel: toCh, pattern: toPat, length: dst.length });
     if (src.speed && src.speed !== 'normal') dst.speed = src.speed;
@@ -2699,6 +2743,7 @@ export class App {
       if (from.instrument !== to.instrument) dropSoundLocks(step, fromCh);
       // One note at a time: the chord's lowest, as a CHORD plays it.
       if (!playsChords(to.instrument)) lowestNoteOnly(step);
+      if (toDrumTies) oneHit(step);
       dst.steps[i] = step;
       this.send({ type: 'setStep', channel: toCh, pattern: toPat, index: i, step });
     });
@@ -3027,11 +3072,6 @@ export class App {
       return;
     }
     const step = pattern.steps[index];
-    const kind = this.channel.instrument;
-    if (isDrum(kind) && kind !== 'perc') {
-      this.flash('DRUMS PLAY OUT: NO TIES');
-      return;
-    }
     this.tieStep(index, delta);
     const gates = stepNotes(step).map((n) => n.gate);
     const lo = Math.min(...gates);
@@ -3043,6 +3083,68 @@ export class App {
     if (this.primed) this.primed.view = endBar === Math.floor(at / 16) ? undefined : endBar;
     this.relabel(`TIE STEP ${index + 1}`);
     this.flash(`STEP ${index + 1}: ${lo === hi ? lo : `${lo}-${hi}`} STEP${hi > 1 ? 'S' : ''} LONG`);
+  }
+
+  /**
+   * STEP EDIT: the step holding the primed note (the primed step, or on a tied-over step the
+   * note tied over it); -1 = no note there.
+   */
+  private primedNote(): number {
+    const at = this.primed?.cell ?? -1;
+    if (at < 0 || at >= this.pattern.length) return -1;
+    const steps = this.pattern.steps;
+    if (steps[at].active) return at;
+    return coveringNote(steps, this.pattern.length, at)?.[0] ?? -1;
+  }
+
+  /** STEP EDIT: the primed note (every note of its step) `d` semitones up / down, and heard. */
+  private movePrimedNote(d: number): void {
+    const index = this.primedNote();
+    if (index < 0) return;
+    const step = this.pattern.steps[index];
+    const notes = stepNotes(step);
+    if (notes.some((n) => n.note + d < 0 || n.note + d > 127)) {
+      this.flash('OUT OF RANGE');
+      return;
+    }
+    if (d !== 0) {
+      setStepNotes(step, notes.map((n) => ({ ...n, note: n.note + d })));
+      this.sendStep(index, step);
+      this.save();
+      this.relabel(`NOTE STEP ${index + 1}`);
+    }
+    const now = stepNotes(step).map((n) => n.note);
+    if (!this.playing) {
+      this.stopPreview();
+      for (const note of now) this.send({ type: 'trigger', channel: this.selected, note, velocity: step.velocity });
+      this.previewNotes(now, longest(step));
+    }
+    this.flash(`STEP ${index + 1}: ${noteName(Math.min(...now))}${now.length > 1 ? ` CHORD (${now.length})` : ''}`);
+  }
+
+  /**
+   * The strip on steps, a step held + ◀ ▶: its note a step longer / shorter (a press that
+   * erased a hit, then ◀ ▶: the hit stays and is tied). Drums strike again on every step tied over.
+   */
+  private tieHeldStep(delta: number): void {
+    const stroke = this.stroke!;
+    const index = stroke.index;
+    const pattern = this.pattern;
+    if (stroke.before?.active) {
+      pattern.steps[index] = stroke.before;
+      stroke.before = undefined;
+      stroke.kind = 'add';
+    }
+    const step = pattern.steps[index];
+    if (!step.active) {
+      this.flash('NO NOTE ON THIS STEP');
+      return;
+    }
+    this.tieStep(index, delta);
+    this.sendStep(index, step);
+    const hi = longest(step);
+    this.relabel(`TIE STEP ${index + 1}`);
+    this.flash(`STEP ${index + 1}: ${hi} STEP${hi > 1 ? 'S' : ''} LONG`);
   }
 
   /**
@@ -3103,20 +3205,25 @@ export class App {
     const step = this.pattern.steps[this.cursor[ch]];
     if (!step.active || this.playing) return;
     this.send({ type: 'trigger', channel: ch, note: step.note, velocity: step.velocity });
-    const ms = (60000 / this.project.bpm / 4) * Math.max(1, step.gate);
-    const note = step.note;
+    this.previewNotes([step.note], Math.max(1, step.gate));
+  }
+
+  /** Hear notes already triggered for `steps` steps, then let them go (the next preview cuts them). */
+  private previewNotes(notes: number[], steps: number): void {
+    const ch = this.selected;
+    const ms = (60000 / this.project.bpm / 4) * steps;
     const timer = setTimeout(() => {
       if (this.preview?.timer !== timer) return;
-      this.send({ type: 'release', channel: ch, note });
+      for (const note of notes) this.send({ type: 'release', channel: ch, note });
       this.preview = null;
     }, ms);
-    this.preview = { channel: ch, note, timer };
+    this.preview = { channel: ch, notes, timer };
   }
 
   private stopPreview(): void {
     if (!this.preview) return;
     clearTimeout(this.preview.timer);
-    this.send({ type: 'release', channel: this.preview.channel, note: this.preview.note });
+    for (const note of this.preview.notes) this.send({ type: 'release', channel: this.preview.channel, note });
     this.preview = null;
   }
 
@@ -3551,6 +3658,7 @@ export class App {
    */
   private setTrackType(ch: number, kind: InstrumentKind): void {
     const c = this.project.channels[ch];
+    const toDrum = isDrum(kind) && !isDrum(c.instrument); // note lengths go (a drum's tie strikes again)
     trackDefaults(c, kind);
     const patch = patchOf(c, c.activePattern);
     c.patterns.forEach((pat, p) => {
@@ -3563,11 +3671,13 @@ export class App {
         const before = JSON.stringify(st);
         dropSoundLocks(st, ch);
         if (!playsChords(kind)) lowestNoteOnly(st);
+        if (toDrum) oneHit(st);
         if (JSON.stringify(st) !== before) this.send({ type: 'setStep', channel: ch, pattern: p, index: i, step: st });
       });
       for (const st of pat.savedNotes?.steps ?? []) {
         dropSoundLocks(st, ch);
         if (!playsChords(kind)) lowestNoteOnly(st);
+        if (toDrum) oneHit(st);
       }
     });
     this.octave[ch] = kind === 'none' ? 36 : INSTRUMENTS[kind].baseNote;
@@ -3941,16 +4051,15 @@ export class App {
     // The steps as in RING / ACCENT ... placing: notes lit (accent / ghost / ring), steps a
     // note is tied over as a band; locks marked L; the primed step yellow, and the LEDs over
     // every step the primed note lasts (◀ ▶ change that).
-    const pitched = !stepsOnStrip(c.instrument);
     const steps = pattern.steps;
     const len = pattern.length;
     let noteAt = -1;
     let lasts = 0;
     if (pr && pr.cell < len) {
-      const cover = steps[pr.cell].active ? [pr.cell, 0] : pitched ? coveringNote(steps, len, pr.cell) : null;
+      const cover = steps[pr.cell].active ? [pr.cell, 0] : coveringNote(steps, len, pr.cell);
       if (cover) {
         noteAt = cover[0];
-        lasts = pitched ? longest(steps[noteAt]) : 1;
+        lasts = longest(steps[noteAt]);
       }
     }
     const inNote = (index: number) => noteAt >= 0 && (index - noteAt + len) % len < lasts;
@@ -3962,7 +4071,7 @@ export class App {
       const dark = !off && !this.plays(index);
       const meterOut = dark && !own.flip && !meterPlays(this.project.meter, index);
       const primed = pr?.cell === index;
-      const cover = pitched && !off && !own.active ? coveringNote(steps, len, index) : null;
+      const cover = !off && !own.active ? coveringNote(steps, len, index) : null;
       const tie = !!cover && cover[1] > 0;
       const step = tie ? steps[cover![0]] : own;
       const d = step.active && !off && !dark ? stepDynamic(step) : null;
@@ -4487,16 +4596,21 @@ export class App {
     const rec = this.mode === 'record';
     const kb = this.keyboard;
     this.panel.setButtonLit('func', this.func);
-    const play = this.forcing;
-    this.panel.setButtonLit('ring', play ? this.forceRing[this.selected] : this.ring);
-    this.panel.setButtonLit('slide', play ? this.forceSlide[this.selected] : this.slideArm);
+    // Lit = placing that flag; with ALT = its all-notes effect on the selected track (ALL on
+    // the key = that effect is on).
+    const alt = this.func;
+    const fch = this.selected;
+    const forced: Record<string, boolean> = {
+      ring: this.forceRing[fch], slide: this.forceSlide[fch], 'dyn:accent': this.forceDyn[fch] === 'accent', 'dyn:ghost': this.forceDyn[fch] === 'ghost',
+    };
+    const armed: Record<string, boolean> = { ring: this.ring, slide: this.slideArm, 'dyn:accent': this.dynamic === 'accent', 'dyn:ghost': this.dynamic === 'ghost' };
     // Synths: SLIDE; drums: ROLL (same button, same step flag).
-    this.panel.setButtonText('slide', this.slideName);
-    this.panel.setButtonEnabled('slide', rec || play);
-    const dyn = play ? this.forceDyn[this.selected] : this.dynamic;
-    this.panel.setButtonLit('dyn:accent', dyn === 'accent');
-    this.panel.setButtonLit('dyn:ghost', dyn === 'ghost');
-    this.panel.setButtonEnabled('ring', rec || play);
+    const flagNames: Record<string, string> = { ring: 'RING', slide: this.slideName, 'dyn:accent': 'ACCENT', 'dyn:ghost': 'GHOST' };
+    for (const id of FLAG_IDS) {
+      this.panel.setButtonLit(id, alt ? forced[id] : armed[id]);
+      this.panel.setButtonText(id, forced[id] || alt ? `${flagNames[id]}<small>ALL</small>` : flagNames[id]);
+      this.panel.setButtonEnabled(id, true);
+    }
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
     this.panel.setButtonLit('len', this.stepsMode);
@@ -4508,7 +4622,7 @@ export class App {
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, true);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && (this.stripSteps() || (this.clearHeld && this.mode !== 'design')));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || this.barHeld || this.lenHeld || this.scaleHeld || this.stepsMode || !!this.projMenu || this.stepEdit || this.autoSteps);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || (!!this.stroke && this.stripDown.size > 0) || this.barHeld || this.lenHeld || this.scaleHeld || this.stepsMode || !!this.projMenu || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
     // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
     this.panel.setButtonEnabled('scale', !this.songGrid);
@@ -4558,9 +4672,8 @@ export class App {
     } else {
       // SONG RECORD / PLAY: the keys that edit a pattern are off (SONG_KEEPS).
       const off = this.song;
-      this.panel.setButtonEnabled('dyn:accent', !off || this.forcing);
-      this.panel.setButtonEnabled('dyn:ghost', !off || this.forcing);
-      if (off && !this.forcing) for (const id of ['ring', 'slide']) this.panel.setButtonEnabled(id, false);
+      // SONG: ALT + flag (every note plays that way) only.
+      if (off && !this.func) for (const id of FLAG_IDS) this.panel.setButtonEnabled(id, false);
       this.panel.setButtonEnabled('len', !off);
       this.panel.setButtonEnabled('speed', !off);
       if (off) this.panel.setButtonEnabled('rest', false);
@@ -4588,7 +4701,7 @@ export class App {
       this.updateAutoStrip();
       return;
     }
-    if (this.stepEdit) {
+    if (this.stepEdit && !this.scaleKeys) {
       this.updateStepEditStrip();
       this.updatePatternButtons(now);
       return;
@@ -4605,7 +4718,9 @@ export class App {
     const head = heardHere ? (this.status?.steps[ch] ?? -1) : -1;
     const page = this.visiblePage(ch);
     const pitchedRecord = this.keyboard && this.mode === 'record' && !this.recording;
-    const cursor = this.cursor[ch];
+    // STEP EDIT's keys (SCALE held): the primed note's step stands for the cursor.
+    const primedAt = this.stepEdit ? this.primedNote() : -1;
+    const cursor = this.stepEdit ? (primedAt >= 0 ? primedAt : this.primed?.cell ?? 0) : this.cursor[ch];
 
     // LEDs: the step being played (red while recording), the step-entry cursor, and while
     // a key is held in step entry, every step the note covers.
@@ -4629,7 +4744,7 @@ export class App {
       // step (on it, or tied over from earlier) are lit dim.
       let under: number[] = [];
       if (playsChords(c.instrument) && head >= 0) under = soundingAt(pattern.steps, pattern.length, head).map((n) => n.note);
-      if (pitchedRecord && playsChords(c.instrument)) {
+      if (pitchedRecord && playsChords(c.instrument) && !this.stepEdit) {
         cursorNotes = this.entry?.notes ?? [];
         under = soundingAt(pattern.steps, pattern.length, this.entry?.index ?? cursor).map((n) => n.note).filter((n) => !cursorNotes.includes(n));
       }
@@ -4646,9 +4761,8 @@ export class App {
       // RING or SLIDE / ROLL armed (or painting): every hit is dim (like a ghost note) and
       // the ones with that flag light up fully; the other flags are not shown.
       const view = this.ring ? 'ring' : this.slideArm ? 'slide' : null;
-      // Pitched tracks: steps a note is tied over show as a line through the strip, with
-      // that note's flags.
-      const pitched = !stepsOnStrip(c.instrument);
+      // Steps a note is tied over show as a line through the strip, with that note's flags
+      // (drums: it strikes again on each).
       for (let i = 0; i < STEP_BUTTONS; i++) {
         const id = `step${i + 1}`;
         const index = page * 16 + i;
@@ -4657,7 +4771,7 @@ export class App {
         // Dark: a step that does not play (time signature, triplet time, STEPS).
         const dark = !off && !this.plays(index);
         this.panel.setButtonFlag(id, 'skip', dark);
-        const cover = pitched && !off && !own.active ? coveringNote(pattern.steps, pattern.length, index) : null;
+        const cover = !off && !own.active ? coveringNote(pattern.steps, pattern.length, index) : null;
         const tie = !!cover && cover[1] > 0;
         const step = tie ? pattern.steps[cover![0]] : own;
         this.panel.setButtonFlag(id, 'tie', tie);
