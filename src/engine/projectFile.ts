@@ -150,6 +150,8 @@ interface StoredChannel {
   /** v80: the track's SCALE root / chromatic keys. */
   root?: number;
   chromatic?: boolean;
+  /** v84: the strip keys' start above the root (absent = 0). */
+  keyFrom?: number;
   midCut?: number;
   lfoOn: boolean;
   /** v55: ARP (on, mode, rate, oct); absent = off. */
@@ -244,6 +246,7 @@ export function toStored(p: Project): StoredProject {
       ringLength: c.ringLength,
       ...(c.root !== undefined ? { root: c.root } : {}),
       ...(c.chromatic ? { chromatic: true } : {}),
+      ...(c.keyFrom ? { keyFrom: c.keyFrom } : {}),
       midCut: c.midCut,
       lfoOn: c.lfoOn,
       ...(c.arp && (c.arp.on || c.arp.mode || c.arp.rate !== defaultArp().rate || c.arp.oct) ? { arp: { ...c.arp } } : {}),
@@ -917,6 +920,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   ch.ringLength = num(src.ringLength, 1, RING_MIN, RING_MAX);
   if (typeof src.root === 'number') ch.root = Math.round(num(src.root, 9, 0, 11));
   if (src.chromatic === true) ch.chromatic = true;
+  if (typeof src.keyFrom === 'number' && src.keyFrom) ch.keyFrom = Math.round(num(src.keyFrom, 0, 0, 11));
   ch.midCut = num(src.midCut, 0, 0, 1);
   ch.mute = src.mute === true;
   ch.fx1 = src.fx1 === true;

@@ -315,6 +315,11 @@ function lowestNoteOnly(step: Step): void {
   delete step.extraGate;
 }
 
+/** Where a pitch class sits from the track's octave (an A): within a fifth or so, so the keys move a semitone at a time (an octave jump between D and D#). */
+function keyOffset(pc: number): number {
+  return ((((pc - 9 + 6) % 12) + 12) % 12) - 6;
+}
+
 /** A note onto a drum from another type: one hit (a drum's tie strikes again on every step it covers). */
 function oneHit(step: Step): void {
   step.gate = 1;
@@ -449,9 +454,14 @@ export class App {
   private barUsed = false;
   /** STEPS held (+ ◀ / ▶ = pattern length; a tap on release = STEPS mode on / off). */
   private lenHeld = false;
-  /** SCALE held (+ ◀ ▶ = the root a semitone down / up; released unused = minor / chromatic). */
+  /**
+   * SCALE held: + a strip key = the keys start from that note (ALT + SCALE: the track's key);
+   * released unused = the keys back on the root (ALT: minor / chromatic).
+   */
   private scaleHeld = false;
   private scaleUsed = false;
+  /** SCALE was pressed with ALT: it works on the key. */
+  private scaleAlt = false;
   private lenUsed = false;
   /** STEPS mode (RECORD / PLAY): the strip shows which steps play; a tap switches one on / off. */
   private stepsMode = false;
@@ -689,14 +699,13 @@ export class App {
   }
 
   /**
-   * SCALE held in RECORD where the strip shows steps: the keys come up. Step entry (strip on
-   * STEPS): a key writes its note at the cursor, as on the keys; STEP EDIT: a key = the primed
+   * SCALE held where the strip shows steps (any mode): the keys come up, to pick where they
+   * start (painted steps take that note) or, with ALT, the key; STEP EDIT: a key = the primed
    * note's new note (a chord moves with it).
    */
   private get scaleKeys(): boolean {
-    if (!this.scaleHeld || this.song || this.mode !== 'record' || this.menu || this.projMenu) return false;
-    if (this.stepEdit) return true;
-    return this.stripSteps() && !this.stepsMode && !this.placing && !this.copyHeld && !this.clearHeld;
+    if (!this.scaleHeld || this.songGrid || this.menu || this.projMenu) return false;
+    return this.stepEdit || (!this.stepsMode && !this.copyHeld && !this.clearHeld);
   }
 
   /**
@@ -718,6 +727,7 @@ export class App {
   }
 
   /** Track ch's SCALE root set (the strip's keys follow; the engine's KEY chords too). */
+  /** ALT + SCALE + a key, PROJECT KEY: track ch's key (the keys' start moves with it). */
   private setTrackRoot(ch: number, root: number): void {
     this.project.channels[ch].root = ((root % 12) + 12) % 12;
     this.send({ type: 'setRoot', channel: ch, root: this.project.channels[ch].root! });
@@ -729,7 +739,16 @@ export class App {
    * semitone at a time, jumping an octave between D and D#). `blackKey` colours them.
    */
   private keyNote(ch: number, button: number): number {
-    return this.octave[ch] + ((this.trackRoot(ch) - 9 + 6 + 12) % 12) - 6 + button;
+    return this.octave[ch] + keyOffset(this.trackRoot(ch) + (this.project.channels[ch].keyFrom ?? 0)) + button;
+  }
+
+  /** SCALE + a key: track ch's strip keys start from `note` (that note exactly: its octave too). */
+  private setKeysFrom(ch: number, note: number): void {
+    const c = this.project.channels[ch];
+    const from = (((note - this.trackRoot(ch)) % 12) + 12) % 12;
+    if (from) c.keyFrom = from;
+    else delete c.keyFrom;
+    this.octave[ch] = Math.max(12, Math.min(96, note - keyOffset(note)));
   }
 
   /** A strip key of track ch shows black: off its SCALE's minor scale (CHROMATIC: a piano's sharps). */
@@ -850,7 +869,7 @@ export class App {
     const following = this.playing && (ch !== this.selected || (this.followsPlayhead && !this.stepsMode));
     let page: number;
     if (following) page = head >= 0 && heard === c.activePattern ? Math.floor(head / 16) : this.viewPage[ch];
-    else if ((!this.stripSteps(ch) || (ch === this.selected && this.scaleKeys)) && this.mode === 'record' && !this.stepsMode) {
+    else if (!this.stripSteps(ch) && this.mode === 'record' && !this.stepsMode) {
       // Step entry: the cursor's block, or while a note is being tied, the block its end is in
       // (a tie runs on past the bar line into the next block, and round past the loop end).
       const at = this.entry && ch === this.selected ? (this.entry.index + this.entryLength() - 1) % c.patterns[c.activePattern].length : this.cursor[ch];
@@ -1491,15 +1510,20 @@ export class App {
         this.refreshPanel();
       }
       if (id === 'scale' && this.scaleHeld) {
-        // SCALE tapped (no ◀ / ▶ or key meanwhile): the track's minor keys / chromatic keys.
-        const keys = this.scaleKeys && !this.stepEdit;
+        // Tapped (no key meanwhile): SCALE = the keys back on the key's root; ALT + SCALE = minor / chromatic keys.
         this.scaleHeld = false;
-        if (keys) this.viewPage[this.selected] = Math.floor(this.cursor[this.selected] / 16); // the bar entry got to
         if (!this.scaleUsed) {
           const c = this.channel;
-          if (c.chromatic) delete c.chromatic;
-          else c.chromatic = true;
-          this.flash(`SCALE: ${this.scaleName()}`);
+          if (this.scaleAlt) {
+            if (c.chromatic) delete c.chromatic;
+            else c.chromatic = true;
+            this.flash(`KEY: ${this.scaleName()}`);
+          } else {
+            // The root at or below where the keys start now.
+            const start = this.keyNote(this.selected, 0);
+            this.setKeysFrom(this.selected, start - ((((start - this.trackRoot()) % 12) + 12) % 12));
+            this.flash(`KEYS FROM ${noteName(this.keyNote(this.selected, 0))} (THE ROOT)`);
+          }
           this.save();
         }
         this.refreshPanel();
@@ -1763,39 +1787,34 @@ export class App {
       // Shown, as the strip may be on steps: the keyboard's lowest key.
       this.flash(`KEYS FROM ${noteName(this.keyNote(this.selected, 0))}`);
     } else if (id === 'scale') {
-      const ch = this.selected;
-      const page = this.visiblePage(ch);
       this.scaleHeld = true;
       this.scaleUsed = false;
-      if (this.scaleKeys && !this.stepEdit && !this.recording && Math.floor(this.cursor[ch] / 16) !== page) {
-        // The keys write into the bar the steps showed.
-        this.cursor[ch] = Math.min(page * 16 + (this.cursor[ch] % 16), this.pattern.length - 1);
-        if (!this.plays(this.cursor[ch])) this.moveCursor(1);
-      }
-    } else if ((id === 'cur-' || id === 'cur+') && this.scaleHeld && !this.entry) {
-      // SCALE + ◀ / ▶: the track's root a semitone down / up (the strip's keys follow).
-      this.setTrackRoot(this.selected, this.trackRoot() + (id === 'cur+' ? 1 : 11));
-      this.scaleUsed = true;
-      this.flash(`SCALE: ${this.scaleName()}`);
-      this.save();
-    } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleKeys && !this.stepEdit) {
-      // SCALE held, the strip on steps: the keys enter notes at the cursor, one by one.
-      this.scaleUsed = true;
-      this.onStrip(Number(m[1]) - 1);
-    } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleHeld && this.stepEdit && this.primedNote() >= 0) {
+      this.scaleAlt = this.func;
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+    } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleHeld && !this.scaleAlt && this.stepEdit && this.primedNote() >= 0) {
       // STEP EDIT, SCALE held: the key = the primed note's new note (a chord moves with it).
       this.scaleUsed = true;
       const step = this.pattern.steps[this.primedNote()];
       this.movePrimedNote(this.keyNote(this.selected, Number(m[1]) - 1) - Math.min(...stepNotes(step).map((n) => n.note)));
     } else if ((m = /^step(\d+)$/.exec(id)) && this.scaleHeld) {
-      // SCALE held + a strip key: the track's key becomes that note (the keys re-lay from it).
+      // SCALE held + a strip key: the keys start from that note, and painted steps take it;
+      // ALT + SCALE + a key: the track's key becomes that note (the keys' start moves with it).
+      const ch = this.selected;
+      const note = this.keyNote(ch, Number(m[1]) - 1);
       this.scaleUsed = true;
-      if (!this.keyboard) this.flash('SCALE: SHOW THE KEYS (STRIP) TO PICK A NOTE');
-      else {
-        this.setTrackRoot(this.selected, this.keyNote(this.selected, Number(m[1]) - 1));
-        this.flash(`SCALE: ${this.scaleName()}`);
-        this.save();
+      if (this.scaleAlt) {
+        this.setTrackRoot(ch, note);
+        this.flash(`KEY: ${this.scaleName()}`);
+      } else {
+        this.setKeysFrom(ch, note);
+        this.flash(`KEYS FROM ${noteName(note)}`);
       }
+      if (!this.playing) {
+        this.stopPreview();
+        this.send({ type: 'trigger', channel: ch, note, velocity: this.velocity() });
+        this.previewNotes([note], 1);
+      }
+      this.save();
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
       // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip.
       this.changeBar(id === 'cur+' ? 1 : -1);
@@ -4622,11 +4641,12 @@ export class App {
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, true);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && (this.stripSteps() || (this.clearHeld && this.mode !== 'design')));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || (!!this.stroke && this.stripDown.size > 0) || this.barHeld || this.lenHeld || this.scaleHeld || this.stepsMode || !!this.projMenu || this.stepEdit || this.autoSteps);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || (!!this.stroke && this.stripDown.size > 0) || this.barHeld || this.lenHeld || this.stepsMode || !!this.projMenu || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
     // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
     this.panel.setButtonEnabled('scale', !this.songGrid);
-    this.panel.setButtonText('scale', `SCALE<small>${this.scaleName()}</small>`);
+    // ALT: KEY (the track's key); else SCALE with where the keys start.
+    this.panel.setButtonText('scale', this.func && !this.menu ? `KEY<small>${this.scaleName()}</small>` : `SCALE<small>FROM ${noteName(this.keyNote(this.selected, 0))}</small>`);
     this.panel.setButtonLit('scale', this.scaleHeld);
     // STRIP: keys / steps on the strip, the selected track's (RECORD); lit = not its type's own.
     this.panel.setButtonEnabled('view', !this.song);

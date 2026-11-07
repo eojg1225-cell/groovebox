@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 83;
+export const PROJECT_VERSION = 84;
 /** FX 1 = the drum bus (tracks pass through it), FX 2 = the send (buses.ts); fxSend 2 = on FX 2. */
 export const NUM_SENDS = 2;
 export const NUM_CHANNELS = 8;
@@ -321,6 +321,11 @@ export interface ChannelState {
    */
   root?: number;
   chromatic?: boolean;
+  /**
+   * v84: where the strip keys start, in semitones above the root (0-11; absent = 0, on the root):
+   * SCALE + a key. Painted steps take that lowest key's note; it moves with the key (ALT + SCALE).
+   */
+  keyFrom?: number;
   mute: boolean;
   patterns: Pattern[];
   activePattern: number;

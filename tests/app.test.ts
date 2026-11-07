@@ -376,21 +376,6 @@ describe('SCALE keys, STEP EDIT notes, drum ties', () => {
   const steps = (app: App, ch: number) => app.project.channels[ch].patterns[app.project.channels[ch].activePattern].steps;
   const keyNote = (app: App, ch: number, i: number) => (app as unknown as { keyNote(ch: number, i: number): number }).keyNote(ch, i);
 
-  it('RECORD, strip on steps: SCALE held brings up the keys, each key a note at the cursor', () => {
-    const { app, tap, press, release } = makeApp();
-    tap('mode:record');
-    tap('ch1'); // KICK: steps
-    press('scale');
-    tap('step5');
-    tap('step3');
-    release('scale');
-    const s = steps(app, 0);
-    expect([s[0].active, s[0].note, s[1].active, s[1].note]).toEqual([true, keyNote(app, 0, 4), true, keyNote(app, 0, 2)]);
-    expect(app.project.channels[0].chromatic).toBeUndefined(); // keys played: not a SCALE tap
-    tap('step9'); // the steps again: paints a hit
-    expect(s[8].active).toBe(true);
-  });
-
   it('STEP EDIT: OCT moves the primed note an octave, SCALE + key gives it a new note; a PAD chord moves whole', () => {
     const { app, tap, press, release } = makeApp();
     tap('mode:record');
@@ -1340,41 +1325,76 @@ describe('SCALE key', () => {
   const notes = (app: App) => app.project.channels[4].patterns[0].steps.map((st) => st.note);
   const black = (flags: Map<string, Set<string>>, k: number) => flags.get(`step${k}`)!.has('black');
 
-  it('the strip is a keyboard up from the root, black = off A minor; SCALE + ◀ ▶ moves the root, a tap = piano colours', () => {
+  const alt = (press: (id: string) => void, release: (id: string) => void, id: string) => { press('func'); press(id); release(id); release('func'); };
+
+  it('the strip is a keyboard up from the root, black = off A minor; ALT + SCALE + key = the key, an ALT + SCALE tap = piano colours', () => {
     const { app, tap, press, release, texts, flags } = makeApp();
     tap('mode:record');
     tap('ch5'); // BASS, octave A1 (33)
     for (const k of [1, 2, 3, 8]) tap(`step${k}`);
     expect(notes(app).slice(0, 4)).toEqual([33, 34, 35, 40]); // A A# B E
     app.updateFrame(0);
-    expect(texts.get('scale')).toContain('A MIN');
+    expect(texts.get('scale')).toBe('SCALE<small>FROM A1</small>');
     expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([false, true, false, false]); // A A# B C
+    press('func');
     press('scale');
-    tap('cur+');
+    app.updateFrame(0);
+    expect(texts.get('scale')).toBe('KEY<small>A MIN</small>');
+    tap('step2'); // A#
     release('scale');
+    release('func');
     expect(app.project.channels[4].root).toBe(10);
     tap('step1');
-    expect(notes(app)[4]).toBe(34); // A#
+    expect(notes(app)[4]).toBe(34); // A#: the keys start on the new root
     app.updateFrame(0);
     expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([false, true, false, false]); // A# B C C#: B is off A# minor
-    tap('scale'); // a tap: a piano's colours
+    alt(press, release, 'scale'); // a tap: a piano's colours
     app.updateFrame(0);
     expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([true, false, false, true]);
     expect(fromStored(toStored(app.project))!.channels[4]).toMatchObject({ root: 10, chromatic: true });
   });
 
-  it('each track has its own SCALE; SCALE held + a strip key = that key', () => {
+  it('SCALE + key = the keys start there (painted steps take it), the key and its colours stay; a SCALE tap = back on the root', () => {
+    const { app, tap, press, release, flags } = makeApp();
+    tap('mode:record');
+    tap('ch1'); // KICK: steps, keys from A1 (33)
+    const kick = () => app.project.channels[0].patterns[0].steps;
+    tap('step1');
+    expect(kick()[0].note).toBe(33);
+    press('scale'); // the keys come up on the steps
+    app.updateFrame(0);
+    expect(black(flags, 2)).toBe(true); // A# off A minor
+    tap('step8'); // E
+    release('scale');
+    expect(app.project.channels[0].keyFrom).toBe(7);
+    expect(app.project.channels[0].root ?? 9).toBe(9);
+    expect(app.project.channels[0].chromatic).toBeFalsy(); // a key was picked: not a tap
+    tap('step2');
+    expect([kick()[0].note, kick()[1].note]).toEqual([33, 40]); // step 1 kept, step 2 an E
+    expect(fromStored(toStored(app.project))!.channels[0].keyFrom).toBe(7);
+    press('scale');
+    app.updateFrame(0);
+    expect([1, 2].map((k) => black(flags, k))).toEqual([false, false]); // E F: both in A minor
+    release('scale'); // a tap: back on the root
+    expect(app.project.channels[0].keyFrom).toBeUndefined();
+    tap('step3');
+    expect(kick()[2].note).toBe(33);
+  });
+
+  it('each track has its own SCALE; ALT + SCALE held + a strip key = that key', () => {
     const { app, tap, press, release, sent } = makeApp();
     tap('mode:record');
     tap('ch6'); // PAD
+    press('func');
     press('scale');
     tap('step6'); // A minor from A: step 6 = D
     release('scale');
+    release('func');
     expect(app.project.channels[5].root).toBe(2);
     expect(app.project.channels[4].root ?? 9).toBe(9); // BASS keeps A
     expect(sent).toContainEqual({ type: 'setRoot', channel: 5, root: 2 });
     app.updateFrame(0);
-    tap('scale'); // a tap without a note: CHR on the PAD only
+    alt(press, release, 'scale'); // a tap without a note: CHR on the PAD only
     expect(app.project.channels[5].chromatic).toBe(true);
     expect(app.project.channels[4].chromatic).toBeFalsy();
   });
