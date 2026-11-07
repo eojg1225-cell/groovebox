@@ -1334,7 +1334,12 @@ describe('SCALE key', () => {
     for (const k of [1, 2, 3, 8]) tap(`step${k}`);
     expect(notes(app).slice(0, 4)).toEqual([33, 34, 35, 40]); // A A# B E
     app.updateFrame(0);
+    expect(texts.get('scale')).toBe('SCALE<small>A MIN</small>'); // keys: the key (the strip shows the lowest note)
+    tap('view'); // steps: the note they paint
+    app.updateFrame(0);
     expect(texts.get('scale')).toBe('SCALE<small>FROM A1</small>');
+    tap('view');
+    app.updateFrame(0);
     expect([1, 2, 3, 4].map((k) => black(flags, k))).toEqual([false, true, false, false]); // A A# B C
     press('func');
     press('scale');
@@ -1375,7 +1380,9 @@ describe('SCALE key', () => {
     press('scale');
     app.updateFrame(0);
     expect([1, 2].map((k) => black(flags, k))).toEqual([false, false]); // E F: both in A minor
-    release('scale'); // a tap: back on the root
+    release('scale'); // one tap: nothing (no accidental resets)
+    expect(app.project.channels[0].keyFrom).toBe(7);
+    tap('scale'); // the second tap: back on the root
     expect(app.project.channels[0].keyFrom).toBeUndefined();
     tap('step3');
     expect(kick()[2].note).toBe(33);

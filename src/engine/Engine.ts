@@ -1658,7 +1658,24 @@ export class Engine {
     let last = vel;
     const base = pat * MAX_STEPS;
     const wraps = forced && this.pendingPattern[ch] < 0;
-    for (let i = idx, n = 1; n < len; n++) {
+    // A tied hit rolls on over the steps it is tied over (round the loop end too, unless a
+    // switch waits); `tied` = whether the run's last hit was.
+    let i = idx;
+    let n = 1;
+    let tied = false;
+    const overTie = (at: number): void => {
+      tied = false;
+      for (let k = 1; k < this.stepGate[base + at] && n < len; k++, n++) {
+        let next = this.nextOn(base, i + 1, len);
+        if (next < 0 && this.pendingPattern[ch] < 0) next = this.nextOn(base, 0, len);
+        if (next < 0 || next === idx || this.stepActive[base + next] === 1 || this.stepRest[base + next] === 1) break;
+        steps++;
+        tied = true;
+        i = next;
+      }
+    };
+    overTie(idx);
+    for (; n < len; n++) {
       let next = this.nextOn(base, i + 1, len);
       if (next < 0 && wraps) next = this.nextOn(base, 0, len);
       if (next < 0 || next === idx) break;
@@ -1667,17 +1684,18 @@ export class Engine {
       steps++;
       last = this.forceVel[ch] > 0 ? this.forceVel[ch] : this.stepVel[s];
       i = next;
+      overTie(next);
     }
-    if (forced) {
-      // The last consecutive hit ends the roll: it fires on its own step.
+    if (forced && !tied) {
+      // The last consecutive hit ends the roll: it fires on its own step (a tied one rolls to its tie's end).
       if (steps === 1) return;
       steps--;
     }
     // Below a hit a step, the hits that start inside the run (a run of 3 at 2:1: 2).
     // The hits that start inside the run, at the tempo's note value (a run of 3 at 1/8: 2).
     const hits = Math.ceil(steps * this.chanRate[ch] * this.rollDiv[ch] - 1e-9);
-    // Stored runs end on their last hit; a forced roll ramps on into the hit that ends it.
-    this.rollRamp[ch] = forced ? hits : hits - 1;
+    // Stored runs (and a roll ending in a tie) end on their last hit; a forced roll ramps on into the hit that ends it.
+    this.rollRamp[ch] = forced && !tied ? hits : hits - 1;
     this.runLeft[ch] = steps - 1;
     this.rollLeft[ch] = hits - 1;
     this.rollIndex[ch] = 0;

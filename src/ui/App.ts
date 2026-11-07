@@ -154,6 +154,9 @@ const PLAY_PAGES = 2;
 const SPEED_MARK = { normal: '', double: ' X2', half: ' /2', triplet: ' T' } as const;
 
 /** What a drum-lane paint stroke does to each step it reaches. */
+/** A second SCALE tap within this = the keys back on the root. */
+const SCALE_DOUBLE_TAP_MS = 600;
+
 const FLAG_IDS = ['ring', 'slide', 'dyn:accent', 'dyn:ghost'] as const;
 
 type StrokeKind = 'add' | 'erase' | 'flags-on' | 'flags-off' | 'rest-on' | 'rest-off';
@@ -462,6 +465,8 @@ export class App {
   private scaleUsed = false;
   /** SCALE was pressed with ALT: it works on the key. */
   private scaleAlt = false;
+  /** The last plain SCALE tap (a second one soon after = the keys back on the root). */
+  private scaleTapAt = 0;
   private lenUsed = false;
   /** STEPS mode (RECORD / PLAY): the strip shows which steps play; a tap switches one on / off. */
   private stepsMode = false;
@@ -1519,10 +1524,18 @@ export class App {
             else c.chromatic = true;
             this.flash(`KEY: ${this.scaleName()}`);
           } else {
-            // The root at or below where the keys start now.
+            // A double tap: the root at or below where the keys start now (one tap does nothing).
             const start = this.keyNote(this.selected, 0);
-            this.setKeysFrom(this.selected, start - ((((start - this.trackRoot()) % 12) + 12) % 12));
-            this.flash(`KEYS FROM ${noteName(this.keyNote(this.selected, 0))} (THE ROOT)`);
+            const root = start - ((((start - this.trackRoot()) % 12) + 12) % 12);
+            const now = performance.now();
+            if (now - this.scaleTapAt < SCALE_DOUBLE_TAP_MS) {
+              this.scaleTapAt = 0;
+              this.setKeysFrom(this.selected, root);
+              this.flash(`KEYS FROM ${noteName(root)} (THE ROOT)`);
+            } else {
+              this.scaleTapAt = now;
+              this.flash(root === start ? `KEYS FROM ${noteName(start)} (THE ROOT)` : `TAP SCALE AGAIN: KEYS FROM ${noteName(root)}`);
+            }
           }
           this.save();
         }
@@ -4645,8 +4658,11 @@ export class App {
     this.panel.setButtonEnabled('rest', rec);
     // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
     this.panel.setButtonEnabled('scale', !this.songGrid);
-    // ALT: KEY (the track's key); else SCALE with where the keys start.
-    this.panel.setButtonText('scale', this.func && !this.menu ? `KEY<small>${this.scaleName()}</small>` : `SCALE<small>FROM ${noteName(this.keyNote(this.selected, 0))}</small>`);
+    // The keys on the strip show their lowest note: the label shows the key (A MIN). On steps,
+    // the note they paint (FROM C2), unless ALT, which changes the key: KEY A MIN.
+    const scaleLabel = this.func && !this.menu ? `KEY<small>${this.scaleName()}</small>`
+      : this.stripSteps() && !this.songGrid ? `SCALE<small>FROM ${noteName(this.keyNote(this.selected, 0))}</small>` : `SCALE<small>${this.scaleName()}</small>`;
+    this.panel.setButtonText('scale', scaleLabel);
     this.panel.setButtonLit('scale', this.scaleHeld);
     // STRIP: keys / steps on the strip, the selected track's (RECORD); lit = not its type's own.
     this.panel.setButtonEnabled('view', !this.song);
