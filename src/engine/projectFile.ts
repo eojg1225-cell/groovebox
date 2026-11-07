@@ -22,7 +22,7 @@ import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../ins
 import { BUS_PARAMS, FX_LIVE, NUM_BUSES } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN, RING_MAX, RING_MIN } from './mixParams';
-import { METERS, type InstrumentKind, type PatternSpeed } from './project';
+import { METERS, chainBefore85, chainOrders, type InstrumentKind, type PatternSpeed } from './project';
 import { LFO_RATES, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
 const FILE_FORMAT = 'groovebox-project';
@@ -200,6 +200,8 @@ interface StoredProject {
   song: { rows: { b: number; p: number[]; k?: number[]; e?: (StoredEntry | 0)[] }[]; a?: Record<string, [number, number][]> };
   /** v67: AUTO-FILL per track (1 on, 0 off, -1 DEFAULT); absent = all DEFAULT. */
   ft?: number[];
+  /** v85: FX ROUTING per track (-1 = DEFAULT). */
+  ch?: number[];
   /** v41: FX 1-3 settings (BUS_PARAMS ids). */
   buses: Record<string, number>[];
   /** v36: time signature (index into METERS; absent = 4/4). */
@@ -223,6 +225,7 @@ export function toStored(p: Project): StoredProject {
     ...(p.root !== undefined ? { root: p.root } : {}),
     settings: { ...p.settings },
     ...(p.fillTracks?.some((v) => v >= 0) ? { ft: [...p.fillTracks] } : {}),
+    ...(p.chain?.some((v) => v >= 0) ? { ch: [...p.chain] } : {}),
     lfo: { ...p.lfo },
     song: { rows: p.song.rows.map((r) => ({ b: r.bars, p: [...r.patterns], ...(r.keep?.some((k) => k) ? { k: [...r.keep] } : {}), ...storeEntries(r.entry) })), ...(p.song.auto ? { a: JSON.parse(JSON.stringify(p.song.auto)) as Record<string, [number, number][]> } : {}) },
     buses: p.buses.map((b) => ({ ...b })),
@@ -698,6 +701,47 @@ export function carrierV78(kind: SoundKind, sound: Record<string, number>): void
 const CARRIER_KINDS_V78: readonly string[] = ['pad', 'pluck'];
 
 /**
+ * v85: FX ROUTING. Before, synths ran FLT > FX > SPACE and drums FX > SPACE (AIR after DRIVE /
+ * CRUSH); the new defaults differ (FX > FLT > SPACE, SPACE > FX). A track whose order is
+ * heard keeps its old one as its own setting, so it plays as saved: a synth with CRUSH on or
+ * DRIVE past 2, a KICK / SNARE / HAT with AIR and DRIVE or CRUSH on (any of its patterns' sounds).
+ */
+const CHAIN_DRIVE_V85 = 2;
+function chainV85(p: Project): void {
+  p.channels.forEach((c, ch) => {
+    const kind = c.instrument;
+    if (kind === 'none' || chainOrders(kind).length === 0 || (p.chain?.[ch] ?? -1) >= 0) return;
+    const sounds = [c.sounds[kind], ...c.patterns.map((pat) => pat.patch?.sound)].filter((x): x is Record<string, number> => !!x);
+    // Drums: any DRIVE / CRUSH on the room. Synths: CRUSH, or DRIVE past CHAIN_DRIVE_V85 (every
+    // sound has a touch of DRIVE, where the order is barely heard: those take the new default).
+    const drumFx = (s: Record<string, number>) => (s.drive ?? 1) > 1 || (s.crush ?? 0) > 0;
+    const synthFx = (s: Record<string, number>) => (s.drive ?? 1) > CHAIN_DRIVE_V85 || (s.crush ?? 0) > 0;
+    const heard = isDrum(kind) ? sounds.some((s) => drumFx(s) && (s.air ?? 0) > 0) : sounds.some(synthFx);
+    if (!heard) return;
+    (p.chain ??= new Array<number>(NUM_CHANNELS).fill(-1))[ch] = chainBefore85(kind);
+  });
+}
+
+/**
+ * v85: CRUSH's knob is squared before it reaches the sound (a slower start: 0.5 now = 0.25
+ * before, 1 the same), so a stored CRUSH becomes its square root and plays as saved (values,
+ * step locks, SONG lanes, USER patches).
+ */
+export function crushV85(v: number): number {
+  return v > 0 ? Math.sqrt(v) : 0;
+}
+/** v85 on a stored CRUSH trim: taken again over today's sounds for the converted value. */
+export function crushTrimV85(kind: SoundKind, sound: Record<string, number>, trims: Record<string, number>): void {
+  if (trims.crush === undefined) return;
+  const spec = INSTRUMENTS[kind].params.find((x) => x.id === 'crush');
+  const hidden = hiddenSound(kind, sound, INSTRUMENTS[kind].params).crush;
+  if (!spec || hidden === undefined || sound.crush === undefined) { delete trims.crush; return; }
+  const t = trimFor(spec, sound.crush, hidden);
+  if (t) trims.crush = t;
+  else delete trims.crush;
+}
+
+/**
  * v83: a tied drum hit strikes again on every step it is tied over. Before, a drum played out
  * whatever its length, so an older save's drum notes (copied or recorded with a length) go back
  * to one step and play as saved.
@@ -724,6 +768,7 @@ export function padFmV79(kind: SoundKind, sound: Record<string, number>): void {
 /** v70 / v71 / v75 / v76 / v78 / v81 step locks: FX 3's become FX 2's (busKeysV81); a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
   if (version < 81) busKeysV81(locks);
+  if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
   if (version < 82 && kind === 'pad' && locks.modtype !== undefined) locks.modtype = modTypeV82(locks.modtype);
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
   if (version < 78 && kind === 'pluck') delete locks.intensity;
@@ -753,6 +798,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   // v81: the PAD has CRUSH now; a value left in an older save played nothing.
   if (version < 81 && kind === 'pad') sound.crush = 0;
   if (version < 82 && kind === 'pad' && typeof sound.modtype === 'number') sound.modtype = modTypeV82(sound.modtype);
+  if (version < 85 && typeof values.crush === 'number') sound.crush = crushV85(sound.crush);
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   if (version < 77) fmCompV77(kind, sound);
@@ -848,6 +894,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 70 && kind === 'pad') padV70(sound, trims);
   if (version < 74) snareV74(kind, sound, trims);
   if ((version < 78 && CARRIER_KINDS_V78.includes(kind)) || (version < 79 && kind === 'pad')) trims = deriveTrims(kind, sound, specs);
+  if (version < 85) crushTrimV85(kind, sound, trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
@@ -1083,6 +1130,21 @@ export function fromStored(data: unknown): Project | null {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind === 's' && t.id === 'modtype' && p.channels[t.index]?.instrument === 'pad') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, modTypeV82(v)]);
+    }
+  }
+  if (Array.isArray(data.ch)) {
+    const own = Array.from({ length: NUM_CHANNELS }, (_, i) => {
+      const v = (data.ch as unknown[])[i];
+      return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < chainOrders(p.channels[i].instrument).length ? v : -1;
+    });
+    if (own.some((v) => v >= 0)) p.chain = own;
+  }
+  if (version < 85) chainV85(p);
+  if (version < 85 && p.song.auto) {
+    // CRUSH lanes (sound params, `s:`) on the new taper.
+    for (const key in p.song.auto) {
+      const t = parseAutoKey(key);
+      if (t?.kind === 's' && t.id === 'crush') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, crushV85(v)]);
     }
   }
   if (version < 81) sendsV81(p, version >= 41 && Array.isArray(data.buses) ? data.buses[1] : undefined);

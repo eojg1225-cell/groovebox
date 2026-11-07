@@ -74,6 +74,7 @@ Main -> worklet:
 | `setSong` | `song` | Replace the song: rows, and the automation lanes (`song.auto`, compiled into `Engine.lanes`, played by `runAuto` while the song plays) |
 | `setClick` | `on`, `level` | METRONOME: click on the beats while playing (`on`), level 0..1 (also the count-in's) |
 | `songJump` | `row` | While the song plays: go to this row at the next bar line |
+| `setChain` | `orders` | FX ROUTING per track: an index into `chainOrders(type)` (-1 = `chainDefault`), `Instrument.setChain` |
 | `setGlideCurve` | `curve` | GLIDE CURVE (index into `GLIDE_CURVES`): the shape of every patch glide (`glideShape`) |
 | `setAutoFill` | `steps`, `tracks` | JAM AUTO-FILL: master steps of fill before a waiting switch lands (0 = off), and which tracks fill; not in SONG |
 | `trigger` | `channel`, `note`, `velocity`, `slideFrom?` | Play a note now (`slideFrom` = legato from a held note) |

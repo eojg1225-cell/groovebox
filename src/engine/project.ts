@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 84;
+export const PROJECT_VERSION = 85;
 /** FX 1 = the drum bus (tracks pass through it), FX 2 = the send (buses.ts); fxSend 2 = on FX 2. */
 export const NUM_SENDS = 2;
 export const NUM_CHANNELS = 8;
@@ -74,6 +74,31 @@ import { MAX_CHORD_NOTES } from './chords';
 
 export type InstrumentKind = 'none' | 'kick' | 'snare' | 'hat' | 'perc' | 'bass' | 'pad' | 'lead' | 'pluck';
 export type SoundKind = Exclude<InstrumentKind, 'none'>;
+
+/**
+ * FX ROUTING (v85): the order of a track's own effects, by type. FX = DRIVE / CRUSH, FLT = the
+ * synth's filter, SPACE = its onboard room / delay (PAD LOW CUT / MOD / VERB, PLUCK DLY / VERB;
+ * drums AIR). Synths: the index is where FLT sits (0 = first); BASS / LEAD have no SPACE.
+ * Drums: 0 = SPACE > FX, 1 = FX > SPACE. PERC (no AIR) has none.
+ */
+export function chainOrders(kind: InstrumentKind): readonly string[] {
+  switch (kind) {
+    case 'pad': case 'pluck': return ['FLT>FX>SPACE', 'FX>FLT>SPACE', 'FX>SPACE>FLT'];
+    case 'bass': case 'lead': return ['FLT>FX', 'FX>FLT'];
+    case 'kick': case 'snare': case 'hat': return ['SPACE>FX', 'FX>SPACE'];
+    default: return [];
+  }
+}
+/** The types with an FX ROUTING choice, as GLOBAL SETTINGS lists them. */
+export const CHAIN_KINDS = ['kick', 'snare', 'hat', 'bass', 'pad', 'lead', 'pluck'] as const;
+/** FX ROUTING's factory default per type: synths FX > FLT (> SPACE), drums SPACE > FX. */
+export function chainDefault(kind: InstrumentKind): number {
+  return kind === 'kick' || kind === 'snare' || kind === 'hat' ? 0 : 1;
+}
+/** The order every track played in before v85: synths FLT first, drums FX > SPACE. */
+export function chainBefore85(kind: InstrumentKind): number {
+  return kind === 'kick' || kind === 'snare' || kind === 'hat' ? 1 : 0;
+}
 
 /** Live-knob target: an instrument param id, or a mixer param. */
 export type LiveTarget = string; // e.g. "t_decay", "cutoff", "mix:volume", "mix:send"
@@ -344,6 +369,8 @@ export interface Project {
    * (GLOBAL SETTINGS' AUTO-FILL TRACKS).
    */
   fillTracks?: number[];
+  /** v85: FX ROUTING per track (an index into chainOrders(its type)); -1 / absent = DEFAULT (GLOBAL SETTINGS' for its type). */
+  chain?: number[];
   bpm: number;
   /** 50..75 (%): 50 = straight. */
   swing: number;

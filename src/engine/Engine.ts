@@ -21,7 +21,7 @@ import { Click } from '../instruments/Click';
 import { BUS_PARAMS, NUM_BUSES } from '../fx/buses';
 import { TrackCut } from '../fx/TrackCut';
 import type { MixParam } from './protocol';
-import { METERS, NUM_SENDS, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
+import { METERS, NUM_SENDS, chainDefault, meterLength, meterPlays, speedSteps, type PatternSpeed } from './project';
 
 /** PAD / PLUCK notes held at once by their own lengths, per channel (more than the voices: tails overlap). */
 const HOLDS = 12;
@@ -360,6 +360,8 @@ export class Engine {
   private readonly tieNote = new Int16Array(NUM_CHANNELS);
   private readonly tieVel = new Float64Array(NUM_CHANNELS);
   private readonly tieRing = new Uint8Array(NUM_CHANNELS);
+  /** FX ROUTING per track as the UI sent it (-1 = the type's default). */
+  private readonly chainOrder = new Int8Array(NUM_CHANNELS).fill(-1);
   /** ROLL held down (PLAY / DESIGN, drums): the track repeats at ROLL RATE, and the note it strikes. */
   private readonly holdRoll = new Uint8Array(NUM_CHANNELS);
   private readonly holdRollNote = new Float32Array(NUM_CHANNELS).fill(DRUM_ROOT);
@@ -509,6 +511,12 @@ export class Engine {
         this.setPlaying(msg.playing);
         break;
       case 'setSong': this.setSong(msg.song); break;
+      case 'setChain':
+        for (let ch = 0; ch < NUM_CHANNELS; ch++) {
+          this.chainOrder[ch] = Math.round(msg.orders[ch] ?? -1);
+          this.applyChain(ch);
+        }
+        break;
       case 'setGlideCurve': this.glideCurve = Math.max(0, Math.min(3, Math.round(msg.curve))); break;
       case 'setAutoFill':
         this.autoFillSteps = Math.max(0, Math.round(msg.steps));
@@ -1333,6 +1341,12 @@ export class Engine {
     this.position[ch] = next < 0 ? 0 : next;
   }
 
+  /** FX ROUTING on track ch's sound: the order sent, else its type's default. */
+  private applyChain(ch: number): void {
+    const o = this.chainOrder[ch];
+    this.current[ch]?.setChain?.(o >= 0 ? o : chainDefault(this.kind[ch]));
+  }
+
   /** GATE below 1: the note's last step (just started, stepLen long) is cut short. */
   private gateEarly(ch: number, stepLen: number): void {
     if (this.gateLength[ch] < 1) this.gateAt[ch] = this.gateLength[ch] * stepLen;
@@ -1973,6 +1987,7 @@ export class Engine {
     this.gateAt[ch] = -1;
     this.current[ch] = kind === 'none' ? null : this.instruments[ch][kind];
     this.kind[ch] = kind;
+    this.applyChain(ch);
     this.typeGain[ch] = kind === 'none' ? 1 : INSTRUMENTS[kind].gain ?? 1;
     // Live offsets belong to the old type's knobs.
     this.liveOffsets[ch].clear();

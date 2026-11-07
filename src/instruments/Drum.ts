@@ -1,6 +1,6 @@
 import { CUT_FADE, type Instrument, type Preset } from './Instrument';
 import { choice, type ParamSpec } from '../engine/params';
-import { decayMul, IdleGate, Noise, polyBlep, Svf } from './dsp';
+import { crushLevels, crushStep, decayMul, IdleGate, Noise, polyBlep, Svf } from './dsp';
 import { exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, OCTAVE, OCTAVE_ZERO, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
@@ -366,6 +366,11 @@ export class Drum implements Instrument {
   private fCounter = 0;
   private velocity = 1;
   private crushPhase = 1; private held = 0;
+  /** FX ROUTING: SPACE > FX = AIR first, DRIVE / CRUSH after it (in post); with their own CRUSH clock and held samples. */
+  private spaceFirst = false;
+  private postPhase = 1; private postHeld = 0;
+  /** SPACE > FX: a chunk of the hit before its DRIVE / CRUSH. */
+  private readonly dry = new Float32Array(AIR_CHUNK);
 
   constructor(sampleRate: number, readonly params: readonly ParamSpec[], private readonly voice: DrumVoice) {
     this.sr = sampleRate;
@@ -560,6 +565,80 @@ export class Drum implements Instrument {
    * Idle (and cleared) once AIR LVL is down at 0.
    */
   post(l: Float32Array, r: Float32Array, n: number): void {
+    if (!this.spaceFirst) this.air(l, r, n); // SPACE > FX: AIR ran in render, before DRIVE / CRUSH
+  }
+
+  /**
+   * FX ROUTING (KICK / SNARE / HAT, the drums with AIR): 0 = SPACE > FX (AIR, then DRIVE /
+   * CRUSH on the hit and its room together; with AIR off the hit plays exactly as in FX >
+   * SPACE), 1 = FX > SPACE (as before v85).
+   */
+  setChain(order: number): void {
+    const first = !!this.room && Math.round(order) === 0;
+    if (first === this.spaceFirst) return;
+    this.spaceFirst = first;
+    this.postPhase = 1;
+    this.postHeld = 0;
+  }
+
+  /** SPACE > FX: DRIVE then CRUSH on d[0, m) (OUT GAIN taken out and put back), added into outL / outR from `off`. */
+  private fxInto(d: Float32Array, m: number, outL: Float32Array, outR: Float32Array, off: number): void {
+    const og = this.oGain;
+    const drive = this.drive > 1, crush = this.crush > 0;
+    if (og <= 0 || (!drive && !crush)) {
+      for (let i = 0; i < m; i++) { outL[off + i] += d[i]; outR[off + i] += d[i]; }
+      return;
+    }
+    let any = this.postHeld !== 0;
+    for (let i = 0; i < m && !any; i++) any = d[i] !== 0;
+    if (!any) return; // silence in, nothing held: silence out
+    const driveNorm = drive ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
+    const k = 0.8 * this.driveComp * driveNorm;
+    const step = crushStep(this.crush), levels = crushLevels(this.crush);
+    const inv = 1 / og;
+    for (let i = 0; i < m; i++) {
+      let x = d[i] * inv;
+      if (drive) x = tanh(x * this.drive) * k;
+      if (crush) {
+        this.postPhase += step;
+        if (this.postPhase >= 1) {
+          this.postPhase -= 1;
+          this.postHeld = Math.round(x * levels) / levels;
+        }
+        x = this.postHeld;
+      }
+      const y = x * og;
+      outL[off + i] += y;
+      outR[off + i] += y;
+    }
+  }
+
+  /** SPACE > FX: AIR on the mono hit d[0, m), in place (as air()). */
+  private airOn(d: Float32Array, m: number): void {
+    const room = this.room;
+    if (!room) return;
+    if (this.airTarget === 0 && this.airGain < 1e-5) {
+      if (!this.airIdle) {
+        room.reset();
+        this.airGain = 0;
+        this.airIdle = true;
+      }
+      return;
+    }
+    this.airIdle = false;
+    if (this.airGate.skip(d, d, m)) return;
+    const mono = this.airMono;
+    for (let i = 0; i < m; i++) mono[i] = d[i];
+    room.process(mono, mono, m);
+    for (let i = 0; i < m; i++) {
+      this.airGain += (this.airTarget - this.airGain) * this.airK;
+      d[i] += mono[i] * this.airGain;
+    }
+    this.airGate.done(d, d, m);
+  }
+
+  /** AIR: the room on the hit (in place). */
+  private air(l: Float32Array, r: Float32Array, n: number): void {
     const room = this.room;
     if (!room) return;
     if (this.airTarget === 0 && this.airGain < 1e-5) {
@@ -599,15 +678,30 @@ export class Drum implements Instrument {
   }
 
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
+    if (!this.spaceFirst) { this.hit(outL, outR, start, end, true); return; }
+    // SPACE > FX: the hit without its DRIVE / CRUSH, its AIR on it, then DRIVE / CRUSH on both.
+    const d = this.dry;
+    for (let off = start; off < end; off += AIR_CHUNK) {
+      const m = Math.min(AIR_CHUNK, end - off);
+      d.fill(0, 0, m);
+      this.hit(d, d, 0, m, false);
+      this.airOn(d, m);
+      this.fxInto(d, m, outL, outR, off);
+    }
+  }
+
+  /** The hit (its layers, the LFO's filter, `fx`: DRIVE / CRUSH), added into outL / outR (the same array: once) at OUT GAIN. */
+  private hit(outL: Float32Array, outR: Float32Array, start: number, end: number, fx: boolean): void {
     if (this.tStage === OFF && this.mStage === OFF && this.cStage === OFF && this.fadeLeft === 0) {
       this.lastOut = 0;
       return;
     }
     const dtBase = 1 / this.sr;
-    // Sample-rate reduction: a new sample every 1 + crush^2 x 24 samples, on a fractional
-    // clock so the rate falls smoothly (whole-sample holds jumped 48 -> 24 kHz at 0.2).
-    const step = 1 / (1 + this.crush * this.crush * 24);
-    const levels = Math.pow(2, 16 - this.crush * 12);
+    // Sample-rate reduction (crushStep), on a fractional clock so the rate falls smoothly
+    // (whole-sample holds jumped 48 -> 24 kHz at 0.2).
+    const step = crushStep(this.crush);
+    const levels = crushLevels(this.crush);
+    const fxHere = fx;
     const driveNorm = this.drive > 1 ? 1 / Math.tanh(Math.min(this.drive, 3)) : 1;
     const tPitch = this.tPitch * this.tune * this.pitchMod;
     const tune = this.tune * this.pitchMod;
@@ -793,8 +887,8 @@ export class Drum implements Instrument {
         this.filter.process(out);
         out = this.filter.low;
       }
-      if (this.drive > 1) out = tanh(out * this.drive) * driveNorm * 0.8 * this.driveComp;
-      if (this.crush > 0) {
+      if (fxHere && this.drive > 1) out = tanh(out * this.drive) * driveNorm * 0.8 * this.driveComp;
+      if (fxHere && this.crush > 0) {
         this.crushPhase += step;
         if (this.crushPhase >= 1) {
           this.crushPhase -= 1;
@@ -809,7 +903,7 @@ export class Drum implements Instrument {
       }
       this.lastOut = out;
       outL[i] += out * this.oGain;
-      outR[i] += out * this.oGain;
+      if (outR !== outL) outR[i] += out * this.oGain;
     }
   }
 }

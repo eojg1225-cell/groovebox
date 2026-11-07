@@ -1,6 +1,6 @@
 import { CUT_FADE, type Instrument, type Preset } from './Instrument';
 import { choice, FDECAY_POWER, type ParamSpec } from '../engine/params';
-import { decayMul, IdleGate, midiToHz, polyBlep, Svf } from './dsp';
+import { crushLevels, crushStep, decayMul, IdleGate, midiToHz, polyBlep, Svf } from './dsp';
 import { cosTurn, exp2, sinRad, sinTurn, tanh } from './math';
 import { INTENSITY, OCTAVE, OCTAVE_ZERO, TIMBRE, midFreq } from './macroParams';
 import { MACROS } from './macros';
@@ -492,7 +492,11 @@ class Voice {
   noteT = 0;
   vibPh = 0;
   readonly filter = new Svf();
+  /** FX before the filter (FX ROUTING): this voice's own CRUSH clock and held sample. */
+  crushPhase = 1;
+  held = 0;
 }
+
 
 export class Synth implements Instrument {
   private readonly sr: number;
@@ -566,6 +570,16 @@ export class Synth implements Instrument {
   private filterMod = 0;
   private drive = 1; private crush = 0; private level = 0.7; private driveComp = 1;
   private crushPhase = 1; private held = 0;
+  /**
+   * FX ROUTING: where the filter sits (0 = first, before DRIVE / CRUSH, as before v85; 1 =
+   * after them, per voice; 2 = after SPACE too: one filter on the track, following the last
+   * note's filter envelope). Only PAD / PLUCK have a SPACE.
+   */
+  private filterPos = 0;
+  private lastVoice: Voice | null = null;
+  private readonly postFilterL = new Svf();
+  private readonly postFilterR = new Svf();
+  private postCounter = 0;
   /** Per element (OSC 1, OSC 2). */
   private readonly attackInc = new Float64Array([1, 1]);
   private readonly decayMul = new Float64Array(2);
@@ -687,9 +701,21 @@ export class Synth implements Instrument {
     v.fmenv = v.fmattacking ? 0 : 1;
     v.age = ++this.ageCounter;
     v.counter = 0;
+    this.lastVoice = v;
     v.cutLeft = 0;
     v.noteT = 0;
     v.vibPh = 0;
+  }
+
+  /** FX ROUTING: where the filter sits (synths: 0 / 1 / 2; BASS / LEAD, no SPACE: 0 / 1). */
+  setChain(order: number): void {
+    const most = this.pad || this.delay ? 2 : 1;
+    const pos = Math.max(0, Math.min(most, Math.round(order)));
+    if (pos === this.filterPos) return;
+    this.filterPos = pos;
+    for (const v of this.voices) { v.crushPhase = 1; v.held = 0; v.filter.reset(); }
+    this.postFilterL.reset();
+    this.postFilterR.reset();
   }
 
   setPitchMod(semitones: number): void {
@@ -849,13 +875,35 @@ export class Synth implements Instrument {
     this.duckX = 0;
   }
 
-  /** PLUCK's delay, then its room (on the track's output, in place). */
+  /** SPACE (PLUCK's delay, then its room; the PAD's LOW CUT / MOD / VERB), then FX ROUTING's filter last (on the track's output, in place). */
   post(l: Float32Array, r: Float32Array, n: number): void {
+    this.space(l, r, n);
+    if (this.filterPos === 2) this.postFilter(l, r, n);
+  }
+
+  private space(l: Float32Array, r: Float32Array, n: number): void {
     if (this.pad) { this.padPost(l, r, n); return; }
     if (!this.delay || !this.room || this.postIdle.skip(l, r, n)) return;
     this.delay.process(l, r, l, r, 0, n);
     this.room.process(l, r, l, r, 0, n);
     this.postIdle.done(l, r, n);
+  }
+
+  /** FX > SPACE > FLT: the filter on the track, its envelope the last note's (as a paraphonic synth's). */
+  private postFilter(l: Float32Array, r: Float32Array, n: number): void {
+    const fl = this.postFilterL, fr = this.postFilterR;
+    const fmod = this.filterMod === 0 ? 1 : Math.pow(2, this.filterMod);
+    const v = this.lastVoice;
+    for (let i = 0; i < n; i++) {
+      if (this.postCounter-- <= 0) {
+        this.postCounter = FILTER_UPDATE;
+        const fc = this.cutoff * fmod * exp2(this.fenvAmt * 6 * (v ? v.fenv : 0));
+        fl.setup(fc, this.reso, this.sr);
+        fr.setup(fc, this.reso, this.sr);
+      }
+      fl.process(l[i]); l[i] = fl.low;
+      fr.process(r[i]); r[i] = fr.low;
+    }
   }
   /** PAD: LOW CUT, then MOD (wet added to the dry, as the send did), then VERB; each skipped while off. */
   private padPost(l: Float32Array, r: Float32Array, n: number): void {
@@ -890,7 +938,7 @@ export class Synth implements Instrument {
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     this.renderVoices(outL, outR, start, end);
     if (this.algo === 2) this.renderDcBlock(outL, outR, start, end);
-    this.renderCrush(outL, outR, start, end);
+    if (this.filterPos === 0) this.renderCrush(outL, outR, start, end);
     const og = this.oGain * this.fmGain;
     if (og !== 1) {
       for (let i = start; i < end; i++) { outL[i] *= og; outR[i] *= og; }
@@ -935,10 +983,10 @@ export class Synth implements Instrument {
 
   private renderCrush(outL: Float32Array, outR: Float32Array, start: number, end: number): void {
     if (this.crush <= 0) return;
-    // Sample-rate reduction: a new sample every 1 + crush^2 x 24 samples, on a fractional
-    // clock so the rate falls smoothly (whole-sample holds jumped 48 -> 24 kHz at 0.2).
-    const step = 1 / (1 + this.crush * this.crush * 24);
-    const levels = Math.pow(2, 16 - this.crush * 12);
+    // Sample-rate reduction (crushStep), on a fractional clock so the rate falls smoothly
+    // (whole-sample holds jumped 48 -> 24 kHz at 0.2).
+    const step = crushStep(this.crush);
+    const levels = crushLevels(this.crush);
     for (let i = start; i < end; i++) {
       this.crushPhase += step;
       if (this.crushPhase >= 1) {
@@ -1246,6 +1294,10 @@ export class Synth implements Instrument {
   /** A voice's block through its envelopes, filter, velocity, level and DRIVE into the output. */
   private voiceOut(v: Voice, outL: Float32Array, outR: Float32Array, from: number, to: number, fmod: number, driveNorm: number): void {
     const sr = this.sr, velK = this.velK, level = this.level, drive = this.drive, driveComp = this.driveComp;
+    // FX ROUTING: DRIVE / CRUSH before the filter (per voice), or (2) the filter after SPACE.
+    const fxFirst = this.filterPos > 0, filtered = this.filterPos < 2;
+    const crush = fxFirst && this.crush > 0;
+    const cStep = crush ? crushStep(this.crush) : 0, cLevels = crush ? crushLevels(this.crush) : 1;
     for (let i = from, j = 0; i < to; i++, j++) {
       const o1 = this.bO1[j] + this.bSub[j];
       const o2 = this.bO2[j];
@@ -1283,15 +1335,38 @@ export class Synth implements Instrument {
       } else {
         v.fenv *= v.ring ? this.fdecayRingMul : this.fdecayMul;
       }
-      if (v.counter-- <= 0) {
-        v.counter = FILTER_UPDATE;
-        v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv), this.reso, sr);
+      let out: number;
+      if (fxFirst) {
+        // FX > FLT: DRIVE and CRUSH on the voice, then its filter (2: no filter here).
+        v.vel += (v.velocity - v.vel) * velK;
+        out = mix * 0.5 * v.vel * level;
+        if (drive > 1) out = tanh(out * drive) * driveNorm * driveComp;
+        if (crush) {
+          v.crushPhase += cStep;
+          if (v.crushPhase >= 1) {
+            v.crushPhase -= 1;
+            v.held = Math.round(out * cLevels) / cLevels;
+          }
+          out = v.held;
+        }
+        if (filtered) {
+          if (v.counter-- <= 0) {
+            v.counter = FILTER_UPDATE;
+            v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv), this.reso, sr);
+          }
+          v.filter.process(out);
+          out = v.filter.low;
+        }
+      } else {
+        if (v.counter-- <= 0) {
+          v.counter = FILTER_UPDATE;
+          v.filter.setup(this.cutoff * fmod * exp2(this.fenvAmt * 6 * v.fenv), this.reso, sr);
+        }
+        v.filter.process(mix * 0.5);
+        v.vel += (v.velocity - v.vel) * velK;
+        out = v.filter.low * v.vel * level;
+        if (drive > 1) out = tanh(out * drive) * driveNorm * driveComp;
       }
-      v.filter.process(mix * 0.5);
-
-      v.vel += (v.velocity - v.vel) * velK;
-      let out = v.filter.low * v.vel * level;
-      if (drive > 1) out = tanh(out * drive) * driveNorm * driveComp;
       if (v.cutLeft !== 0) {
         // REST: a half-cosine fade, then nothing until the voice's next note.
         if (v.cutLeft > 0) {

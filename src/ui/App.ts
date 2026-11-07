@@ -54,6 +54,7 @@ import {
   cloneNotes, clonePatch, dropTiedRests, editPattern, initPatterns, lockProject, patchOf, setPatchOf, speedSteps,
   setStepDynamic, stepDynamic, type ChannelState, type Dynamic, type InstrumentKind, type Project, type SettingKey, type SoundKind, type Step,
   AUTO_FILL_STEPS, AUTO_FILL_TRACKS, CLIP_ENTRY, FILL_STEPS, GLIDE_CURVES, GLIDE_STEPS, compactEntry, type ClipEntry,
+  CHAIN_KINDS, chainOrders,
 } from '../engine/project';
 import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
@@ -62,7 +63,7 @@ import { INSTRUMENTS, macroAnchor, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParam
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
-import { CLICK_LEVELS, COUNT_INS, HOLD_PATTERNS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
+import { CHAIN_SETTING, CLICK_LEVELS, COUNT_INS, HOLD_PATTERNS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
 import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
@@ -79,9 +80,10 @@ type Mode = 'record' | 'play' | 'design';
 
 
 /** MENU's pages (top = the list MENU opens on). */
-type MenuPage = 'top' | 'project' | 'tracks' | 'fill' | 'global' | 'touch';
+type MenuPage = 'top' | 'project' | 'tracks' | 'fill' | 'routing' | 'global' | 'touch' | 'globalRouting';
 const MENU_TITLES: Record<MenuPage, string> = {
-  top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', fill: 'AUTO-FILL', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
+  top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', fill: 'AUTO-FILL', routing: 'FX ROUTING', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
+  globalRouting: 'FX ROUTING',
 };
 /** The knob / menu names of GLIDE CURVE, AUTO-FILL, a track's AUTO-FILL and the clip knobs' stops. */
 const AUTO_FILL_NAMES = AUTO_FILL_STEPS.map((n) => (n ? `${n} STEPS` : 'OFF'));
@@ -590,9 +592,31 @@ export class App {
     return kind !== 'none' && (which === 'ALL' || (which === 'DRUMS' && isDrum(kind)));
   }
 
-  /** GLIDE CURVE and JAM AUTO-FILL as the engine plays them. */
+  /**
+   * FX ROUTING of track ch (an index into chainOrders(its type); -1 = none to choose): the
+   * project's own, else (DEFAULT) GLOBAL SETTINGS' for its type.
+   */
+  private chainOf(ch: number, p: Project = this.project): number {
+    const kind = p.channels[ch].instrument;
+    const n = chainOrders(kind).length;
+    if (n === 0) return -1;
+    const own = p.chain?.[ch] ?? -1;
+    if (own >= 0 && own < n) return own;
+    return deviceSettings[CHAIN_SETTING[kind as (typeof CHAIN_KINDS)[number]]];
+  }
+
+  /** A project's own FX ROUTING for track ch (-1 = DEFAULT). */
+  private setChain(ch: number, v: number): void {
+    const own = (this.project.chain ??= new Array<number>(NUM_CHANNELS).fill(-1));
+    own[ch] = v;
+    if (own.every((x) => x < 0)) delete this.project.chain;
+    this.save();
+  }
+
+  /** GLIDE CURVE, JAM AUTO-FILL and FX ROUTING as the engine plays them. */
   private transitionMessages(): MainToWorklet[] {
     return [
+      { type: 'setChain', orders: this.project.channels.map((_, ch) => this.chainOf(ch)) },
       { type: 'setGlideCurve', curve: this.setting('glideCurve') },
       { type: 'setAutoFill', steps: AUTO_FILL_STEPS[this.setting('autoFill')] ?? 0, tracks: this.project.channels.map((_, ch) => this.fillOn(ch)) },
     ];
@@ -3567,7 +3591,16 @@ export class App {
         own('HOLD + PATTERN', 'holdPattern', HOLD_PATTERNS),
         own('GLIDE CURVE', 'glideCurve', GLIDE_CURVES),
         { label: 'AUTO-FILL', open: () => this.openPage('fill') },
+        { label: 'FX ROUTING', open: () => this.openPage('routing') },
       ];
+    }
+    if (page === 'routing') {
+      // Per track: DEFAULT (GLOBAL SETTINGS' for its type) or an order its type has.
+      return this.project.channels.map((c, ch): MenuLine => ({
+        label: `TRACK ${ch + 1}`, options: ['DEFAULT', ...chainOrders(c.instrument)],
+        get: () => (this.project.chain?.[ch] ?? -1) + 1,
+        set: (i) => this.setChain(ch, i - 1),
+      }));
     }
     if (page === 'fill') {
       // JAM AUTO-FILL: how many steps (DEFAULT = GLOBAL's), and per track DEFAULT / OFF / ON.
@@ -3613,7 +3646,12 @@ export class App {
         device('GLIDE CURVE', 'glideCurve', GLIDE_CURVES),
         device('AUTO-FILL', 'autoFill', AUTO_FILL_NAMES),
         device('AUTO-FILL TRACKS', 'autoFillTracks', AUTO_FILL_TRACKS),
+        { label: 'FX ROUTING', open: () => this.openPage('globalRouting') },
       ];
+    }
+    if (page === 'globalRouting') {
+      // What DEFAULT means for each type: FX = DRIVE / CRUSH, FLT = the filter, SPACE = the onboard room / delay (drums: AIR).
+      return CHAIN_KINDS.map((k) => device(INSTRUMENTS[k].name, CHAIN_SETTING[k], chainOrders(k)));
     }
     if (page === 'touch') {
       return [
@@ -3691,6 +3729,7 @@ export class App {
   private setTrackType(ch: number, kind: InstrumentKind): void {
     const c = this.project.channels[ch];
     const toDrum = isDrum(kind) && !isDrum(c.instrument); // note lengths go (a drum's tie strikes again)
+    if ((this.project.chain?.[ch] ?? -1) >= 0) this.setChain(ch, -1); // its FX ROUTING: DEFAULT for the new type
     trackDefaults(c, kind);
     const patch = patchOf(c, c.activePattern);
     c.patterns.forEach((pat, p) => {

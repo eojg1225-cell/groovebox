@@ -123,3 +123,16 @@ export function polyBlep(t: number, dt: number): number {
 export function midiToHz(note: number): number {
   return 440 * Math.pow(2, (note - 69) / 12);
 }
+
+/**
+ * CRUSH on a squared knob (v85: 0.5 now = 0.25 before, 1 the same): the hold's step on the
+ * fractional clock, a new sample every 1 + 24 c^2 samples of c = knob^2 ...
+ */
+export function crushStep(knob: number): number {
+  const c = knob * knob;
+  return 1 / (1 + c * c * 24);
+}
+/** ... and 16 - 12 c bits (above 15 to knob 0.25). */
+export function crushLevels(knob: number): number {
+  return Math.pow(2, 16 - knob * knob * 12);
+}

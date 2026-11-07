@@ -1321,6 +1321,38 @@ describe('SONG strip: GLIDE and FILL windows on the screen', () => {
   });
 });
 
+describe('FX ROUTING', () => {
+  type Lines = { menuLines(page: string): { label: string; options?: readonly string[]; set?: (i: number) => void }[] };
+  const lastChain = (sent: MainToWorklet[]) => [...sent].reverse().find((m) => m.type === 'setChain');
+
+  it('DEFAULT = GLOBAL SETTINGS per type (synths FX > FLT, drums SPACE > FX); a track of its own; a type change goes back to DEFAULT', () => {
+    const { app, sent } = makeApp();
+    app.refreshPanel();
+    // KICK SNARE HAT PERC BASS PAD LEAD PLUCK: drums SPACE > FX (0), PERC none, synths FLT second (1).
+    expect(lastChain(sent)).toMatchObject({ orders: [0, 0, 0, -1, 1, 1, 1, 1] });
+    const lines = (app as unknown as Lines).menuLines('routing');
+    expect(lines[5].options).toEqual(['DEFAULT', 'FLT>FX>SPACE', 'FX>FLT>SPACE', 'FX>SPACE>FLT']);
+    expect(lines[4].options).toEqual(['DEFAULT', 'FLT>FX', 'FX>FLT']);
+    expect(lines[0].options).toEqual(['DEFAULT', 'SPACE>FX', 'FX>SPACE']);
+    lines[5].set!(3); // PAD: FX > SPACE > FLT
+    app.refreshPanel();
+    expect(lastChain(sent)).toMatchObject({ orders: [0, 0, 0, -1, 1, 2, 1, 1] });
+    expect(fromStored(toStored(app.project))!.chain?.[5]).toBe(2);
+    // GLOBAL: the LEAD's DEFAULT becomes FLT > FX.
+    const global = (app as unknown as Lines).menuLines('globalRouting');
+    expect(global.map((l) => l.label)).toEqual(['KICK', 'SNARE', 'HAT', 'BASS', 'PAD', 'LEAD', 'PLUCK']);
+    global[5].set!(0);
+    app.refreshPanel();
+    expect(lastChain(sent)).toMatchObject({ orders: [0, 0, 0, -1, 1, 2, 0, 1] });
+    deviceSettings.chainLead = 1;
+    // The PAD track becomes a BASS: back to DEFAULT.
+    (app as unknown as { setTrackType(ch: number, k: string): void }).setTrackType(5, 'bass');
+    app.refreshPanel();
+    expect(app.project.chain).toBeUndefined();
+    expect(lastChain(sent)).toMatchObject({ orders: [0, 0, 0, -1, 1, 1, 1, 1] });
+  });
+});
+
 describe('SCALE key', () => {
   const notes = (app: App) => app.project.channels[4].patterns[0].steps.map((st) => st.note);
   const black = (flags: Map<string, Set<string>>, k: number) => flags.get(`step${k}`)!.has('black');

@@ -12,7 +12,7 @@ import { CHORDS } from '../src/engine/chords';
 import { defaultSound, INSTRUMENTS, isDrum, LIVE_MACROS, SOUND_KINDS, liveContribution, liveTargets, macroAnchor, presetSound } from '../src/instruments/registry';
 import { Drum, HAT_PARAMS, HAT_VOICE, KICK_PARAMS, KICK_VOICE, PERC_PARAMS, PERC_VOICE, SNARE_PARAMS, SNARE_VOICE } from '../src/instruments/Drum';
 import { Synth, BASS_FIXED, PAD_FIXED, PAD_PARAMS, LEAD_FIXED, LEAD_PARAMS, PLUCK_FIXED, stackIndex } from '../src/instruments/Synth';
-import { IdleGate, midiToHz } from '../src/instruments/dsp';
+import { IdleGate, crushLevels, crushStep, midiToHz } from '../src/instruments/dsp';
 import { Smoother } from '../src/engine/smoother';
 import { gatedLoudness } from '../tools/lab/loudness';
 import { Delay } from '../src/fx/Delay';
@@ -2575,6 +2575,75 @@ describe('PAD on the 3 carrier engine', () => {
     expect(q.ratio3).toBe(0.5);
     expect(q.carriers).toBeCloseTo(0.85);
     expect(q.crush).toBe(0);
+  });
+});
+
+describe('FX ROUTING and the CRUSH taper (v85)', () => {
+  /** One note on track ch with this sound, the track's FX ROUTING `order`. */
+  const play = (ch: number, kind: SoundKind, set: Record<string, number>, order: number, seconds = 0.6) => {
+    const p = createDefaultProject();
+    p.bpm = 120;
+    p.master = 0.2;
+    p.channels.forEach((c, n) => { c.patterns = c.patterns.map(() => emptyPattern(c.patterns[0].steps[0].note)); c.mute = n !== ch; });
+    p.channels[ch].sounds[kind] = { ...p.channels[ch].sounds[kind], ...set };
+    Object.assign(p.channels[ch].patterns[0].steps[0], { active: true, gate: INSTRUMENTS[kind].drum ? 1 : 4 });
+    const e = engineWith(p);
+    const orders = new Array(8).fill(-1);
+    orders[ch] = order;
+    e.handleMessage({ type: 'setChain', orders });
+    e.handleMessage({ type: 'transport', playing: true });
+    return render(e, seconds).l;
+  };
+  /** Energy of the sample-to-sample differences: how much fizz (highs) there is. */
+  const highs = (x: Float32Array) => { let e = 0; for (let i = 1; i < x.length; i++) e += (x[i] - x[i - 1]) ** 2; return e; };
+
+  it('CRUSH is squared before it reaches the sound: 0.5 now = 0.25 before, 1 the same', () => {
+    expect(crushStep(0.5)).toBeCloseTo(1 / (1 + 0.25 * 0.25 * 24), 12);
+    expect(crushLevels(0.5)).toBeCloseTo(2 ** (16 - 0.25 * 12), 6);
+    expect(crushStep(1)).toBeCloseTo(1 / 25, 12);
+    expect(crushLevels(0.25)).toBeGreaterThan(2 ** 15); // above 15 bits to 0.25
+  });
+
+  it('drums: SPACE > FX plays exactly as FX > SPACE with AIR off; with AIR on the room is crushed too', () => {
+    const dry = { crush: 0.8, drive: 3, air: 0 };
+    expect(play(1, 'snare', dry, 0)).toEqual(play(1, 'snare', dry, 1));
+    const wet = { crush: 0.8, drive: 3, air: 0.8 };
+    const a = play(1, 'snare', wet, 0), b = play(1, 'snare', wet, 1);
+    expect(stats(a).nan).toBe(false);
+    expect(a).not.toEqual(b);
+  });
+
+  it('synths: FX > FLT puts the filter over CRUSH (far less fizz at a low CUTOFF); BASS has no third place', () => {
+    const set = { crush: 1, cutoff: 300, reso: 0, fenv: 0 };
+    const before = play(4, 'bass', set, 0), after = play(4, 'bass', set, 1);
+    expect(highs(after)).toBeLessThan(highs(before) * 0.2);
+    expect(play(4, 'bass', set, 2)).toEqual(after); // clamped to FX > FLT
+  });
+
+  it('PAD / PLUCK: FX > SPACE > FLT filters the room / delay too', () => {
+    const set = { cutoff: 400, reso: 0, fenv: 0, dmix: 0.8, dfdbk: 0.6, verb: 0.6 };
+    const mid = play(7, 'pluck', set, 1, 1.5), last = play(7, 'pluck', set, 2, 1.5);
+    expect(stats(last).nan).toBe(false);
+    // The tail (after the note): the echoes of an unfiltered room vs. through the filter.
+    expect(highs(last.subarray(48000))).toBeLessThan(highs(mid.subarray(48000)));
+  });
+
+  it('a v84 save: CRUSH values, locks and lanes on the new taper; tracks whose order is heard keep the old one', () => {
+    const p = createDefaultProject();
+    p.channels[4].sounds.bass = { ...p.channels[4].sounds.bass!, crush: 0.25 };
+    p.channels[4].patterns[0].steps[0] = { ...p.channels[4].patterns[0].steps[0], active: true, locks: { crush: 0.25 } };
+    p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick!, air: 0.5, drive: 2 };
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 84;
+    stored.song.a = { 's:4:crush': [[0, 0.25]] };
+    const q = fromStored(stored)!;
+    expect(q.channels[4].sounds.bass!.crush).toBeCloseTo(0.5);
+    expect(q.channels[4].patterns[0].steps[0].locks?.crush).toBeCloseTo(0.5);
+    expect(q.song.auto?.['s:4:crush']?.[0][1]).toBeCloseTo(0.5);
+    // BASS (CRUSH on): FLT > FX as before; KICK (AIR, DRIVE): FX > SPACE; the rest DEFAULT.
+    expect(q.chain).toEqual([1, -1, -1, -1, 0, -1, -1, -1]);
+    // A v85 save keeps what it says.
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(q))))!.chain).toEqual(q.chain);
   });
 });
 

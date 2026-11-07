@@ -37,6 +37,8 @@ export interface Instrument {
   render(outL: Float32Array, outR: Float32Array, start: number, end: number): void;
   /** Onboard effects on the track's own output (frames [0, n), after the hit tone), in place. */
   post?(l: Float32Array, r: Float32Array, n: number): void;
+  /** FX ROUTING (engine/project.ts chainOrders): the order of the sound's own effects. */
+  setChain?(order: number): void;
   /** Tempo for tempo-synced onboard effects. */
   setTempo?(bpm: number): void;
   /** SIDECHAIN: a KICK hit ducks the sound (by its DUCK amount). */
