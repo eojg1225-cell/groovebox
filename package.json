@@ -13,7 +13,8 @@
     "unused": "knip",
     "lab:level": "vitest run --config tools/lab/vite.config.ts",
     "build:lab": "vite build --config tools/lab/vite.config.ts && node tools/lab/pack.mjs",
-    "build:android": "npm run build && cap sync android"
+    "build:android": "npm run build && cap sync android",
+    "native:null": "vitest run --config tools/native/vite.config.ts"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.0",

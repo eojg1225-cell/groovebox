@@ -4,9 +4,14 @@
 //! heard and read on the device. The engine moves here module by module, each null-tested
 //! against the TypeScript engine (tests/blocks.rs: the building blocks).
 
+// Index loops stay as in the TypeScript, line for line, so the port can be read against it.
+#![allow(clippy::needless_range_loop)]
+
 pub mod blip;
 pub mod drive_comp;
 pub mod dsp;
+pub mod instruments;
+pub mod js;
 pub mod kind;
 pub mod math;
 pub mod smoother;
