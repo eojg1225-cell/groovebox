@@ -29,7 +29,10 @@ jobs:
       - run: npx cap sync android
       - name: Build the debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        # The Gradle download has failed with 504s: fetch it (a cheap task) with retries first.
+        run: |
+          for i in 1 2 3 4 5; do ./gradlew --version --no-daemon && break; echo "retry $i"; sleep $((i * 15)); done
+          ./gradlew assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: groovebox-apk
