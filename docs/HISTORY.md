@@ -191,3 +191,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - App updates keep projects (2026-11-08): the bundled Artifact projects taken out again (they come in by IMPORT); the WebView's localStorage projects are imported on every start and cleared only once written to files; each CI build's versionCode = its run number.
 - Native engine step 1 (2026-11-08): `native/` Rust crate with an AAudio low-latency stream and a test blip, JNI + Capacitor plugin; MENU > GLOBAL SETTINGS > NATIVE AUDIO TEST (app only) plays it beside the same blip through the WebView, with both latencies.
 - Native audio path tried on the phone (2026-11-08): NATIVE OUT ~20 ms against the WebView's ~130 ms.
+- Native engine step 2 (2026-11-08): the building blocks in Rust (maths tables, noise, state-variable filter, idle gate, smoother, DRIVE compensation), null-tested against the TypeScript functions' output: bit-identical or within the last bit.

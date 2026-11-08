@@ -12,6 +12,9 @@ crate-type = ["cdylib", "rlib"]
 ndk = { version = "0.9", default-features = false, features = ["audio", "api-level-26"] }
 libc = "0.2"
 
+[dev-dependencies]
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
 [profile.release]
 opt-level = 3
 lto = true
