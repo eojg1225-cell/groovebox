@@ -19,6 +19,7 @@ src/ui           App (controller), Panel (on-screen ControlSurface), Knob, Pixel
 src/storage      projects.ts (64 slots, ProjectStore), kv.ts (where they are kept), native.ts (the Android
                  app's files), backup.ts / backupFile.ts (PROJECT BACKUP), slotSync.ts (slots <-> claude.ai artifact db),
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
+native           Rust (groovebox-native): the native audio path (AAudio + JNI), the native engine to come
 tests            Vitest: the engine offline in Node, project storage / sync, the App via button events
 tools/lab        The sound lab: A/B page for TIMBRE / INT candidates (not part of the app)
 ```

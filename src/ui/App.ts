@@ -64,6 +64,8 @@ import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
 import { exportProjects, importProjects } from '../storage/backupFile';
+import { isApp } from '../storage/native';
+import { AudioTest } from './audioTest';
 import { CHAIN_SETTING, CLICK_LEVELS, COUNT_INS, HOLD_PATTERNS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
 import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
@@ -81,10 +83,10 @@ type Mode = 'record' | 'play' | 'design';
 
 
 /** MENU's pages (top = the list MENU opens on). */
-type MenuPage = 'top' | 'project' | 'tracks' | 'fill' | 'routing' | 'global' | 'touch' | 'globalRouting' | 'backup';
+type MenuPage = 'top' | 'project' | 'tracks' | 'fill' | 'routing' | 'global' | 'touch' | 'globalRouting' | 'backup' | 'audioTest';
 const MENU_TITLES: Record<MenuPage, string> = {
   top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', fill: 'AUTO-FILL', routing: 'FX ROUTING', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
-  globalRouting: 'FX ROUTING', backup: 'PROJECT BACKUP',
+  globalRouting: 'FX ROUTING', backup: 'PROJECT BACKUP', audioTest: 'NATIVE AUDIO TEST',
 };
 /** The knob / menu names of GLIDE CURVE, AUTO-FILL, a track's AUTO-FILL and the clip knobs' stops. */
 const AUTO_FILL_NAMES = AUTO_FILL_STEPS.map((n) => (n ? `${n} STEPS` : 'OFF'));
@@ -494,6 +496,8 @@ export class App {
   projMenu: ProjectMenu | null = null;
   /** MENU open. */
   menu: MainMenu | null = null;
+  /** MENU > GLOBAL SETTINGS > NATIVE AUDIO TEST (the Android app). */
+  private readonly audioTest = new AudioTest();
   /**
    * MENU > MODE = SONG: the modes work on the song. RECORD = the grid (building it), PLAY /
    * DESIGN = as with patterns while PLAY plays the song.
@@ -3662,8 +3666,11 @@ export class App {
         device('AUTO-FILL', 'autoFill', AUTO_FILL_NAMES),
         device('AUTO-FILL TRACKS', 'autoFillTracks', AUTO_FILL_TRACKS),
         { label: 'FX ROUTING', open: () => this.openPage('globalRouting') },
+        // The Android app: the native audio path beside the WebView's (ui/audioTest.ts).
+        ...(isApp() ? [{ label: 'NATIVE AUDIO TEST', open: () => this.openPage('audioTest') }] : []),
       ];
     }
+    if (page === 'audioTest') return this.audioTest.lines().map((label) => ({ label }));
     if (page === 'globalRouting') {
       // What DEFAULT means for each type: FX = DRIVE / CRUSH, FLT = the filter, SPACE = the onboard room / delay (drums: AIR).
       return CHAIN_KINDS.map((k) => device(INSTRUMENTS[k].name, CHAIN_SETTING[k], chainOrders(k)));
@@ -3698,6 +3705,12 @@ export class App {
     }
     if (!pressed) return true;
     const at = this.menuPage;
+    // NATIVE AUDIO TEST: the strip keys play the test blip (1-8 native, 9-16 WebView).
+    const key = /^step(\d+)$/.exec(id);
+    if (at.page === 'audioTest' && key) {
+      this.audioTest.tap(Number(key[1]));
+      return true;
+    }
     const lines = this.menuLines(at.page);
     const line = lines[at.item];
     let m: RegExpExecArray | null;
@@ -4619,6 +4632,7 @@ export class App {
     this.syncClick();
     this.syncTransitions();
     this.syncLook();
+    this.audioTest.sync(this.menu?.stack[this.menu.stack.length - 1]?.page === 'audioTest');
     this.targets = this.computeTargets();
     if (this.menu || this.projMenu || this.songGrid) this.heldKnobs.clear();
     this.targets.forEach((t, i) => {

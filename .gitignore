@@ -5,3 +5,5 @@ dist
 dist-artifact
 dist-lab
 dist-lab-artifact
+native/target
+android/app/src/main/jniLibs

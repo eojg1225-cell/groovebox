@@ -1,0 +1,19 @@
+[package]
+name = "groovebox-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "GrooveAccess native audio (step 1 of the native engine: the audio path and a test blip)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk = { version = "0.9", default-features = false, features = ["audio", "api-level-26"] }
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
