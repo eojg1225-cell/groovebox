@@ -25,10 +25,9 @@ jobs:
       # Fetches (with retries) and caches the Gradle the wrapper names.
       - uses: gradle/actions/setup-gradle@v4
       # The native audio library (native/, Rust) for 64- and 32-bit ARM phones / Fire tablets
-      # and x86_64 emulators, into the app's jniLibs.
+      # and x86_64 emulators, into the app's jniLibs (cargo-ndk finds the runner's NDK by
+      # ANDROID_NDK_ROOT).
       - name: Native library
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
           cargo install cargo-ndk --locked
