@@ -144,7 +144,7 @@ Run `npm run build:artifact` and republish `dist-artifact/groovebox.html` (with 
 
 ## Build / deploy
 - `npm install` then `npm run dev` (dev server), `npm test` (Vitest, engine offline in Node), `npm run build` (typecheck incl. DOM-free engine check via `tsconfig.engine.json` and the sound lab, then static build to `dist/`), `npm run unused` (knip: no unused files / exports; keep it clean, export only what another file imports).
-- Native library: `cd native && cargo test` (host: the blip and the null tests) and `cargo clippy --all-targets -- -D warnings` (CI runs both); `cargo check --target aarch64-linux-android` type-checks the Android side here (rust-std installed, no NDK, so no link); CI links it.
+- Native library: `cd native && cargo test` (host: the blip and the null tests) and `cargo clippy --all-targets -- -D warnings` (CI runs both; `native/rust-toolchain.toml` pins Rust 1.97 with clippy and the Android targets, so this container and CI lint alike); `cargo check --target aarch64-linux-android` type-checks the Android side here (rust-std installed, no NDK, so no link); CI links it.
 - Android app: `npm run build:android` (build + `cap sync android`: copies `dist/` into `android/app/src/main/assets/public`, not committed), then `cd android && ./gradlew assembleDebug` (needs the Android SDK; this cloud container has none, so CI builds it). Native code: `android/app/src/main/java/com/garibaldi/grooveaccess/`.
 - The app is the claude.ai Artifact (above). CI: every push to `main` runs the workflow (tests, `npm run unused`, build) and publishes `dist/` to the `gh-pages` branch, but GitHub Pages is not switched on for the repo, so https://eojg1225-cell.github.io/groovebox/ is not live.
 - Architecture and message protocol: `ARCHITECTURE.md`.

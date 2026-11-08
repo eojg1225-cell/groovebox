@@ -1,0 +1,5 @@
+# One Rust for this container and CI (a newer clippy brings new lints that fail -D warnings).
+[toolchain]
+channel = "1.97.0"
+components = ["clippy"]
+targets = ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"]

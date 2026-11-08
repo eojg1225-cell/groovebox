@@ -26,10 +26,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       # The native audio library (native/, Rust) for 64- and 32-bit ARM phones / Fire tablets
       # and x86_64 emulators, into the app's jniLibs (cargo-ndk finds the runner's NDK by
-      # ANDROID_NDK_ROOT).
+      # ANDROID_NDK_ROOT; native/rust-toolchain.toml pins Rust and its Android targets).
       - name: Native library
         run: |
-          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
           cargo install cargo-ndk --locked
           cd native
           cargo test
