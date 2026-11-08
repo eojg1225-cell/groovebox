@@ -70,6 +70,9 @@ const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 
  * 3 s (arrival time less the engine's own time of the report): the spread is the delivery's jitter.
  */
 let lateMin = Infinity;
+/** The engine clock's offset from the page's (ms) and how fast it may creep up per report (follows drift). */
+let clockOffset = NaN;
+const CLOCK_CREEP_MS = 0.05;
 let lateMax = -Infinity;
 let lateSince = 0;
 const app = new App(project, panel, (msg) => host?.send(msg));
@@ -121,8 +124,14 @@ function unlockAudio(): void {
       const t = performance.now();
       if (engineReadyAt < 0) engineReadyAt = t;
       const sr = host?.latency().sampleRate ?? NaN;
+      // When the report was made, on the page's clock: the engine's own (even) sample clock
+      // plus its offset from the page's, taken from the most punctual reports (so a late one
+      // moves nothing), creeping up slowly to follow clock drift; a jump (a fresh engine) resets it.
+      let at = t;
       if (Number.isFinite(sr)) {
         const late = t - (s.frame / sr) * 1000;
+        clockOffset = !Number.isFinite(clockOffset) || late - clockOffset > 200 ? late : Math.min(clockOffset + CLOCK_CREEP_MS, late);
+        at = (s.frame / sr) * 1000 + clockOffset;
         lateMin = Math.min(lateMin, late);
         lateMax = Math.max(lateMax, late);
         if (t - lateSince >= 3000) {
@@ -132,7 +141,7 @@ function unlockAudio(): void {
           lateSince = t;
         }
       }
-      app.setStatus(s);
+      app.setStatus(s, at);
       audio.peak = Math.max(Math.max(s.peakL, s.peakR), audio.peak * 0.85);
       // Smoothed over ~1 s (30 reports a second): the per-report figure is coarse (whole ms).
       audio.dspLoad += (s.load - audio.dspLoad) * 0.1;

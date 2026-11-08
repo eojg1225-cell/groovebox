@@ -588,9 +588,10 @@ export class App {
     return due;
   }
 
-  setStatus(s: Status): void {
+  /** A status report; `at` = when the engine made it, on performance.now's clock (main.ts maps the engine's sample clock), else on arrival. */
+  setStatus(s: Status, at = performance.now()): void {
     this.status = s;
-    this.statusAt = performance.now();
+    this.statusAt = at;
     if (s.countIn > 0) {
       this.message = `COUNT-IN ${s.countIn}`;
       this.messageUntil = this.statusAt + 200;
