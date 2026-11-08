@@ -17,6 +17,11 @@ import {
 } from '../../src/instruments/Drum';
 import { MACROS, anchorPosition, macroSound } from '../../src/instruments/macros';
 import { DRIVE_RISE } from '../../src/instruments/driveComp';
+import { Noise } from '../../src/instruments/dsp';
+import { sinTurn } from '../../src/instruments/math';
+import { FxBus } from '../../src/fx/FxBus';
+import { Limiter } from '../../src/fx/Limiter';
+import { TrackCut } from '../../src/fx/TrackCut';
 import {
   BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS, PAD_FIXED, PAD_PARAMS, PLUCK_FIXED, PLUCK_PARAMS, Synth,
 } from '../../src/instruments/Synth';
@@ -28,7 +33,8 @@ const SYNTH_BLOCK = 64;
 const LIMIT_DB = -100;
 
 type Event = [number, string, ...(string | number | boolean)[]];
-interface Scenario { name: string; kind: SoundKind | 'click'; sampleRate: number; frames: number; block: number; events: Event[] }
+type FxKind = 'fx1' | 'fx2' | 'limiter' | 'trackcut';
+interface Scenario { name: string; kind: SoundKind | 'click' | FxKind; sampleRate: number; frames: number; block: number; events: Event[]; input?: string; signal?: Float32Array }
 
 const DRUMS = {
   kick: [KICK_PARAMS, KICK_VOICE],
@@ -145,7 +151,62 @@ function scenarios(): Scenario[] {
     variant('ROLL', [[0, 'param', 'drive', 3]], hits(0.03, 20), 1);
   }
   out.push({ name: 'click', kind: 'click', sampleRate: SR, frames: frames(1), block: DRUM_BLOCK, events: [[0, 'tick', true], [at(0.25), 'tick', false], [at(0.26), 'tick', false]] });
-  return [...out, ...synthScenarios()];
+  return [...out, ...synthScenarios(), ...fxScenarios()];
+}
+
+/**
+ * An effect's input: drum-like bursts (noise and a falling tone, every `gap` s), level
+ * `level`, then silence from `quietFrom` s (the buses' idle path). L and R differ.
+ */
+function signal(secs: number, gap = 0.25, level = 0.6, quietFrom = Infinity): Float32Array {
+  const n = frames(secs);
+  const out = new Float32Array(n * 2);
+  const noise = new Noise(4242);
+  const every = Math.round(gap * SR);
+  let env = 0, ph = 0, inc = 0;
+  for (let i = 0; i < n; i++) {
+    if (i % every === 0) { env = level; ph = 0; inc = (60 + ((i / every) % 5) * 40) / SR; }
+    env *= 0.9997;
+    inc *= 0.99995;
+    ph += inc; if (ph >= 1) ph -= 1;
+    const q = i >= quietFrom * SR ? 0 : env;
+    const nz = noise.next();
+    out[i * 2] = (sinTurn(ph) * 0.7 + nz * 0.4) * q;
+    out[i * 2 + 1] = (sinTurn(ph + 0.1) * 0.6 + nz * 0.5) * q;
+  }
+  return out;
+}
+
+function fxScenarios(): Scenario[] {
+  const out: Scenario[] = [];
+  const push = (kind: FxKind, name: string, events: Event[], secs = 2, sig = signal(secs)) =>
+    out.push({ name: `${kind} ${name}`, kind, sampleRate: SR, frames: sig.length / 2, block: SYNTH_BLOCK, events: events.sort((x, y) => x[0] - y[0]), signal: sig });
+  const p = (t: number, id: string, v: number): Event => [at(t), 'param', id, v];
+  const settle = (t = 0): Event => [at(t), 'settle'];
+  const tempo: Event = [0, 'tempo', 132];
+  // FX 1: transparent by default, then each unit and the FILTER.
+  push('fx1', 'defaults', []);
+  push('fx1', 'COMP', [p(0, 'cmp_ratio', 4), p(0, 'cmp_thresh', -24), p(0, 'cmp_attack', 0.001), p(0, 'cmp_release', 0.1), p(1, 'cmp_ratio', 1)]);
+  for (const [t, name] of [[0, 'FLANGER'], [1, 'PHASER']] as const) push('fx1', `MOD ${name}`, [p(0, 'mod_type', t), settle(), p(0, 'mod_vol', 0.7), p(0, 'mod_depth', 0.8), p(0, 'mod_rate', 1.3), p(1.2, 'mod_type', 1 - t)]);
+  for (const [t, name] of [[0, 'TAPE'], [1, 'SWEEP'], [2, 'REVERSE']] as const) push('fx1', `DELAY ${name}`, [tempo, p(0, 'dly_type', t), settle(), p(0, 'dly_vol', 0.6), p(0, 'dly_fdbk', 0.7), p(0.9, 'dly_rate', 2), p(1.6, 'dly_vol', 0)], 3);
+  push('fx1', 'FILTER low-pass ENV', [p(0, 'flt', 0.2), p(0, 'flt_reso', 0.6), p(0, 'flt_env', 0.5), p(0, 'flt_rel', 0.1), settle(), p(1.2, 'flt', 0.5)]);
+  push('fx1', 'FILTER high-pass ENV-', [p(0, 'flt', 0.85), p(0, 'flt_env', -0.6), settle(), p(0.6, 'mod_vol', 0.5), p(1, 'flt', 0.95)]);
+  // FX 2: its defaults (DELAY + VERB + DUCK), each DIST, DELAY and VERB type, TONE, and going quiet.
+  push('fx2', 'defaults', [tempo]);
+  for (const [t, name] of [[0, 'TUBE'], [1, 'FUZZ'], [2, 'BIT']] as const) push('fx2', `DIST ${name}`, [p(0, 'drv_type', t), settle(), p(0, 'drv_vol', 0.7), p(0, 'drv_drive', 0.8), p(0, 'drv_tone', 3000), p(1, 'drv_drive', 0.2)]);
+  for (const [t, name] of [[0, 'PING-PONG'], [1, 'DUB TAPE'], [2, 'SLAPBACK']] as const) push('fx2', `DELAY ${name}`, [tempo, p(0, 'dly_type', t), settle(), p(0, 'dly_fdbk', 0.9), p(1, 'dly_type', (t + 1) % 3)], 3);
+  for (const [t, name] of [[0, 'ROOM'], [1, 'PLATE'], [2, 'SPRING']] as const) push('fx2', `VERB ${name}`, [p(0, 'vrb_type', t), settle(), p(0, 'vrb_vol', 0.6), p(0, 'vrb_size', 0.8), p(0, 'vrb_len', 0.9), p(0.8, 'vrb_size', 0.2)], 3);
+  push('fx2', 'TONE DUCK', [p(0, 'tone_low', 500), p(0, 'tone_high', 3000), p(0, 'tone_duck', 0.9), p(0, 'tone_rel', 0.1), p(1, 'tone_low', 20), p(1, 'tone_high', 20000)]);
+  push('fx2', 'quiet and back', [tempo, p(0, 'vrb_vol', 0.5)], 8.5, (() => {
+    // Sound, then 6 s of silence (the bus goes idle), then sound again.
+    const a = signal(8.5, 0.25, 0.6, 1.5);
+    const b = signal(8.5);
+    for (let i = at(7.5) * 2; i < a.length; i++) a[i] = b[i];
+    return a;
+  })());
+  push('limiter', 'over the ceiling', [], 2, signal(2, 0.25, 1.8));
+  push('trackcut', 'MID CUT', [[0, 'freq', 800], [0, 'amount', 0.8], settle(), [at(0.7), 'freq', 2500], [at(1.4), 'amount', 0]]);
+  return out;
 }
 
 /** The TypeScript engine's render, block by block as the Rust renderer does it. */
@@ -156,11 +217,29 @@ function renderTs(sc: Scenario): Float32Array {
   const click = sc.kind === 'click' ? new Click(sc.sampleRate) : null;
   const synthKind = sc.kind in SYNTHS ? (sc.kind as SynthKind) : null;
   const synth = synthKind ? new Synth(sc.sampleRate, SYNTHS[synthKind][0], SYNTHS[synthKind][1], DRIVE_RISE[synthKind]) : null;
-  const drum = click || synth ? null : new Drum(sc.sampleRate, ...(DRUMS[sc.kind as DrumKind] as unknown as [readonly ParamSpec[], typeof KICK_VOICE]));
+  const drum = !(sc.kind in DRUMS) ? null : new Drum(sc.sampleRate, ...(DRUMS[sc.kind as DrumKind] as unknown as [readonly ParamSpec[], typeof KICK_VOICE]));
   const inst = drum ?? synth;
+  const fx = sc.kind === 'fx1' || sc.kind === 'fx2' ? new FxBus(sc.sampleRate, sc.kind === 'fx1' ? 0 : 1) : null;
+  const lim = sc.kind === 'limiter' ? new Limiter(sc.sampleRate) : null;
+  const cutter = sc.kind === 'trackcut' ? new TrackCut(sc.sampleRate) : null;
+  const sig = sc.signal;
+  const il = new Float32Array(BLOCK), ir = new Float32Array(BLOCK);
   const apply = (e: Event) => {
     const [, op, a, b, c, d5, e6, f7] = e;
     if (click) { click.trigger(a as boolean); return; }
+    if (fx) {
+      if (op === 'param') fx.setParam(a as string, b as number);
+      else if (op === 'tempo') fx.setTempo(a as number);
+      else if (op === 'settle') fx.settle();
+      else if (op === 'kick') fx.kick();
+      return;
+    }
+    if (cutter) {
+      if (op === 'freq') cutter.setFreq(a as number);
+      else if (op === 'amount') cutter.setAmount(a as number);
+      else if (op === 'settle') cutter.settle();
+      return;
+    }
     if (synth) {
       switch (op) {
         case 'param': synth.setParam(a as string, b as number); break;
@@ -198,7 +277,14 @@ function renderTs(sc: Scenario): Float32Array {
       const until = due ? due[0] - block : n;
       if (until > pos) {
         if (inst) inst.render(l, r, pos, until);
-        else click!.render(l, pos, until - pos);
+        else if (click) click.render(l, pos, until - pos);
+        else {
+          const dl = fx ? il : l, dr = fx ? ir : r;
+          for (let i = pos; i < until; i++) { dl[i] = sig![(block + i) * 2]; dr[i] = sig![(block + i) * 2 + 1]; }
+          if (fx) fx.process(il.subarray(pos, until), ir.subarray(pos, until), l, r, pos, until - pos);
+          else if (lim) lim.process(l.subarray(pos, until), r.subarray(pos, until), until - pos);
+          else cutter!.process(l.subarray(pos, until), r.subarray(pos, until), until - pos);
+        }
         pos = until;
       }
       if (!due) break;
@@ -206,17 +292,22 @@ function renderTs(sc: Scenario): Float32Array {
       next++;
     }
     if (inst) inst.post?.(l, r, n);
-    else r.set(l);
+    else if (click) r.set(l);
     for (let i = 0; i < n; i++) { out[(block + i) * 2] = l[i]; out[(block + i) * 2 + 1] = r[i]; }
   }
   return out;
 }
 
 describe('native engine null tests', () => {
-  it('drums, synths and click: the Rust engine renders what the TypeScript engine renders', () => {
+  it('drums, synths, click and FX: the Rust engine renders what the TypeScript engine renders', () => {
     const list = scenarios();
     const dir = mkdtempSync(join(tmpdir(), 'native-null-'));
-    writeFileSync(join(dir, 'scenarios.json'), JSON.stringify(list));
+    list.forEach((sc, i) => {
+      if (!sc.signal) return;
+      sc.input = join(dir, `input${i}.f32`);
+      writeFileSync(sc.input, Buffer.from(sc.signal.buffer));
+    });
+    writeFileSync(join(dir, 'scenarios.json'), JSON.stringify(list, (k, v) => (k === 'signal' ? undefined : v)));
     execFileSync('cargo', ['run', '--quiet', '--release', '--manifest-path', 'native/Cargo.toml', '--example', 'render', '--', join(dir, 'scenarios.json'), join(dir, 'out.f32')], { stdio: 'inherit' });
     const buf = readFileSync(join(dir, 'out.f32'));
     const rust = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);

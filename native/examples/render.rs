@@ -4,6 +4,9 @@
 //! blocks of `block` frames (the engine's chunk: 64; the track buffer cleared, render between
 //! events, then post). Output: every scenario's frames, L R interleaved, little-endian f32, one after another.
 
+use groovebox_native::fx::bus::FxBus;
+use groovebox_native::fx::limiter::Limiter;
+use groovebox_native::fx::track_cut::TrackCut;
 use groovebox_native::instruments::click::Click;
 use groovebox_native::instruments::drum::Drum;
 use groovebox_native::instruments::synth::Synth;
@@ -16,6 +19,9 @@ enum Source {
     Drum(Box<Drum>),
     Synth(Box<Synth>),
     Click(Click),
+    Bus(Box<FxBus>),
+    Limiter(Box<Limiter>),
+    Cut(Box<TrackCut>),
 }
 
 fn kind_of(id: &str) -> SoundKind {
@@ -50,6 +56,20 @@ fn apply(src: &mut Source, ev: &[Value]) {
             "duck" => s.duck(),
             _ => panic!("op {op}"),
         },
+        Source::Bus(b) => match op {
+            "param" => b.set_param(ev[2].as_str().unwrap(), f(3)),
+            "tempo" => b.set_tempo(f(2)),
+            "settle" => b.settle(),
+            "kick" => b.kick(),
+            _ => panic!("op {op}"),
+        },
+        Source::Limiter(_) => panic!("op {op}"),
+        Source::Cut(c) => match op {
+            "freq" => c.set_freq(f(2)),
+            "amount" => c.set_amount(f(2)),
+            "settle" => c.settle(),
+            _ => panic!("op {op}"),
+        },
         Source::Click(c) => match op {
             "tick" => c.trigger(ev[2].as_bool().unwrap()),
             _ => panic!("op {op}"),
@@ -66,10 +86,19 @@ fn main() {
         let kind = sc["kind"].as_str().unwrap();
         let mut src = match kind {
             "click" => Source::Click(Click::new(sr)),
+            "fx1" => Source::Bus(Box::new(FxBus::new(sr, 0))),
+            "fx2" => Source::Bus(Box::new(FxBus::new(sr, 1))),
+            "limiter" => Source::Limiter(Box::new(Limiter::new(sr))),
+            "trackcut" => Source::Cut(Box::new(TrackCut::new(sr))),
             "bass" | "pad" | "lead" | "pluck" => Source::Synth(Box::new(Synth::new(sr, kind_of(kind)))),
             _ => Source::Drum(Box::new(Drum::new(sr, kind_of(kind)))),
         };
         let block_len = sc["block"].as_u64().unwrap() as usize;
+        // Effects: their input (L R interleaved f32), written by the test.
+        let input: Vec<f32> = sc["input"].as_str().map_or(vec![], |path| {
+            std::fs::read(path).unwrap().chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect()
+        });
+        let (mut il, mut ir) = (vec![0f32; block_len], vec![0f32; block_len]);
         let frames = sc["frames"].as_u64().unwrap() as usize;
         let events = sc["events"].as_array().unwrap();
         let mut next = 0;
@@ -91,6 +120,27 @@ fn main() {
                         Source::Click(c) => {
                             c.render(&mut l[..n], at, until - at);
                         }
+                        Source::Bus(b) => {
+                            for i in at..until {
+                                il[i] = input[(block + i) * 2];
+                                ir[i] = input[(block + i) * 2 + 1];
+                            }
+                            b.process(&mut il[at..until], &mut ir[at..until], &mut l[at..until], &mut r[at..until]);
+                        }
+                        Source::Limiter(lim) => {
+                            for i in at..until {
+                                l[i] = input[(block + i) * 2];
+                                r[i] = input[(block + i) * 2 + 1];
+                            }
+                            lim.process(&mut l[at..until], &mut r[at..until]);
+                        }
+                        Source::Cut(c) => {
+                            for i in at..until {
+                                l[i] = input[(block + i) * 2];
+                                r[i] = input[(block + i) * 2 + 1];
+                            }
+                            c.process(&mut l[at..until], &mut r[at..until]);
+                        }
                     }
                     at = until;
                 }
@@ -106,6 +156,7 @@ fn main() {
                 Source::Drum(d) => d.post(&mut l[..n], &mut r[..n]),
                 Source::Synth(s) => s.post(&mut l[..n], &mut r[..n]),
                 Source::Click(_) => r[..n].copy_from_slice(&l[..n]),
+                _ => {}
             }
             for i in 0..n {
                 out.write_all(&l[i].to_le_bytes()).unwrap();

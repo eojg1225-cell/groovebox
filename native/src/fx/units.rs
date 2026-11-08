@@ -1,10 +1,11 @@
 //! The FX buses' effect units, as src/fx/units.ts: each writes its wet signal for a block
-//! into the given buffers. MOD (CHORUS / ENSEMBLE / FLANGER / PHASER) and VERB (ROOM / HALL /
-//! PLATE / EARLY / SHIMMER / SPRING) so far (the PAD's own MOD / VERB use them); DELAY and DIST
-//! come with the FX buses.
+//! into the given buffers. MOD (CHORUS / ENSEMBLE / FLANGER / PHASER), DELAY (STEREO /
+//! PING-PONG / TAPE / DUB TAPE / SWEEP / REVERSE / SLAPBACK), VERB (ROOM / HALL / PLATE /
+//! EARLY / SHIMMER / SPRING), DIST (TUBE / FUZZ / BIT).
 
 use crate::js;
 use crate::math::{exp2, sin_rad, sin_turn, tanh};
+use crate::dsp::Svf;
 use crate::smoother::Smoother;
 
 const TAU: f64 = 2.0 * std::f64::consts::PI;
@@ -41,6 +42,10 @@ fn one_pole(hz: f64, sr: f64) -> f64 {
 
 pub const MOD_MODES: [&str; 4] = ["CHORUS", "ENSEMBLE", "FLANGER", "PHASER"];
 pub const VERB_MODES: [&str; 6] = ["ROOM", "HALL", "PLATE", "EARLY", "SHIMMER", "SPRING"];
+pub const DELAY_MODES: [&str; 7] = ["STEREO", "PING-PONG", "TAPE", "DUB TAPE", "SWEEP", "REVERSE", "SLAPBACK"];
+pub const DRIVE_MODES: [&str; 3] = ["TUBE", "FUZZ", "BIT"];
+/// Tempo-synced delay times, in 16th steps (buses.ts FX_DELAY_TIMES).
+pub const FX_DELAY_STEPS: [f64; 12] = [0.5, 2.0 / 3.0, 1.0, 4.0 / 3.0, 2.0, 3.0, 8.0 / 3.0, 4.0, 6.0, 8.0, 12.0, 16.0];
 const PHASER_STAGES: usize = 6;
 const MOD_UPDATE: i32 = 16;
 
@@ -577,5 +582,360 @@ impl VerbFx {
             wet_l[i] = self.spring_lp_l as f32;
             wet_r[i] = self.spring_lp_r as f32;
         }
+    }
+}
+
+/// One unit of a bus, by kind.
+pub enum Unit {
+    Mod(Box<ModFx>),
+    Delay(Box<DelayFx>),
+    Verb(Box<VerbFx>),
+    Drive(DriveFx),
+}
+
+impl Unit {
+    pub fn set_mode(&mut self, name: &str) {
+        match self {
+            Unit::Mod(u) => u.set_mode(name),
+            Unit::Delay(u) => u.set_mode(name),
+            Unit::Verb(u) => u.set_mode(name),
+            Unit::Drive(u) => u.set_mode(name),
+        }
+    }
+    pub fn set(&mut self, id: &str, v: f64) {
+        match self {
+            Unit::Mod(u) => u.set(id, v),
+            Unit::Delay(u) => u.set(id, v),
+            Unit::Verb(u) => u.set(id, v),
+            Unit::Drive(u) => u.set(id, v),
+        }
+    }
+    pub fn set_tempo(&mut self, bpm: f64) {
+        if let Unit::Delay(u) = self {
+            u.set_tempo(bpm);
+        }
+    }
+    pub fn reset(&mut self) {
+        match self {
+            Unit::Mod(u) => u.reset(),
+            Unit::Delay(u) => u.reset(),
+            Unit::Verb(u) => u.reset(),
+            Unit::Drive(u) => u.reset(),
+        }
+    }
+    pub fn render(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
+        match self {
+            Unit::Mod(u) => u.render(in_l, in_r, wet_l, wet_r, n),
+            Unit::Delay(u) => u.render(in_l, in_r, wet_l, wet_r, n),
+            Unit::Verb(u) => u.render(in_l, in_r, wet_l, wet_r, n),
+            Unit::Drive(u) => u.render(in_l, in_r, wet_l, wet_r, n),
+        }
+    }
+}
+
+const SMEAR: [f64; 6] = [225.0, 341.0, 441.0, 556.0, 1100.0, 1700.0];
+
+pub struct DelayFx {
+    sr: f64,
+    buf_l: Vec<f32>,
+    buf_r: Vec<f32>,
+    write: usize,
+    mode: usize,
+    bpm: f64,
+    steps: f64,
+    fdbk: f64,
+    time: Smoother,
+    lp_l: f64, lp_r: f64, hp_l: f64, hp_r: f64,
+    lfo: f64,
+    bp_l: Svf,
+    bp_r: Svf,
+    counter: i32,
+    cycle: usize,
+    wet_l: f64, wet_r: f64,
+    sm_l: Vec<Allpass>,
+    sm_r: Vec<Allpass>,
+}
+
+impl DelayFx {
+    /// reverse: this unit may be asked for REVERSE (a longer buffer).
+    pub fn new(sample_rate: f64, reverse: bool) -> Self {
+        let seconds = if reverse { 8.5 } else { 6.2 };
+        let len = (seconds * sample_rate).ceil() as usize;
+        let scale = sample_rate / 48000.0;
+        let mut d = DelayFx {
+            sr: sample_rate,
+            buf_l: vec![0.0; len],
+            buf_r: vec![0.0; len],
+            write: 0,
+            mode: 0,
+            bpm: 120.0,
+            steps: 2.0,
+            fdbk: 0.4,
+            time: Smoother::new(0.0, 0.12, sample_rate),
+            lp_l: 0.0, lp_r: 0.0, hp_l: 0.0, hp_r: 0.0,
+            lfo: 0.0,
+            bp_l: Svf::default(),
+            bp_r: Svf::default(),
+            counter: 0,
+            cycle: 0,
+            wet_l: 0.0, wet_r: 0.0,
+            sm_l: if reverse { SMEAR.iter().map(|d| Allpass::new(js::round(d * scale) as usize)).collect() } else { vec![] },
+            sm_r: if reverse { SMEAR.iter().map(|d| Allpass::new(js::round(d * scale * 1.07) as usize)).collect() } else { vec![] },
+        };
+        d.time = Smoother::new(d.target(), 0.12, sample_rate);
+        d
+    }
+
+    pub fn set_mode(&mut self, name: &str) {
+        self.mode = mode_index(&DELAY_MODES, name);
+    }
+
+    pub fn set(&mut self, id: &str, v: f64) {
+        match id {
+            "dly_rate" => {
+                let i = js::round(v);
+                self.steps = if i < 0.0 { 2.0 } else { FX_DELAY_STEPS.get(i as usize).copied().unwrap_or(2.0) };
+                self.time.set_target(self.target());
+            }
+            "dly_fdbk" => self.fdbk = v,
+            _ => {}
+        }
+    }
+
+    pub fn set_tempo(&mut self, bpm: f64) {
+        self.bpm = bpm;
+        self.time.set_target(self.target());
+    }
+
+    pub fn settle(&mut self) {
+        self.time.set_immediate(self.target());
+    }
+
+    pub fn reset(&mut self) {
+        self.buf_l.fill(0.0);
+        self.buf_r.fill(0.0);
+        self.lp_l = 0.0;
+        self.lp_r = 0.0;
+        self.hp_l = 0.0;
+        self.hp_r = 0.0;
+        self.bp_l.reset();
+        self.bp_r.reset();
+        self.wet_l = 0.0;
+        self.wet_r = 0.0;
+        self.sm_l.iter_mut().chain(&mut self.sm_r).for_each(Allpass::reset);
+    }
+
+    fn target(&self) -> f64 {
+        self.steps * 60.0 * self.sr / (self.bpm * 4.0)
+    }
+
+    pub fn render(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
+        if self.mode == 5 {
+            self.render_reverse(in_l, in_r, wet_l, wet_r, n);
+            return;
+        }
+        let sr = self.sr;
+        let len = self.buf_l.len();
+        let m = self.mode;
+        let lp_hz = match m { 2 => 3500.0, 3 => 1800.0, 6 => 7000.0, _ => 6000.0 };
+        let hp_hz = match m { 2 => 100.0, 3 => 300.0, _ => 40.0 };
+        let lp = one_pole(lp_hz, sr);
+        let hp = one_pole(hp_hz, sr);
+        let sat = match m { 3 => 2.0, 2 => 1.3, _ => 1.0 };
+        let wow = match m { 3 => 0.004, 2 => 0.0025, _ => 0.0 };
+        let fb = if m == 6 { self.fdbk * 0.3 } else { self.fdbk };
+        let lfo_inc = (self.bpm / 60.0 / 8.0) / sr;
+        for i in 0..n {
+            self.lfo += if m == 4 { lfo_inc } else if m == 2 || m == 3 { 0.6 / sr } else { 0.0 };
+            if self.lfo >= 1.0 {
+                self.lfo -= 1.0;
+            }
+            let mut d = self.time.next();
+            if wow > 0.0 {
+                d *= 1.0 + wow * sin_turn(self.lfo) + wow * 0.2 * sin_rad(TAU * self.lfo * 11.7);
+            }
+            d = d.max(2.0).min(len as f64 - 2.0);
+            let mut yl = tap(&self.buf_l, self.write, d);
+            let mut yr = tap(&self.buf_r, self.write, d);
+            self.lp_l += (yl - self.lp_l) * lp;
+            self.lp_r += (yr - self.lp_r) * lp;
+            self.hp_l += (self.lp_l - self.hp_l) * hp;
+            self.hp_r += (self.lp_r - self.hp_r) * hp;
+            let mut fl = self.lp_l - self.hp_l;
+            let mut fr = self.lp_r - self.hp_r;
+            if m == 4 {
+                let due = self.counter <= 0;
+                self.counter -= 1;
+                if due {
+                    self.counter = 16;
+                    let hz = 400.0 * exp2(3.3 * (0.5 + 0.5 * sin_turn(self.lfo)));
+                    self.bp_l.setup(hz, 0.75, sr);
+                    self.bp_r.setup(hz * 1.12, 0.75, sr);
+                }
+                self.bp_l.process(fl);
+                self.bp_r.process(fr);
+                fl = self.bp_l.band * 1.6;
+                fr = self.bp_r.band * 1.6;
+                yl = fl;
+                yr = fr;
+            }
+            if sat > 1.0 {
+                fl = tanh(fl * sat) / sat;
+                fr = tanh(fr * sat) / sat;
+            }
+            let sl = flush(tanh(fl * fb));
+            let srr = flush(tanh(fr * fb));
+            let (il, ir) = (in_l[i] as f64, in_r[i] as f64);
+            if m == 1 {
+                self.buf_l[self.write] = ((il + ir) * 0.5 + srr) as f32;
+                self.buf_r[self.write] = sl as f32;
+            } else if m == 6 {
+                let mono = (il + ir) * 0.5;
+                self.buf_l[self.write] = (mono + sl) as f32;
+                self.buf_r[self.write] = (mono + srr) as f32;
+            } else {
+                self.buf_l[self.write] = (il + sl) as f32;
+                self.buf_r[self.write] = (ir + srr) as f32;
+            }
+            self.write += 1;
+            if self.write == len {
+                self.write = 0;
+            }
+            if m == 2 || m == 3 {
+                yl = self.lp_l - self.hp_l;
+                yr = self.lp_r - self.hp_r;
+            }
+            wet_l[i] = yl as f32;
+            wet_r[i] = yr as f32;
+        }
+        self.lp_l = flush(self.lp_l);
+        self.lp_r = flush(self.lp_r);
+        self.hp_l = flush(self.hp_l);
+        self.hp_r = flush(self.hp_r);
+    }
+
+    fn render_reverse(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
+        let size = self.buf_l.len();
+        let len = (js::round(self.time.value()).min((size / 2) as f64 - 2.0)).max(256.0) as usize;
+        let g = 0.57;
+        for i in 0..n {
+            self.time.next();
+            let fb = self.fdbk;
+            self.buf_l[self.write] = (in_l[i] as f64 + if fb > 0.0 { tanh(self.wet_l * fb) } else { 0.0 }) as f32;
+            self.buf_r[self.write] = (in_r[i] as f64 + if fb > 0.0 { tanh(self.wet_r * fb) } else { 0.0 }) as f32;
+            if self.cycle >= len {
+                self.cycle -= len;
+            }
+            let (mut yl, mut yr) = (0.0, 0.0);
+            for k in 0..2 {
+                let mut ph = self.cycle as f64 / len as f64 + k as f64 * 0.5;
+                if ph >= 1.0 {
+                    ph -= 1.0;
+                }
+                let w = sin_rad(std::f64::consts::PI * ph);
+                let win = w * w;
+                let d = 2.0 * len as f64 * ph + 1.0;
+                yl += tap(&self.buf_l, self.write, d) * win;
+                yr += tap(&self.buf_r, self.write, d) * win;
+            }
+            let (mut dl, mut dr) = (yl, yr);
+            for a in 0..self.sm_l.len() {
+                dl = self.sm_l[a].process(dl, g);
+                dr = self.sm_r[a].process(dr, g);
+            }
+            yl += (dl - yl) * 0.4;
+            yr += (dr - yr) * 0.4;
+            self.wet_l = flush(yl);
+            self.wet_r = flush(yr);
+            self.write += 1;
+            if self.write >= size {
+                self.write = 0;
+            }
+            self.cycle += 1;
+            wet_l[i] = yl as f32;
+            wet_r[i] = yr as f32;
+        }
+    }
+}
+
+pub struct DriveFx {
+    sr: f64,
+    mode: usize,
+    drive: f64,
+    lp: f64,
+    lp_l: f64, lp_r: f64,
+    dc_xl: f64, dc_yl: f64, dc_xr: f64, dc_yr: f64,
+    hold: i32, held_l: f64, held_r: f64,
+}
+
+impl DriveFx {
+    pub fn new(sample_rate: f64) -> Self {
+        DriveFx { sr: sample_rate, mode: 0, drive: 0.4, lp: 0.5, lp_l: 0.0, lp_r: 0.0, dc_xl: 0.0, dc_yl: 0.0, dc_xr: 0.0, dc_yr: 0.0, hold: 0, held_l: 0.0, held_r: 0.0 }
+    }
+
+    pub fn set_mode(&mut self, name: &str) {
+        self.mode = mode_index(&DRIVE_MODES, name);
+    }
+
+    pub fn set(&mut self, id: &str, v: f64) {
+        match id {
+            "drv_drive" => self.drive = v,
+            "drv_tone" => self.lp = one_pole(v, self.sr),
+            _ => {}
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.lp_l = 0.0;
+        self.lp_r = 0.0;
+        self.dc_xl = 0.0;
+        self.dc_yl = 0.0;
+        self.dc_xr = 0.0;
+        self.dc_yr = 0.0;
+        self.hold = 0;
+    }
+
+    pub fn render(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
+        let d = self.drive;
+        let dc = 1.0 - TAU * 10.0 / self.sr;
+        let g = if self.mode == 1 { 1.0 + 200.0 * d * d } else { 1.0 + 30.0 * d * d };
+        let bias = 0.2;
+        let tb = tanh(bias);
+        let levels = 2f64.powf(16.0 - 13.0 * d);
+        let hold_n = 1 + (d * d * 30.0).floor() as i32;
+        for i in 0..n {
+            let mut l = in_l[i] as f64;
+            let mut r = in_r[i] as f64;
+            if self.mode == 0 {
+                l = (tanh(l * g + bias) - tb) * 0.8;
+                r = (tanh(r * g + bias) - tb) * 0.8;
+                let yl = l - self.dc_xl + dc * self.dc_yl;
+                self.dc_xl = l;
+                self.dc_yl = flush(yl);
+                l = yl;
+                let yr = r - self.dc_xr + dc * self.dc_yr;
+                self.dc_xr = r;
+                self.dc_yr = flush(yr);
+                r = yr;
+            } else if self.mode == 1 {
+                l = (tanh(l * g) * 1.5).clamp(-1.0, 1.0) * 0.6;
+                r = (tanh(r * g) * 1.5).clamp(-1.0, 1.0) * 0.6;
+            } else {
+                if self.hold <= 0 {
+                    self.held_l = js::round(l * levels) / levels;
+                    self.held_r = js::round(r * levels) / levels;
+                    self.hold = hold_n;
+                }
+                self.hold -= 1;
+                l = self.held_l;
+                r = self.held_r;
+            }
+            self.lp_l += (l - self.lp_l) * self.lp;
+            self.lp_r += (r - self.lp_r) * self.lp;
+            wet_l[i] = self.lp_l as f32;
+            wet_r[i] = self.lp_r as f32;
+        }
+        self.lp_l = flush(self.lp_l);
+        self.lp_r = flush(self.lp_r);
     }
 }
