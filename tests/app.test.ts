@@ -312,10 +312,11 @@ describe('RECORD strip: the same as PLAY', () => {
     const { app, tap } = makeApp();
     tap('play');
     const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
-    app.setStatus({ ...status([3, 0, 0, 0, 0, 0, 0, 0]), next: [4, 1, 1, 1, 1, 1, 1, 1], nextMs: [10, 0, 0, 0, 0, 0, 0, 0] });
+    app.setStatus({ ...status([3, 0, 0, 0, 0, 0, 0, 0]), next: [4, -1, -1, -1, -1, -1, -1, -1], nextMs: [10, 0, 0, 0, 0, 0, 0, 0] });
     app.heardDelayMs = 20;
     now.mockReturnValue(1025);
     expect(app.headStep(0)).toBe(3); // 25 ms on, but heard 20 ms late: still step 3
+    expect(app.stepDueAt()).toBe(1030); // the frame loop draws then
     now.mockReturnValue(1031);
     expect(app.headStep(0)).toBe(4);
     now.mockRestore();

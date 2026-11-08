@@ -576,6 +576,18 @@ export class App {
     return t >= (s.nextMs?.[ch] ?? Infinity) ? next : head;
   }
 
+  /** When the next step light is due to move (performance.now ms; Infinity = none known): the frame loop draws then. */
+  stepDueAt(): number {
+    const s = this.status;
+    if (!s?.playing || !s.next || !s.nextMs) return Infinity;
+    let due = Infinity;
+    for (let ch = 0; ch < s.next.length; ch++) {
+      if (s.next[ch] < 0 || (s.steps[ch] ?? -1) < 0) continue;
+      due = Math.min(due, this.statusAt + s.nextMs[ch] + this.heardDelayMs);
+    }
+    return due;
+  }
+
   setStatus(s: Status): void {
     this.status = s;
     this.statusAt = performance.now();

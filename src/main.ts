@@ -218,8 +218,11 @@ const perf = { frameMs: 0, fps: 0, frames: 0, since: 0 };
 const frame = (now: number) => {
   requestAnimationFrame(frame);
   const interval = !titleDone || now - lastInput < ACTIVE_MS ? 0 : app.playing ? PLAYING_FRAME_MS : IDLE_FRAME_MS;
-  // A little slack, so a 60 Hz display lands on every 2nd / 4th refresh, not one later.
-  if (now - lastDraw < interval - 4) return;
+  // A little slack, so a 60 Hz display lands on every 2nd / 4th refresh, not one later; but
+  // a step light due to move since the last draw is drawn on this very refresh, so the
+  // steps move evenly (within a refresh) instead of on the 30 fps tick (0-33 ms late).
+  const due = app.stepDueAt();
+  if (now - lastDraw < interval - 4 && !(due <= now && due > lastDraw)) return;
   lastDraw = now;
   const t0 = performance.now();
   if (host) {
