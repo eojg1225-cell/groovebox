@@ -22,7 +22,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-          cache: gradle
+      # Fetches (with retries) and caches the Gradle the wrapper names.
+      - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
       - run: npm run build
       - run: npx cap sync android
