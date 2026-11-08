@@ -9,6 +9,7 @@
 
 pub mod blip;
 pub mod drive_comp;
+pub mod fx;
 pub mod dsp;
 pub mod instruments;
 pub mod js;

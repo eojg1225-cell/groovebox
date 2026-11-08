@@ -3,3 +3,4 @@
 pub mod air_room;
 pub mod click;
 pub mod drum;
+pub mod synth;

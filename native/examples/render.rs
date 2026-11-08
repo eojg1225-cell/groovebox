@@ -1,19 +1,20 @@
 //! Renders null-test scenarios with the native engine (tools/native/null.test.ts writes them
 //! and compares the output with the TypeScript engine's): `render <scenarios.json> <out.f32>`.
 //! Each scenario: { kind, sampleRate, frames, events: [[frame, op, ...args]] }, rendered in
-//! 128-frame blocks (as the engine: the track buffer cleared, render between events, then
-//! post). Output: every scenario's frames, L R interleaved, little-endian f32, one after another.
+//! blocks of `block` frames (the engine's chunk: 64; the track buffer cleared, render between
+//! events, then post). Output: every scenario's frames, L R interleaved, little-endian f32, one after another.
 
 use groovebox_native::instruments::click::Click;
 use groovebox_native::instruments::drum::Drum;
+use groovebox_native::instruments::synth::Synth;
 use groovebox_native::kind::SoundKind;
 use serde_json::Value;
 use std::io::Write;
 
-const BLOCK: usize = 128;
 
 enum Source {
     Drum(Box<Drum>),
+    Synth(Box<Synth>),
     Click(Click),
 }
 
@@ -36,6 +37,19 @@ fn apply(src: &mut Source, ev: &[Value]) {
             "chain" => d.set_chain(f(2)),
             _ => panic!("op {op}"),
         },
+        Source::Synth(s) => match op {
+            "param" => s.set_param(ev[2].as_str().unwrap(), f(3)),
+            "on" => s.note_on(f(2), f(3), f(4) as i32, ev[5].as_bool().unwrap(), f(6) as i32, ev[7].as_bool().unwrap()),
+            "off" => s.note_off(f(2) as i32),
+            "cut" => s.cut(),
+            "pitchMod" => s.set_pitch_mod(f(2)),
+            "filterMod" => s.set_filter_mod(f(2)),
+            "fmMod" => s.set_fm_mod(f(2)),
+            "chain" => s.set_chain(f(2)),
+            "tempo" => s.set_tempo(f(2)),
+            "duck" => s.duck(),
+            _ => panic!("op {op}"),
+        },
         Source::Click(c) => match op {
             "tick" => c.trigger(ev[2].as_bool().unwrap()),
             _ => panic!("op {op}"),
@@ -50,14 +64,19 @@ fn main() {
     for sc in &scenarios {
         let sr = sc["sampleRate"].as_f64().unwrap();
         let kind = sc["kind"].as_str().unwrap();
-        let mut src = if kind == "click" { Source::Click(Click::new(sr)) } else { Source::Drum(Box::new(Drum::new(sr, kind_of(kind)))) };
+        let mut src = match kind {
+            "click" => Source::Click(Click::new(sr)),
+            "bass" | "pad" | "lead" | "pluck" => Source::Synth(Box::new(Synth::new(sr, kind_of(kind)))),
+            _ => Source::Drum(Box::new(Drum::new(sr, kind_of(kind)))),
+        };
+        let block_len = sc["block"].as_u64().unwrap() as usize;
         let frames = sc["frames"].as_u64().unwrap() as usize;
         let events = sc["events"].as_array().unwrap();
         let mut next = 0;
-        let (mut l, mut r) = (vec![0f32; BLOCK], vec![0f32; BLOCK]);
+        let (mut l, mut r) = (vec![0f32; block_len], vec![0f32; block_len]);
         let mut block = 0;
         while block < frames {
-            let n = BLOCK.min(frames - block);
+            let n = block_len.min(frames - block);
             l[..n].fill(0.0);
             r[..n].fill(0.0);
             let mut at = 0;
@@ -68,6 +87,7 @@ fn main() {
                 if until > at {
                     match &mut src {
                         Source::Drum(d) => d.render(&mut l[..n], &mut r[..n], at, until),
+                        Source::Synth(s) => s.render(&mut l[..n], &mut r[..n], at, until),
                         Source::Click(c) => {
                             c.render(&mut l[..n], at, until - at);
                         }
@@ -84,6 +104,7 @@ fn main() {
             }
             match &mut src {
                 Source::Drum(d) => d.post(&mut l[..n], &mut r[..n]),
+                Source::Synth(s) => s.post(&mut l[..n], &mut r[..n]),
                 Source::Click(_) => r[..n].copy_from_slice(&l[..n]),
             }
             for i in 0..n {

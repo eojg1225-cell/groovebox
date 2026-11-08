@@ -193,3 +193,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Native audio path tried on the phone (2026-11-08): NATIVE OUT ~20 ms against the WebView's ~130 ms.
 - Native engine step 2 (2026-11-08): the building blocks in Rust (maths tables, noise, state-variable filter, idle gate, smoother, DRIVE compensation), null-tested against the TypeScript functions' output: bit-identical or within the last bit.
 - Native engine step 3 (2026-11-08): the drums, AIR room and click in Rust; `npm run native:null` renders 101 scenarios with both engines and subtracts them: 96 bit-identical, the rest under -150 dB.
+- Native engine step 4 (2026-11-08): the synths in Rust (all four types, every algorithm and FX ROUTING) with the delay, room, MOD and VERB units they use; the null test now runs 209 scenarios, 203 bit-identical, the rest under -150 dB.
