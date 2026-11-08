@@ -4,16 +4,17 @@
  * at start (`initProjectStorage`, before the app runs), kept in memory, every change
  * written through to its file.
  *
- * First start with files: whatever the WebView's localStorage held (an earlier APK kept its
- * projects there) is copied in; then, once, the projects that came with the app (a backup
- * of the Artifact's slots, android/app/src/main/assets/seed/projects.json) are imported
- * alongside, never over anything here.
+ * Installing a new build over the old one keeps these files (every build is signed with the
+ * same key, android/app/debug.keystore). Projects in the WebView's localStorage (an APK from
+ * before the files kept them there, or a start where the files could not be read) are
+ * brought in on each start as a backup import would (newer wins, never over anything newer,
+ * a taken slot = a free one) and left out of localStorage only once their files are written.
  *
  * Backups: `saveBackupFile` / `openBackupFile` use Android's own file picker (any folder,
  * Google Drive ...), so a backup outlives the app.
  */
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { importBackup } from './backup';
+import { importBackup, makeBackup } from './backup';
 import { useStore, type KeyValue } from './kv';
 
 interface ProjectFiles {
@@ -21,8 +22,6 @@ interface ProjectFiles {
   readAll(): Promise<{ files: Record<string, string> }>;
   write(o: { name: string; text: string }): Promise<void>;
   remove(o: { name: string }): Promise<void>;
-  /** The backup bundled with the app (null: none). */
-  seed(): Promise<{ text: string | null }>;
   /** Save text to a file the user picks (false: cancelled). */
   exportFile(o: { name: string; text: string }): Promise<{ saved: boolean }>;
   /** Read a file the user picks (null: cancelled). */
@@ -31,10 +30,6 @@ interface ProjectFiles {
 
 const Files = registerPlugin<ProjectFiles>('ProjectFiles');
 
-/** Set once the WebView's localStorage has been copied in. */
-const MIGRATED = 'groovebox.native.migrated';
-/** Set once the bundled projects have been imported. */
-const SEEDED = 'groovebox.native.seeded';
 /** The localStorage keys of the slots (storage/projects.ts). */
 const SLOT_KEY = /^groovebox\.(proj\.|work\.|projects$|open$)/;
 
@@ -43,6 +38,8 @@ const fileName = (key: string) => encodeURIComponent(key);
 /** In memory, written through to the app's files in order. */
 class NativeStore implements KeyValue {
   private writes: Promise<unknown> = Promise.resolve();
+  /** A write or delete failed since the start. */
+  failed = false;
   constructor(private readonly m: Map<string, string>) {}
 
   get(key: string): string | null {
@@ -61,8 +58,13 @@ class NativeStore implements KeyValue {
     this.queue(() => Files.remove({ name: fileName(key) }));
   }
 
+  /** Every queued write done. */
+  flush(): Promise<unknown> {
+    return this.writes;
+  }
+
   private queue(op: () => Promise<void>): void {
-    this.writes = this.writes.then(op).catch(() => undefined);
+    this.writes = this.writes.then(op).catch(() => { this.failed = true; });
   }
 }
 
@@ -81,26 +83,22 @@ export async function initProjectStorage(): Promise<void> {
   const m = new Map<string, string>();
   for (const [name, text] of Object.entries(files)) m.set(decodeURIComponent(name), text);
   const store = new NativeStore(m);
-  if (!store.get(MIGRATED)) {
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && SLOT_KEY.test(key) && store.get(key) === null) store.set(key, localStorage.getItem(key) ?? '');
-      }
-    } catch {
-      /* nothing to copy */
-    }
-    store.set(MIGRATED, '1');
-  }
+  // What the WebView's localStorage holds (read while it is still the store in use).
+  const fromWebView = makeBackup();
   useStore(store);
-  if (!store.get(SEEDED)) {
-    try {
-      const { text } = await Files.seed();
-      if (text) importBackup(text);
-    } catch {
-      /* no bundled projects */
+  const r = importBackup(fromWebView);
+  if (!r || r.skipped > 0 || r.added + r.updated + r.same === 0) return; // no room for some: all stay there too
+  await store.flush();
+  if (store.failed) return; // kept there too: brought in again next start
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && SLOT_KEY.test(key)) keys.push(key);
     }
-    store.set(SEEDED, '1');
+    for (const key of keys) localStorage.removeItem(key);
+  } catch {
+    /* left there: same or older next start, nothing changes */
   }
 }
 

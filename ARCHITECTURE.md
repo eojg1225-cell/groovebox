@@ -124,9 +124,10 @@ FX, its sounds as stored (`isOldFormat`; LOAD warns). The v1-v39 migrations were
 store is localStorage. In the Android app (`storage/native.ts`, native `ProjectFilesPlugin`) it is one
 file per key in the app's own storage (`files/projects/<key URL-encoded>`, written to a `.tmp` and
 renamed), read into memory by `initProjectStorage` before the app starts (`main.ts`, top-level await)
-and written through in order. Its first start copies the WebView's localStorage slots in
-(`groovebox.native.migrated`), then once imports the projects bundled with the app,
-`android/app/src/main/assets/seed/projects.json` (`groovebox.native.seeded`).
+and written through in order. Every start imports the WebView's localStorage slots, if any, as a
+backup import would (newer wins), and removes them from localStorage once every file write succeeded
+(none skipped for want of a slot). A build installed over the last keeps the files (same key,
+`versionCode` = the CI run number).
 
 **Backups** (`storage/backup.ts`, MENU > PROJECT BACKUP, `storage/backupFile.ts`): one JSON file
 `{format: 'grooveaccess-backup', version: 1, exportedAt, projects: [{slot, id, name, savedAt, project,

@@ -173,14 +173,4 @@ describe('project backups', () => {
     expect(localProjects.slots()[2]!.id).toBe('theirs');
     expect(localProjects.load('both')!.bpm).toBe(101);
   });
-
-  it('the projects bundled with the Android app all load', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { localProjects } = await import('../src/storage/projects');
-    const { importBackup } = await import('../src/storage/backup');
-    const r = importBackup(readFileSync('android/app/src/main/assets/seed/projects.json', 'utf8'))!;
-    expect(r.added).toBeGreaterThan(0);
-    expect(r.skipped).toBe(0);
-    for (const e of localProjects.slots()) if (e) expect(localProjects.load(e.id)?.channels.length).toBe(8);
-  });
 });

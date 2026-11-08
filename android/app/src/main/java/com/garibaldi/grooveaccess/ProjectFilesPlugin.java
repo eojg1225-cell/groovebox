@@ -21,8 +21,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * The project slots as files in the app's own storage (files/projects, one file per key of
- * src/storage/projects.ts), the backup bundled with the app (assets/seed/projects.json), and
- * backup files saved / opened through Android's file picker. See src/storage/native.ts.
+ * src/storage/projects.ts) and backup files saved / opened through Android's file picker. See src/storage/native.ts.
  */
 @CapacitorPlugin(name = "ProjectFiles")
 public class ProjectFilesPlugin extends Plugin {
@@ -96,17 +95,6 @@ public class ProjectFilesPlugin extends Plugin {
         } catch (IOException e) {
             call.reject("delete failed", e);
         }
-    }
-
-    @PluginMethod
-    public void seed(PluginCall call) {
-        JSObject ret = new JSObject();
-        try (InputStream in = getContext().getAssets().open("seed/projects.json")) {
-            ret.put("text", readStream(in));
-        } catch (IOException e) {
-            ret.put("text", JSObject.NULL);
-        }
-        call.resolve(ret);
     }
 
     @PluginMethod
