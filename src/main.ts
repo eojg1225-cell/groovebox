@@ -7,7 +7,8 @@ import { mountColourTuner } from './ui/colourTuner';
 import { applyTheme } from './ui/colours';
 import './style.css';
 import { Capacitor } from '@capacitor/core';
-import { AudioHost } from './worklet/host';
+import { AudioHost, type EngineHost } from './worklet/host';
+import { NativeHost } from './worklet/nativeHost';
 import { initProjectStorage } from './storage/native';
 import { Panel } from './ui/Panel';
 import { PixelScreen } from './ui/screen';
@@ -56,7 +57,13 @@ const panel = new Panel(document.getElementById('app') as HTMLElement, {
 });
 const screen = new PixelScreen(panel.screenCanvas);
 
-let host: AudioHost | null = null;
+let host: EngineHost | null = null;
+/**
+ * The Android app plays through the native engine (Rust on AAudio, about 20 ms out against
+ * the WebView's 130); where it cannot start (no AAudio, a build without the library) the
+ * WebView's AudioWorklet takes over.
+ */
+let useNative = Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('NativeAudio');
 const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 0, dspLoad: 0 };
 const app = new App(project, panel, (msg) => host?.send(msg));
 // Test builds: the colour tuner (sliders per track type over the panel).
@@ -89,7 +96,7 @@ window.addEventListener('pointerup', lockLandscape, true);
 function unlockAudio(): void {
   if (!host) {
     try {
-      host = new AudioHost();
+      host = useNative ? new NativeHost() : new AudioHost();
     } catch {
       audio.state = 'error';
       return;
@@ -117,13 +124,19 @@ function unlockAudio(): void {
         for (const t of UNLOCK_EVENTS) window.removeEventListener(t, unlockAudio, true);
       },
       () => {
-        audio.state = 'error';
         host = null; // allow another attempt on the next touch
+        if (useNative) {
+          // No native engine here: the WebView's (the app needs no gesture to start audio).
+          useNative = false;
+          unlockAudio();
+          return;
+        }
+        audio.state = 'error';
       },
     );
-  } else if (host.ctx.state !== 'running') {
+  } else if (!host.running) {
     // Touch devices grant audio on pointerup/touchend; retry the resume there.
-    void host.ctx.resume();
+    host.resume();
   }
 }
 for (const t of UNLOCK_EVENTS) window.addEventListener(t, unlockAudio, true);
@@ -200,8 +213,8 @@ const frame = (now: number) => {
       sentListenMs = listenMs;
       host.send({ type: 'setListenLatency', ms: listenMs });
     }
-    if (audio.state === 'on' && host.ctx.state !== 'running') audio.state = 'off';
-    else if (audio.state === 'off' && host.ctx.state === 'running') audio.state = 'on';
+    if (audio.state === 'on' && !host.running) audio.state = 'off';
+    else if (audio.state === 'off' && host.running) audio.state = 'on';
   }
   screenAwake.set(keepAwake());
   app.updateFrame(now);

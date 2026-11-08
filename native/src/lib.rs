@@ -11,6 +11,7 @@ pub mod blip;
 pub mod drive_comp;
 pub mod engine;
 pub mod fx;
+pub mod host;
 pub mod dsp;
 pub mod instruments;
 pub mod js;

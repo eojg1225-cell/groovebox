@@ -12,7 +12,9 @@ src/fx           buses.ts (FX 1 / 2: units, TYPE lists, knob specs, layout, defa
                  units.ts (MOD, DELAY, VERB, DIST; FX 1's FILTER lives in FxBus), Compressor, TrackCut (per-track MID CUT), Limiter,
                  Delay + Reverb (PLUCK's onboard delay / room). No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
-                 host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code)
+                 host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code), EngineHost
+                 nativeHost.ts: the Android app's EngineHost: the same protocol to the Rust engine (native/,
+                 NativeAudioPlugin: messages as JSON in, status / pong / recorded / engineReset polled out)
 src/controls     ControlSurface event interface (knob / encoder / button, values normalised 0..1)
 src/ui           App (controller), Panel (on-screen ControlSurface), Knob, PixelScreen (256x128 canvas,
                  3x5 font), views (screen view-models -> drawing), orientation, history (UNDO / REDO snapshots)

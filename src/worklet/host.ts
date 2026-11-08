@@ -8,7 +8,7 @@ import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 // Must match the name registered in processor.ts.
 const PROCESSOR_NAME = 'groovebox-engine';
 
-interface LatencyInfo {
+export interface LatencyInfo {
   sampleRate: number;
   /** AudioContext.baseLatency in ms (processing latency), or NaN if unsupported. */
   baseMs: number;
@@ -20,7 +20,22 @@ interface LatencyInfo {
 
 type StatusMsg = Extract<WorkletToMain, { type: 'status' }>;
 
-export class AudioHost {
+/** Where the engine runs: the WebView's AudioWorklet (AudioHost) or the app's native engine (NativeHost). */
+export interface EngineHost {
+  start(): Promise<void>;
+  send(msg: MainToWorklet): void;
+  /** Playing blocks now. */
+  readonly running: boolean;
+  /** Ask for the audio again (after a tab was hidden, or a touch device's first gesture). */
+  resume(): void;
+  latency(): LatencyInfo;
+  roundTripMs: number;
+  onStatus: ((s: StatusMsg) => void) | null;
+  onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>) => void) | null;
+  onEngineReset: (() => void) | null;
+}
+
+export class AudioHost implements EngineHost {
   readonly ctx: AudioContext;
   private node: AudioWorkletNode | null = null;
   /** The processor's `stop` parameter: STOP that gets through an overloaded audio thread. */
@@ -102,6 +117,10 @@ export class AudioHost {
 
   get running(): boolean {
     return this.node !== null && this.ctx.state === 'running';
+  }
+
+  resume(): void {
+    void this.ctx.resume();
   }
 
   latency(): LatencyInfo {

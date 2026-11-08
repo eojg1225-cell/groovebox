@@ -1,8 +1,10 @@
 //! The AAudio output stream (Android 8+): LowLatency, Exclusive where the device allows it
 //! (else AAudio shares it), 32-bit float stereo, its buffer cut to two bursts. The data
-//! callback runs on AAudio's real-time thread: it only reads an atomic and renders the blip.
+//! callback runs on AAudio's real-time thread: it renders the test blip and, once the app has
+//! switched it on (`engine_start`), the engine (host.rs), which it only ever try-locks.
 
 use crate::blip::Blip;
+use crate::host::Host;
 use ndk::audio::{
     AudioCallbackResult, AudioDirection, AudioError, AudioFormat, AudioPerformanceMode, AudioSharingMode,
     AudioStream, AudioStreamBuilder, Clockid,
@@ -20,6 +22,10 @@ struct Held(AudioStream);
 unsafe impl Send for Held {}
 
 static STREAM: Mutex<Option<Held>> = Mutex::new(None);
+/// The engine, at the open stream's sample rate (None until the app starts it).
+static HOST: Mutex<Option<Host>> = Mutex::new(None);
+/// The app plays through the native engine: the stream stays open.
+static ENGINE: AtomicBool = AtomicBool::new(false);
 
 /// What the device gave us.
 pub struct Info {
@@ -42,6 +48,13 @@ fn open() -> Result<AudioStream, AudioError> {
             let b = blip.get_or_insert_with(|| Blip::new(s.sample_rate() as f64));
             let out = unsafe { std::slice::from_raw_parts_mut(data as *mut f32, frames as usize * 2) };
             b.render(out, TAPS.load(Ordering::Relaxed));
+            if ENGINE.load(Ordering::Relaxed) {
+                if let Ok(mut h) = HOST.try_lock() {
+                    if let Some(h) = h.as_mut() {
+                        h.render(out, frames as usize);
+                    }
+                }
+            }
             AudioCallbackResult::Continue
         }))
         .error_callback(Box::new(|_, _| LOST.store(true, Ordering::Relaxed)))
@@ -63,17 +76,56 @@ fn info(s: &AudioStream) -> Info {
 }
 
 /// Open and start the stream (again if it is already open). Err = AAudio's error code.
-pub fn start() -> Result<Info, i32> {
+fn reopen() -> Result<Info, i32> {
     let mut held = STREAM.lock().unwrap_or_else(|e| e.into_inner());
     *held = None; // closes an old one
     LOST.store(false, Ordering::Relaxed);
     let s = open().map_err(i32::from)?;
     let i = info(&s);
     *held = Some(Held(s));
+    drop(held);
+    if ENGINE.load(Ordering::Relaxed) {
+        ensure_host(i.rate as f64);
+    }
     Ok(i)
 }
 
+/// The engine at this sample rate (a fresh one, which the UI is told to fill, if it changed).
+fn ensure_host(rate: f64) {
+    let same = HOST.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|h| h.sample_rate() == rate);
+    if same == Some(true) {
+        return;
+    }
+    let fresh = Host::new(rate);
+    *HOST.lock().unwrap_or_else(|e| e.into_inner()) = Some(fresh);
+    if same == Some(false) {
+        crate::host::notify_reset();
+    }
+}
+
+/// The stream, open and started (opened if it is not, or was lost).
+pub fn start() -> Result<Info, i32> {
+    if !LOST.load(Ordering::Relaxed) {
+        if let Some(i) = current() {
+            return Ok(i);
+        }
+    }
+    reopen()
+}
+
+/// The app plays through the native engine from now on (the stream opened, the engine made).
+pub fn engine_start() -> Result<Info, i32> {
+    ENGINE.store(true, Ordering::Relaxed);
+    let i = start()?;
+    ensure_host(i.rate as f64);
+    Ok(i)
+}
+
+/// Close the stream (not while the engine plays through it).
 pub fn stop() {
+    if ENGINE.load(Ordering::Relaxed) {
+        return;
+    }
     let mut held = STREAM.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(h) = held.take() {
         let _ = h.0.request_stop();
@@ -95,7 +147,7 @@ fn now_ns() -> i64 {
 /// from the stream's own timestamps (as Oboe's calculateLatencyMillis). None = not known yet.
 pub fn latency_ms() -> Option<f64> {
     if LOST.load(Ordering::Relaxed) {
-        start().ok()?;
+        reopen().ok()?;
     }
     let held = STREAM.lock().unwrap_or_else(|e| e.into_inner());
     let s = &held.as_ref()?.0;

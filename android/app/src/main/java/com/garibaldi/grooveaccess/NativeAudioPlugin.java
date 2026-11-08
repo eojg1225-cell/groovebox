@@ -1,14 +1,37 @@
 package com.garibaldi.grooveaccess;
 
+import android.os.Handler;
+import android.os.HandlerThread;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-/** MENU > GLOBAL SETTINGS > NATIVE AUDIO TEST (src/ui/audioTest.ts): the native audio path. */
+/**
+ * The native audio path: the engine (src/worklet/nativeHost.ts sends it the UI's messages and
+ * listens for "engine" events: what the engine wrote, polled every few ms) and MENU > GLOBAL
+ * SETTINGS > NATIVE AUDIO TEST (src/ui/audioTest.ts).
+ */
 @CapacitorPlugin(name = "NativeAudio")
 public class NativeAudioPlugin extends Plugin {
+    private static final long POLL_MS = 8;
+    private HandlerThread pollThread;
+    private Handler poller;
+
+    private final Runnable poll = new Runnable() {
+        @Override
+        public void run() {
+            String msgs = NativeAudio.poll();
+            if (msgs != null && msgs.length() > 2) {
+                JSObject o = new JSObject();
+                o.put("msgs", msgs);
+                notifyListeners("engine", o);
+            }
+            poller.postDelayed(this, POLL_MS);
+        }
+    };
+
     private JSObject info() {
         JSObject o = new JSObject();
         o.put("rate", NativeAudio.info(0));
@@ -31,6 +54,34 @@ public class NativeAudioPlugin extends Plugin {
             return;
         }
         call.resolve(info());
+    }
+
+    /** Play through the native engine from now on; resolves with the stream's settings. */
+    @PluginMethod
+    public void engineStart(PluginCall call) {
+        if (!NativeAudio.loaded) {
+            call.reject("unavailable");
+            return;
+        }
+        int err = NativeAudio.engineStart();
+        if (err != 0) {
+            call.reject("aaudio " + err);
+            return;
+        }
+        if (pollThread == null) {
+            pollThread = new HandlerThread("EnginePoll");
+            pollThread.start();
+            poller = new Handler(pollThread.getLooper());
+            poller.post(poll);
+        }
+        call.resolve(info());
+    }
+
+    /** Fire and forget: the messages (msgs, a JSON array) go to the engine in order. */
+    @PluginMethod(returnType = PluginMethod.RETURN_NONE)
+    public void send(PluginCall call) {
+        String msgs = call.getString("msgs");
+        if (NativeAudio.loaded && msgs != null) NativeAudio.send(msgs);
     }
 
     @PluginMethod
