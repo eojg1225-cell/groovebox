@@ -8,12 +8,13 @@ description = "GrooveAccess native audio (step 1 of the native engine: the audio
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[dependencies]
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 ndk = { version = "0.9", default-features = false, features = ["audio", "api-level-26"] }
 libc = "0.2"
 
-[dev-dependencies]
-serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [profile.release]
 opt-level = 3

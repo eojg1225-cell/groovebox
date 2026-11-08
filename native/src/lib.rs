@@ -9,13 +9,16 @@
 
 pub mod blip;
 pub mod drive_comp;
+pub mod engine;
 pub mod fx;
 pub mod dsp;
 pub mod instruments;
 pub mod js;
 pub mod kind;
 pub mod math;
+pub mod params;
 pub mod smoother;
+pub mod specs;
 
 #[cfg(target_os = "android")]
 mod audio;
