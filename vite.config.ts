@@ -4,7 +4,10 @@ export default defineConfig({
   // Relative base so the build works from any sub-path (e.g. GitHub Pages /groovebox/).
   base: './',
   build: {
-    target: 'es2020',
+    // es2022 for the top-level await in main.ts (the Android app's storage loads first); the
+    // CSS stays at the old target.
+    target: 'es2022',
+    cssTarget: 'es2020',
     // The panel font and the keep-awake video go inline (the Artifact build is one page, no
     // asset files).
     assetsInlineLimit: (file) => (file.endsWith('.woff2') || file.endsWith('.mp4') ? true : undefined),

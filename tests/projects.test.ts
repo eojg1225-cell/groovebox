@@ -130,3 +130,57 @@ describe('cloud slot sync: planSync', () => {
     expect(planSync([entry('b', 100), ...empty<SlotEntry>().slice(1)], [tomb, ...empty<CloudSlot>().slice(1)], empty())).toEqual([{ kind: 'push', slot: 0 }]);
   });
 });
+
+describe('project backups', () => {
+  beforeEach(() => {
+    (globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage();
+  });
+
+  it('exports every slot with its working copy and imports it into an empty device', async () => {
+    const { localProjects } = await import('../src/storage/projects');
+    const { importBackup, makeBackup } = await import('../src/storage/backup');
+    const p = createDefaultProject();
+    p.bpm = 133;
+    const e = localProjects.save(5, 'DUB', p)!;
+    p.bpm = 134;
+    localProjects.saveWork(e.id, p);
+    const text = makeBackup();
+    (globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage();
+    expect(importBackup(text)).toEqual({ added: 1, updated: 0, same: 0, skipped: 0 });
+    expect(localProjects.slots()[5]).toEqual(e);
+    expect(localProjects.load(e.id)!.bpm).toBe(133);
+    expect(localProjects.loadWork(e.id)!.bpm).toBe(134);
+    // Again: already here.
+    expect(importBackup(text)).toEqual({ added: 0, updated: 0, same: 1, skipped: 0 });
+    expect(importBackup('{"hello":1}')).toBeNull();
+  });
+
+  it('never overwrites a newer project; a taken slot sends the import to a free one', async () => {
+    const { localProjects } = await import('../src/storage/projects');
+    const { importBackup } = await import('../src/storage/backup');
+    const stored = (bpm: number) => { const p = createDefaultProject(); p.bpm = bpm; return toStored(p); };
+    localProjects.place(0, { id: 'mine', name: 'MINE', savedAt: 500 }, JSON.stringify(stored(100)));
+    localProjects.place(1, { id: 'both', name: 'BOTH', savedAt: 500 }, JSON.stringify(stored(101)));
+    const backup = JSON.stringify({
+      format: 'grooveaccess-backup', version: 1, exportedAt: 1,
+      projects: [
+        { slot: 0, id: 'theirs', name: 'THEIRS', savedAt: 900, project: stored(120) },
+        { slot: 1, id: 'both', name: 'BOTH', savedAt: 400, project: stored(99) },
+      ],
+    });
+    expect(importBackup(backup)).toEqual({ added: 1, updated: 0, same: 1, skipped: 0 });
+    expect(localProjects.slots()[0]!.id).toBe('mine');
+    expect(localProjects.slots()[2]!.id).toBe('theirs');
+    expect(localProjects.load('both')!.bpm).toBe(101);
+  });
+
+  it('the projects bundled with the Android app all load', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { localProjects } = await import('../src/storage/projects');
+    const { importBackup } = await import('../src/storage/backup');
+    const r = importBackup(readFileSync('android/app/src/main/assets/seed/projects.json', 'utf8'))!;
+    expect(r.added).toBeGreaterThan(0);
+    expect(r.skipped).toBe(0);
+    for (const e of localProjects.slots()) if (e) expect(localProjects.load(e.id)?.channels.length).toBe(8);
+  });
+});

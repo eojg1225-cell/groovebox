@@ -16,7 +16,8 @@ src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio threa
 src/controls     ControlSurface event interface (knob / encoder / button, values normalised 0..1)
 src/ui           App (controller), Panel (on-screen ControlSurface), Knob, PixelScreen (256x128 canvas,
                  3x5 font), views (screen view-models -> drawing), orientation, history (UNDO / REDO snapshots)
-src/storage      projects.ts (64 slots, ProjectStore), slotSync.ts (slots <-> claude.ai artifact db),
+src/storage      projects.ts (64 slots, ProjectStore), kv.ts (where they are kept), native.ts (the Android
+                 app's files), backup.ts / backupFile.ts (PROJECT BACKUP), slotSync.ts (slots <-> claude.ai artifact db),
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
 tests            Vitest: the engine offline in Node, project storage / sync, the App via button events
 tools/lab        The sound lab: A/B page for TIMBRE / INT candidates (not part of the app)
@@ -117,9 +118,21 @@ change adds its migration there, named after the version. An older save still lo
 FX, its sounds as stored (`isOldFormat`; LOAD warns). The v1-v39 migrations were retired in October
 2026 (`docs/HISTORY.md`).
 
-`storage/projects.ts` keeps 64 slots behind the `ProjectStore` interface (localStorage now, in the
-Android app the WebView's; a native store in the Capacitor app later): per slot id a saved copy `groovebox.proj.<id>` and a working copy
-`groovebox.work.<id>`, the index `groovebox.projects`, the open id `groovebox.open`.
+`storage/projects.ts` keeps 64 slots behind the `ProjectStore` interface, as text in a key-value store
+(`storage/kv.ts`): per slot id a saved copy `groovebox.proj.<id>` and a working copy
+`groovebox.work.<id>`, the index `groovebox.projects`, the open id `groovebox.open`. In a browser the
+store is localStorage. In the Android app (`storage/native.ts`, native `ProjectFilesPlugin`) it is one
+file per key in the app's own storage (`files/projects/<key URL-encoded>`, written to a `.tmp` and
+renamed), read into memory by `initProjectStorage` before the app starts (`main.ts`, top-level await)
+and written through in order. Its first start copies the WebView's localStorage slots in
+(`groovebox.native.migrated`), then once imports the projects bundled with the app,
+`android/app/src/main/assets/seed/projects.json` (`groovebox.native.seeded`).
+
+**Backups** (`storage/backup.ts`, MENU > PROJECT BACKUP, `storage/backupFile.ts`): one JSON file
+`{format: 'grooveaccess-backup', version: 1, exportedAt, projects: [{slot, id, name, savedAt, project,
+work?}]}` (stored format). Import merges: a project already here is replaced only by a newer save; a new
+one takes its own slot if free, else the first free one. Files go out / in through Android's file picker
+in the app, the `downloads` capability in the Artifact, a download / file chooser elsewhere.
 
 **Cloud slots:** `storage/slotSync.ts` (claude.ai Artifact only, via `claude.use('db')`): collection
 `slots`, one document per slot (`slot-01` … `slot-64`) holding `{id, name, savedAt, project}` (stored

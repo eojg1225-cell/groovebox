@@ -8,6 +8,7 @@ import { applyTheme } from './ui/colours';
 import './style.css';
 import { Capacitor } from '@capacitor/core';
 import { AudioHost } from './worklet/host';
+import { initProjectStorage } from './storage/native';
 import { Panel } from './ui/Panel';
 import { PixelScreen } from './ui/screen';
 import { drawCopyView, drawDesignView, drawLiveView, drawMenuView, drawProjectView, drawSongStripView, drawTitleView } from './ui/views';
@@ -40,6 +41,9 @@ document.addEventListener('selectstart', (e) => e.preventDefault());
 if (import.meta.env.PROD && 'serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
   void navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
 }
+
+// The Android app keeps the slots in its own files: read them before anything else.
+await initProjectStorage();
 
 // Every start is a blank slate: the default project, nothing open. Saved projects (and
 // their working copies) stay in their slots for LOAD (FUNC + SAVE PROJECT).

@@ -1,11 +1,13 @@
 /**
  * Projects: 64 slots (4 banks of 16) of named, saved projects, each with its own working
- * copy (unsaved edits, so switching never loses work). Kept in localStorage behind the
- * ProjectStore interface, so a cloud store can take its place later: records are keyed by
- * a fixed random id, the slot is just where an id sits.
+ * copy (unsaved edits, so switching never loses work). Kept in a key-value store
+ * (storage/kv.ts: localStorage in a browser, files in the Android app) behind the
+ * ProjectStore interface: records are keyed by a fixed random id, the slot is just where an
+ * id sits.
  */
 import type { Project } from '../engine/project';
 import { fromStored, isOldFormat, toStored } from '../engine/projectFile';
+import { kv } from './kv';
 
 export const SLOTS_PER_BANK = 16;
 export const PROJECT_BANKS = 4;
@@ -45,36 +47,19 @@ let slotListener: SlotListener | null = null;
 export function onSlotChange(fn: SlotListener | null): void {
   slotListener = fn;
 }
+/** Tell the listener a slot changed outside save / remove (a backup was brought in). */
+export function slotChanged(slot: number, oldId: string | null): void {
+  slotListener?.(slot, oldId);
+}
 
 const INDEX = 'groovebox.projects';
 const OPEN = 'groovebox.open';
 const data = (id: string) => `groovebox.proj.${id}`;
 const work = (id: string) => `groovebox.work.${id}`;
 
-function get(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function put(key: string, value: string): boolean {
-  try {
-    localStorage.setItem(key, value);
-    return true;
-  } catch {
-    return false; // full or blocked
-  }
-}
-
-function drop(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    /* ignore */
-  }
-}
+const get = (key: string): string | null => kv().get(key);
+const put = (key: string, value: string): boolean => kv().set(key, value);
+const drop = (key: string): void => kv().remove(key);
 
 function newId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -128,9 +113,19 @@ class LocalProjectStore implements ProjectStore {
     return entry;
   }
 
-  /** The saved project as stored (JSON text), for the cloud copy. */
+  /** The saved project as stored (JSON text), for the cloud copy and backups. */
   raw(id: string): string | null {
     return get(data(id));
+  }
+
+  /** Its working copy as stored (JSON text), if any. */
+  rawWork(id: string): string | null {
+    return get(work(id));
+  }
+
+  /** Keep a working copy as stored (JSON text): from a backup. */
+  putWork(id: string, raw: string): boolean {
+    return put(work(id), raw);
   }
 
   /**

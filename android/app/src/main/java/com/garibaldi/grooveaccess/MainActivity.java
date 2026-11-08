@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(KeepAwakePlugin.class);
+        registerPlugin(ProjectFilesPlugin.class);
         super.onCreate(savedInstanceState);
         WebSettings web = getBridge().getWebView().getSettings();
         web.setMediaPlaybackRequiresUserGesture(false);

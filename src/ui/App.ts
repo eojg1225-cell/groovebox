@@ -22,7 +22,7 @@
  * playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
  * chosen one; PLAY primes the switch for the loop end and the sound glides there.
  * SAVE PROJECT saves every pattern and patch; edits since are marked * on the screen.
- * MENU: MODE (JAM / SONG), PROJECT SETTINGS, GLOBAL SETTINGS. CANCEL / UNDO: see cancel().
+ * MENU: MODE (JAM / SONG), PROJECT SETTINGS, GLOBAL SETTINGS, PROJECT BACKUP. CANCEL / UNDO: see cancel().
  * SONG  (MENU > MODE; RECORD = the grid, PLAY / DESIGN play the song) arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
@@ -63,6 +63,7 @@ import { INSTRUMENTS, macroAnchor, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParam
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
+import { exportProjects, importProjects } from '../storage/backupFile';
 import { CHAIN_SETTING, CLICK_LEVELS, COUNT_INS, HOLD_PATTERNS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
 import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/Drum';
 import { macroIds, timbreName } from '../instruments/macros';
@@ -80,10 +81,10 @@ type Mode = 'record' | 'play' | 'design';
 
 
 /** MENU's pages (top = the list MENU opens on). */
-type MenuPage = 'top' | 'project' | 'tracks' | 'fill' | 'routing' | 'global' | 'touch' | 'globalRouting';
+type MenuPage = 'top' | 'project' | 'tracks' | 'fill' | 'routing' | 'global' | 'touch' | 'globalRouting' | 'backup';
 const MENU_TITLES: Record<MenuPage, string> = {
   top: 'MENU', project: 'PROJECT SETTINGS', tracks: 'TRACKS', fill: 'AUTO-FILL', routing: 'FX ROUTING', global: 'GLOBAL SETTINGS', touch: 'TOUCH SETTINGS',
-  globalRouting: 'FX ROUTING',
+  globalRouting: 'FX ROUTING', backup: 'PROJECT BACKUP',
 };
 /** The knob / menu names of GLIDE CURVE, AUTO-FILL, a track's AUTO-FILL and the clip knobs' stops. */
 const AUTO_FILL_NAMES = AUTO_FILL_STEPS.map((n) => (n ? `${n} STEPS` : 'OFF'));
@@ -3570,6 +3571,18 @@ export class App {
         },
         { label: 'PROJECT SETTINGS', open: () => this.openPage('project') },
         { label: 'GLOBAL SETTINGS', open: () => this.openPage('global') },
+        { label: 'PROJECT BACKUP', open: () => this.openPage('backup') },
+      ];
+    }
+    if (page === 'backup') {
+      // Every saved project into one file / a file's projects in beside these (storage/backupFile.ts).
+      const run = (busy: string, job: () => Promise<string>) => () => {
+        this.flash(busy);
+        void job().then((text) => this.notify(text), () => this.notify('FAILED'));
+      };
+      return [
+        { label: 'EXPORT ALL PROJECTS', open: run('EXPORTING ...', exportProjects) },
+        { label: 'IMPORT PROJECTS', open: run('IMPORTING ...', importProjects) },
       ];
     }
     if (page === 'project') {
