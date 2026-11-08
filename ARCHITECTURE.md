@@ -117,8 +117,8 @@ change adds its migration there, named after the version. An older save still lo
 FX, its sounds as stored (`isOldFormat`; LOAD warns). The v1-v39 migrations were retired in October
 2026 (`docs/HISTORY.md`).
 
-`storage/projects.ts` keeps 64 slots behind the `ProjectStore` interface (localStorage now; a native
-store in the Capacitor app later): per slot id a saved copy `groovebox.proj.<id>` and a working copy
+`storage/projects.ts` keeps 64 slots behind the `ProjectStore` interface (localStorage now, in the
+Android app the WebView's; a native store in the Capacitor app later): per slot id a saved copy `groovebox.proj.<id>` and a working copy
 `groovebox.work.<id>`, the index `groovebox.projects`, the open id `groovebox.open`.
 
 **Cloud slots:** `storage/slotSync.ts` (claude.ai Artifact only, via `claude.use('db')`): collection

@@ -6,6 +6,7 @@
 import { mountColourTuner } from './ui/colourTuner';
 import { applyTheme } from './ui/colours';
 import './style.css';
+import { Capacitor } from '@capacitor/core';
 import { AudioHost } from './worklet/host';
 import { Panel } from './ui/Panel';
 import { PixelScreen } from './ui/screen';
@@ -34,8 +35,9 @@ document.addEventListener('touchstart', noTouchDefault, { passive: false });
 document.addEventListener('touchmove', noTouchDefault, { passive: false });
 document.addEventListener('selectstart', (e) => e.preventDefault());
 
-// Installable / offline (production builds only, so the dev server never caches).
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+// Installable / offline (production builds only, so the dev server never caches; not in the
+// Android app, whose files are in the app itself).
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
   void navigator.serviceWorker.register('./sw.js').catch(() => { /* optional */ });
 }
 

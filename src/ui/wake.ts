@@ -1,4 +1,8 @@
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import videoUrl from './awake.mp4';
+
+/** The Android app's own keep-screen-on (android/.../KeepAwakePlugin.java). */
+const KeepAwake = registerPlugin<{ set(o: { on: boolean }): Promise<void> }>('KeepAwake');
 
 type WakeLock = { release(): Promise<void>; addEventListener(type: 'release', fn: () => void): void };
 type WakeNavigator = Navigator & { wakeLock?: { request(type: 'screen'): Promise<WakeLock> } };
@@ -7,7 +11,7 @@ type WakeNavigator = Navigator & { wakeLock?: { request(type: 'screen'): Promise
  * Keeps the screen on while wanted: the Screen Wake Lock, or where that is refused or
  * missing (a page in a frame that may not ask for it, as the claude.ai Artifact; older
  * browsers) a tiny muted looping video playing out of sight, which browsers keep the screen
- * on for (the NoSleep trick).
+ * on for (the NoSleep trick). In the Android app: the window's keep-screen-on flag.
  */
 export class ScreenAwake {
   private lock: WakeLock | null = null;
@@ -17,7 +21,7 @@ export class ScreenAwake {
   constructor() {
     // The browser drops the lock (and may pause the video) while the page is hidden.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible' || Capacitor.isNativePlatform()) return;
       this.lock = null;
       if (this.want) void this.on();
     });
@@ -26,6 +30,7 @@ export class ScreenAwake {
   set(want: boolean): void {
     if (want === this.want) return;
     this.want = want;
+    if (Capacitor.isNativePlatform()) { void KeepAwake.set({ on: want }).catch(() => undefined); return; }
     if (want) void this.on();
     else this.off();
   }

@@ -12,12 +12,18 @@
     "build:artifact": "npm run build && node scripts/build-artifact.mjs",
     "unused": "knip",
     "lab:level": "vitest run --config tools/lab/vite.config.ts",
-    "build:lab": "vite build --config tools/lab/vite.config.ts && node tools/lab/pack.mjs"
+    "build:lab": "vite build --config tools/lab/vite.config.ts && node tools/lab/pack.mjs",
+    "build:android": "npm run build && cap sync android"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "knip": "^5.88.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0"
   }
 }

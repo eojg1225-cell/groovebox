@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">GrooveAccess</string>
+    <string name="title_activity_main">GrooveAccess</string>
+    <string name="package_name">com.garibaldi.grooveaccess</string>
+    <string name="custom_url_scheme">com.garibaldi.grooveaccess</string>
+</resources>
