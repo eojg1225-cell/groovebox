@@ -29,6 +29,8 @@ export interface EngineHost {
   /** Ask for the audio again (after a tab was hidden, or a touch device's first gesture). */
   resume(): void;
   latency(): LatencyInfo;
+  /** Fetch what the engine wrote now (the native engine, which the page pulls from; the worklet's arrives by itself). */
+  poll?(): void;
   roundTripMs: number;
   onStatus: ((s: StatusMsg) => void) | null;
   onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>) => void) | null;

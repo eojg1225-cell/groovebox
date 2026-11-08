@@ -2,6 +2,7 @@ package com.garibaldi.grooveaccess;
 
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.webkit.JavascriptInterface;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -9,15 +10,36 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 /**
- * The native audio path: the engine (src/worklet/nativeHost.ts sends it the UI's messages and
- * listens for "engine" events: what the engine wrote, polled every few ms) and MENU > GLOBAL
- * SETTINGS > NATIVE AUDIO TEST (src/ui/audioTest.ts).
+ * The native audio path: the engine and MENU > GLOBAL SETTINGS > NATIVE AUDIO TEST
+ * (src/ui/audioTest.ts). src/worklet/nativeHost.ts talks to the engine straight through the
+ * page's `GrooveNative` object (a JavaScript interface: send / poll, called on the WebView's
+ * own thread, no trip through the main thread, so status reports reach the panel on time);
+ * without it, through `send` here and "engine" events polled every few ms.
  */
 @CapacitorPlugin(name = "NativeAudio")
 public class NativeAudioPlugin extends Plugin {
     private static final long POLL_MS = 8;
     private HandlerThread pollThread;
     private Handler poller;
+
+    /** The page's direct line to the engine (window.GrooveNative). */
+    public static final class Direct {
+        @JavascriptInterface
+        public void send(String json) {
+            if (NativeAudio.loaded && json != null) NativeAudio.send(json);
+        }
+
+        @JavascriptInterface
+        public String poll() {
+            return NativeAudio.loaded ? NativeAudio.poll() : "[]";
+        }
+    }
+
+    @Override
+    public void load() {
+        // Before the page loads (plugins load first), so the page has it from the start.
+        if (NativeAudio.loaded) getBridge().getWebView().addJavascriptInterface(new Direct(), "GrooveNative");
+    }
 
     private final Runnable poll = new Runnable() {
         @Override
@@ -68,7 +90,7 @@ public class NativeAudioPlugin extends Plugin {
             call.reject("aaudio " + err);
             return;
         }
-        if (pollThread == null) {
+        if (call.getBoolean("events", true) && pollThread == null) {
             pollThread = new HandlerThread("EnginePoll");
             pollThread.start();
             poller = new Handler(pollThread.getLooper());

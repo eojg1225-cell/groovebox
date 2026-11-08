@@ -1,5 +1,5 @@
 // The App (UI controller) driven through its ControlSurface events, with a stand-in panel.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/ui/App';
 import { createDefaultProject } from '../src/engine/defaultProject';
 import { patchOf, setStepNotes, stepNotes } from '../src/engine/project';
@@ -306,6 +306,19 @@ describe('RECORD strip: the same as PLAY', () => {
     app.setStatus(status([20, 0, 0, 0, 0, 0, 0, 0]));
     app.updateFrame(0);
     expect(texts.get('step1')).toBe('17');
+  });
+
+  it('the step lights move on to the next step on time between status reports (less OUT)', () => {
+    const { app, tap } = makeApp();
+    tap('play');
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    app.setStatus({ ...status([3, 0, 0, 0, 0, 0, 0, 0]), next: [4, 1, 1, 1, 1, 1, 1, 1], nextMs: [10, 0, 0, 0, 0, 0, 0, 0] });
+    app.heardDelayMs = 20;
+    now.mockReturnValue(1025);
+    expect(app.headStep(0)).toBe(3); // 25 ms on, but heard 20 ms late: still step 3
+    now.mockReturnValue(1031);
+    expect(app.headStep(0)).toBe(4);
+    now.mockRestore();
   });
 
   it('DESIGN follows the playhead to the bar playing too', () => {

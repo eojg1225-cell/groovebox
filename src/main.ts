@@ -64,7 +64,14 @@ let host: EngineHost | null = null;
  * WebView's AudioWorklet takes over.
  */
 let useNative = Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('NativeAudio');
-const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 0, dspLoad: 0 };
+const audio: AudioInfo = { state: 'off', latencyMs: NaN, peak: 0, uiMs: 0, fps: 0, dspLoad: 0, statusGapMs: 0 };
+/**
+ * STAT: how late status reports reach the page, against the most punctual one over the last
+ * 3 s (arrival time less the engine's own time of the report): the spread is the delivery's jitter.
+ */
+let lateMin = Infinity;
+let lateMax = -Infinity;
+let lateSince = 0;
 const app = new App(project, panel, (msg) => host?.send(msg));
 // Test builds: the colour tuner (sliders per track type over the panel).
 if (import.meta.env.VITE_COLOUR_TUNER) mountColourTuner(() => app.refreshPanel());
@@ -111,7 +118,20 @@ function unlockAudio(): void {
     };
     host.onStatus = (s) => {
       // The engine's first status report: it is up and playing blocks.
-      if (engineReadyAt < 0) engineReadyAt = performance.now();
+      const t = performance.now();
+      if (engineReadyAt < 0) engineReadyAt = t;
+      const sr = host?.latency().sampleRate ?? NaN;
+      if (Number.isFinite(sr)) {
+        const late = t - (s.frame / sr) * 1000;
+        lateMin = Math.min(lateMin, late);
+        lateMax = Math.max(lateMax, late);
+        if (t - lateSince >= 3000) {
+          audio.statusGapMs = lateMax - lateMin;
+          lateMin = Infinity;
+          lateMax = -Infinity;
+          lateSince = t;
+        }
+      }
       app.setStatus(s);
       audio.peak = Math.max(Math.max(s.peakL, s.peakR), audio.peak * 0.85);
       // Smoothed over ~1 s (30 reports a second): the per-report figure is coarse (whole ms).
@@ -203,11 +223,14 @@ const frame = (now: number) => {
   lastDraw = now;
   const t0 = performance.now();
   if (host) {
+    // The native engine's reports are fetched here, just before drawing: the freshest one.
+    host.poll?.();
     const lat = host.latency();
     audio.latencyMs = (Number.isFinite(lat.baseMs) ? lat.baseMs : 0) + (Number.isFinite(lat.outputMs) ? lat.outputMs : 0);
     // TOUCH DELAY: touch / click to event, on top of the reported audio latency: what the
     // player hears is this much behind what the engine plays when they tap along (live
     // recording allows for it).
+    app.heardDelayMs = audio.latencyMs;
     const listenMs = audio.latencyMs + TOUCH_DELAYS[deviceSettings.touchDelay];
     if (Math.abs(listenMs - sentListenMs) >= 1) {
       sentListenMs = listenMs;

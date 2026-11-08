@@ -18,9 +18,10 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
   private readonly statusInterval = Math.round(sampleRate / STATUS_HZ);
   private framesSinceStatus = 0;
   // Reused status object; postMessage clones it.
-  private readonly status: Extract<WorkletToMain, { type: 'status' }> = {
+  private readonly status: Extract<WorkletToMain, { type: 'status' }> & { next: number[]; nextMs: number[] } = {
     type: 'status', peakL: 0, peakR: 0, frame: 0, playing: false,
-    steps: new Array<number>(NUM_CHANNELS).fill(0), patterns: new Array<number>(NUM_CHANNELS).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0, countIn: 0,
+    steps: new Array<number>(NUM_CHANNELS).fill(0), patterns: new Array<number>(NUM_CHANNELS).fill(0),
+    next: new Array<number>(NUM_CHANNELS).fill(-1), nextMs: new Array<number>(NUM_CHANNELS).fill(0), barPhase: 0, barSteps: 16, songRow: -1, songBar: 0, load: 0, countIn: 0,
   };
   private readonly pong = { type: 'pong', id: 0 } as Extract<WorkletToMain, { type: 'pong' }>;
   private readonly resetMsg: WorkletToMain = { type: 'engineReset' };
@@ -107,6 +108,8 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
       for (let ch = 0; ch < s.steps.length; ch++) {
         s.steps[ch] = this.engine.currentStep[ch];
         s.patterns[ch] = this.engine.heardPattern(ch); // a FILL's pattern while it plays (its steps)
+        s.next[ch] = this.engine.nextStep(ch);
+        s.nextMs[ch] = this.engine.msToNext(ch);
       }
       this.port.postMessage(s);
       this.engine.resetPeaks();

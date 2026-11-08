@@ -2496,6 +2496,24 @@ export class Engine {
     return this.fillPat[ch] >= 0 ? this.fillPat[ch] : this.activePattern[ch];
   }
 
+  /**
+   * Status: the step track ch plays next (-1 = none: stopped, or nothing plays), so the
+   * panel can light it on time between reports (msToNext).
+   */
+  nextStep(ch: number): number {
+    if (!this.playing || this.currentStep[ch] < 0 || !this.current[ch]) return -1;
+    const pat = ch * NUM_PATTERNS + this.seqPattern(ch);
+    const len = this.patternLength[pat];
+    const base = pat * MAX_STEPS;
+    const idx = this.nextOn(base, this.position[ch] % len, len);
+    return idx >= 0 ? idx : this.nextOn(base, 0, len);
+  }
+
+  /** Status: ms until track ch's next step starts (its current step's length less what has played). */
+  msToNext(ch: number): number {
+    return (Math.max(0, this.chanLen[ch] - this.chanElapsed[ch]) / this.sampleRate) * 1000;
+  }
+
   /** The pattern whose steps track ch plays now (status: currentStep is a step of it). */
   heardPattern(ch: number): number {
     return this.seqPattern(ch);

@@ -1,8 +1,10 @@
 /**
  * The Android app's engine host: the same protocol as the worklet's (host.ts), spoken to the
- * native engine (native/, Rust on AAudio) through NativeAudioPlugin. Messages are batched per
- * task and sent in order; what the engine writes (status, pong, recorded, engineReset) comes
- * back as "engine" events. The WebView plays no audio at all.
+ * native engine (native/, Rust on AAudio). Messages are batched per task and sent in order;
+ * what the engine writes (status, pong, recorded, engineReset) is pulled: `poll` before each
+ * frame is drawn (main.ts) and every few ms besides. Both go straight through the page's
+ * `GrooveNative` object (NativeAudioPlugin's JavaScript interface); a build without it uses
+ * the plugin's calls and "engine" events. The WebView plays no audio at all.
  */
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
@@ -10,13 +12,20 @@ import type { EngineHost, LatencyInfo } from './host';
 
 interface StreamInfo { rate: number; burst: number; buffer: number; exclusive: boolean; lowLatency: boolean }
 interface NativeEngine {
-  engineStart(): Promise<StreamInfo>;
+  engineStart(o: { events: boolean }): Promise<StreamInfo>;
   send(o: { msgs: string }): Promise<void>;
   latency(): Promise<StreamInfo & { ms: number }>;
   addListener(event: 'engine', cb: (e: { msgs: string }) => void): Promise<PluginListenerHandle>;
 }
 
 const Native = registerPlugin<NativeEngine>('NativeAudio');
+
+/** NativeAudioPlugin's direct line (a JavaScript interface: synchronous, off the main thread). */
+interface Direct { send(json: string): void; poll(): string }
+const direct = (): Direct | undefined => (window as unknown as { GrooveNative?: Direct }).GrooveNative;
+
+/** How often the engine's writes are fetched besides each frame (recorded notes, a hidden page). */
+const POLL_MS = 8;
 
 type StatusMsg = Extract<WorkletToMain, { type: 'status' }>;
 
@@ -34,12 +43,12 @@ export class NativeHost implements EngineHost {
   onEngineReset: (() => void) | null = null;
 
   async start(): Promise<void> {
-    await Native.addListener('engine', (e) => {
-      for (const m of JSON.parse(e.msgs) as WorkletToMain[]) this.onMessage(m);
-    });
-    this.info = await Native.engineStart();
+    const d = direct();
+    if (!d) await Native.addListener('engine', (e) => this.receive(e.msgs));
+    this.info = await Native.engineStart({ events: !d });
     this.started = true;
     this.flush();
+    if (d) window.setInterval(() => this.poll(), POLL_MS);
     window.setInterval(() => this.ping(), 1000);
     window.setInterval(() => void this.readLatency(), 500);
     this.ping();
@@ -64,7 +73,20 @@ export class NativeHost implements EngineHost {
     if (!this.started || this.queue.length === 0) return;
     const msgs = JSON.stringify(this.queue);
     this.queue = [];
-    void Native.send({ msgs });
+    const d = direct();
+    if (d) d.send(msgs);
+    else void Native.send({ msgs });
+  }
+
+  /** Fetch what the engine wrote (the direct line only; events come by themselves). */
+  poll(): void {
+    const d = this.started ? direct() : undefined;
+    if (d) this.receive(d.poll());
+  }
+
+  private receive(json: string): void {
+    if (json.length <= 2) return;
+    for (const m of JSON.parse(json) as WorkletToMain[]) this.onMessage(m);
   }
 
   get running(): boolean {

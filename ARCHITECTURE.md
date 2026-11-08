@@ -90,7 +90,7 @@ Worklet -> main:
 | type | fields | meaning |
 |---|---|---|
 | `ready` | `sampleRate` | Processor constructed |
-| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load`, `countIn` | ~30 Hz: meters, COUNT-IN beats left, playhead and playing pattern per track, position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
+| `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `next[8]`, `nextMs[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load`, `countIn` | ~30 Hz: meters, COUNT-IN beats left, playhead and playing pattern per track, each track's next step and ms until it (the panel moves the lights on time between reports, `App.headStep`), position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
 | `pong` | `id` | Answer to `ping` |
 | `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate`, `slide`, `start?` | A live-recorded note was written (sent again with its length on release; `start` = it replaced the step's notes) |

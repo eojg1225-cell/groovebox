@@ -1150,6 +1150,23 @@ impl Engine {
         n
     }
 
+    /// Status: the step track ch plays next (-1 = none), as Engine.ts nextStep.
+    pub fn next_step(&self, ch: usize) -> i32 {
+        if !self.playing || self.current_step[ch] < 0 || self.current[ch].is_none() {
+            return -1;
+        }
+        let pat = ch * NUM_PATTERNS + self.seq_pattern(ch);
+        let len = self.pattern_length[pat] as usize;
+        let base = pat * MAX_STEPS;
+        let idx = self.next_on(base, (self.position[ch] as usize % len) as i32, len);
+        if idx >= 0 { idx } else { self.next_on(base, 0, len) }
+    }
+
+    /// Status: ms until track ch's next step starts.
+    pub fn ms_to_next(&self, ch: usize) -> f64 {
+        ((self.chan_len[ch] - self.chan_elapsed[ch]).max(0.0) / self.sample_rate) * 1000.0
+    }
+
     /// The pattern whose steps track ch plays now.
     pub fn heard_pattern(&self, ch: usize) -> usize {
         self.seq_pattern(ch)

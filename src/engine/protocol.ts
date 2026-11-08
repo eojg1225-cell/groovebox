@@ -136,6 +136,9 @@ export type WorkletToMain =
       playing: boolean;
       steps: number[];
       patterns: number[];
+      /** The step each track plays next (-1 = none) and ms until it starts: the panel lights it on time between reports. */
+      next?: number[];
+      nextMs?: number[];
       /** Position in the bar (of the time signature), 0..1 (0 when stopped). */
       barPhase: number;
       /** The bar playing, in 16th steps (the time signature). */

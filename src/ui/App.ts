@@ -251,6 +251,8 @@ export interface AudioInfo {
   fps: number;
   /** The audio thread's load (process() time / audio time, smoothed; 1 = out of time). */
   dspLoad: number;
+  /** STAT: the spread of how late the engine's status reports reach the page (ms, over 3 s; a few ms = on time). */
+  statusGapMs: number;
 }
 
 /** What one knob controls right now. */
@@ -554,6 +556,24 @@ export class App {
     this.snap = snapshot(project);
     panel.subscribe((e) => this.onControl(e));
     this.refreshPanel();
+  }
+
+  /** How late the player hears the engine (OUT, ms; main.ts sets it): the step lights follow what is heard. */
+  heardDelayMs = 0;
+
+  /**
+   * The step track ch is heard on now: the last report's, or its next once the report's
+   * time to it (plus OUT) has gone by, so the lights move on time between reports (and
+   * whatever late or bunched reports reach the page).
+   */
+  headStep(ch: number): number {
+    const s = this.status;
+    if (!s) return -1;
+    const head = s.steps[ch] ?? -1;
+    const next = s.next?.[ch] ?? -1;
+    if (head < 0 || next < 0 || !s.playing) return head;
+    const t = performance.now() - this.statusAt - this.heardDelayMs;
+    return t >= (s.nextMs?.[ch] ?? Infinity) ? next : head;
   }
 
   setStatus(s: Status): void {
@@ -896,7 +916,7 @@ export class App {
     if (this.stepEdit && this.primed && ch === this.selected) return this.primed.view ?? Math.floor(this.primed.cell / 16);
     const c = this.project.channels[ch];
     const heard = this.status?.patterns[ch] ?? c.activePattern;
-    const head = this.status?.steps[ch] ?? -1;
+    const head = this.headStep(ch);
     // Other lanes, PLAY, DESIGN and live recording (placing a flag too) follow the playhead's
     // 16-step block.
     // Stopped, every track shows the bar it stopped in (or was set to): the next PLAY's start.
@@ -2707,7 +2727,7 @@ export class App {
   private keepBars(top: boolean): void {
     for (let ch = 0; ch < NUM_CHANNELS; ch++) {
       const c = this.project.channels[ch];
-      const head = this.status?.steps[ch] ?? -1;
+      const head = this.headStep(ch);
       const heard = this.status?.patterns[ch] ?? c.activePattern;
       if (!top && (head < 0 || heard !== c.activePattern)) continue;
       const page = top ? 0 : Math.floor(head / 16);
@@ -4146,7 +4166,7 @@ export class App {
     const pattern = this.pattern;
     // Playing: the step being heard lights (the edited pattern only).
     const c = this.channel;
-    const head = this.playing && (this.status?.patterns[this.selected] ?? c.activePattern) === c.activePattern ? (this.status?.steps[this.selected] ?? -1) : -1;
+    const head = this.playing && (this.status?.patterns[this.selected] ?? c.activePattern) === c.activePattern ? this.headStep(this.selected) : -1;
     // The steps as in RING / ACCENT ... placing: notes lit (accent / ghost / ring), steps a
     // note is tied over as a band; locks marked L; the primed step yellow, and the LEDs over
     // every step the primed note lasts (◀ ▶ change that).
@@ -4819,7 +4839,7 @@ export class App {
     const pattern = this.pattern;
     const playingPattern = this.status?.patterns[ch] ?? c.activePattern;
     const heardHere = this.playing && playingPattern === c.activePattern;
-    const head = heardHere ? (this.status?.steps[ch] ?? -1) : -1;
+    const head = heardHere ? this.headStep(ch) : -1;
     const page = this.visiblePage(ch);
     const pitchedRecord = this.keyboard && this.mode === 'record' && !this.recording;
     // STEP EDIT's keys (SCALE held): the primed note's step stands for the cursor.
@@ -4928,12 +4948,13 @@ export class App {
     if (audio.state === 'off') return { text: 'TOUCH FOR SOUND', alert: true };
     if (audio.state === 'starting') return { text: 'STARTING AUDIO', alert: false };
     if (audio.state === 'error') return { text: 'AUDIO ERROR', alert: true };
-    // Room for ~10 characters: output latency, the audio thread's load, then the panel's drawing
-    // cost per frame and its frame rate, 3 s each; a load near the limit stays up, flagged.
+    // Room for ~10 characters: output latency, the audio thread's load, the panel's drawing
+    // cost per frame and its frame rate, then how unevenly status reports arrive (STAT), 3 s each; a load near the limit stays up, flagged.
     const dsp = `DSP ${Math.round(audio.dspLoad * 100)}%`;
     if (audio.dspLoad >= DSP_ALERT) return { text: dsp, alert: true };
-    const phase = audio.fps > 0 ? Math.floor(performance.now() / 3000) % 4 : 0;
+    const phase = audio.fps > 0 ? Math.floor(performance.now() / 3000) % 5 : 0;
     if (phase === 1) return { text: dsp, alert: false };
+    if (phase === 4) return { text: `STAT ${Math.round(audio.statusGapMs)}MS`, alert: false };
     if (phase === 2) return { text: `UI ${audio.uiMs.toFixed(1)}MS`, alert: false };
     if (phase === 3) return { text: `UI ${Math.round(audio.fps)}FPS`, alert: false };
     return { text: Number.isFinite(audio.latencyMs) ? `OUT ${audio.latencyMs.toFixed(0)}MS` : 'AUDIO ON', alert: false };
@@ -4995,7 +5016,7 @@ export class App {
       const shown = i === ch ? lc.activePattern : heard;
       const pat = lc.patterns[shown];
       const page = this.visiblePage(i);
-      const head = this.playing && shown === heard ? (this.status?.steps[i] ?? -1) : -1;
+      const head = this.playing && shown === heard ? this.headStep(i) : -1;
       const pitched = !stepsOnStrip(lc.instrument);
       const tied = pitched ? tiedSteps(pat.steps, pat.length, playsChords(lc.instrument)) : null;
       const cells: LaneCell[] = [];

@@ -272,6 +272,14 @@ impl Host {
         for ch in 0..e.current_step.len() {
             let _ = write!(s, "{}{}", if ch > 0 { "," } else { "" }, e.heard_pattern(ch));
         }
+        s.push_str("],\"next\":[");
+        for ch in 0..e.current_step.len() {
+            let _ = write!(s, "{}{}", if ch > 0 { "," } else { "" }, e.next_step(ch));
+        }
+        s.push_str("],\"nextMs\":[");
+        for ch in 0..e.current_step.len() {
+            let _ = write!(s, "{}{:.2}", if ch > 0 { "," } else { "" }, num(e.ms_to_next(ch)));
+        }
         s.push_str("]}");
         self.pending = s;
         self.engine.reset_peaks();
