@@ -7,3 +7,4 @@ dist-lab
 dist-lab-artifact
 native/target
 android/app/src/main/jniLibs
+src/worklet/engineWasm.gen.ts

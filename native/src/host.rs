@@ -12,9 +12,23 @@ use serde_json::Value;
 use std::fmt::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
 
 const STATUS_HZ: f64 = 30.0;
+
+/// Seconds on a steady clock, for the DSP load (the browser's worklet has no `Instant`: the
+/// page's WebAssembly import `now_ms`, whole ms, which evens out over the blocks of a report).
+#[cfg(not(target_arch = "wasm32"))]
+fn clock() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn clock() -> f64 {
+    crate::wasm::now_ms() / 1000.0
+}
 const MAX_BLOCK: usize = 1024;
 
 /// Messages parsed and waiting for the audio thread.
@@ -44,6 +58,15 @@ pub fn send(json: &str) -> Result<(), String> {
     INBOX.lock().unwrap_or_else(|e| e.into_inner()).extend(msgs);
     TRASH.lock().unwrap_or_else(|e| e.into_inner()).clear();
     Ok(())
+}
+
+/// Everything the audio thread wrote since the last poll, as JSON objects, comma-separated,
+/// into `into` (reused: the browser's worklet polls after every block).
+pub fn poll_into(into: &mut String) {
+    let mut out = OUTBOX.lock().unwrap_or_else(|e| e.into_inner());
+    into.clear();
+    into.push_str(&out);
+    out.clear();
 }
 
 /// Everything the audio thread wrote since the last poll, as a JSON array.
@@ -183,7 +206,7 @@ impl Host {
 
     /// Render `frames` stereo frames, added into `out` (interleaved L R).
     pub fn render(&mut self, out: &mut [f32], frames: usize) {
-        let started = Instant::now();
+        let started = clock();
         if let Ok(mut q) = INBOX.try_lock() {
             std::mem::swap(&mut *q, &mut self.msgs);
         }
@@ -235,7 +258,7 @@ impl Host {
             done += n;
         }
         self.since_status += frames;
-        self.busy += started.elapsed().as_secs_f64();
+        self.busy += clock() - started;
         if self.since_status >= self.status_every {
             self.status();
         }

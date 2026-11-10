@@ -121,7 +121,8 @@ export type MainToWorklet =
   | { type: 'ping'; id: number };
 
 export type WorkletToMain =
-  | { type: 'ready'; sampleRate: number }
+  /** engine: which one plays in the browser's worklet (rust = native/ as WebAssembly; ts only where that cannot start). */
+  | { type: 'ready'; sampleRate: number; engine?: 'rust' | 'ts' }
   /** The engine's output went non-finite: the worklet started a fresh engine (resend state). */
   | { type: 'engineReset' }
   /**

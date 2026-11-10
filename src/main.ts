@@ -114,6 +114,7 @@ function unlockAudio(): void {
     // Queued until the worklet is up, then delivered in order.
     for (const msg of app.syncMessages()) host.send(msg);
     host.onRecorded = (m) => app.onRecorded(m);
+    if (host instanceof AudioHost) host.onReady = (engine) => { if (engine === 'ts') app.notify('NO WEBASSEMBLY: OLD WEB ENGINE'); };
     host.onEngineReset = () => {
       for (const msg of app.syncMessages()) host?.send(msg);
       sentListenMs = -1; // a fresh engine: send the listen latency again

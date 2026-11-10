@@ -11,7 +11,10 @@ src/instruments  Instrument interface, registry (8 track types, their pages, liv
 src/fx           buses.ts (FX 1 / 2: units, TYPE lists, knob specs, layout, defaults), FxBus (one bus),
                  units.ts (MOD, DELAY, VERB, DIST; FX 1's FILTER lives in FxBus), Compressor, TrackCut (per-track MID CUT), Limiter,
                  Delay + Reverb (PLUCK's onboard delay / room). No DOM/Web Audio.
-src/worklet      processor.ts: AudioWorkletProcessor hosting Engine (audio thread)
+src/worklet      processor.ts: AudioWorkletProcessor hosting the Rust engine (native/ as WebAssembly, through
+                 wasmEngine.ts and native/src/host.rs; the TypeScript Engine only where WebAssembly cannot start)
+                 wasmEngine.ts: the WebAssembly engine behind the protocol (JSON in, interleaved audio and JSON out;
+                 no DOM, runs in the worklet and in Node); engineWasm.gen.ts: the module as base64 (scripts/build-wasm.mjs)
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code), EngineHost
                  nativeHost.ts: the Android app's EngineHost: the same protocol to the Rust engine (native/,
                  NativeAudioPlugin: messages as JSON in, status / pong / recorded / engineReset polled out)
@@ -21,7 +24,8 @@ src/ui           App (controller), Panel (on-screen ControlSurface), Knob, Pixel
 src/storage      projects.ts (64 slots, ProjectStore), kv.ts (where they are kept), native.ts (the Android
                  app's files), backup.ts / backupFile.ts (PROJECT BACKUP), slotSync.ts (slots <-> claude.ai artifact db),
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
-native           Rust (groovebox-native): the native audio path (AAudio + JNI), the native engine to come
+native           Rust (groovebox-native): the engine (both builds: the Android app on AAudio + JNI, the web
+                 build as WebAssembly, src/wasm.rs), its host (host.rs), null tests against src/engine
 tests            Vitest: the engine offline in Node, project storage / sync, the App via button events
 tools/lab        The sound lab: A/B page for TIMBRE / INT candidates (not part of the app)
 ```
@@ -34,8 +38,8 @@ fails on unused files or exports.
 
 ```
 Panel (pointer / keyboard) --ControlEvent--> App --project edit + MainToWorklet--> AudioHost.send()
-     --postMessage--> processor.ts --> Engine.handleMessage() ... Engine.process() each 128-frame block
-processor.ts --status @30 Hz / pong / recorded*--> AudioHost --> App --> views --> PixelScreen (requestAnimationFrame)
+     --postMessage--> processor.ts --JSON--> WasmEngine (host.rs: Engine::handle_message at the block's start, Engine::process each 128-frame block)
+processor.ts <--status @30 Hz / pong / recorded* (JSON, drained after the block)-- host.rs; --> AudioHost --> App --> views --> PixelScreen (requestAnimationFrame)
 ```
 
 `App` owns the project (the UI-side source of truth). Every edit changes the project and sends the
@@ -89,7 +93,7 @@ Main -> worklet:
 Worklet -> main:
 | type | fields | meaning |
 |---|---|---|
-| `ready` | `sampleRate` | Processor constructed |
+| `ready` | `sampleRate`, `engine?` | Processor constructed; `engine` = `rust` (the WebAssembly engine) or `ts` (WebAssembly could not start: the page says NO WEBASSEMBLY: OLD WEB ENGINE) |
 | `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `next[8]`, `nextMs[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load`, `countIn` | ~30 Hz: meters, COUNT-IN beats left, playhead and playing pattern per track, each track's next step and ms until it (the panel moves the lights on time between reports, `App.headStep`), position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
 | `pong` | `id` | Answer to `ping` |
 | `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
@@ -304,7 +308,9 @@ Engine-side changes go through one-pole `Smoother`s.
 
 No allocation in `process()` or per block, no logging, no blocking, denormal-prone state snapped to
 zero, status object reused. The worklet is bundled by Vite (`?worker&url`, IIFE) into one
-self-contained script. A non-finite output mutes the block and restarts the engine (`engineReset`).
+self-contained script, the WebAssembly engine inside it as base64 (decoded and compiled synchronously
+in the processor's constructor; output and audio read from buffers the module owns and reuses, so a
+block with nothing to report allocates nothing). A non-finite output mutes the block and restarts the engine (`engineReset`).
 
 ## Deployment
 

@@ -171,15 +171,40 @@ function renderTs(sc: Scenario): { audio: Float32Array; recorded: Recorded[] } {
   return { audio, recorded };
 }
 
-describe('native engine null test: whole projects', () => {
-  it('the Rust engine plays what the TypeScript engine plays', () => {
-    const list = scenarios();
-    const dir = mkdtempSync(join(tmpdir(), 'native-engine-'));
-    writeFileSync(join(dir, 'scenarios.json'), JSON.stringify(list));
-    execFileSync('cargo', ['run', '--quiet', '--release', '--manifest-path', 'native/Cargo.toml', '--example', 'engine', '--', join(dir, 'scenarios.json'), join(dir, 'out.f32'), join(dir, 'recorded.json')], { stdio: 'inherit' });
-    const buf = readFileSync(join(dir, 'out.f32'));
-    const rust = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
-    const rustRec = readFileSync(join(dir, 'recorded.json'), 'utf8').trim().split('\n').map((x) => JSON.parse(x) as Recorded[]);
+/**
+ * The web build's engine: the same Rust compiled to WebAssembly, driven exactly as the worklet
+ * drives it (src/worklet/wasmEngine.ts, through native/src/host.rs): messages queued as JSON
+ * and handled at the start of the block they fall in, audio interleaved, what it wrote drained.
+ */
+async function renderWasm(list: Scenario[]): Promise<{ audio: Float32Array; recorded: Recorded[][] }> {
+  execFileSync('node', ['scripts/build-wasm.mjs'], { stdio: 'inherit' });
+  const { ENGINE_WASM } = await import('../../src/worklet/engineWasm.gen');
+  const { WasmEngine, fromBase64 } = await import('../../src/worklet/wasmEngine');
+  const bytes = fromBase64(ENGINE_WASM);
+  const audio = new Float32Array(list.reduce((n, sc) => n + sc.frames * 2, 0));
+  const recorded: Recorded[][] = [];
+  let off = 0;
+  for (const sc of list) {
+    const engine = new WasmEngine(bytes, sc.sampleRate);
+    const rec: Recorded[] = [];
+    let next = 0;
+    for (let pos = 0; pos < sc.frames; pos += sc.block) {
+      const n = Math.min(sc.block, sc.frames - pos);
+      while (next < sc.msgs.length && sc.msgs[next][0] < pos + n) engine.send(sc.msgs[next++][1]);
+      engine.render(n);
+      audio.set(engine.audio, off + pos * 2);
+      for (const m of engine.drain() ?? []) {
+        if (m.type === 'recordedNote') rec.push({ ...m, start: m.start === true });
+        else if (m.type === 'recordedLock' || m.type === 'recordedChord') rec.push(m);
+      }
+    }
+    recorded.push(rec);
+    off += sc.frames * 2;
+  }
+  return { audio, recorded };
+}
+
+function compare(list: Scenario[], rust: Float32Array, rustRec: Recorded[][], what: string): void {
     let off = 0;
     const rows: string[] = [];
     let worstDb = -Infinity;
@@ -206,7 +231,25 @@ describe('native engine null test: whole projects', () => {
       if (!(db < LIMIT_DB)) failures.push(`${sc.name}: ${db.toFixed(1)} dB`);
     });
     expect(off).toBe(rust.length);
-    console.log(`${list.length} engine scenarios: ${identical} bit-identical, worst ${worstDb === -Infinity ? 'none' : `${worstDb.toFixed(1)} dB`}\n${rows.join('\n')}`);
+    console.log(`${what}: ${list.length} engine scenarios: ${identical} bit-identical, worst ${worstDb === -Infinity ? 'none' : `${worstDb.toFixed(1)} dB`}\n${rows.join('\n')}`);
     expect(failures).toEqual([]);
+}
+
+describe('native engine null test: whole projects', () => {
+  it('the Rust engine plays what the TypeScript engine plays', () => {
+    const list = scenarios();
+    const dir = mkdtempSync(join(tmpdir(), 'native-engine-'));
+    writeFileSync(join(dir, 'scenarios.json'), JSON.stringify(list));
+    execFileSync('cargo', ['run', '--quiet', '--release', '--manifest-path', 'native/Cargo.toml', '--example', 'engine', '--', join(dir, 'scenarios.json'), join(dir, 'out.f32'), join(dir, 'recorded.json')], { stdio: 'inherit' });
+    const buf = readFileSync(join(dir, 'out.f32'));
+    const rust = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+    const rustRec = readFileSync(join(dir, 'recorded.json'), 'utf8').trim().split('\n').map((x) => JSON.parse(x) as Recorded[]);
+    compare(list, rust, rustRec, 'native');
+  });
+
+  it('the web build (the Rust engine as WebAssembly, as the worklet runs it) plays what the TypeScript engine plays', async () => {
+    const list = scenarios();
+    const wasm = await renderWasm(list);
+    compare(list, wasm.audio, wasm.recorded, 'WebAssembly');
   });
 });

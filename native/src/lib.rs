@@ -21,6 +21,8 @@ pub mod params;
 pub mod smoother;
 pub mod specs;
 
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 #[cfg(target_os = "android")]
 mod audio;
 #[cfg(target_os = "android")]
