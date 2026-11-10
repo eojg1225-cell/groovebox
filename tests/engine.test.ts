@@ -1593,12 +1593,12 @@ describe('slides and rolls', () => {
     expect(Math.abs(crossings(slow, 0.05) - crossings(fast, 0.05))).toBeLessThanOrEqual(1);
   });
 
-  it('a slide is one held note: full level through the slide and the note it lands on, until released', () => {
-    const stab = () => {
+  it('a slide keeps its envelope: the SLIDE note decays to SUSTAIN as any note, and the note it lands on does not jump back up', () => {
+    const synthWith = () => {
       const s = bass();
       s.setParam('decay', 0.05);
       s.setParam('decay2', 0.05);
-      s.setParam('sustain', 0);
+      s.setParam('sustain', 0.4);
       return s;
     };
     const level = (s: Synth, seconds: number) => {
@@ -1607,16 +1607,18 @@ describe('slides and rolls', () => {
       s.render(l, new Float32Array(n), 0, n);
       return stats(l.subarray(n - 2000)).peak;
     };
-    const plain = stab();
-    plain.noteOn(45, 1, 45);
-    const held = stab();
-    held.noteOn(45, 1, 45, false, -1, true);
-    expect(level(plain, 0.3)).toBeLessThan(0.02);
-    expect(level(held, 0.3)).toBeGreaterThan(0.2);
-    held.noteOn(52, 1, 52, false, 45); // lands, not sliding on: still held
-    expect(level(held, 0.4)).toBeGreaterThan(0.2);
-    held.noteOff(52);
-    expect(level(held, 0.4)).toBeLessThan(0.02);
+    const plain = synthWith();
+    plain.noteOn(45, 0.8, 45);
+    const slid = synthWith();
+    slid.noteOn(45, 0.8, 45, false, -1, true);
+    const settled = level(slid, 0.3);
+    expect(Math.abs(settled / level(plain, 0.3) - 1)).toBeLessThan(0.05); // at SUSTAIN, as a plain note
+    slid.noteOn(52, 0.8, 52, false, 45); // the slide lands
+    const landed = level(slid, 0.3);
+    expect(landed).toBeLessThan(settled * 1.1); // no climb back to the peak
+    expect(landed).toBeGreaterThan(settled * 0.6); // still held at SUSTAIN
+    slid.noteOff(52);
+    expect(level(slid, 0.4)).toBeLessThan(0.02);
   });
 
   it('slides and rolls survive the stored format', () => {
@@ -2604,6 +2606,54 @@ describe('drum BALANCE', () => {
   });
 });
 
+describe('ghost and accent shape the sound, not only its level', () => {
+  const hit = (kind: SoundKind, velocity: number, preset = 0) => {
+    const d = new Instrument(kind, SR);
+    const sound = presetSound(kind, preset);
+    for (const id in sound) d.setParam(id, sound[id]);
+    d.noteOn(kind === 'kick' || kind === 'snare' || kind === 'hat' ? 33 : 45, velocity, 45);
+    const l = new Float32Array(SR), r = new Float32Array(SR);
+    d.render(l, r, 0, SR);
+    return l;
+  };
+  /** Frames until the hit falls 40 dB under its peak. */
+  const length = (l: Float32Array) => {
+    const p = stats(l).peak;
+    let last = 0;
+    for (let i = 0; i < l.length; i++) if (Math.abs(l[i]) > p * 0.01) last = i;
+    return last;
+  };
+  /** High-frequency share: the first difference's energy over the energy. */
+  const edge = (l: Float32Array, n = 2400) => {
+    let d = 0, e = 0;
+    for (let i = 1; i < n; i++) { d += (l[i] - l[i - 1]) ** 2; e += l[i] ** 2; }
+    return d / e;
+  };
+
+  it('a drum GHOST dies sooner and strikes softer (less click); an ACCENT rings longer; NORMAL as before', () => {
+    for (const kind of ['kick', 'snare', 'hat'] as const) {
+      const ghost = hit(kind, 0.45), normal = hit(kind, 0.8), accent = hit(kind, 1);
+      expect(length(ghost), kind).toBeLessThan(length(normal) * 0.85);
+      expect(length(accent), kind).toBeGreaterThan(length(normal) * 1.03);
+    }
+    // The KICK's click (PUNCH has one): a ghost's attack is duller than a normal hit's.
+    expect(edge(hit('kick', 0.45, 2), 240)).toBeLessThan(edge(hit('kick', 0.8, 2), 240) * 0.8);
+  });
+
+  it('a synth GHOST opens its filter less, an ACCENT more (the filter envelope x0.5 / x1.5)', () => {
+    const bright = (velocity: number) => {
+      const s = new Instrument('bass', SR);
+      for (const [id, v] of Object.entries({ ...presetSound('bass', 5), cutoff: 300, fenv: 1, fdecay: 0.3 })) s.setParam(id, v);
+      s.noteOn(45, velocity, 45);
+      const l = new Float32Array(SR / 4), r = new Float32Array(SR / 4);
+      s.render(l, r, 0, l.length);
+      return edge(l);
+    };
+    expect(bright(0.45)).toBeLessThan(bright(0.8) * 0.8);
+    expect(bright(1)).toBeGreaterThan(bright(0.8) * 1.2);
+  });
+});
+
 describe('ACC/GHOST depth (per track)', () => {
   it('scales how far accents and ghosts sit from a normal hit, both ways at once', () => {
     expect(dynVelocity(0.8, 0)).toBe(0.8);
@@ -2812,11 +2862,11 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     s.setTempo?.(120);
     return s;
   };
-  const play = (s: ReturnType<typeof synth>, seconds: number, noteSeconds: number) => {
+  const play = (s: ReturnType<typeof synth>, seconds: number, noteSeconds: number, velocity = 1) => {
     const n = Math.floor(seconds * SR);
     const l = new Float32Array(n);
     const r = new Float32Array(n);
-    s.noteOn(45, 1, 45, false);
+    s.noteOn(45, velocity, 45, false);
     const off = Math.floor(noteSeconds * SR);
     for (let at = 0; at < n; at += BLOCK) {
       if (at === Math.floor(off / BLOCK) * BLOCK) s.noteOff(-1);
@@ -2874,8 +2924,9 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     // The pair alone (BODY off: its sine on the note would hide the pair's own partials).
     const base = { shape: 0, fm: 1, fenv: 1, fdecay: 2, sustain: 1, decay: 2, cutoff: 12000, reso: 0, sub: 0, drive: 1, detune: 0, unison: 0, body: 0 };
     const f = midiToHz(45) * Math.pow(2, (presetSound('bass', 0).octave ?? 4) - 4);
-    const plain = play(synth('bass', { ...base, fmratio: 2 / 3 }), 0.6, 0.6);
-    const locked = play(synth('bass', { ...base, fmratio: 2, cratio: 3 }), 0.6, 0.6);
+    // At NORMAL velocity (an accent deepens the FM envelope).
+    const plain = play(synth('bass', { ...base, fmratio: 2 / 3 }), 0.6, 0.6, 0.8);
+    const locked = play(synth('bass', { ...base, fmratio: 2, cratio: 3 }), 0.6, 0.6, 0.8);
     // Plain 2 : 3 has a root an octave and a fifth down; root-locked has nothing below the note.
     expect(mag(plain, f / 3)).toBeGreaterThan(mag(plain, f) * 0.2);
     expect(mag(locked, f / 3)).toBeLessThan(mag(locked, f) * 0.02);

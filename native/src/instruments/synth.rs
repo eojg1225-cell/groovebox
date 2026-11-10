@@ -13,7 +13,7 @@
 //! with glide. Ranges go far past "sensible" on purpose.
 
 use crate::drive_comp::{drive_comp_gain, drive_rise};
-use crate::dsp::{crush_levels, crush_step, decay_mul, midi_to_hz, poly_blep, IdleGate, Svf};
+use crate::dsp::{crush_levels, crush_step, decay_mul, dynamic_of, midi_to_hz, poly_blep, IdleGate, Svf};
 use crate::fx::delay::Delay;
 use crate::fx::reverb::Reverb;
 use crate::fx::units::{ModFx, VerbFx, FX_BLOCK};
@@ -33,8 +33,9 @@ const FM_RISE: [f64; 11] = [0.0, 0.19, 0.36, 0.5, 0.64, 0.76, 0.86, 0.95, 1.0, 0
 const SQUELCH_TOP: f64 = 8.0;
 const RING_STRETCH: f64 = 2.0;
 const SLIDE_SECONDS: f64 = 0.06;
-const SLIDE_SUSTAIN: f64 = 1.0;
 const VEL_SMOOTH: f64 = 0.004;
+/// How far a note's dynamic moves its filter / FM envelope depth (x 1 - this ... 1 + this).
+const ENV_DYNAMIC: f64 = 0.5;
 const FM_MAX_INDEX: f64 = 13.0;
 const MAX_FEEDBACK: f64 = 1.6;
 const MAX_CARRIER_FEEDBACK: f64 = 1.3;
@@ -269,7 +270,6 @@ struct Voice {
     velocity: f64,
     vel: f64,
     glide: f64,
-    hold: bool,
     ring: bool,
     p1: f64, p2: f64, p3: f64, p4: f64,
     p5: f64, p6: f64, fb1: f64, fb2: f64, cf1: f64, cf2: f64,
@@ -277,6 +277,9 @@ struct Voice {
     stage: [u8; 2],
     amp: [f64; 2],
     fenv: f64,
+    /// The note's envelope depth from its dynamic: the filter and FM envelopes' lift x this
+    /// (GHOST 0.5, NORMAL 1, ACCENT 1.5, as a 303's accent opens its filter).
+    env_dyn: f64,
     fattacking: bool,
     fmenv: f64,
     fmattacking: bool,
@@ -292,7 +295,7 @@ struct Voice {
 
 impl Voice {
     fn new() -> Self {
-        Voice { group: -1, freq: 110.0, target_freq: 110.0, velocity: 1.0, vel: 1.0, glide: 1.0, crush_phase: 1.0, ..Default::default() }
+        Voice { group: -1, freq: 110.0, target_freq: 110.0, velocity: 1.0, vel: 1.0, glide: 1.0, crush_phase: 1.0, env_dyn: 1.0, ..Default::default() }
     }
     fn sounding(&self) -> bool {
         self.stage[0] != OFF || self.stage[1] != OFF
@@ -490,7 +493,7 @@ impl Synth {
         self.voices.iter().filter(|v| (1..=3).contains(&v.stage[0])).count()
     }
 
-    pub fn note_on(&mut self, note: f64, velocity: f64, group: i32, ring: bool, slide_from: i32, slide: bool) {
+    pub fn note_on(&mut self, note: f64, velocity: f64, group: i32, ring: bool, slide_from: i32, _slide: bool) {
         if let Some(log) = self.notes.as_mut() {
             log.push(note);
         }
@@ -511,7 +514,6 @@ impl Synth {
                 v.target_freq = freq;
                 v.glide = self.slide_coeff;
                 v.velocity = velocity;
-                v.hold = true;
                 v.ring = ring;
                 return;
             }
@@ -523,7 +525,6 @@ impl Synth {
                 if old.cut_left == 0 {
                     old.cut_left = cut_len;
                 }
-                old.hold = false;
                 self.mono_voice ^= 1;
             }
             let v = &mut self.voices[self.mono_voice];
@@ -547,7 +548,6 @@ impl Synth {
         v.group = group;
         v.target_freq = freq;
         v.glide = 1.0;
-        v.hold = slide;
         v.ring = ring;
         v.velocity = velocity;
         if !v.sounding() {
@@ -561,6 +561,7 @@ impl Synth {
         v.stage = [ATTACK; 2];
         v.fattacking = fattack;
         v.fenv = if fattack { 0.0 } else { 1.0 };
+        v.env_dyn = 1.0 + ENV_DYNAMIC * dynamic_of(velocity);
         v.fmattacking = fmattack;
         v.fmenv = if fmattack { 0.0 } else { 1.0 };
         v.age = age;
@@ -616,7 +617,6 @@ impl Synth {
                 continue;
             }
             v.cut_left = self.cut_len;
-            v.hold = false;
         }
     }
 
@@ -798,7 +798,7 @@ impl Synth {
 
     fn post_filter(&mut self, l: &mut [f32], r: &mut [f32]) {
         let fmod = if self.filter_mod == 0.0 { 1.0 } else { 2f64.powf(self.filter_mod) };
-        let fenv = self.last_voice.map_or(0.0, |k| self.voices[k].fenv);
+        let fenv = self.last_voice.map_or(0.0, |k| self.voices[k].fenv * self.voices[k].env_dyn);
         for i in 0..l.len() {
             let due = self.post_counter <= 0;
             self.post_counter -= 1;
@@ -1015,7 +1015,7 @@ impl Synth {
             b.p1[j] = v.p1;
             b.p2[j] = v.p2;
             b.sub[j] = sin_turn(v.p3) * sub * 2.0;
-            b.env[j] = v.fmenv;
+            b.env[j] = v.fmenv * v.env_dyn;
             if v.fmattacking {
                 v.fmenv += fm_attack_inc;
                 if v.fmenv >= 1.0 {
@@ -1287,7 +1287,8 @@ impl Synth {
             let mut mix = 0.0;
             for k in 0..2 {
                 let mut a = v.amp[k];
-                let sus = if v.hold { self.sustain[k].max(SLIDE_SUSTAIN) } else { self.sustain[k] };
+                // A slide's notes keep their envelope (it is not restarted): they decay to SUSTAIN as any held note.
+                let sus = self.sustain[k];
                 match v.stage[k] {
                     ATTACK => {
                         a += self.attack_inc[k];
@@ -1348,7 +1349,7 @@ impl Synth {
                     v.counter -= 1;
                     if due {
                         v.counter = FILTER_UPDATE;
-                        v.filter.setup(self.cutoff * fmod * exp2(self.fenv_amt * 6.0 * v.fenv), self.reso, sr);
+                        v.filter.setup(self.cutoff * fmod * exp2(self.fenv_amt * 6.0 * v.fenv * v.env_dyn), self.reso, sr);
                     }
                     v.filter.process(out);
                     out = v.filter.low;
@@ -1358,7 +1359,7 @@ impl Synth {
                 v.counter -= 1;
                 if due {
                     v.counter = FILTER_UPDATE;
-                    v.filter.setup(self.cutoff * fmod * exp2(self.fenv_amt * 6.0 * v.fenv), self.reso, sr);
+                    v.filter.setup(self.cutoff * fmod * exp2(self.fenv_amt * 6.0 * v.fenv * v.env_dyn), self.reso, sr);
                 }
                 v.filter.process(mix * 0.5);
                 v.vel += (v.velocity - v.vel) * vel_k;

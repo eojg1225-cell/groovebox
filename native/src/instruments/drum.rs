@@ -29,10 +29,17 @@
 
 use super::air_room::AirRoom;
 use crate::drive_comp::{drive_comp_gain, drive_rise};
-use crate::dsp::{crush_levels, crush_step, decay_mul, poly_blep, IdleGate, Noise, Svf};
+use crate::dsp::{crush_levels, crush_step, decay_mul, poly_blep, IdleGate, Noise, Svf, dynamic_of};
 use crate::js;
 use crate::kind::SoundKind;
 use crate::math::{exp2, sin_rad, sin_turn, tanh};
+
+/// GHOST (dynamic -1) / ACCENT (+1): how much shorter / longer the layers decay (time x
+/// 1 - 0.4 ... 1 + 0.15) and how much softer / harder the click strikes (x 0.4 ... 1.3).
+const GHOST_DECAY: f64 = 0.4;
+const ACCENT_DECAY: f64 = 0.15;
+const GHOST_CLICK: f64 = 0.6;
+const ACCENT_CLICK: f64 = 0.3;
 
 /// A REST (or a drum retrigger) fades what it cuts off over this long, s.
 pub const CUT_FADE: f64 = 0.003;
@@ -186,6 +193,8 @@ pub struct Drum {
     t_ring_mul: f64, m_ring_mul: f64, c_ring_mul: f64,
     t_decay: f64, m_decay: f64, c_len: f64,
     g_t: f64, g_c: f64, g_m: f64,
+    /// The hit's click level from its dynamic (GHOST softer, ACCENT harder; NORMAL 1).
+    c_dyn: f64,
     interval_mul: f64, detune_mul: f64,
     h_time: f64, h_mul: f64, h_pitch: f64, h_tone: f64, h_noise: f64, h_mode: f64, h_spread: f64, m_tone: f64,
     h_env: f64, h_counter: i32,
@@ -254,6 +263,7 @@ impl Drum {
             t_ring_mul: 0.0, m_ring_mul: 0.0, c_ring_mul: 0.0,
             t_decay: 0.45, m_decay: 0.2, c_len: 0.004,
             g_t: 1.0, g_c: 1.0, g_m: 1.0,
+            c_dyn: 1.0,
             interval_mul: 2.0, detune_mul: 1.0,
             h_time: 0.0, h_mul: 0.0, h_pitch: 420.0, h_tone: 8500.0, h_noise: 0.3, h_mode: 0.0, h_spread: 1.0, m_tone: 6000.0,
             h_env: 0.0, h_counter: 0,
@@ -322,6 +332,16 @@ impl Drum {
         self.t_mul = if ring { self.t_ring_mul } else { self.t_decay_mul };
         self.m_mul = if ring { self.m_ring_mul } else { self.m_decay_mul };
         self.c_mul = if ring { self.c_ring_mul } else { self.c_decay_mul };
+        // Dynamics shape the hit, not only its level: a GHOST dies sooner with less click
+        // (decays x0.6, click x0.4), an ACCENT rings a little longer with more (x1.15, x1.3).
+        let d = dynamic_of(velocity);
+        self.c_dyn = 1.0 + d * if d < 0.0 { GHOST_CLICK } else { ACCENT_CLICK };
+        if d != 0.0 {
+            let k = 1.0 / (1.0 + d * if d < 0.0 { GHOST_DECAY } else { ACCENT_DECAY });
+            self.t_mul = self.t_mul.powf(k);
+            self.m_mul = self.m_mul.powf(k);
+            self.c_mul = self.c_mul.powf(k);
+        }
         let root = if self.voice.relative { PERC_ROOT } else { DRUM_ROOT };
         self.tune = 2f64.powf((note - root) / 12.0 + self.octave);
         if self.voice.relative {
@@ -839,7 +859,7 @@ impl Drum {
                 let kick = if self.impulse { 4.0 * (1.0 - self.c_noise * 0.5) } else { 0.0 };
                 self.c_filter.process(self.noise.next() * self.c_noise + kick);
                 self.impulse = false;
-                sum += self.c_filter.band * self.c_env * self.c_level * 2.0 * self.g_c;
+                sum += self.c_filter.band * self.c_env * self.c_level * 2.0 * self.g_c * self.c_dyn;
                 if self.c_stage == Stage::Attacking {
                     self.c_env += self.c_atk;
                     if self.c_env >= 1.0 {

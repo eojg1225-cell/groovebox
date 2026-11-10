@@ -208,7 +208,7 @@ velocity (`hitToneCutoff`), so softer hits are also darker; it glides to a new h
 own notes (`Step.extra`). A sequenced note releases when the step `gate` steps later starts; its last
 step is held for the track's TRIM (`gateAt`, sample-accurate). Live notes release on `release`.
 PAD / PLUCK notes (`registry.playsChords`; no RING / SLIDE / ARP) are held each by its own length (`Step.gate` / `Step.extraGate`) in a per-track list (`holdNote` / `holdSteps` / `holdAt`, each its own voice group), so later notes don't cut them. RING holds a note until the next hit or REST on the track (drums: long decay; the next hit chokes it). A REST step cuts everything sounding on its track (`Engine.cutTrack` -> `Instrument.cut`, a 3 ms fade), ties and releases included.
-SLIDE holds the note at full sustain and glides into the next. Drum ROLL runs (`startRollRun`) spread
+SLIDE holds the note through to the next and glides into it, its envelope running on (to SUSTAIN), not restarted. Drum ROLL runs (`startRollRun`) spread
 hits evenly from the first ROLL step's start to the last's end at the sound's ROLL RATE (a note value at the tempo, 1/4 ... 1/64, whatever the pattern speed; only the hits starting inside the run), velocity
 ramping across the run.
 

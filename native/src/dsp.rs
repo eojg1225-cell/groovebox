@@ -167,3 +167,19 @@ pub fn crush_step(knob: f64) -> f64 {
 pub fn crush_levels(knob: f64) -> f64 {
     2f64.powf(16.0 - knob * knob * 12.0)
 }
+
+/// The velocity of a NORMAL step (and of keys played with no dynamic armed).
+const NORMAL_VELOCITY: f64 = 0.8;
+/// GHOST's and ACCENT's velocities (DYNAMIC_VELOCITY), the ends of `dynamic_of`.
+const GHOST_VELOCITY: f64 = 0.45;
+const ACCENT_VELOCITY: f64 = 1.0;
+
+/// How ghosted (-1) or accented (+1) a note is from its velocity: 0 = NORMAL, linear to GHOST
+/// below and ACCENT above (ACC/GHOST's depth per track, rolls' ramps and live keys fall between).
+pub fn dynamic_of(velocity: f64) -> f64 {
+    if velocity < NORMAL_VELOCITY {
+        ((velocity - NORMAL_VELOCITY) / (NORMAL_VELOCITY - GHOST_VELOCITY)).max(-1.0)
+    } else {
+        ((velocity - NORMAL_VELOCITY) / (ACCENT_VELOCITY - NORMAL_VELOCITY)).min(1.0)
+    }
+}
