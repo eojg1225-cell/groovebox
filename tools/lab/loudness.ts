@@ -1,17 +1,19 @@
 /**
  * Loudness of one sound, rendered offline on the real engine: one default hit (synths: a
  * half-second note), BS.1770 K-weighted, then GATED: the mean over the samples whose 10 ms
- * loudness is within GATE_DB of the loudest moment (dB), so a sound's own tail and the silence after it don't
+ * loudness is within GATE_DB of the loudest moment (dB), on the app's (Rust) engine, so a sound's own tail and the silence after it don't
  * count. A short hat and a long kick are compared on how loud they are while they sound.
  * The same measure as the app's "every TIMBRE sound is equally loud" test.
  */
-import { Engine } from '../../src/engine/Engine';
+import { ENGINE_WASM } from '../../src/worklet/engineWasm.gen';
+import { WasmEngine, fromBase64 } from '../../src/worklet/wasmEngine';
 import { createDefaultProject } from '../../src/engine/defaultProject';
 import { emptyPattern, type SoundKind } from '../../src/engine/project';
 import { INSTRUMENTS } from '../../src/instruments/registry';
 
 const SR = 48000;
 const BLOCK = 128;
+let bytes: Uint8Array | null = null;
 
 function biquad(c: readonly number[], x: Float32Array): Float32Array {
   const y = new Float32Array(x.length);
@@ -36,15 +38,20 @@ export function loudness(kind: SoundKind, sound: Record<string, number>): number
   const pat = p.channels[ch].patterns[0];
   pat.length = 64;
   Object.assign(pat.steps[0], { active: true, gate: INSTRUMENTS[kind].drum ? 1 : 4 });
-  const e = new Engine(SR);
-  e.handleMessage({ type: 'loadProject', project: p });
+  const e = new WasmEngine((bytes ??= fromBase64(ENGINE_WASM)), SR);
+  e.send({ type: 'loadProject', project: p });
   // Values outside the type's parameters (the WAVE TEST's hidden ids) go to the sound itself.
   const specs = INSTRUMENTS[kind].params;
-  for (const id in sound) if (!specs.some((q) => q.id === id)) e.handleMessage({ type: 'setSound', channel: ch, id, value: sound[id] });
-  e.handleMessage({ type: 'transport', playing: true });
+  for (const id in sound) if (!specs.some((q) => q.id === id)) e.send({ type: 'setSound', channel: ch, id, value: sound[id] });
+  e.send({ type: 'transport', playing: true });
   const total = Math.floor((1.5 * SR) / BLOCK) * BLOCK;
   const l = new Float32Array(total), r = new Float32Array(total);
-  for (let i = 0; i < total; i += BLOCK) e.process(l.subarray(i, i + BLOCK), r.subarray(i, i + BLOCK), BLOCK);
+  for (let i = 0; i < total; i += BLOCK) {
+    e.render(BLOCK);
+    const a = e.audio;
+    for (let k = 0; k < BLOCK; k++) { l[i + k] = a[k * 2]; r[i + k] = a[k * 2 + 1]; }
+    e.drain();
+  }
   return gatedLoudness(l, r);
 }
 

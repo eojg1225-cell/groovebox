@@ -1,20 +1,18 @@
 /**
  * Instrument registry: one table entry per track type. Adding a type means one entry
- * here (plus a class if it needs new DSP).
+ * here (and its sound in the Rust engine, native/src/instruments, if it needs new DSP).
  */
-import type { Instrument, Preset } from './Instrument';
+import type { Preset } from './macroParams';
 import type { InstrumentKind, SoundKind } from '../engine/project';
 import type { ParamSpec } from '../engine/params';
 import { macroSound } from './macros';
 import {
-  DRUM_ROOT, Drum, HAT_ELEMENTS, HAT_PARAMS, HAT_PRESETS, HAT_VOICE, KICK_ELEMENTS, KICK_PARAMS, KICK_PRESETS, KICK_VOICE,
-  PERC_ELEMENTS, PERC_PARAMS, PERC_PRESETS, PERC_VOICE, SNARE_ELEMENTS, SNARE_PARAMS, SNARE_PRESETS, SNARE_VOICE,
-} from './Drum';
+  DRUM_ROOT, HAT_ELEMENTS, HAT_PARAMS, HAT_PRESETS, KICK_ELEMENTS, KICK_PARAMS, KICK_PRESETS,
+  PERC_ELEMENTS, PERC_PARAMS, PERC_PRESETS, SNARE_ELEMENTS, SNARE_PARAMS, SNARE_PRESETS,
+} from './drumSpecs';
 import {
-  BASS_FIXED, BASS_PARAMS, BASS_PRESETS, LEAD_FIXED, LEAD_PARAMS, LEAD_PRESETS, PLUCK_FIXED, PLUCK_PARAMS, PLUCK_PRESETS,
-  PAD_FIXED, PAD_PARAMS, PAD_PRESETS, Synth,
-} from './Synth';
-import { DRIVE_RISE } from './driveComp';
+  BASS_PARAMS, BASS_PRESETS, LEAD_PARAMS, LEAD_PRESETS, PLUCK_PARAMS, PLUCK_PRESETS, PAD_PARAMS, PAD_PRESETS,
+} from './synthSpecs';
 
 /** Knob slots per page: 2 rows of 8 modules. */
 const PAGE_SLOTS = 16;
@@ -298,7 +296,6 @@ interface InstrumentEntry {
   pitched?: boolean;
   /** Lowest note on the keyboard (an A, so the strip starts on A). */
   baseNote: number;
-  create: (sampleRate: number) => Instrument;
 }
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
@@ -308,46 +305,46 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     // character on 5, AIR on 6 beside DRIVE / CRUSH.
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SWEEP_FUNC),
-    presets: KICK_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, KICK_PARAMS, KICK_VOICE) },
+    presets: KICK_PRESETS, drum: true, baseNote: DRUM_ROOT },
   snare: {
     name: 'SNARE', gain: 0.467, live: ['fx1:mod_vol', 'intensity'], liveFunc: ['mix:volume', 'macro:air'], params: SNARE_PARAMS,
     // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SNARE_FUNC),
-    presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, SNARE_PARAMS, SNARE_VOICE) },
+    presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT },
   hat: {
     name: 'HAT', gain: 1.783, live: ['fx1:dly_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     // The metal's character on 5, AIR (its natural room, v81) on 6; the click's on FUNC 3.
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'hairsize']),
     funcLayout: trackFunc(HAT_FUNC),
-    presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, HAT_PARAMS, HAT_VOICE) },
+    presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT },
   perc: {
     name: 'PERC', gain: 0.537, live: ['fx1:flt', 'intensity'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
     layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['c_tone', 'c_noise']),
     funcLayout: trackFunc(NO_FUNC),
-    presets: PERC_PRESETS, drum: true, pitched: true, baseNote: DRUM_ROOT, create: (sr) => new Drum(sr, PERC_PARAMS, PERC_VOICE) },
+    presets: PERC_PRESETS, drum: true, pitched: true, baseNote: DRUM_ROOT },
   bass: {
     name: 'BASS', gain: 0.557, live: ['cutoff', 'macro:env'], liveFunc: ['mix:volume', 'macro:grit'], params: BASS_PARAMS,
     layout: synthPage(['attack', 'decay'], ['glide', 'sub']),
     funcLayout: trackFunc(BASS_FUNC),
-    presets: BASS_PRESETS, drum: false, baseNote: 33, create: (sr) => new Synth(sr, BASS_PARAMS, BASS_FIXED, DRIVE_RISE.bass) },
+    presets: BASS_PRESETS, drum: false, baseNote: 33 },
   pad: {
     name: 'PAD', gain: 0.413, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
     // CHORD_PAGE; DRIVE / CRUSH and the effects on FUNC (ALT).
     layout: CHORD_PAGE,
     funcLayout: trackFunc(PAD_FUNC),
-    presets: PAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PAD_PARAMS, PAD_FIXED, DRIVE_RISE.pad) },
+    presets: PAD_PRESETS, drum: false, baseNote: 45 },
   lead: {
     name: 'LEAD', gain: 0.948, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
     layout: synthPage(['attack', 'decay'], ['glide', 'detune']),
     funcLayout: trackFunc(LEAD_FUNC),
-    presets: LEAD_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, LEAD_PARAMS, LEAD_FIXED, DRIVE_RISE.lead) },
+    presets: LEAD_PRESETS, drum: false, baseNote: 45 },
   pluck: {
     name: 'PLUCK', gain: 1.105, live: ['cutoff', 'macro:space'], liveFunc: ['macro:sustain', 'track:notes'], params: PLUCK_PARAMS,
     // CHORD_PAGE, but module 2 ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
     layout: CHORD_PAGE.map((id) => (id === 'release' ? 'sustain' : id)),
     funcLayout: trackFunc(PLUCK_FUNC),
-    presets: PLUCK_PRESETS, drum: false, baseNote: 45, create: (sr) => new Synth(sr, PLUCK_PARAMS, PLUCK_FIXED, DRIVE_RISE.pluck) },
+    presets: PLUCK_PRESETS, drum: false, baseNote: 45 },
 };
 
 export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];

@@ -1,4 +1,4 @@
-//! The FX buses' effect units, as src/fx/units.ts: each writes its wet signal for a block
+//! The FX buses' effect units (ported from the TypeScript engine's units.ts): each writes its wet signal for a block
 //! into the given buffers. MOD (CHORUS / ENSEMBLE / FLANGER / PHASER), DELAY (STEREO /
 //! PING-PONG / TAPE / DUB TAPE / SWEEP / REVERSE / SLAPBACK), VERB (ROOM / HALL / PLATE /
 //! EARLY / SHIMMER / SPRING), DIST (TUBE / FUZZ / BIT).

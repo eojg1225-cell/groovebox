@@ -1,4 +1,4 @@
-//! Bus compressor (FX 1), as src/fx/Compressor.ts: stereo-linked peak detection, gain
+//! Bus compressor (FX 1) (ported from the TypeScript engine's Compressor.ts): stereo-linked peak detection, gain
 //! smoothed in dB, automatic make-up; RATIO 1:1 = off (bit-transparent).
 
 use crate::math::pow10;

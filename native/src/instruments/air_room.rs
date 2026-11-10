@@ -1,4 +1,4 @@
-//! AIR's room, as src/instruments/airRoom.ts (see there): the drum through a fixed pre-EQ,
+//! AIR's room (ported from the TypeScript engine's airRoom.ts): the drum through a fixed pre-EQ,
 //! early reflections and a dense damped-comb tail under a per-hit envelope (KICK, SNARE),
 //! or the HAT's natural room (no envelope, SIZE = its RT60). Mono, allocation-free once built.
 

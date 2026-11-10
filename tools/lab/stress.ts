@@ -1,7 +1,6 @@
 /**
- * The stress groove for the maths A / B: every track on the sound that leans hardest on the
- * approximated maths (sines, tanh, powers), with the effects that do too, so the exact (A)
- * and fast (B) engines can be compared on everything at once.
+ * The stress groove: every track on its heaviest sound (sines, tanh, powers every sample),
+ * with the effects that cost the most too, to hear and judge a candidate in a full, busy mix.
  *  KICK  PSY DOOF, INT 100: the 7-octave sweep (2^x every sample), DRIVE (tanh).
  *  SNARE INDUSTRIAL, INT 85: FM metal (sines), DRIVE, CRUSH (sensitive to the last bit).
  *  HAT   RIDE: the bell's eight sine partials and its FM metal, 16ths.

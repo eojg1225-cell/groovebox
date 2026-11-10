@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 
-/** `npm run native:null`: the native engine's null tests against the TypeScript engine (needs cargo). */
+/** `npm run engine:golden`: the engine golden test (needs cargo). */
 export default defineConfig({
   test: {
     include: ['tools/native/**/*.test.ts'],

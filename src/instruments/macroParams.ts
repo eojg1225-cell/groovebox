@@ -14,3 +14,9 @@ export const INTENSITY: ParamSpec = { id: 'intensity', name: 'INT', min: 0, max:
 /** OCTAVE (FUNC + OCT, every type: part of the patch): -4 ... +4, the value is the index. */
 export const OCTAVE_ZERO = 4;
 export const OCTAVE = choice('octave', 'OCTAVE', ['-4', '-3', '-2', '-1', '0', '+1', '+2', '+3', '+4'], OCTAVE_ZERO);
+
+/** A named set of parameter values (missing ids keep their defaults). */
+export interface Preset {
+  name: string;
+  values: Record<string, number>;
+}

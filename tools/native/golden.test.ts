@@ -1,16 +1,22 @@
 /**
- * Null test of the whole native engine (native/src/engine, Rust) against src/engine/Engine.ts:
- * the lab's saved projects played through both, driven by the same protocol messages (load,
- * transport, pattern switches, knob moves, live playing and recording, a song with clip
- * entries and automation), sample by sample subtracted; what live recording wrote compared too.
- * Run: `npm run native:null` (builds native/examples/engine.rs with cargo).
+ * The engine's golden test: the lab's saved projects played through the Rust engine (native/,
+ * the one the app and the web build both play), driven by the protocol's messages (load,
+ * transport, pattern switches, knob moves, live playing and recording, a song with clip entries
+ * and automation, a count-in), in both of its builds: the native one (native/examples/engine.rs,
+ * as the Android app runs it) and the WebAssembly one (as the web build's worklet runs it).
+ *  - The two builds play the same thing, sample by sample (under -100 dB: the maths library may
+ *    round a last bit differently) and record the same notes.
+ *  - What they play matches the fingerprint saved in golden.json: per scenario and 100 ms, the
+ *    level of each side and of its first difference (its brightness), and what recording wrote.
+ *    A sound change shows here: when it is meant, rewrite the file with
+ *    `UPDATE_GOLDEN=1 npm run engine:golden` and commit it with the change.
+ * Run: `npm run engine:golden` (builds both with cargo).
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { Engine } from '../../src/engine/Engine';
 import type { MainToWorklet, WorkletToMain } from '../../src/engine/protocol';
 import type { Project } from '../../src/engine/project';
 import { fromStored } from '../../src/engine/projectFile';
@@ -154,23 +160,6 @@ function scenarios(): Scenario[] {
 
 type Recorded = Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>;
 
-function renderTs(sc: Scenario): { audio: Float32Array; recorded: Recorded[] } {
-  const engine = new Engine(sc.sampleRate);
-  const recorded: Recorded[] = [];
-  engine.onRecorded = (m) => recorded.push(m.type === 'recordedNote' ? { ...m, start: m.start === true } : m);
-  const audio = new Float32Array(sc.frames * 2);
-  const l = new Float32Array(sc.block);
-  const r = new Float32Array(sc.block);
-  let next = 0;
-  for (let pos = 0; pos < sc.frames; pos += sc.block) {
-    const n = Math.min(sc.block, sc.frames - pos);
-    while (next < sc.msgs.length && sc.msgs[next][0] < pos + n) engine.handleMessage(JSON.parse(JSON.stringify(sc.msgs[next++][1])));
-    engine.process(l, r, n);
-    for (let i = 0; i < n; i++) { audio[(pos + i) * 2] = l[i]; audio[(pos + i) * 2 + 1] = r[i]; }
-  }
-  return { audio, recorded };
-}
-
 /**
  * The web build's engine: the same Rust compiled to WebAssembly, driven exactly as the worklet
  * drives it (src/worklet/wasmEngine.ts, through native/src/host.rs): messages queued as JSON
@@ -204,52 +193,82 @@ async function renderWasm(list: Scenario[]): Promise<{ audio: Float32Array; reco
   return { audio, recorded };
 }
 
-function compare(list: Scenario[], rust: Float32Array, rustRec: Recorded[][], what: string): void {
-    let off = 0;
-    const rows: string[] = [];
-    let worstDb = -Infinity;
-    let identical = 0;
-    const failures: string[] = [];
-    list.forEach((sc, k) => {
-      const ts = renderTs(sc);
-      const ours = rust.subarray(off, off + ts.audio.length);
-      off += ts.audio.length;
-      let diff = 0, peak = 0, first = -1;
-      for (let i = 0; i < ts.audio.length; i++) {
-        const d = Math.abs(ts.audio[i] - ours[i]);
-        if (d > diff) diff = d;
-        if (d > 0 && first < 0) first = i >> 1;
-        peak = Math.max(peak, Math.abs(ts.audio[i]));
+const GOLDEN = 'tools/native/golden.json';
+/** Frames per fingerprint slice (100 ms). */
+const SLICE = SR / 10;
+
+interface Print { name: string; level: number[]; edge: number[]; recorded: Recorded[] }
+
+/** A scenario's fingerprint: per slice, each side's RMS and its first difference's RMS (L, R alternating). */
+function print(name: string, audio: Float32Array, recorded: Recorded[]): Print {
+  const frames = audio.length / 2;
+  const level: number[] = [], edge: number[] = [];
+  for (let at = 0; at < frames; at += SLICE) {
+    const end = Math.min(frames, at + SLICE);
+    for (let c = 0; c < 2; c++) {
+      let p = 0, d = 0, prev = at > 0 ? audio[(at - 1) * 2 + c] : 0;
+      for (let i = at; i < end; i++) {
+        const x = audio[i * 2 + c];
+        p += x * x;
+        d += (x - prev) ** 2;
+        prev = x;
       }
-      if (Number.isNaN(diff) || ours.some(Number.isNaN)) diff = Infinity;
-      const db = diff === 0 ? -Infinity : 20 * Math.log10(diff);
-      if (diff === 0) identical++;
-      worstDb = Math.max(worstDb, db);
-      if (diff !== 0) rows.push(`${sc.name.padEnd(48)} peak ${peak.toFixed(3)}  diff ${db.toFixed(1)} dB  from ${(first / SR).toFixed(3)} s`);
-      if (peak <= 1e-3 && !sc.quiet) failures.push(`${sc.name}: silent`);
-      if (JSON.stringify(rustRec[k]) !== JSON.stringify(ts.recorded)) failures.push(`${sc.name}: recorded ${JSON.stringify(rustRec[k])} vs ${JSON.stringify(ts.recorded)}`);
-      if (!(db < LIMIT_DB)) failures.push(`${sc.name}: ${db.toFixed(1)} dB`);
-    });
-    expect(off).toBe(rust.length);
-    console.log(`${what}: ${list.length} engine scenarios: ${identical} bit-identical, worst ${worstDb === -Infinity ? 'none' : `${worstDb.toFixed(1)} dB`}\n${rows.join('\n')}`);
-    expect(failures).toEqual([]);
+      level.push(Number(Math.sqrt(p / (end - at)).toPrecision(9)));
+      edge.push(Number(Math.sqrt(d / (end - at)).toPrecision(9)));
+    }
+  }
+  return { name, level, edge, recorded };
 }
 
-describe('native engine null test: whole projects', () => {
-  it('the Rust engine plays what the TypeScript engine plays', () => {
+/** Within 1e-5 relative (about -100 dB), or 1e-7 absolute near silence. */
+const close = (a: number, b: number) => Math.abs(a - b) <= 1e-7 + 1e-5 * Math.max(Math.abs(a), Math.abs(b));
+
+describe('the engine golden test: whole projects', () => {
+  it('the native and the WebAssembly builds play the same, and what the golden file says', async () => {
     const list = scenarios();
-    const dir = mkdtempSync(join(tmpdir(), 'native-engine-'));
+    const dir = mkdtempSync(join(tmpdir(), 'engine-golden-'));
     writeFileSync(join(dir, 'scenarios.json'), JSON.stringify(list));
     execFileSync('cargo', ['run', '--quiet', '--release', '--manifest-path', 'native/Cargo.toml', '--example', 'engine', '--', join(dir, 'scenarios.json'), join(dir, 'out.f32'), join(dir, 'recorded.json')], { stdio: 'inherit' });
     const buf = readFileSync(join(dir, 'out.f32'));
-    const rust = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
-    const rustRec = readFileSync(join(dir, 'recorded.json'), 'utf8').trim().split('\n').map((x) => JSON.parse(x) as Recorded[]);
-    compare(list, rust, rustRec, 'native');
-  });
-
-  it('the web build (the Rust engine as WebAssembly, as the worklet runs it) plays what the TypeScript engine plays', async () => {
-    const list = scenarios();
+    const native = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+    const nativeRec = readFileSync(join(dir, 'recorded.json'), 'utf8').trim().split('\n').map((x) => JSON.parse(x) as Recorded[]);
     const wasm = await renderWasm(list);
-    compare(list, wasm.audio, wasm.recorded, 'WebAssembly');
+    expect(native.length).toBe(wasm.audio.length);
+
+    const failures: string[] = [];
+    const prints: Print[] = [];
+    let off = 0;
+    list.forEach((sc, k) => {
+      const n = sc.frames * 2;
+      const a = native.subarray(off, off + n), b = wasm.audio.subarray(off, off + n);
+      off += n;
+      let diff = 0, peak = 0;
+      for (let i = 0; i < n; i++) {
+        diff = Math.max(diff, Math.abs(a[i] - b[i]));
+        peak = Math.max(peak, Math.abs(a[i]));
+      }
+      if (a.some(Number.isNaN) || b.some(Number.isNaN)) diff = Infinity;
+      const db = diff === 0 ? -Infinity : 20 * Math.log10(diff);
+      if (!(db < -100)) failures.push(`${sc.name}: native and WebAssembly ${db.toFixed(1)} dB apart`);
+      if (JSON.stringify(nativeRec[k]) !== JSON.stringify(wasm.recorded[k])) failures.push(`${sc.name}: recorded ${JSON.stringify(nativeRec[k])} vs ${JSON.stringify(wasm.recorded[k])}`);
+      if (peak <= 1e-3 && !sc.quiet) failures.push(`${sc.name}: silent`);
+      prints.push(print(sc.name, a, nativeRec[k]));
+    });
+
+    if (process.env.UPDATE_GOLDEN) writeFileSync(GOLDEN, `${JSON.stringify(prints, null, 0).replace(/\},\{/g, '},\n{')}\n`);
+    const golden = JSON.parse(readFileSync(GOLDEN, 'utf8')) as Print[];
+    expect(golden.map((g) => g.name)).toEqual(prints.map((p) => p.name));
+    prints.forEach((p, k) => {
+      const g = golden[k];
+      const slice = (i: number) => `${((Math.floor(i / 2) * SLICE) / SR).toFixed(1)} s ${i % 2 ? 'R' : 'L'}`;
+      const lv = p.level.findIndex((x, i) => !close(x, g.level[i]));
+      const ed = p.edge.findIndex((x, i) => !close(x, g.edge[i]));
+      if (p.level.length !== g.level.length) failures.push(`${p.name}: ${p.level.length} slices, golden ${g.level.length}`);
+      else if (lv >= 0) failures.push(`${p.name}: level at ${slice(lv)} ${p.level[lv]}, golden ${g.level[lv]}`);
+      else if (ed >= 0) failures.push(`${p.name}: brightness at ${slice(ed)} ${p.edge[ed]}, golden ${g.edge[ed]}`);
+      if (JSON.stringify(p.recorded) !== JSON.stringify(g.recorded)) failures.push(`${p.name}: recorded differs from golden`);
+    });
+    console.log(`${list.length} engine scenarios: native and WebAssembly agree, ${failures.length ? `${failures.length} differences` : 'golden matches'}`);
+    expect(failures).toEqual([]);
   });
 });

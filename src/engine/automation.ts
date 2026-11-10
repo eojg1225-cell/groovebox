@@ -13,7 +13,7 @@ import { toNorm, toValue, type ParamSpec } from './params';
 
 export const CELLS_PER_BAR = 16;
 
-export type AutoKind = 's' | 'm' | 'o' | 'b' | 'l' | 'a';
+type AutoKind = 's' | 'm' | 'o' | 'b' | 'l' | 'a';
 
 interface AutoTarget {
   kind: AutoKind;

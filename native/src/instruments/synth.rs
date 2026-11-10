@@ -1,8 +1,16 @@
-//! The synth voice engine, as src/instruments/Synth.ts (the design notes are there): BASS,
-//! PAD, LEAD, PLUCK. Six voices; per voice OSC 1 / OSC 2 (SHAPE's waves, CZ, the FM pair or
-//! the PAD's two stacks), UNISON, envelopes, the filter (FX ROUTING: before or after DRIVE /
-//! CRUSH, or after SPACE), then DC block, CRUSH, OUT GAIN x FM COMP, DUCK; post: PLUCK's delay
-//! + room or the PAD's LOW CUT / MOD / VERB. Kept line for line with the TypeScript.
+//! The synth voice engine: BASS, PAD, LEAD, PLUCK. Six voices; per voice OSC 1 / OSC 2 (SHAPE's
+//! waves, CZ, the FM pair or the PAD's two stacks), UNISON, envelopes, the filter (FX ROUTING:
+//! before or after DRIVE / CRUSH, or after SPACE), then DC block, CRUSH, OUT GAIN x FM COMP,
+//! DUCK; post: PLUCK's delay + room or the PAD's LOW CUT / MOD / VERB. (Ported line for line
+//! from the TypeScript engine, retired in November 2026; its knob tables stay in
+//! src/instruments/synthSpecs.ts.)
+//!
+//! Per voice two elements, OSC 1 and OSC 2 (OSC 2 detuned by DETUNE), each with a continuous
+//! SHAPE (sine -> triangle -> saw -> square) blended by FM with an FM pair (sine carrier, sine
+//! modulator at FM RATIO), each with its own ATTACK / DECAY / SUSTAIN / RELEASE; a sine sub joins
+//! OSC 1. UNISON adds four more detuned copies (two per element, spread by DETUNE) for
+//! supersaws. Then a resonant low-pass with its own envelope, drive, CRUSH. MONO uses one voice
+//! with glide. Ranges go far past "sensible" on purpose.
 
 use crate::drive_comp::{drive_comp_gain, drive_rise};
 use crate::dsp::{crush_levels, crush_step, decay_mul, midi_to_hz, poly_blep, IdleGate, Svf};
@@ -49,7 +57,7 @@ const ONBOARD_VERB_GAIN: f64 = 0.7;
 const ONBOARD_DLY_TONE: f64 = 3500.0;
 const LEGACY_WAVE_TO_SHAPE: [f64; 4] = [2.0, 3.0, 1.0, 0.0];
 
-/// Every synth parameter with its default, in Synth.ts SYNTH_PARAMS' order.
+/// Every synth parameter with its default, in synthSpecs.ts SYNTH_PARAMS' order.
 const ALL: [(&str, f64); 55] = [
     ("timbre", 0.33), ("intensity", 0.5), ("shape", 2.0), ("fm", 0.0), ("fm2", 0.0), ("fmratio", 2.0), ("cratio", 1.0),
     ("detune", 0.0), ("sub", 0.0), ("unison", 0.0), ("ratio2", 1.0), ("ratio3", 1.0), ("feedback", 0.0), ("cfeedback", 0.0),
@@ -64,7 +72,7 @@ const ALL: [(&str, f64); 55] = [
 
 const MORPHED: [&str; 15] = ["timbre", "intensity", "shape", "fm", "fmratio", "fmattack", "fmdecay", "detune", "unison", "cutoff", "reso", "fattack", "fenv", "fdecay", "drive"];
 
-/// The settings each type fixes (Synth.ts *_FIXED, in that order).
+/// The settings each type fixes (no knob), in this order.
 fn fixed(kind: SoundKind) -> &'static [(&'static str, f64)] {
     match kind {
         SoundKind::Bass => &[("voice", 1.0), ("envlink", 1.0), ("squelch", 1.0), ("body", 1.0), ("cz", 1.0)],
@@ -75,7 +83,7 @@ fn fixed(kind: SoundKind) -> &'static [(&'static str, f64)] {
     }
 }
 
-/// Each type's parameters (knob order) and their own defaults (Synth.ts BASS_PARAMS ...).
+/// Each type's parameters (knob order) and their own defaults (synthSpecs.ts BASS_PARAMS ...).
 pub fn type_params(kind: SoundKind) -> Vec<(&'static str, f64)> {
     let no_ratio: Vec<&str> = MORPHED.iter().copied().filter(|id| *id != "fmratio").collect();
     let shared = ["attack", "decay", "sustain", "release", "dratio", "crush", "level"];
@@ -324,6 +332,8 @@ struct Bufs {
 }
 
 pub struct Synth {
+    /// The notes started, for the web build's tests (None = not kept, the normal case).
+    pub notes: Option<Vec<f64>>,
     sr: f64,
     cut_len: i32,
     vel_k: f64,
@@ -408,6 +418,7 @@ impl Synth {
         });
         let z = [0.0; BLOCK];
         let mut s = Synth {
+            notes: None,
             sr,
             cut_len: (js::round(CUT_FADE * sr) as i32).max(1),
             vel_k: 1.0 - (-1.0 / (VEL_SMOOTH * sr)).exp(),
@@ -474,7 +485,15 @@ impl Synth {
         s
     }
 
+    /// Voices held now (attack, decay or sustain on OSC 1), for the web build's tests.
+    pub fn held_voices(&self) -> usize {
+        self.voices.iter().filter(|v| (1..=3).contains(&v.stage[0])).count()
+    }
+
     pub fn note_on(&mut self, note: f64, velocity: f64, group: i32, ring: bool, slide_from: i32, slide: bool) {
+        if let Some(log) = self.notes.as_mut() {
+            log.push(note);
+        }
         let n = note + self.octave * 12.0;
         let freq = midi_to_hz(n);
         if slide_from >= 0 {

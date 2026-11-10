@@ -1,4 +1,4 @@
-//! A track's MID CUT, as src/fx/TrackCut.ts: one knob sets depth and width together, MID
+//! A track's MID CUT (ported from the TypeScript engine's TrackCut.ts): one knob sets depth and width together, MID
 //! FREQ the centre (an RBJ peaking cut); idle at 0.
 
 use crate::smoother::Smoother;

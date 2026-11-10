@@ -1,4 +1,4 @@
-//! METRONOME / COUNT-IN click, as src/instruments/Click.ts: a short sine blip, higher and
+//! METRONOME / COUNT-IN click (ported from the TypeScript engine's Click.ts): a short sine blip, higher and
 //! louder on a bar's first beat.
 
 use crate::js;

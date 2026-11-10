@@ -3,7 +3,7 @@ name = "groovebox-native"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "GrooveAccess native audio (step 1 of the native engine: the audio path and a test blip)"
+description = "GrooveAccess engine: the Android app (AAudio) and the web build (WebAssembly)"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -76,7 +76,7 @@ const DJ_DEAD = 0.02;
  * FX 1 FILTER position (0..1) -> cutoff: negative = low-pass at that many Hz (left of the
  * centre, 20 kHz down to 30 Hz), positive = high-pass (right, 20 Hz up to 16 kHz), 0 = off.
  */
-export function djCutoff(pos: number): number {
+function djCutoff(pos: number): number {
   const half = 0.5 - DJ_DEAD;
   if (pos < half) return -20000 * Math.pow(30 / 20000, (half - pos) / half);
   if (pos > 0.5 + DJ_DEAD) return 20 * Math.pow(16000 / 20, Math.min(1, (pos - 0.5 - DJ_DEAD) / half));

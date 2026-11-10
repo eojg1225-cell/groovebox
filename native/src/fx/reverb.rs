@@ -1,4 +1,4 @@
-//! Freeverb-style stereo reverb with pre-delay, as src/fx/Reverb.ts (PLUCK's room). Each
+//! Freeverb-style stereo reverb with pre-delay (ported from the TypeScript engine's Reverb.ts) (PLUCK's room). Each
 //! comb and allpass runs over a block at a time.
 
 use crate::js;

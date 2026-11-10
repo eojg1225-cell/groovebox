@@ -1,5 +1,4 @@
-//! Small allocation-free DSP building blocks shared by the instruments, as
-//! src/instruments/dsp.ts.
+//! Small allocation-free DSP building blocks shared by the instruments.
 
 /// Multiplier that makes an exponential decay fall by 60 dB in `seconds`.
 pub fn decay_mul(seconds: f64, sample_rate: f64) -> f64 {

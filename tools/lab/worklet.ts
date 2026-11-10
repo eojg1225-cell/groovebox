@@ -1,35 +1,19 @@
 /// <reference path="../../src/worklet/worklet-globals.d.ts" />
 /**
- * Sound lab worklet: the real engine, twice. A = the engine as in the app (fast maths), B =
- * the same engine built with the exact maths (exactEngine.ts). Both get every message; B
- * renders only while it is heard (`labOut` B or A - B: x gain, the difference made audible),
- * so the lab costs what the app does the rest of the time (the page restarts both together
- * when B comes in, so they stay sample-locked). (Their cost is measured offline by bench.ts.)
- * A non-finite block is muted and that engine starts afresh (main resends the project).
+ * Sound lab worklet: the app's engine (the Rust one, as WebAssembly: src/worklet/wasmEngine.ts),
+ * every message straight in, a block rendered and copied out. A non-finite block makes the
+ * engine start afresh (its host says engineReset): the page resends the project.
  */
-import { Engine } from '../../src/engine/Engine';
-import { Engine as ExactEngine } from './exactEngine';
 import type { MainToWorklet } from '../../src/engine/protocol';
-
-/** labOut: 0 = A, 1 = B, 2 = A - B times `gain`. */
-type LabMsg = MainToWorklet | { type: 'labOut'; mode: number; gain: number };
+import { ENGINE_WASM } from '../../src/worklet/engineWasm.gen';
+import { WasmEngine, fromBase64 } from '../../src/worklet/wasmEngine';
 
 class LabProcessor extends AudioWorkletProcessor {
-  private engine = new Engine(sampleRate);
-  private exact = new ExactEngine(sampleRate);
-  private readonly bL = new Float32Array(128);
-  private readonly bR = new Float32Array(128);
-  private mode = 0;
-  private gain = 1;
+  private readonly engine = new WasmEngine(fromBase64(ENGINE_WASM), sampleRate);
 
   constructor() {
     super();
-    this.port.onmessage = (e: MessageEvent<LabMsg>) => {
-      const msg = e.data;
-      if (msg.type === 'labOut') { this.mode = msg.mode; this.gain = msg.gain; return; }
-      this.engine.handleMessage(msg);
-      this.exact.handleMessage(msg);
-    };
+    this.port.onmessage = (e: MessageEvent<MainToWorklet>) => this.engine.send(e.data);
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
@@ -37,27 +21,15 @@ class LabProcessor extends AudioWorkletProcessor {
     if (!out || out.length === 0) return true;
     const left = out[0];
     const right = out.length > 1 ? out[1] : out[0];
-    const n = Math.min(left.length, this.bL.length);
-    this.engine.process(left, right, n);
-    let sa = 0;
-    for (let i = 0; i < n; i++) sa += left[i] + right[i];
-    if (sa - sa !== 0) { left.fill(0); right.fill(0); this.engine = new Engine(sampleRate); this.port.postMessage('reset'); }
-    if (this.mode === 0) return true;
-    this.bL.fill(0, 0, n);
-    this.bR.fill(0, 0, n);
-    this.exact.process(this.bL, this.bR, n);
-    let sb = 0;
-    for (let i = 0; i < n; i++) sb += this.bL[i] + this.bR[i];
-    if (sb - sb !== 0) { this.bL.fill(0); this.bR.fill(0); this.exact = new ExactEngine(sampleRate); this.port.postMessage('reset'); }
-    if (this.mode === 1) {
-      left.set(this.bL.subarray(0, n));
-      if (right !== left) right.set(this.bR.subarray(0, n));
-    } else if (this.mode === 2) {
-      for (let i = 0; i < n; i++) {
-        left[i] = (left[i] - this.bL[i]) * this.gain;
-        if (right !== left) right[i] = (right[i] - this.bR[i]) * this.gain;
-      }
+    const n = left.length;
+    this.engine.render(n);
+    const a = this.engine.audio;
+    for (let i = 0, j = 0; i < n; i++, j += 2) {
+      left[i] = a[j];
+      right[i] = a[j + 1];
     }
+    const msgs = this.engine.drain();
+    if (msgs?.some((m) => m.type === 'engineReset')) this.port.postMessage('reset');
     return true;
   }
 }

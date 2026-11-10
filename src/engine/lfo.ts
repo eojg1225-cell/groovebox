@@ -5,7 +5,6 @@
  * phase), modulating volume, pitch, filter cutoff, pan and send level.
  * Pure helpers shared by the engine (DSP) and the UI (parameter specs).
  */
-import { cosTurn } from '../instruments/math';
 import { choice, type ParamSpec } from './params';
 
 /**
@@ -75,29 +74,4 @@ export const LFO_LAYOUT: readonly (LfoId | null)[] = [
 
 export function defaultLfo(): LfoState {
   return { rate: LFO_PARAMS.rate.defaultValue, shape: 0, morph: 0, fm: 0, vol: 0, pitch: 0, filter: 0, pan: 0, phase: 0, smooth: 0, fade: 0, retrig: 0, send: 0, spread: 0 };
-}
-
-/**
- * LFO value -1..1 at cycle phase 0..1 (S+H uses `held`, chosen per cycle). MORPH blends
- * the shape into the next one in the list (S+H wraps round to SINE).
- */
-export function lfoValue(shape: number, phase: number, held: number, morph = 0): number {
-  const a = baseShape(shape, phase, held);
-  if (morph <= 0) return a;
-  return a + (baseShape((shape + 1) % LFO_SHAPES.length, phase, held) - a) * morph;
-}
-
-/**
- * Shapes for stabs: each starts at its peak (+1 = full volume, open filter ...) so a
- * retriggered LFO hits with the note - except SAW UP, which rises to end at its peak.
- */
-function baseShape(shape: number, phase: number, held: number): number {
-  switch (shape) {
-    case 1: return phase < 0.5 ? 1 : -1;
-    case 2: return 4 * Math.abs(phase - 0.5) - 1;
-    case 3: return 1 - 2 * phase;
-    case 4: return 2 * phase - 1;
-    case 5: return held;
-    default: return cosTurn(phase);
-  }
 }

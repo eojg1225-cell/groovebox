@@ -1,4 +1,4 @@
-//! Stereo dub delay, as src/fx/Delay.ts: time follows the tempo (smoothed), a low-pass in
+//! Stereo dub delay (ported from the TypeScript engine's Delay.ts): time follows the tempo (smoothed), a low-pass in
 //! the feedback, tanh in the loop.
 
 use crate::js;

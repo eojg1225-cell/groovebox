@@ -9,13 +9,13 @@
     "typecheck": "npm run build:wasm && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.engine.json && tsc --noEmit -p tools/lab/tsconfig.json",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview --host",
-    "test": "vitest run",
+    "test": "npm run build:wasm && vitest run",
     "build:artifact": "npm run build && node scripts/build-artifact.mjs",
     "unused": "npm run build:wasm && knip",
-    "lab:level": "vitest run --config tools/lab/vite.config.ts",
-    "build:lab": "vite build --config tools/lab/vite.config.ts && node tools/lab/pack.mjs",
+    "lab:level": "npm run build:wasm && vitest run --config tools/lab/vite.config.ts",
+    "build:lab": "npm run build:wasm && vite build --config tools/lab/vite.config.ts && node tools/lab/pack.mjs",
     "build:android": "npm run build && cap sync android",
-    "native:null": "vitest run --config tools/native/vite.config.ts"
+    "engine:golden": "npm run build:wasm && vitest run --config tools/native/vite.config.ts"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.0",

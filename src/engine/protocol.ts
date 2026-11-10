@@ -121,8 +121,8 @@ export type MainToWorklet =
   | { type: 'ping'; id: number };
 
 export type WorkletToMain =
-  /** engine: which one plays in the browser's worklet (rust = native/ as WebAssembly; ts only where that cannot start). */
-  | { type: 'ready'; sampleRate: number; engine?: 'rust' | 'ts' }
+  /** engine: 'rust' = the engine (native/ as WebAssembly) is up; 'none' = WebAssembly could not start (no sound). */
+  | { type: 'ready'; sampleRate: number; engine?: 'rust' | 'none' }
   /** The engine's output went non-finite: the worklet started a fresh engine (resend state). */
   | { type: 'engineReset' }
   /**
@@ -171,4 +171,3 @@ export type WorkletToMain =
    */
   | { type: 'recordedChord'; channel: number; pattern: number; index: number; note: number; gate: number };
 
-export const STATUS_HZ = 30;

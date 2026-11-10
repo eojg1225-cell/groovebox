@@ -1,5 +1,5 @@
-//! Renders the engine null test's scenarios (tools/native/engineNull.test.ts) with the Rust
-//! engine: each scenario's protocol messages applied at the start of the 128-frame block they
+//! Renders the engine golden test's scenarios (tools/native/golden.test.ts) with the native
+//! build: each scenario's protocol messages applied at the start of the 128-frame block they
 //! fall in (as the worklet does), the engine's output written as interleaved f32, then what
 //! live recording wrote, one line of JSON per scenario.
 //! Usage: engine <scenarios.json> <out.f32> <recorded.json>

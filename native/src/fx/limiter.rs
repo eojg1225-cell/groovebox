@@ -1,4 +1,4 @@
-//! Master limiter, as src/fx/Limiter.ts: a look-ahead peak limiter at -1 dBFS (1.5 ms),
+//! Master limiter (ported from the TypeScript engine's Limiter.ts): a look-ahead peak limiter at -1 dBFS (1.5 ms),
 //! the window's minimum gain box-averaged so it lands as the peak leaves the delay, then a
 //! slow release. Linked stereo.
 

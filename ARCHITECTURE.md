@@ -4,15 +4,14 @@ How the code is put together. For what the app does (controls, modes, sounds), s
 **Current state** section of `CLAUDE.md`; for how it got here, `docs/HISTORY.md`.
 
 ```
-src/engine       Pure engine: project model (project.ts), stored format + load migrations (projectFile.ts),
-                 params, smoothing, protocol, chords, LFO, Engine (sequencer, mixer, buses, master). No DOM/Web Audio.
-src/instruments  Instrument interface, registry (8 track types, their pages, live knobs), Drum (layered),
-                 Synth (up to 6 voices, FM algorithms), macros (TIMBRE / INTENSITY), trims, driveComp, DSP. No DOM/Web Audio.
-src/fx           buses.ts (FX 1 / 2: units, TYPE lists, knob specs, layout, defaults), FxBus (one bus),
-                 units.ts (MOD, DELAY, VERB, DIST; FX 1's FILTER lives in FxBus), Compressor, TrackCut (per-track MID CUT), Limiter,
-                 Delay + Reverb (PLUCK's onboard delay / room). No DOM/Web Audio.
+src/engine       The project model (project.ts), stored format + load migrations (projectFile.ts), params, the
+                 protocol (protocol.ts), chords, LFO / ARP / mixer / automation tables. No DOM/Web Audio. (The
+                 sound is native/'s: the TypeScript engine was retired in November 2026.)
+src/instruments  registry (8 track types, their pages, live knobs), drumSpecs.ts / synthSpecs.ts (each type's
+                 parameters and presets), macros (TIMBRE / INTENSITY), trims. No DOM/Web Audio.
+src/fx           buses.ts (FX 1 / 2: units, TYPE lists, knob specs, layout, defaults). No DOM/Web Audio.
 src/worklet      processor.ts: AudioWorkletProcessor hosting the Rust engine (native/ as WebAssembly, through
-                 wasmEngine.ts and native/src/host.rs; the TypeScript Engine only where WebAssembly cannot start)
+                 wasmEngine.ts and native/src/host.rs; no sound where WebAssembly cannot start)
                  wasmEngine.ts: the WebAssembly engine behind the protocol (JSON in, interleaved audio and JSON out;
                  no DOM, runs in the worklet and in Node); engineWasm.gen.ts: the module as base64 (scripts/build-wasm.mjs)
                  host.ts: main-thread AudioContext + AudioWorkletNode bridge (the only Web Audio code), EngineHost
@@ -24,9 +23,13 @@ src/ui           App (controller), Panel (on-screen ControlSurface), Knob, Pixel
 src/storage      projects.ts (64 slots, ProjectStore), kv.ts (where they are kept), native.ts (the Android
                  app's files), backup.ts / backupFile.ts (PROJECT BACKUP), slotSync.ts (slots <-> claude.ai artifact db),
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
-native           Rust (groovebox-native): the engine (both builds: the Android app on AAudio + JNI, the web
-                 build as WebAssembly, src/wasm.rs), its host (host.rs), null tests against src/engine
-tests            Vitest: the engine offline in Node, project storage / sync, the App via button events
+native           Rust (groovebox-native): the engine (engine/: sequencer, sound, mixer, master; instruments/:
+                 drum.rs, synth.rs, air_room.rs, click.rs; fx/: bus.rs, units.rs, compressor.rs, delay.rs,
+                 reverb.rs, limiter.rs, track_cut.rs), its host (host.rs), both builds: the Android app on
+                 AAudio + JNI (audio.rs, jni.rs), the web build as WebAssembly (wasm.rs; parts.rs for the tests)
+tests            Vitest: the engine offline in Node (rustEngine.ts / rustParts.ts: the WebAssembly engine and its
+                 parts), project storage / sync, the App via button events
+tools/native     The engine golden test (golden.test.ts, golden.json): both builds on whole projects
 tools/lab        The sound lab: A/B page for TIMBRE / INT candidates (not part of the app)
 ```
 
@@ -93,7 +96,7 @@ Main -> worklet:
 Worklet -> main:
 | type | fields | meaning |
 |---|---|---|
-| `ready` | `sampleRate`, `engine?` | Processor constructed; `engine` = `rust` (the WebAssembly engine) or `ts` (WebAssembly could not start: the page says NO WEBASSEMBLY: OLD WEB ENGINE) |
+| `ready` | `sampleRate`, `engine?` | Processor constructed; `engine` = `rust` (the WebAssembly engine is up) or `none` (WebAssembly could not start: no sound, the page says NO WEBASSEMBLY: NO SOUND) |
 | `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `next[8]`, `nextMs[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load`, `countIn` | ~30 Hz: meters, COUNT-IN beats left, playhead and playing pattern per track, each track's next step and ms until it (the panel moves the lights on time between reports, `App.headStep`), position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
 | `pong` | `id` | Answer to `ping` |
 | `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
@@ -150,6 +153,9 @@ on this device is told apart from one made elsewhere. The working project's sing
 (`projects/current`) is `cloud.ts`.
 
 ## Sequencer
+
+(The Sequencer, Instruments and Buses sections describe the Rust engine, `native/src`; names are
+as they were in the TypeScript engine it was ported from, in snake_case there.)
 
 A master 16th-note clock (swing lengthens even steps and shortens odd ones; swing pairs restart each
 bar) drives all tracks. Each track keeps its own position and loops at its pattern length (polymeter).
@@ -214,13 +220,13 @@ default live knobs, output `gain` and presets. Each channel preallocates one ins
 `ParamSpec.options` marks discrete choices (stored as an index) and `coarse` marks settings that only
 switch (never glide, never on a relative live knob).
 
-- **Drum** (`Drum.ts`): layers TONE / body (oscillator + exponential pitch sweep), CLICK (filtered
+- **Drum** (`native/src/instruments/drum.rs`): layers TONE / body (oscillator + exponential pitch sweep), CLICK (filtered
   transient), METAL (six inharmonic oscillators: square bank, ring-mod pairs or FM, blended with noise),
   summed into tanh DRIVE, CRUSH (sample-rate reduction on a fractional clock + bit reduction) and OUT
   GAIN. Each type uses two elements (`DrumVoice.balance`); PERC adds the metal tuned between them
   (`relative`). The played note retunes the pitched layers. RING adds the type's fixed extension
   (`ringExtra`). A retrigger fades the old hit's last output over 3 ms.
-- **Synth** (`Synth.ts`): up to 6 voices (oldest stolen; `voices` limits it; `voice: 1` = mono
+- **Synth** (`native/src/instruments/synth.rs`): up to 6 voices (oldest stolen; `voices` limits it; `voice: 1` = mono
   BASS / LEAD: two voices, a new note starting on one while the last fades on the other), two polyBLEP oscillators with SHAPE (sine -> triangle -> saw -> square), detune, unison, sine
   sub, per-voice SVF low-pass with its own envelope, an FM envelope (`fmattack` / `fmdecay`: the FM
   index of every algorithm swings with it), ADSR per oscillator (`envlink` = one for both: BASS,
@@ -250,7 +256,7 @@ LFO, and the FX ids from `fx/buses.ts` `FX_LIVE`) set the value itself (`setMix`
 Three `FxBus`es (defined in `fx/buses.ts`). Each is four units of two knob modules; an effect unit has
 VOLUME (its return level, smoothed; at 0 it fades for 0.15 s and is then skipped, starting clean when
 turned up) over TYPE (a change fades the unit out for 15 ms, switches mode, resets and fades back in)
-and two controls. The effects (`fx/units.ts`) write their wet signal into a scratch buffer; the bus
+and two controls. The effects (`native/src/fx/units.rs`) write their wet signal into a scratch buffer; the bus
 scales and sums them:
 - **FX 1** (an insert): tracks with `fx1` are summed into it instead of the mix; they go through
   `Compressor` (series, RATIO 1:1 = off), with MOD (FLANGER, PHASER) and DELAY (TAPE, SWEEP,

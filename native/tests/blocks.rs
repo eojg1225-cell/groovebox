@@ -1,6 +1,6 @@
-//! Null tests of the building blocks against the TypeScript engine's own output
-//! (tests/vectors/blocks.json, written by the app's tests/nativeVectors.test.ts). Each prints
-//! its worst difference; the limit is far under the plan's -100 dB.
+//! The building blocks against fixed reference vectors (tests/vectors/blocks.json: the retired
+//! TypeScript engine's own output, recorded before it went). Each prints its worst difference;
+//! the limit is far under -100 dB.
 
 use groovebox_native::drive_comp::{drive_comp_gain, drive_rise};
 use groovebox_native::dsp::{crush_levels, crush_step, decay_mul, midi_to_hz, poly_blep, IdleGate, Noise, Svf};

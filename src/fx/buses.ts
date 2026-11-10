@@ -18,17 +18,22 @@
  * DRIVE / TONE.
  */
 import { choice, type ParamSpec } from '../engine/params';
-import { COMP_PARAMS } from './Compressor';
+
+/**
+ * FX 1's COMP (the engine's: native/src/fx/compressor.rs): THRESH and RATIO set how hard
+ * levels above the threshold are held down, ATTACK / RELEASE how fast it grabs and lets go;
+ * automatic make-up; RATIO 1:1 = off.
+ */
+const COMP_PARAMS: readonly ParamSpec[] = [
+  { id: 'cmp_thresh', name: 'THRESH', min: -60, max: 0, defaultValue: -18, unit: 'DB', curve: 'linear', decimals: 0 },
+  { id: 'cmp_ratio', name: 'RATIO', min: 1, max: 20, defaultValue: 1, unit: ':1', curve: 'exp', decimals: 1 },
+  { id: 'cmp_attack', name: 'CMP ATK', min: 0.0001, max: 0.1, defaultValue: 0.005, unit: 'S', curve: 'exp', decimals: 4 },
+  { id: 'cmp_release', name: 'CMP REL', min: 0.01, max: 2, defaultValue: 0.15, unit: 'S', curve: 'exp', decimals: 3 },
+];
 
 export const NUM_BUSES = 2;
 
-export type UnitKind = 'comp' | 'mod' | 'delay' | 'verb' | 'drive' | 'tone' | 'filter';
-
-/** The engine's effect modes, in the order units.ts numbers them (each bus offers some as its TYPE list). */
-export const MOD_MODES = ['CHORUS', 'ENSEMBLE', 'FLANGER', 'PHASER'] as const;
-export const DELAY_MODES = ['STEREO', 'PING-PONG', 'TAPE', 'DUB TAPE', 'SWEEP', 'REVERSE', 'SLAPBACK'] as const;
-export const VERB_MODES = ['ROOM', 'HALL', 'PLATE', 'EARLY', 'SHIMMER', 'SPRING'] as const;
-export const DRIVE_MODES = ['TUBE', 'FUZZ', 'BIT'] as const;
+type UnitKind = 'comp' | 'mod' | 'delay' | 'verb' | 'drive' | 'tone' | 'filter';
 
 /** Tempo-synced delay times, in 16th steps. */
 export const FX_DELAY_TIMES = [
@@ -38,9 +43,9 @@ export const FX_DELAY_TIMES = [
 ] as const;
 
 /** TONE's ducking: PUMP follows the KICK, DUCK follows the bus's own input. */
-export type DuckSource = 'kick' | 'input';
+type DuckSource = 'kick' | 'input';
 
-export interface UnitDef {
+interface UnitDef {
   kind: UnitKind;
   /** TYPE choices (engine mode names), for effect units. */
   types?: readonly string[];
@@ -165,8 +170,3 @@ export function defaultBuses(): Record<string, number>[] {
   return BUSES.map((_, k) => defaultBus(k));
 }
 
-/** The engine mode name of a unit's TYPE index on a bus. */
-export function typeName(bus: number, kind: UnitKind, index: number): string {
-  const types = BUSES[bus].units.find((u) => u.kind === kind)?.types ?? [];
-  return types[Math.max(0, Math.min(types.length - 1, Math.round(index)))] ?? '';
-}

@@ -52,8 +52,8 @@ export class AudioHost implements EngineHost {
   onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>) => void) | null = null;
   /** The worklet replaced a failed engine (non-finite output): send it the state again. */
   onEngineReset: (() => void) | null = null;
-  /** Which engine the worklet plays (rust = native/ as WebAssembly; ts where that cannot start). */
-  onReady: ((engine: 'rust' | 'ts') => void) | null = null;
+  /** The worklet is up: 'rust' = its engine started, 'none' = WebAssembly could not start (no sound). */
+  onReady: ((engine: 'rust' | 'none') => void) | null = null;
 
   /** Must be called synchronously inside a user gesture handler. */
   constructor() {
@@ -161,7 +161,7 @@ export class AudioHost implements EngineHost {
         this.onRecorded?.(msg);
         break;
       case 'engineReset': this.onEngineReset?.(); break;
-      case 'ready': this.onReady?.(msg.engine ?? 'ts'); break;
+      case 'ready': this.onReady?.(msg.engine ?? 'rust'); break;
     }
   }
 }

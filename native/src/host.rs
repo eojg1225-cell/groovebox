@@ -204,9 +204,57 @@ impl Host {
         self.engine.handle_message(msg);
     }
 
-    /// Render `frames` stereo frames, added into `out` (interleaved L R).
-    pub fn render(&mut self, out: &mut [f32], frames: usize) {
-        let started = clock();
+    /// Handle what was sent at once, without rendering (the tests read the state right after).
+    pub fn apply(&mut self) {
+        self.take_messages();
+        for r in self.engine.recorded.drain(..).collect::<Vec<_>>() {
+            let s = recorded_json(&r);
+            self.put(&s);
+        }
+        self.flush();
+    }
+
+    /// The engine's state as one JSON object (for the tests: what a status report carries,
+    /// read at any moment, plus the limiter's look-ahead).
+    pub fn state_json(&self, into: &mut String) {
+        let e = &self.engine;
+        into.clear();
+        let _ = write!(
+            into,
+            "{{\"playing\":{},\"frame\":{},\"latency\":{},\"peakL\":{},\"peakR\":{},\"songRow\":{},\"songBar\":{},\"barPhase\":{},\"barSteps\":{},\"countBeats\":{},\"currentStep\":[",
+            e.playing,
+            num(e.frame),
+            num(e.latency()),
+            num(e.peak_l),
+            num(e.peak_r),
+            e.song_row,
+            e.song_bar,
+            num(e.bar_phase()),
+            e.bar_steps(),
+            e.count_beats()
+        );
+        for (ch, st) in e.current_step.iter().enumerate() {
+            let _ = write!(into, "{}{}", if ch > 0 { "," } else { "" }, st);
+        }
+        into.push_str("],\"heardPattern\":[");
+        for ch in 0..e.current_step.len() {
+            let _ = write!(into, "{}{}", if ch > 0 { "," } else { "" }, e.heard_pattern(ch));
+        }
+        into.push_str("]}");
+    }
+
+    /// The engine itself (the web build's tests).
+    pub fn engine_mut(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+
+    /// A sound parameter's base value on a track (Engine::base_value).
+    pub fn base_value(&self, ch: usize, slot: usize) -> f64 {
+        self.engine.base_value(ch, slot)
+    }
+
+    /// Take the messages waiting and handle them, in order.
+    fn take_messages(&mut self) {
         if let Ok(mut q) = INBOX.try_lock() {
             std::mem::swap(&mut *q, &mut self.msgs);
         }
@@ -228,6 +276,12 @@ impl Host {
             }
         }
         self.msgs = msgs;
+    }
+
+    /// Render `frames` stereo frames, added into `out` (interleaved L R).
+    pub fn render(&mut self, out: &mut [f32], frames: usize) {
+        let started = clock();
+        self.take_messages();
         for r in self.engine.recorded.drain(..).collect::<Vec<_>>() {
             let s = recorded_json(&r);
             self.put(&s);

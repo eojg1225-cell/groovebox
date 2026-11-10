@@ -1,4 +1,4 @@
-//! One-pole parameter smoother against zipper noise, as src/engine/smoother.ts.
+//! One-pole parameter smoother against zipper noise (ported from the TypeScript engine's smoother.ts).
 
 pub struct Smoother {
     current: f64,

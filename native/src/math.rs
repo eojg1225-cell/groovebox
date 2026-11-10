@@ -1,5 +1,4 @@
-//! The engine's per-sample maths from tables with linear interpolation, as
-//! src/instruments/math.ts: sin / cos within 3e-7, tanh within 6e-7, 2^x / 10^x within 2e-7
+//! The engine's per-sample maths from tables with linear interpolation: sin / cos within 3e-7, tanh within 6e-7, 2^x / 10^x within 2e-7
 //! of the value. The tables come from build.rs.
 
 // Table entries such as sqrt 2 and 1/sqrt 2 are values of the functions, not constants.

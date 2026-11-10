@@ -1,4 +1,4 @@
-//! The sequencer (Engine.ts "sequencing"): the block loop, master steps, each track's steps,
+//! The sequencer: the block loop, master steps, each track's steps,
 //! the song's rows and clip entries, rolls, ties, the ARP, held notes and live recording.
 
 use serde_json::Value;

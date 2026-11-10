@@ -67,7 +67,7 @@ import { exportProjects, importProjects } from '../storage/backupFile';
 import { isApp } from '../storage/native';
 import { AudioTest } from './audioTest';
 import { CHAIN_SETTING, CLICK_LEVELS, COUNT_INS, HOLD_PATTERNS, HOLD_RESETS, HOLD_TIMES, KNOB_SPEEDS, METRONOMES, TOUCH_DELAYS, deviceSettings, saveDeviceSettings } from '../storage/settings';
-import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/Drum';
+import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/drumSpecs';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';

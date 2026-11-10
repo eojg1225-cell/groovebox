@@ -36,8 +36,8 @@ jobs:
           cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 --platform 26 -o ../android/app/src/main/jniLibs build --release
           ls -la ../android/app/src/main/jniLibs/*
       - run: npm ci
-      # The native engine against the TypeScript engine: the same scenarios, subtracted.
-      - run: npm run native:null
+      # The engine golden test: the native and WebAssembly builds play the same, and as golden.json says.
+      - run: npm run engine:golden
       - run: npm run build
       - run: npx cap sync android
       - name: Build the debug APK

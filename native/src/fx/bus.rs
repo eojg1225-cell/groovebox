@@ -1,4 +1,4 @@
-//! One FX bus, as src/fx/FxBus.ts (buses.ts defines what each holds):
+//! One FX bus (ported from the TypeScript engine's FxBus.ts) (buses.ts defines what each holds):
 //!  FX 1 (insert): the drums through COMP, plus MOD / DELAY returns, all through FILTER.
 //!  FX 2 (send): DIST / DELAY / VERB returns through TONE (cuts, DUCK).
 //! Each unit returns at its VOLUME; at 0 it fades for FADE_SECONDS and is then skipped; a

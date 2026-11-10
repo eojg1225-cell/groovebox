@@ -17,6 +17,13 @@ interface Exports {
   audio_buf(): number;
   out_buf(): number;
   out_len(): number;
+  apply(): void;
+  state(): void;
+  base_value(ch: number, slot: number): number;
+  watch_notes(ch: number, on: number): void;
+  take_notes(ch: number): number;
+  notes_buf(): number;
+  held_voices(ch: number): number;
 }
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -81,6 +88,23 @@ function utf8Read(b: Uint8Array): string {
   return s;
 }
 
+/** The engine's state (WasmEngine.state): what a status report carries, at any moment. */
+export interface EngineState {
+  playing: boolean;
+  frame: number;
+  /** The master limiter's look-ahead, frames. */
+  latency: number;
+  peakL: number;
+  peakR: number;
+  songRow: number;
+  songBar: number;
+  barPhase: number;
+  barSteps: number;
+  countBeats: number;
+  currentStep: number[];
+  heardPattern: number[];
+}
+
 export class WasmEngine {
   private readonly x: Exports;
   private buffer: ArrayBuffer | null = null;
@@ -120,6 +144,38 @@ export class WasmEngine {
       this.audioView = new Float32Array(this.buffer, this.x.audio_buf(), this.frames * 2);
     }
     return this.audioView;
+  }
+
+  /** Handle what was sent at once, without rendering (the tests; then `drain`). */
+  apply(): void {
+    this.x.apply();
+  }
+
+  /** The engine's state now (the tests): drain first, it reuses the output buffer. */
+  state(): EngineState {
+    this.x.state();
+    return JSON.parse(utf8Read(new Uint8Array(this.x.memory.buffer, this.x.out_buf(), this.x.out_len()))) as EngineState;
+  }
+
+  /** A sound parameter's value on a track before live offsets, by its slot in the type's parameter list (the tests). */
+  baseValue(ch: number, slot: number): number {
+    return this.x.base_value(ch, slot);
+  }
+
+  /** Keep the notes track ch starts (the tests; then `takeNotes`). */
+  watchNotes(ch: number, on: boolean): void {
+    this.x.watch_notes(ch, on ? 1 : 0);
+  }
+
+  /** The notes track ch started since the last call. */
+  takeNotes(ch: number): number[] {
+    const n = this.x.take_notes(ch);
+    return n ? Array.from(new Float64Array(this.x.memory.buffer, this.x.notes_buf(), n)) : [];
+  }
+
+  /** Voices held on track ch's synth (the tests). */
+  heldVoices(ch: number): number {
+    return this.x.held_voices(ch);
   }
 
   /** What the engine wrote in the last block (usually nothing: no allocation then). */

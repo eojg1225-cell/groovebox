@@ -1,4 +1,4 @@
-//! The engine: sequencer, instruments, mixer, master, as src/engine/Engine.ts, line for line.
+//! The engine: sequencer, instruments, mixer, master (ported from the TypeScript engine's Engine.ts).
 //! Messages arrive as the protocol's plain data (serde_json values, engine/protocol.ts);
 //! `process` renders. JavaScript's typed arrays are kept as the same element types (a
 //! Float32Array field is an f32 here), so every value rounds as it does there.
@@ -714,8 +714,46 @@ impl Engine {
     }
 
     /// Output latency in frames (the master limiter's look-ahead).
+    /// A sound parameter's value on a track as the engine holds it now, before live offsets
+    /// (its patch, gliding), by slot in the type's parameter list (the web build's tests).
+    pub fn base_value(&self, ch: usize, slot: usize) -> f64 {
+        self.base_value.get(ch * LOCK_SLOTS + slot).map_or(0.0, |v| *v as f64)
+    }
+
     pub fn latency(&self) -> f64 {
         self.limiter.len as f64
+    }
+
+    /// Keep (or stop keeping) the notes track ch's instruments start (the web build's tests).
+    pub fn watch_notes(&mut self, ch: usize, on: bool) {
+        for i in &mut self.insts[ch] {
+            let log = match i {
+                Inst::Drum(d) => &mut d.notes,
+                Inst::Synth(s) => &mut s.notes,
+            };
+            *log = on.then(Vec::new);
+        }
+    }
+
+    /// The notes track ch's instruments started since the last call (watch_notes).
+    pub fn take_notes(&mut self, ch: usize, into: &mut Vec<f64>) {
+        for i in &mut self.insts[ch] {
+            let log = match i {
+                Inst::Drum(d) => &mut d.notes,
+                Inst::Synth(s) => &mut s.notes,
+            };
+            if let Some(l) = log.as_mut() {
+                into.append(l);
+            }
+        }
+    }
+
+    /// Voices held on track ch's synth (0 for a drum).
+    pub fn held_voices(&mut self, ch: usize) -> usize {
+        match self.inst(ch) {
+            Some(Inst::Synth(s)) => s.held_voices(),
+            _ => 0,
+        }
     }
 
     /// The current instrument of track ch.
@@ -1150,7 +1188,7 @@ impl Engine {
         n
     }
 
-    /// Status: the step track ch plays next (-1 = none), as Engine.ts nextStep.
+    /// Status: the step track ch plays next (-1 = none).
     pub fn next_step(&self, ch: usize) -> i32 {
         if !self.playing || self.current_step[ch] < 0 || self.current[ch].is_none() {
             return -1;

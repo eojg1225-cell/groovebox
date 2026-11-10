@@ -16,7 +16,7 @@ import {
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
 import { parseAutoKey } from './automation';
 import { macroIds, macroSoundOf, type MacroDef } from '../instruments/macros';
-import { DEFAULT_ROLL_RATE } from '../instruments/Drum';
+import { DEFAULT_ROLL_RATE } from '../instruments/drumSpecs';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
 import { BUS_PARAMS, FX_LIVE, NUM_BUSES } from '../fx/buses';

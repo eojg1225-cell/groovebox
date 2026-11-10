@@ -1,4 +1,4 @@
-//! Engine.ts's sound side: automation lanes (song and pattern locks), live offsets, the
+//! The engine's sound side: automation lanes (song and pattern locks), live offsets, the
 //! instruments' parameters, per-pattern patches and their glides, the mixer, the LFO, the
 //! buses and the master.
 

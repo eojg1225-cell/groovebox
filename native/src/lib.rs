@@ -1,10 +1,10 @@
-//! GrooveAccess native audio. Step 1 of the native engine (CLAUDE.md, platform plan): the
-//! Android low-latency audio path (AAudio: LowLatency + Exclusive, buffer = 2 bursts) playing
-//! a test blip on a tap, with its measured output latency, so the gain over the WebView can be
-//! heard and read on the device. The engine moves here module by module, each null-tested
-//! against the TypeScript engine (tests/blocks.rs: the building blocks).
+//! GrooveAccess's engine: the sequencer, instruments, effects and master (engine/, instruments/,
+//! fx/), its host (host.rs), in two builds: the Android app's (AAudio through the ndk crate,
+//! audio.rs, JNI in jni.rs; NATIVE AUDIO TEST's blip, blip.rs) and the web build's
+//! (WebAssembly, wasm.rs; parts.rs for the tests). Checked by tests/blocks.rs (the building
+//! blocks) and the app's `npm run engine:golden` (whole projects, both builds).
 
-// Index loops stay as in the TypeScript, line for line, so the port can be read against it.
+// Index loops stay as they were ported from the TypeScript engine, line for line.
 #![allow(clippy::needless_range_loop)]
 
 pub mod blip;
@@ -21,6 +21,8 @@ pub mod params;
 pub mod smoother;
 pub mod specs;
 
+#[cfg(target_arch = "wasm32")]
+mod parts;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 #[cfg(target_os = "android")]

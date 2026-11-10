@@ -1,8 +1,31 @@
-//! The drum voice, as src/instruments/Drum.ts (the design notes are there): layers TONE
-//! (+ the SNARE's SHELL), METAL (+ the HAT's BELL / RATTLE / head morph) and CLICK, the LFO's
-//! low-pass, DRIVE, CRUSH, OUT GAIN, and AIR (FX ROUTING: SPACE > FX or FX > SPACE).
-//! Allocation-free once built. Kept line for line with the TypeScript so the null tests
-//! (native/tools/render, tools/native/null.mjs) find the same samples.
+//! The drum voice: layers TONE (+ the SNARE's SHELL), METAL (+ the HAT's BELL / RATTLE / head
+//! morph) and CLICK, the LFO's low-pass, DRIVE, CRUSH, OUT GAIN, and AIR (FX ROUTING: SPACE >
+//! FX or FX > SPACE). Allocation-free once built. (Ported line for line from the TypeScript
+//! engine, retired in November 2026; its knob tables stay in src/instruments/drumSpecs.ts.)
+//!
+//! /**
+//! Drum voice built from layers. Each drum type uses two of them (its two "elements"):
+//!   KICK  = TONE + CLICK      SNARE = TONE + METAL      HAT = CLICK + METAL
+//!   PERC  = TONE + CLICK (+ METAL for bells): toms, congas, cowbell, clave; pitched from the
+//!           sequencer (step entry on the keyboard)
+//!  TONE   pitched oscillator with an exponential pitch sweep
+//!  CLICK  very short transient (impulse/noise blend) through a resonant band-pass
+//!  METAL  six inharmonic oscillators (square bank, ring-mod pairs or FM) blended with
+//!         noise (snare wires, hat sizzle), through a high-pass
+//! HAT only: the metal starts as its HEAD sound (a hat, or a ride bell at the far left of
+//! TIMBRE) and morphs over HEAD time into its tail (the M ... settings), so short hits
+//! stay hats and the tail decides the cymbal.
+//! RING (the sequencer's sustain) stretches each layer's own decay x RING_STRETCH and adds
+//! the type's fixed ring extension (tone and metal; the click only stretches), so ring
+//! tails follow the DECAY knobs.
+//! Each layer has its own ATTACK and DECAY; BALANCE trades the type's two elements against
+//! each other (centre = as designed). Then DRIVE (tanh) and CRUSH (bit + sample-rate
+//! reduction). No filter per drum: the kit's filter is FX 1's FILTER (the LFO's filter
+//! destination still sweeps a low-pass here). Ranges go far past "sensible" on purpose.
+//! The played note tunes the pitched layers (DRUM_ROOT, an A, = as designed; PERC by note name), so drums play chromatically.
+//! PERC (relative tuning): the metal sits INTERVAL semitones above the tone, the click's
+//! resonance follows the note too, and DETUNE moves both (up to a semitone) off the tone,
+//! which always stays on the step's note.
 
 use super::air_room::AirRoom;
 use crate::drive_comp::{drive_comp_gain, drive_rise};
@@ -51,7 +74,7 @@ enum Stage {
     Decaying,
 }
 
-/// Per type voice settings (Drum.ts DrumVoice).
+/// Per type voice settings.
 struct Voice {
     balance: (&'static str, &'static str),
     ring_extra: f64,
@@ -73,7 +96,7 @@ fn voice(kind: SoundKind) -> Voice {
     }
 }
 
-/// Every drum parameter with its default, in Drum.ts ALL's order (the constructor sets them
+/// Every drum parameter with its default, in drumSpecs.ts ALL's order (the constructor sets them
 /// all, in this order, before the type's own).
 const ALL: [(&str, f64); 47] = [
     ("timbre", 0.33), ("intensity", 0.5), ("t_level", 0.0), ("t_pitch", 50.0), ("t_sweep", 24.0), ("t_stime", 0.04),
@@ -88,7 +111,7 @@ const ALL: [(&str, f64); 47] = [
 
 const WHOLE: [&str; 7] = ["balance", "drive", "crush", "ogain", "rolldiv", "midfreq", "octave"];
 
-/// Each type's parameters (knob order) and their own defaults (Drum.ts KICK_PARAMS ...).
+/// Each type's parameters (knob order) and their own defaults (drumSpecs.ts KICK_PARAMS ...).
 pub fn type_params(kind: SoundKind) -> Vec<(&'static str, f64)> {
     let (ids, own): (Vec<&'static str>, &[(&str, f64)]) = match kind {
         SoundKind::Kick => (
@@ -139,6 +162,8 @@ fn sq(p: f64) -> f64 {
 }
 
 pub struct Drum {
+    /// The notes started, for the web build's tests (None = not kept, the normal case).
+    pub notes: Option<Vec<f64>>,
     sr: f64,
     voice: Voice,
     noise: Noise,
@@ -205,6 +230,7 @@ impl Drum {
         let sr = sample_rate;
         let room = voice.air.map(|(hp, lp, _, natural)| AirRoom::new(sr, hp, lp, natural));
         let mut d = Drum {
+            notes: None,
             sr,
             noise: Noise::new(0x5eed),
             m_filter: Svf::default(),
@@ -286,6 +312,9 @@ impl Drum {
     }
 
     pub fn note_on(&mut self, note: f64, velocity: f64, ring: bool) {
+        if let Some(log) = self.notes.as_mut() {
+            log.push(note);
+        }
         let sounding = self.t_stage != Stage::Off || self.m_stage != Stage::Off || self.c_stage != Stage::Off;
         self.fade_from = if sounding { self.last_out } else { 0.0 };
         self.fade_left = if sounding { self.fade_len } else { 0 };

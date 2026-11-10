@@ -256,11 +256,6 @@ export const METERS = [
   { name: '15/16', groups: [4, 4, 4, 3] },
 ] as const;
 
-/** A meter's bar in 16th steps. */
-export function meterLength(meter: number): number {
-  return (METERS[meter] ?? METERS[0]).groups.reduce((a: number, b: number) => a + b, 0);
-}
-
 /** Whether the meter plays step `index` (any bar of the pattern). */
 export function meterPlays(meter: number, index: number): boolean {
   const cell = index % 16;

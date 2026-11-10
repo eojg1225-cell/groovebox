@@ -1,4 +1,4 @@
-//! DRIVE level compensation, as src/instruments/driveComp.ts: each type's output is turned
+//! DRIVE level compensation (ported from the TypeScript engine's driveComp.ts): each type's output is turned
 //! down as DRIVE rises, leaving a small lift (DRIVE_LIFT_DB at full drive). The cut is fixed
 //! by the DRIVE value, not the signal.
 
