@@ -57,6 +57,8 @@ interface HeaderView {
   message: string;
   /** The selected track's colour (its name, the page tabs). */
   ink: Ink;
+  /** ALT held or latched: a tag beside the tempo. */
+  alt?: boolean;
 }
 
 interface FooterView {
@@ -118,7 +120,13 @@ function drawHeader(s: PixelScreen, v: HeaderView, middle: string, middleColor: 
   } else {
     s.text(112, 2, middle, middleColor);
   }
-  s.textRight(SCREEN_W - 12, 2, `${v.bpmText} BPM`, INK.hi);
+  const bpm = `${v.bpmText} BPM`;
+  s.textRight(SCREEN_W - 12, 2, bpm, INK.hi);
+  if (v.alt) {
+    const x = SCREEN_W - 12 - textWidth(bpm) - 6 - (textWidth('ALT') + 4);
+    s.rect(x, 1, textWidth('ALT') + 4, 7, INK.warn);
+    s.text(x + 2, 2, 'ALT', INK.bg);
+  }
   if (v.playing) {
     for (let i = 0; i < 4; i++) s.rect(SCREEN_W - 8 + i, 1 + i, 1, 7 - i * 2, INK.hi);
   } else {
@@ -414,6 +422,59 @@ export function drawCopyView(s: PixelScreen, v: CopyView): void {
   centre(30, v.title, INK.hi, 4);
   centre(70, v.message || v.hint, v.message ? INK.warn : v.ink.hi);
   if (v.done) centre(90, v.done, INK.mid);
+}
+
+/**
+ * A key or group of keys doing another job (STEPS' bars, a bus's tracks, CLEAR, SCALE, a flag
+ * being placed): like the title card, only that job on screen. `keys` mirrors the eight track
+ * keys: on = lit (the second colour), off = crossed out.
+ */
+export interface FunctionView {
+  title: string;
+  /** One short line under the title ('' = none). */
+  sub: string;
+  keys?: { label: string; on: boolean }[];
+  /** A flash (as the header's), '' = none. */
+  message: string;
+}
+
+const FN_KEY_W = 26;
+const FN_KEY_H = 26;
+const FN_KEY_GAP = 4;
+
+export function drawFunctionView(s: PixelScreen, v: FunctionView): void {
+  s.clear(INK.bg);
+  const centre = (y: number, text: string, color: string, scale = 1) => {
+    let k = scale;
+    while (k > 1 && textWidth(text, k) > SCREEN_W - 8) k--;
+    s.text(Math.round((SCREEN_W - textWidth(text, k)) / 2), y, text, color, k);
+  };
+  const keys = v.keys ?? [];
+  centre(keys.length ? 14 : 38, v.title, INK.hi, keys.length ? 2 : 3);
+  if (keys.length) {
+    const x0 = Math.round((SCREEN_W - keys.length * FN_KEY_W - (keys.length - 1) * FN_KEY_GAP) / 2);
+    const y = 46;
+    keys.forEach((k, i) => {
+      const x = x0 + i * (FN_KEY_W + FN_KEY_GAP);
+      const tx = x + Math.round((FN_KEY_W - textWidth(k.label)) / 2);
+      const ty = y + Math.round((FN_KEY_H - 5) / 2);
+      if (k.on) {
+        s.rect(x, y, FN_KEY_W, FN_KEY_H, INK.warn);
+        s.text(tx, ty, k.label, INK.bg);
+      } else {
+        s.frame(x, y, FN_KEY_W, FN_KEY_H, INK.dim);
+        // A cross corner to corner, one pixel a step.
+        for (let d = 0; d < FN_KEY_H; d++) {
+          const dx = Math.round((d * (FN_KEY_W - 1)) / (FN_KEY_H - 1));
+          s.rect(x + dx, y + d, 1, 1, INK.dim);
+          s.rect(x + FN_KEY_W - 1 - dx, y + d, 1, 1, INK.dim);
+        }
+        s.text(tx, ty, k.label, INK.mid);
+      }
+    });
+  }
+  if (v.sub) centre(keys.length ? 84 : 76, v.sub, INK.mid);
+  if (v.message) centre(104, v.message, INK.warn);
 }
 
 export interface ProjectView {

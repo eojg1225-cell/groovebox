@@ -72,7 +72,7 @@ import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
 import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
-import type { CopyView, DesignView, LaneCell, LiveView, MenuView, ProjectView, SongStripView } from './views';
+import type { CopyView, DesignView, FunctionView, LaneCell, LiveView, MenuView, ProjectView, SongStripView } from './views';
 import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, songBars, songClips, type Clip } from './songClips';
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
 import { UNDO_DEPTH, changes, restore, snapshot, type HistoryEntry } from './history';
@@ -154,7 +154,6 @@ const NAME_SETS: readonly [string, string][] = [
 ];
 
 /** PLAY's pages: SOUND (live knobs) and MIX. */
-const PLAY_PAGES = 2;
 /** After the step count on the screen: double time X2, half time /2. */
 const SPEED_MARK = { normal: '', double: ' X2', half: ' /2', triplet: ' T' } as const;
 
@@ -1471,14 +1470,14 @@ export class App {
         : this.sendTargets(bus - 1).map((t, i) => t && (bus <= 2 ? { ...t, colour: fxColour(bus, i % KNOBS_PER_ROW) } : { ...t, neutral: true })));
     }
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
-    if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playMix ? this.mixTargets() : this.liveGrid(false));
+    if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playPaged ? this.pagedTargets() : this.liveGrid(false));
     if (this.mode === 'design' || this.songRecord) {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
       const t = pages[this.designPage].targets();
       return step(Array.from({ length: KNOB_COUNT }, (_, i) => t[i] ?? null));
     }
-    if (this.playMix) return step(this.mixTargets());
+    if (this.playPaged) return step(this.pagedTargets());
     return step(this.liveGrid());
   }
 
@@ -1777,7 +1776,7 @@ export class App {
       this.sendMutes();
     } else if ((m = /^dpage(\d)$/.exec(id))) {
       const page = Number(m[1]);
-      if (this.mode === 'play') this.playPage = page;
+      if (this.usesPlayPage) this.playPage = page;
       else this.designPage = page;
       this.fxView = 0; // back from a bus to the DESIGN pages
       this.arpView = false;
@@ -2699,7 +2698,7 @@ export class App {
     this.unprime();
     this.endAudition();
     this.mode = mode;
-    this.playPage = 0; // PLAY always opens on SOUND (the live knobs)
+    this.playPage = 0; // RECORD / PLAY always open on SOUND (the live knobs)
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
     // Placing a flag ends with the mode; ALT + flag's all-notes effects play on in every mode.
     this.ring = false;
@@ -4687,13 +4686,14 @@ export class App {
       // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
       const sendView = this.sendOpen;
       // STEPS mode: a track button per bar, lit = the pattern has it.
-      const lit = sendView ? this.onBus(c, this.fxView) : barKeys ? ch < this.pageCount() && ch !== copyBars : ch === this.selected;
+      const lit = barKeys ? ch < this.pageCount() && ch !== copyBars : sendView ? this.onBus(c, this.fxView) : ch === this.selected;
       this.panel.setButtonLit(`ch${ch + 1}`, lit);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'cursor', ch === copyBars);
-      this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView);
+      // Doing another job (a bus's tracks, STEPS' bars): dashed, lit in the second colour.
+      this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView || this.stepsMode);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonLit(`solo${ch + 1}`, this.soloed[ch]);
-      this.panel.setButtonText(`ch${ch + 1}`, copyBars >= 0 ? `${ch + 1}<small>BAR</small>` : `${ch + 1}<small>${this.kindName(c)}</small>`);
+      this.panel.setButtonText(`ch${ch + 1}`, barKeys ? `${ch + 1}<small>BAR</small>` : `${ch + 1}<small>${this.kindName(c)}</small>`);
     }
     for (const id of Object.keys(TRACK_KNOBS)) {
       const t = this.trackKnob(id);
@@ -4702,12 +4702,12 @@ export class App {
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       this.panel.setButtonLit(`fx${n}`, n === 3 ? this.arpOpen : this.fxView === n);
     }
-    // DESIGN: SOUND / MIX / PROJECT. PLAY: SOUND (live knobs) / MIX; PROJECT shown but off.
+    // DESIGN: SOUND / MIX / PROJECT. RECORD / PLAY: SOUND (the live knobs) / MIX / PROJECT.
     const names = this.pageNames();
-    const current = this.mode === 'play' ? this.playPage : this.designPage;
+    const current = this.usesPlayPage ? this.playPage : this.designPage;
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) {
       const name = names[i];
-      const usable = !!name && (this.mode === 'design' || this.songRecord || i < PLAY_PAGES);
+      const usable = !!name;
       this.panel.setButtonText(`dpage${i}`, name ?? '');
       this.panel.setButtonEnabled(`dpage${i}`, usable);
       this.panel.setButtonLit(`dpage${i}`, usable && i === current && this.fxView === 0);
@@ -4724,11 +4724,25 @@ export class App {
     this.panel.setButtonLit('copy', this.copyHeld);
     this.panel.setButtonEnabled('copy', this.mode !== 'design' || this.songGrid);
     this.panel.setButtonLit('play', this.playing);
-    this.panel.setButtonText('play', this.playing ? 'STOP' : 'PLAY');
+    // The keys' other jobs on their labels: MENU (PLAY saves the page), ALT (from the top).
+    this.panel.setButtonText('play', this.menu ? 'SAVE' : this.func && !this.projMenu ? (this.playing ? 'STOP<small>TO TOP</small>' : 'PLAY<small>FROM TOP</small>') : this.playing ? 'STOP' : 'PLAY');
+    const quick = this.func && !this.songGrid && !this.menu && !this.projMenu;
+    for (const name of PATTERN_NAMES) this.panel.setButtonText(`pat${name}`, quick ? `${name}<small>QUICK</small>` : name);
+    for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
+      const name = n === 4 ? 'LFO' : n === 3 ? 'ARP' : String(n);
+      this.panel.setButtonText(`fx${n}`, this.func && !this.songGrid && !this.menu ? `${name}<small>ON/OFF</small>` : name);
+    }
+    // CLEAR held: what a tap would clear (steps; tracks and A-D but in SONG).
+    const clearing = this.clearHeld && !this.songGrid;
+    const clearSteps = clearing && (!this.song || this.autoSteps);
+    for (let i = 1; i <= STEP_BUTTONS; i++) this.panel.setButtonFlag(`step${i}`, 'clearable', clearSteps);
+    for (let ch = 1; ch <= NUM_CHANNELS; ch++) this.panel.setButtonFlag(`ch${ch}`, 'clearable', clearing && !this.song);
+    for (const name of PATTERN_NAMES) this.panel.setButtonFlag(`pat${name}`, 'clearable', clearing && !this.song);
 
     const rec = this.mode === 'record';
     const kb = this.keyboard;
     this.panel.setButtonLit('func', this.func);
+    this.panel.setButtonFlag('func', 'latched', this.funcLatched && !this.funcHeld);
     // Lit = placing that flag; with ALT = its all-notes effect on the selected track (ALL on
     // the key = that effect is on).
     const alt = this.func;
@@ -4790,8 +4804,12 @@ export class App {
     // FUNC: the sound's OCTAVE keys (SND), showing where it is now; else the keyboard's.
     const snd = this.soundOctave(this.channel);
     const sndSmall = snd ? `<small>${snd}</small>` : '';
-    this.panel.setButtonText('oct-', song ? 'TRK ▼' : this.func && !this.menu ? `SND ▼${sndSmall}` : 'OCT ▼');
-    this.panel.setButtonText('oct+', song ? 'TRK ▲' : this.func && !this.menu ? `SND ▲${sndSmall}` : 'OCT ▲');
+    this.panel.setButtonText('oct-', this.menu ? '▼' : song ? 'TRK ▼' : this.func ? `SND ▼${sndSmall}` : 'OCT ▼');
+    this.panel.setButtonText('oct+', this.menu ? '▲' : song ? 'TRK ▲' : this.func ? `SND ▲${sndSmall}` : 'OCT ▲');
+    // ◀ ▶ tie a note while one is held in step entry, and the primed step's in STEP EDIT.
+    const tying = !song && !this.menu && !this.projMenu && !this.barHeld && !this.stepsMode && (this.stepEdit || !!this.entry || (!!this.stroke && this.stripDown.size > 0));
+    this.panel.setButtonText('cur-', tying ? '◀<small>TIE −</small>' : '◀');
+    this.panel.setButtonText('cur+', tying ? '▶<small>TIE +</small>' : '▶');
     if (song) {
       // REST = an empty bar, STEP EDIT = clip lengths, ▼ ▲ = the next / previous track.
       for (const id of ['ring', 'slide', 'dyn:accent', 'dyn:ghost']) {
@@ -5019,7 +5037,36 @@ export class App {
       playing: this.playing,
       ink: inkOf(this.fxView > 0 && !this.arpOpen ? neutralColour() : this.trackColour(ch)),
       message: performance.now() < this.messageUntil ? this.message : this.primed ? this.primedHint() : '',
+      alt: this.func,
     };
+  }
+
+  /**
+   * Keys doing another job, shown alone on the screen (like the title card): CLEAR held,
+   * SCALE held, STEPS (the track keys = bars), a flag being placed, ALT with a bus open (the
+   * track keys = on / off it). null = the usual screen.
+   */
+  functionView(): FunctionView | null {
+    if (this.projMenu || this.menu || this.songGrid || this.copyShowing) return null;
+    const message = performance.now() < this.messageUntil ? this.message : '';
+    const keys = (on: (ch: number) => boolean) => Array.from({ length: NUM_CHANNELS }, (_, ch) => ({ label: String(ch + 1), on: on(ch) }));
+    if (this.clearHeld) {
+      const sub = this.stepEdit || this.autoSteps ? 'TAP A STEP / TOUCH A KNOB' : this.song ? SONG_KEEPS : 'TAP A STEP / TRACK / A-D';
+      return { title: 'CLEAR', sub, message };
+    }
+    if (this.scaleHeld) {
+      return this.scaleAlt
+        ? { title: 'CHOOSE KEY', sub: this.scaleName(), message }
+        : { title: 'CHOOSE NOTE', sub: this.stepEdit && this.primedNote() >= 0 ? 'THE PRIMED NOTE' : `KEYS FROM ${noteName(this.keyNote(this.selected, 0))}`, message };
+    }
+    if (this.stepsMode) return { title: 'ADD/REMOVE BARS', sub: '', keys: keys((ch) => ch < this.pageCount()), message };
+    const flag = this.ring ? 'RING' : this.slideArm ? this.slideName : this.dynamic !== 'normal' ? this.dynamic.toUpperCase() : '';
+    if (flag && !this.func) return { title: `PLACE ${flag}`, sub: `${this.kindName(this.channel)}: TAP A STEP`, message };
+    if (this.sendOpen && this.func) {
+      const n = this.fxView;
+      return { title: `${this.busName(n)} CHANNELS`, sub: '', keys: keys((ch) => this.onBus(this.project.channels[ch], n)), message };
+    }
+    return null;
   }
 
   liveView(now: number, audio: AudioInfo): LiveView {
@@ -5188,7 +5235,7 @@ export class App {
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
       liveLabel: members.length ? `TRACKS ${members.join(' ')}` : 'NO TRACKS',
-      chordLabel: 'FN+TRACK = ON/OFF',
+      chordLabel: 'ALT+TRACK = ON/OFF',
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,
@@ -5196,21 +5243,31 @@ export class App {
     };
   }
 
-  /** The page buttons' names in this mode (none in RECORD / SONG DESIGN). */
+  /** The page buttons' names in this mode (none in SONG DESIGN). */
   private pageNames(): string[] {
     if (this.songGrid) return [];
-    return this.mode === 'design' || this.mode === 'play' || this.songRecord ? this.designPages().map((p) => p.name) : [];
+    return this.designPages().map((p) => p.name);
   }
 
   /** PLAY with its MIX page open (and no bus open): the knobs and screen are the MIX page. */
-  get playMix(): boolean {
-    return this.mode === 'play' && this.playPage === 1 && this.fxView === 0;
+  get playPaged(): boolean {
+    return this.usesPlayPage && this.playPage > 0 && this.fxView === 0;
+  }
+
+  /** RECORD / PLAY (JAM, SONG PLAY): pages SOUND (the live knobs) / MIX / PROJECT, on `playPage`. */
+  private get usesPlayPage(): boolean {
+    return (this.mode === 'play' || this.mode === 'record') && !this.songRecord;
+  }
+
+  /** RECORD / PLAY's MIX or PROJECT page. */
+  private pagedTargets(): (KnobTarget | null)[] {
+    return this.playPage === 2 ? this.projectTargets() : this.mixTargets();
   }
 
   designView(now: number, audio: AudioInfo): DesignView {
     const c = this.channel;
-    const pages = this.designPages().slice(0, this.mode === 'play' ? PLAY_PAGES : undefined);
-    const current = this.mode === 'play' ? this.playPage : this.designPage;
+    const pages = this.designPages();
+    const current = this.usesPlayPage ? this.playPage : this.designPage;
     const f = this.footer(audio);
     const liveName = (id: string) => this.liveName(c, id);
     return {
@@ -5218,12 +5275,12 @@ export class App {
       kindLabel: c.instrument !== 'none' && c.sounds[c.instrument]?.timbre !== undefined
         ? timbreName(c.instrument, c.sounds[c.instrument]!.timbre)
         : this.presetName(c),
-      pages: pages.map((p, i) => (this.func && i === current ? `${p.name} FN` : p.name)),
+      pages: pages.map((p, i) => (this.func && i === current ? `${p.name} ALT` : p.name)),
       page: current,
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
       liveLabel: this.func
-        ? `FN LIVE ${liveName(c.liveFunc[0])} + ${liveName(c.liveFunc[1])}`
+        ? `ALT LIVE ${liveName(c.liveFunc[0])} + ${liveName(c.liveFunc[1])}`
         : `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
       chordLabel: [c.fx1 ? 'FX1' : '', c.fxSend ? `FX${c.fxSend}` : '', c.lfoOn ? 'LFO' : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
       peak: audio.peak,

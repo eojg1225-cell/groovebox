@@ -2241,3 +2241,99 @@ describe('song transitions: GLIDE CURVE, JAM AUTO-FILL, SONG DESIGN clip knobs',
     expect(targets(app)[7]?.label).toBe('CURVE');
   });
 });
+
+describe('keys doing another job: the screen and the panel say so', () => {
+  const labels = (app: App) => (app as unknown as { targets: ({ label: string } | null)[] }).targets.map((t) => t?.label ?? '');
+
+  it('STEPS: the track keys are bars (dashed, lit in the second colour, labelled BAR); the screen shows ADD/REMOVE BARS with the bars', () => {
+    const { app, tap, flags, texts } = makeApp();
+    tap('mode:record');
+    tap('ch1');
+    expect(app.functionView()).toBeNull();
+    tap('len');
+    tap('ch3'); // three bars
+    app.updateFrame(0);
+    const v = app.functionView()!;
+    expect(v.title).toBe('ADD/REMOVE BARS');
+    expect(v.keys!.map((k) => k.on)).toEqual([true, true, true, false, false, false, false, false]);
+    expect(flags.get('ch3')?.has('send')).toBe(true);
+    expect(texts.get('ch4')).toBe('4<small>BAR</small>');
+    tap('len');
+    app.updateFrame(0);
+    expect(app.functionView()).toBeNull();
+    expect(flags.get('ch3')?.has('send')).toBe(false);
+  });
+
+  it('a bus open + ALT: the screen shows the bus\'s tracks; CLEAR, SCALE and a flag being placed show their job', () => {
+    const { app, tap, press, release, flags } = makeApp();
+    tap('mode:play');
+    tap('fx1');
+    expect(app.functionView()).toBeNull(); // the bus's knobs
+    press('func');
+    const v = app.functionView()!;
+    expect(v.title).toBe('FX 1 CHANNELS');
+    expect(v.keys!.map((k) => k.on)).toEqual(app.project.channels.map((c) => c.fx1));
+    tap('ch1'); // ALT + a track: on / off the bus (ALT used, not latched)
+    release('func');
+    expect(app.project.channels[0].fx1).toBe(!v.keys![0].on);
+    tap('fx1');
+    tap('mode:record');
+    press('clear');
+    expect(app.functionView()!.title).toBe('CLEAR');
+    expect(flags.get('step1')?.has('clearable')).toBe(true);
+    expect(flags.get('patA')?.has('clearable')).toBe(true);
+    release('clear');
+    expect(flags.get('step1')?.has('clearable')).toBe(false);
+    press('scale');
+    expect(app.functionView()!.title).toBe('CHOOSE NOTE');
+    release('scale');
+    press('func');
+    press('scale');
+    expect(app.functionView()!.title).toBe('CHOOSE KEY');
+    release('scale');
+    release('func');
+    tap('dyn:accent');
+    expect(app.functionView()!.title).toBe('PLACE ACCENT');
+    tap('dyn:accent');
+    expect(app.functionView()).toBeNull();
+  });
+
+  it('PROJECT (TEMPO ...) is a page in RECORD and PLAY too, beside SOUND and MIX', () => {
+    const { app, tap } = makeApp();
+    for (const mode of ['mode:record', 'mode:play']) {
+      tap(mode);
+      expect(labels(app)).not.toContain('TEMPO');
+      tap('dpage2');
+      expect(labels(app)).toContain('TEMPO');
+      expect(app.playPaged).toBe(true);
+      tap('dpage0');
+      expect(labels(app)).not.toContain('TEMPO');
+    }
+  });
+
+  it('labels show the other job: ALT = PLAY FROM TOP, A-D QUICK, FX ON/OFF (latched ALT blinks); MENU: PLAY = SAVE; a held key: ◀ ▶ tie', () => {
+    const { app, tap, press, release, texts, flags } = makeApp();
+    tap('mode:play');
+    press('func');
+    app.updateFrame(0);
+    expect(texts.get('play')).toBe('PLAY<small>FROM TOP</small>');
+    expect(texts.get('patA')).toBe('A<small>QUICK</small>');
+    expect(texts.get('fx1')).toBe('1<small>ON/OFF</small>');
+    expect(flags.get('func')?.has('latched')).toBe(false);
+    release('func'); // a tap: latched
+    expect(flags.get('func')?.has('latched')).toBe(true);
+    tap('func');
+    expect(texts.get('play')).toBe('PLAY');
+    expect(texts.get('patA')).toBe('A');
+    tap('menu');
+    expect(texts.get('play')).toBe('SAVE');
+    expect(texts.get('oct-')).toBe('▼');
+    tap('menu');
+    tap('mode:record');
+    tap('ch5'); // BASS: keys
+    press('step1');
+    expect(texts.get('cur+')).toBe('▶<small>TIE +</small>');
+    release('step1');
+    expect(texts.get('cur+')).toBe('▶');
+  });
+});
