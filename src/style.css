@@ -232,6 +232,11 @@ html, body {
 /* 16 keys, each straight above its strip step (the strip's gaps and group spacing). */
 .function-row > .btn.fn:nth-child(4n + 1):not(:first-child) { margin-left: 10px; }
 .btn.fn { flex: 1 1 0; font-size: 12px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
+/* A larger touch target than the key itself (unseen): up through the 12 px gap to the knob
+   panel's edge, down through the 6 px gap and the top half of the step light (5 of its 10 px),
+   so the strip below is never in it. The key's own box and look stay as they are. */
+.btn.fn { position: relative; }
+.btn.fn::after { content: ''; position: absolute; left: -2px; right: -2px; top: -14px; bottom: -13px; z-index: 1; }
 .btn.fn small { font-size: 10px; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; }
 .btn.fn.blank { cursor: default; }
 .btn.fn.armed { background: var(--rec); border-color: var(--rec); color: #fff; }
