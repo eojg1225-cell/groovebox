@@ -476,6 +476,8 @@ export class App {
   private lenUsed = false;
   /** STEPS mode (RECORD / PLAY): the strip shows which steps play; a tap switches one on / off. */
   private stepsMode = false;
+  /** BAR mode (BAR tapped, JAM): the eight track keys are the pattern's bars (add / take out). */
+  private barsMode = false;
   /** Note sounding from a ◀ / ▶ step preview, released after the step's length. */
   private preview: { channel: number; notes: number[]; timer: ReturnType<typeof setTimeout> } | null = null;
   /** Short confirmation shown on the screen header (e.g. after saving). */
@@ -1470,7 +1472,8 @@ export class App {
         : this.sendTargets(bus - 1).map((t, i) => t && (bus <= 2 ? { ...t, colour: fxColour(bus, i % KNOBS_PER_ROW) } : { ...t, neutral: true })));
     }
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
-    if (this.stepEdit) return step(this.func ? this.soundTargets(false) : this.playPaged ? this.pagedTargets() : this.liveGrid(false));
+    // STEP EDIT in RECORD / PLAY: their knobs; FUNC = the track's SOUND page. DESIGN: its pages (below).
+    if (this.stepEdit && this.mode !== 'design') return step(this.func ? this.soundTargets(false) : this.playPaged ? this.pagedTargets() : this.liveGrid(false));
     if (this.mode === 'design' || this.songRecord) {
       const pages = this.designPages();
       this.designPage = Math.min(this.designPage, pages.length - 1);
@@ -1567,11 +1570,18 @@ export class App {
         this.refreshPanel();
       }
       if (id === 'steppage' && this.barHeld) {
-        // BAR tapped (no ◀ / ▶ meanwhile): the next bar (SONG grid: the next page of rows).
+        // BAR tapped (no ◀ / ▶ meanwhile): BAR mode on / off, the track keys = the pattern's
+        // bars (SONG grid: the next page of rows; SONG RECORD: the next bar of the song).
         this.barHeld = false;
         if (!this.barUsed) {
           if (this.songGrid) this.stripPage((this.songPage + 1) % this.stripPages());
-          else this.changeBar(1);
+          else if (this.songRecord) this.changeBar(1);
+          else if (this.song) this.flash(SONG_KEEPS);
+          else {
+            this.barsMode = !this.barsMode;
+            if (this.barsMode) this.stepsMode = false;
+            this.flash(this.barsMode ? 'BARS: TRACK KEY = ADD / TAKE OUT' : 'BARS OFF');
+          }
         }
         this.refreshPanel();
       }
@@ -1608,7 +1618,8 @@ export class App {
         if (!this.lenUsed) {
           this.leaveStepEdit();
           this.stepsMode = !this.stepsMode;
-          this.flash(this.stepsMode ? 'STEPS: STEP = ON / OFF, TRACK = BAR' : 'STEPS OFF');
+          if (this.stepsMode) this.barsMode = false;
+          this.flash(this.stepsMode ? 'STEPS: TAP A STEP = ON / OFF' : 'STEPS OFF');
         }
         this.refreshPanel();
       }
@@ -1656,8 +1667,8 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.stepsMode && (m = /^ch(\d)$/.exec(id))) {
-      // STEPS mode: the track buttons are the pattern's bars.
+    if (this.barsMode && (m = /^ch(\d)$/.exec(id))) {
+      // BAR mode: the track buttons are the pattern's bars.
       this.toggleBar(Number(m[1]) - 1);
       this.refreshPanel();
       return;
@@ -1889,12 +1900,26 @@ export class App {
         this.previewNotes([note], 1);
       }
       this.save();
+    } else if ((id === 'cur-' || id === 'cur+') && this.scaleHeld && !this.songGrid) {
+      // SCALE held + ◀ / ▶: the keys a semitone down / up (as picking the key beside the
+      // lowest), so notes past the keys shown can be reached; ALT + SCALE: the key a semitone.
+      const ch = this.selected;
+      const d = id === 'cur+' ? 1 : -1;
+      this.scaleUsed = true;
+      if (this.scaleAlt) {
+        this.setTrackRoot(ch, this.trackRoot(ch) + d);
+        this.flash(`KEY: ${this.scaleName()}`);
+      } else {
+        this.setKeysFrom(ch, this.keyNote(ch, 0) + d);
+        this.flash(`KEYS FROM ${noteName(this.keyNote(ch, 0))}`);
+      }
+      this.save();
     } else if ((id === 'cur-' || id === 'cur+') && this.barHeld) {
       // BAR + ◀ / ▶: the previous / next bar (16-step block) on the strip.
       this.changeBar(id === 'cur+' ? 1 : -1);
       this.barUsed = true;
-    } else if ((id === 'cur-' || id === 'cur+') && this.stepsMode) {
-      // STEPS mode: ◀ / ▶ = through the bars (strip taps switch steps on / off).
+    } else if ((id === 'cur-' || id === 'cur+') && (this.stepsMode || this.barsMode)) {
+      // STEPS / BAR mode: ◀ / ▶ = through the bars (STEPS: strip taps switch steps on / off).
       this.changeBar(id === 'cur+' ? 1 : -1);
     } else if ((id === 'cur-' || id === 'cur+') && this.stepEdit) {
       // STEP EDIT: the primed step's note one step longer / shorter (a tap moves the prime).
@@ -2694,10 +2719,12 @@ export class App {
 
   /** RECORD / PLAY / DESIGN (the mode buttons; in SONG they work on the song). */
   private setMode(mode: Mode): void {
-    this.leaveStepEdit();
+    // STEP EDIT stays on in every mode, on its primed step (knobs waiting there are let go).
+    const primedCell = this.stepEdit ? this.primed?.cell : undefined;
     this.unprime();
     this.endAudition();
     this.mode = mode;
+    if (primedCell !== undefined) this.primeAt(Math.min(primedCell, this.pattern.length - 1));
     this.playPage = 0; // RECORD / PLAY always open on SOUND (the live knobs)
     if (this.mode !== 'record' && this.mode !== 'play') this.stepsMode = false;
     // Placing a flag ends with the mode; ALT + flag's all-notes effects play on in every mode.
@@ -2714,6 +2741,7 @@ export class App {
     if (on) {
       // Pattern-editing strip modes stay in JAM.
       this.stepsMode = false;
+      this.barsMode = false;
       this.restArm = false;
       this.ring = false;
       this.slideArm = false;
@@ -3337,13 +3365,13 @@ export class App {
       return;
     }
     const ch = this.selected;
-    if (this.followsPlayhead && !this.stepsMode) {
+    if (this.followsPlayhead && !this.stepsMode && !this.barsMode) {
       this.flash('THE STRIP FOLLOWS THE PLAYHEAD');
       return;
     }
     const pages = this.pageCount();
     if (pages <= 1) {
-      this.flash('1 BAR: STEPS + TRACK 2 ADDS ONE');
+      this.flash('1 BAR: BAR + TRACK 2 ADDS ONE');
       return;
     }
     const page = (this.visiblePage(ch) + delta + pages) % pages;
@@ -3360,7 +3388,7 @@ export class App {
   }
 
   /**
-   * STEPS mode, a track button = that bar of the pattern (lit = it has it): an unlit one grows
+   * BAR mode, a track button = that bar of the pattern (lit = it has it): an unlit one grows
    * the pattern up to it with empty bars, a lit one takes that bar out (the bars after it move
    * up; one bar stays). Bar 8 at most (128 steps).
    */
@@ -4079,14 +4107,14 @@ export class App {
     this.movePrime(index);
   }
 
-  /** STEP EDIT on (RECORD, stopped): the other strip modes go, the step entry cursor's step is primed. */
+  /** STEP EDIT on (RECORD, PLAY or DESIGN, JAM): the other strip modes go, the step entry cursor's step is primed. */
   private toggleStepEdit(): void {
     if (this.stepEdit) {
       this.leaveStepEdit();
       return;
     }
-    if (this.mode !== 'record' || this.song) {
-      this.flash('STEP EDIT: RECORD ONLY');
+    if (this.song) {
+      this.flash(SONG_KEEPS);
       return;
     }
     this.stepsMode = false;
@@ -4673,11 +4701,11 @@ export class App {
         t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight, staged: t.staged, colour: this.knobColour(t) } : null,
       );
     });
-    // STEPS mode: the track buttons are the selected track's bars, so they take its colour.
+    // BAR mode: the track buttons are the selected track's bars, so they take its colour.
     const sel = this.trackColour(this.selected);
     // COPY a bar: the track keys are the pattern's bars (lit = it has it, yellow = the one copied).
     const copyBars = this.copyShowing && this.copySrc?.kind === 'bar' ? this.copySrc.bar : -1;
-    const barKeys = this.stepsMode || copyBars >= 0;
+    const barKeys = this.barsMode || copyBars >= 0;
     this.panel.setTrackColours(this.project.channels.map((c) => (barKeys ? sel : trackColour(c.instrument))), sel);
 
     for (const m of MODES) this.panel.setButtonLit(`mode:${m.id}`, m.id === this.mode);
@@ -4685,12 +4713,12 @@ export class App {
       const c = this.project.channels[ch];
       // While a bus is open (RECORD/PLAY), channel buttons show which tracks are on it.
       const sendView = this.sendOpen;
-      // STEPS mode: a track button per bar, lit = the pattern has it.
+      // BAR mode: a track button per bar, lit = the pattern has it.
       const lit = barKeys ? ch < this.pageCount() && ch !== copyBars : sendView ? this.onBus(c, this.fxView) : ch === this.selected;
       this.panel.setButtonLit(`ch${ch + 1}`, lit);
       this.panel.setButtonFlag(`ch${ch + 1}`, 'cursor', ch === copyBars);
       // Doing another job (a bus's tracks, STEPS' bars): dashed, lit in the second colour.
-      this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView || this.stepsMode);
+      this.panel.setButtonFlag(`ch${ch + 1}`, 'send', sendView || this.barsMode);
       this.panel.setButtonLit(`mute${ch + 1}`, c.mute);
       this.panel.setButtonLit(`solo${ch + 1}`, this.soloed[ch]);
       this.panel.setButtonText(`ch${ch + 1}`, barKeys ? `${ch + 1}<small>BAR</small>` : `${ch + 1}<small>${this.kindName(c)}</small>`);
@@ -4720,7 +4748,7 @@ export class App {
     this.panel.setButtonText('menu', this.song ? 'MENU<small>SONG</small>' : 'MENU');
     // SAVE PROJECT doubles as LOAD (FUNC): the label says which one a tap opens.
     this.panel.setButtonText('saveproject', this.func ? 'LOAD<small>PROJECT</small>' : 'SAVE/LOAD<small>PROJECT</small>');
-    this.panel.setButtonEnabled('clear', this.mode !== 'design' || this.songGrid);
+    this.panel.setButtonEnabled('clear', this.mode !== 'design' || this.songGrid || this.stepEdit);
     this.panel.setButtonLit('copy', this.copyHeld);
     this.panel.setButtonEnabled('copy', this.mode !== 'design' || this.songGrid);
     this.panel.setButtonLit('play', this.playing);
@@ -4763,13 +4791,15 @@ export class App {
     this.panel.setButtonLit('len', this.stepsMode);
     // BAR: not where the strip follows the playhead (PLAY, DESIGN, live recording). TIME (the
     // pattern's speed) works in every mode but SONG.
-    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || this.stepsMode || !this.followsPlayhead);
+    // BAR: a tap = BAR mode in every JAM mode, playing or not; BAR + ◀ ▶ only where the strip does not follow the playhead.
+    this.panel.setButtonLit('steppage', this.barsMode);
+    this.panel.setButtonEnabled('steppage', !!this.projMenu || this.autoSteps || this.stepsMode || !this.song || !this.followsPlayhead);
     // OCT ▼ / ▲: every track and strip view (on steps they set the octave painted notes and a
     // later keyboard use).
     for (const id of ['oct-', 'oct+']) this.panel.setButtonEnabled(id, true);
     // Drum lanes in RECORD paint by sliding; with CLEAR held any strip clears by sliding.
     this.panel.setStripSlide(!this.stepsMode && (this.stripSteps() || (this.clearHeld && this.mode !== 'design')));
-    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || (!!this.stroke && this.stripDown.size > 0) || this.barHeld || this.lenHeld || this.stepsMode || !!this.projMenu || this.stepEdit || this.autoSteps);
+    for (const id of ['cur-', 'cur+']) this.panel.setButtonEnabled(id, (kb && rec) || (!!this.stroke && this.stripDown.size > 0) || this.barHeld || this.lenHeld || this.stepsMode || this.barsMode || this.scaleKeys || !!this.projMenu || this.stepEdit || this.autoSteps);
     this.panel.setButtonEnabled('rest', rec);
     // SCALE: the strip keyboard's root / minor or chromatic (not on the SONG grid).
     this.panel.setButtonEnabled('scale', !this.songGrid);
@@ -4783,14 +4813,14 @@ export class App {
     this.panel.setButtonEnabled('view', !this.song);
     this.panel.setButtonText('view', `STRIP<small>${this.stripSteps() ? 'STEPS' : 'KEYS'}</small>`);
     this.panel.setButtonLit('view', this.stripFlip[this.selected]);
-    // STEP EDIT: RECORD, stopped, on the pattern it was primed on (else it starts over there).
-    if (this.stepEdit && (!rec || this.song)) this.leaveStepEdit();
+    // STEP EDIT: any JAM mode, on the pattern it was primed on (else it starts over there).
+    if (this.stepEdit && this.song) this.leaveStepEdit();
     if (this.stepEdit && !this.waiting && (this.primed?.pattern?.ch !== this.selected || this.primed.pattern.p !== this.channel.activePattern)) {
       const cell = Math.min(this.primed?.cell ?? 0, this.pattern.length - 1);
       this.unprime();
       this.primeAt(cell);
     }
-    this.panel.setButtonEnabled('stepedit', rec && !this.song);
+    this.panel.setButtonEnabled('stepedit', !this.song);
     this.panel.setButtonLit('stepedit', this.stepEdit);
     this.panel.setButtonEnabled('arp', !this.songGrid);
     this.panel.setButtonLit('arp', !!this.channel.arp?.on);
@@ -4807,9 +4837,10 @@ export class App {
     this.panel.setButtonText('oct-', this.menu ? '▼' : song ? 'TRK ▼' : this.func ? `SND ▼${sndSmall}` : 'OCT ▼');
     this.panel.setButtonText('oct+', this.menu ? '▲' : song ? 'TRK ▲' : this.func ? `SND ▲${sndSmall}` : 'OCT ▲');
     // ◀ ▶ tie a note while one is held in step entry, and the primed step's in STEP EDIT.
-    const tying = !song && !this.menu && !this.projMenu && !this.barHeld && !this.stepsMode && (this.stepEdit || !!this.entry || (!!this.stroke && this.stripDown.size > 0));
-    this.panel.setButtonText('cur-', tying ? '◀<small>TIE −</small>' : '◀');
-    this.panel.setButtonText('cur+', tying ? '▶<small>TIE +</small>' : '▶');
+    const tying = !song && !this.menu && !this.projMenu && !this.barHeld && !this.stepsMode && !this.barsMode && (this.stepEdit || !!this.entry || (!!this.stroke && this.stripDown.size > 0));
+    const semis = this.scaleKeys;
+    this.panel.setButtonText('cur-', semis ? '◀<small>−1 ST</small>' : tying ? '◀<small>TIE −</small>' : '◀');
+    this.panel.setButtonText('cur+', semis ? '▶<small>+1 ST</small>' : tying ? '▶<small>TIE +</small>' : '▶');
     if (song) {
       // REST = an empty bar, STEP EDIT = clip lengths, ▼ ▲ = the next / previous track.
       for (const id of ['ring', 'slide', 'dyn:accent', 'dyn:ghost']) {
@@ -4842,6 +4873,8 @@ export class App {
   /** Per-frame updates: strip lights/labels, LEDs, pending pattern blink. */
   updateFrame(now: number): void {
     this.stepGlides(now);
+    // STEPS lights its steps in the second colour (keys doing another job); every other strip view clears it.
+    if (!this.stepsMode) for (let i = 1; i <= STEP_BUTTONS; i++) this.panel.setButtonFlag(`step${i}`, 'job', false);
     // Playing: knobs with locks follow them.
     if (this.playing) this.targets.forEach((t, i) => { if (t?.heard) this.panel.setKnob(`k${i + 1}`, toNorm(t.spec, t.get())); });
     if (this.projMenu) {
@@ -4939,6 +4972,7 @@ export class App {
         this.panel.setButtonFlag(id, 'off', off);
         // STEPS mode: lit = the step plays.
         this.panel.setButtonFlag(id, 'lit', this.stepsMode ? !off && !dark : d !== null);
+        this.panel.setButtonFlag(id, 'job', this.stepsMode);
         this.panel.setButtonFlag(id, 'accent', !view && d === 'accent');
         this.panel.setButtonFlag(id, 'ghost', view ? d !== null && !flagged : d === 'ghost');
         this.panel.setButtonFlag(id, 'head', head === index);
@@ -5059,7 +5093,11 @@ export class App {
         ? { title: 'CHOOSE KEY', sub: this.scaleName(), message }
         : { title: 'CHOOSE NOTE', sub: this.stepEdit && this.primedNote() >= 0 ? 'THE PRIMED NOTE' : `KEYS FROM ${noteName(this.keyNote(this.selected, 0))}`, message };
     }
-    if (this.stepsMode) return { title: 'ADD/REMOVE BARS', sub: '', keys: keys((ch) => ch < this.pageCount()), message };
+    if (this.barsMode) return { title: 'ADD/REMOVE BARS', sub: '', keys: keys((ch) => ch < this.pageCount()), message };
+    if (this.stepsMode) {
+      const pages = this.pageCount();
+      return { title: 'STEPS ON/OFF', sub: `BAR ${this.visiblePage(this.selected) + 1}/${pages}: TAP A STEP`, message };
+    }
     const flag = this.ring ? 'RING' : this.slideArm ? this.slideName : this.dynamic !== 'normal' ? this.dynamic.toUpperCase() : '';
     if (flag && !this.func) return { title: `PLACE ${flag}`, sub: `${this.kindName(this.channel)}: TAP A STEP`, message };
     if (this.sendOpen && this.func) {

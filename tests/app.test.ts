@@ -525,12 +525,12 @@ describe('PLAY starts from the bar shown', () => {
   const lastStart = (sent: MainToWorklet[]) => sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
 
   it('BAR picks the start bar of the selected track, also in PLAY while stopped', () => {
-    const { app, sent, tap } = makeApp();
+    const { app, press, release, sent, tap } = makeApp();
     app.project.channels[0].patterns[app.project.channels[0].activePattern].length = 64;
     tap('mode:play');
     tap('ch1');
-    tap('steppage');
-    tap('steppage');
+    press('steppage'); tap('cur+'); release('steppage');
+    press('steppage'); tap('cur+'); release('steppage');
     tap('play');
     expect(lastStart(sent)).toMatchObject({ playing: true, fromChannel: 0, fromStep: 32 });
   });
@@ -552,7 +552,7 @@ describe('PLAY starts from the bar shown', () => {
     app.project.channels[0].patterns[app.project.channels[0].activePattern].length = 64;
     tap('mode:record');
     tap('ch1');
-    tap('steppage');
+    press('steppage'); tap('cur+'); release('steppage');
     tap('func'); // latched
     tap('play');
     expect(lastStart(sent)).toMatchObject({ playing: true, fromStep: 0 });
@@ -1268,7 +1268,7 @@ describe('STEP EDIT: ties', () => {
   });
 
   it('a tie past the bar line (or round the loop into bar 1): the strip shows the bar it ends in', () => {
-    const { app, tap, flags, texts } = makeApp();
+    const { app, press, release, tap, flags, texts } = makeApp();
     tap('mode:record');
     tap('ch5'); // BASS
     const p = app.project.channels[4].patterns[0];
@@ -1289,7 +1289,9 @@ describe('STEP EDIT: ties', () => {
     expect(texts.get('steppage')).toContain('1/4'); // back in bar 1
     // Bar 4's last step tied round the loop into bar 1 (as B's lead-in into B).
     Object.assign(p.steps[63], { active: true, note: 43, gate: 1 });
-    for (let i = 0; i < 3; i++) tap('steppage');
+    press('steppage');
+    for (let i = 0; i < 3; i++) tap('cur+');
+    release('steppage');
     tap('step16');
     tap('cur+');
     tap('cur+');
@@ -1890,11 +1892,8 @@ describe('STEP EDIT', () => {
   const targets = (app: App) => (app as unknown as { targets: T[] }).targets;
   const priv = (app: App) => app as unknown as { primed: { cell: number; staged: Map<string, unknown> } | null; message: string };
 
-  it('RECORD only: primes the cursor step; touched knobs lock on a tap of the yellow step; moving waits for LOCK or CANCEL', () => {
+  it('primes the cursor step; touched knobs lock on a tap of the yellow step; moving waits for LOCK or CANCEL', () => {
     const { app, tap, emit, flags, texts } = makeApp();
-    tap('mode:play');
-    tap('stepedit'); // PLAY mode: not here
-    expect(app.stepEdit).toBe(false);
     tap('mode:record');
     tap('ch5'); // BASS
     tap('stepedit');
@@ -1924,7 +1923,7 @@ describe('STEP EDIT', () => {
   });
 
   it('works while playing: the strip stays on the primed bar (BAR moves it), the playhead lights, locks are heard at once and undo one by one', () => {
-    const { app, tap, emit, leds, sent } = makeApp();
+    const { app, press, release, tap, emit, leds, sent } = makeApp();
     tap('mode:record');
     tap('ch5'); // BASS
     app.project.channels[4].patterns[0].length = 32;
@@ -1935,7 +1934,7 @@ describe('STEP EDIT', () => {
     app.updateFrame(0);
     expect(leds[0]).toBe('cursor');
     expect(leds[3]).toBe('on'); // the playhead
-    tap('steppage'); // BAR: the next bar, playing or not
+    press('steppage'); tap('cur+'); release('steppage'); // BAR: the next bar, playing or not
     expect(priv(app).primed?.cell).toBe(16);
     emit({ type: 'touch', id: 'k5' });
     emit({ type: 'knob', id: 'k5', value: 0.9 });
@@ -2108,7 +2107,7 @@ describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
     expect((app as unknown as { forceSlide: boolean[] }).forceSlide[0]).toBe(true);
   });
 
-  it('STEPS mode: steps switch on / off, ◀ ▶ = through the bars, track buttons = the bars (BAR only moves)', () => {
+  it('BAR mode (BAR tapped): track buttons = the bars; STEPS: steps switch on / off; ◀ ▶ = through the bars in both', () => {
     const { app, tap, press, release, texts } = makeApp();
     tap('mode:record');
     tap('ch1');
@@ -2117,14 +2116,19 @@ describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
     tap('cur+');
     release('steppage');
     expect(pat().length).toBe(16); // BAR never adds a bar
-    tap('len'); // STEPS mode
+    tap('steppage'); // BAR mode
     tap('ch3'); // bars 2 and 3 added
     expect(pat().length).toBe(48);
     tap('cur+'); // to bar 2
     app.updateFrame(0);
     expect(texts.get('steppage')).toContain('2/3');
+    tap('len'); // STEPS mode (BAR mode off)
+    tap('ch2'); // a track button selects again
+    tap('ch1');
+    expect(pat().length).toBe(48);
     tap('step3');
     expect(pat().steps[18].flip).toBe(true); // bar 2's step 3 switched
+    tap('steppage'); // BAR mode (STEPS off)
     pat().steps[33].active = true; // a hit in bar 3
     tap('ch2'); // bar 2 out: bar 3 moves up
     expect(pat().length).toBe(32);
@@ -2242,15 +2246,61 @@ describe('song transitions: GLIDE CURVE, JAM AUTO-FILL, SONG DESIGN clip knobs',
   });
 });
 
+describe('SCALE held + ◀ ▶', () => {
+  it('moves the keys a semitone (ALT: the key), and the arrows say so', () => {
+    const { app, tap, press, release, texts } = makeApp();
+    tap('mode:record');
+    tap('ch5'); // BASS, keys from A
+    const c = app.project.channels[4];
+    press('scale');
+    app.updateFrame(0);
+    expect(texts.get('cur+')).toBe('▶<small>+1 ST</small>');
+    tap('cur+');
+    tap('cur+');
+    release('scale');
+    expect(c.keyFrom).toBe(2); // two semitones above the root: B
+    expect(c.root ?? 9).toBe(9); // the key stays
+    press('func');
+    press('scale');
+    tap('cur-');
+    release('scale');
+    release('func');
+    expect(c.root).toBe(8); // G# minor
+    expect(c.keyFrom).toBe(2); // the keys keep their distance from the root
+  });
+});
+
+describe('STEP EDIT in every JAM mode', () => {
+  const priv = (app: App) => app as unknown as { primed: { cell: number } | null };
+  it('works in PLAY and DESIGN too, stays on (on its step) through a mode change, and not in SONG', () => {
+    const { app, tap } = makeApp();
+    tap('mode:play');
+    tap('ch5');
+    tap('stepedit');
+    expect(app.stepEdit).toBe(true);
+    tap('step4');
+    expect(priv(app).primed?.cell).toBe(3);
+    tap('mode:design');
+    expect(app.stepEdit).toBe(true);
+    expect(priv(app).primed?.cell).toBe(3);
+    // DESIGN: its own pages' knobs, waiting on the primed step.
+    expect((app as unknown as { targets: ({ label: string } | null)[] }).targets[0]?.label).toBe('TIMBRE');
+    tap('mode:record');
+    expect(app.stepEdit).toBe(true);
+    tap('stepedit');
+    expect(app.stepEdit).toBe(false);
+  });
+});
+
 describe('keys doing another job: the screen and the panel say so', () => {
   const labels = (app: App) => (app as unknown as { targets: ({ label: string } | null)[] }).targets.map((t) => t?.label ?? '');
 
-  it('STEPS: the track keys are bars (dashed, lit in the second colour, labelled BAR); the screen shows ADD/REMOVE BARS with the bars', () => {
+  it('BAR mode: the track keys are bars (dashed, lit in the second colour, labelled BAR); the screen shows ADD/REMOVE BARS; STEPS lights the strip in the second colour', () => {
     const { app, tap, flags, texts } = makeApp();
     tap('mode:record');
     tap('ch1');
     expect(app.functionView()).toBeNull();
-    tap('len');
+    tap('steppage');
     tap('ch3'); // three bars
     app.updateFrame(0);
     const v = app.functionView()!;
@@ -2258,10 +2308,18 @@ describe('keys doing another job: the screen and the panel say so', () => {
     expect(v.keys!.map((k) => k.on)).toEqual([true, true, true, false, false, false, false, false]);
     expect(flags.get('ch3')?.has('send')).toBe(true);
     expect(texts.get('ch4')).toBe('4<small>BAR</small>');
-    tap('len');
+    tap('steppage');
     app.updateFrame(0);
     expect(app.functionView()).toBeNull();
     expect(flags.get('ch3')?.has('send')).toBe(false);
+    tap('len'); // STEPS
+    app.updateFrame(0);
+    expect(app.functionView()!.title).toBe('STEPS ON/OFF');
+    expect(flags.get('step1')?.has('job')).toBe(true);
+    expect(flags.get('ch3')?.has('send')).toBe(false); // the track keys are tracks again
+    tap('len');
+    app.updateFrame(0);
+    expect(flags.get('step1')?.has('job')).toBe(false);
   });
 
   it('a bus open + ALT: the screen shows the bus\'s tracks; CLEAR, SCALE and a flag being placed show their job', () => {
