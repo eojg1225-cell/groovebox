@@ -16,7 +16,7 @@ import { drawCopyView, drawDesignView, drawFunctionView, drawLiveView, drawMenuV
 import { App, type AudioInfo } from './ui/App';
 import { NUM_CHANNELS, PATTERN_NAMES } from './engine/project';
 import { createDefaultProject } from './engine/defaultProject';
-import { projectStore } from './storage/projects';
+import { flushWork, keepLastSession, projectStore } from './storage/projects';
 import { startSlotSync } from './storage/slotSync';
 import { TOUCH_DELAYS, deviceSettings } from './storage/settings';
 import { ScreenAwake } from './ui/wake';
@@ -45,6 +45,12 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && !Capacitor.isNativeP
 
 // The Android app keeps the slots in its own files: read them before anything else.
 await initProjectStorage();
+// Work the last session left unsaved (no slot) is kept for MENU > PROJECT BACKUP.
+const keptLast = keepLastSession();
+// The working copy waiting to be written goes now when the page is hidden or closed (the
+// app sent to the background, a reload), not a second later.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushWork(); });
+window.addEventListener('pagehide', flushWork);
 
 // Every start is a blank slate: the default project, nothing open. Saved projects (and
 // their working copies) stay in their slots for LOAD (FUNC + SAVE PROJECT).
@@ -195,6 +201,7 @@ function titleFrame(now: number): void {
   if (p >= 1) {
     titleDone = true;
     titleOverlay.remove();
+    if (keptLast) app.notify('UNSAVED WORK KEPT: MENU > BACKUP');
   }
 }
 

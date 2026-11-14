@@ -21,6 +21,41 @@ describe('project slots (localStorage)', () => {
 
   const store = async () => (await import('../src/storage/projects')).projectStore;
 
+  it('unsaved work (no slot) is kept for the next session; the untouched default is not', async () => {
+    const m = await import('../src/storage/projects');
+    m.projectStore.setOpen(null);
+    m.saveWorkSoon(createDefaultProject());
+    m.flushWork();
+    expect(m.keepLastSession()).toBe(false); // nothing changed: nothing kept
+    const p = createDefaultProject();
+    p.bpm = 151;
+    m.saveWorkSoon(p);
+    m.flushWork();
+    // The next start: it becomes the last session's work, and stays so through a start that changes nothing.
+    expect(m.keepLastSession()).toBe(true);
+    expect(m.keepLastSession()).toBe(false);
+    expect(m.lastSession()!.bpm).toBe(151);
+    // Saved into a slot, it is no longer kept as unsaved.
+    p.bpm = 152;
+    m.saveWorkSoon(p);
+    m.flushWork();
+    m.forgetSession();
+    expect(m.keepLastSession()).toBe(false);
+    expect(m.lastSession()!.bpm).toBe(151);
+  });
+
+  it('a slot open: its working copy follows the edits, not the unsaved session', async () => {
+    const m = await import('../src/storage/projects');
+    const entry = m.projectStore.save(0, 'OPEN', createDefaultProject())!;
+    m.projectStore.setOpen(entry.id);
+    const p = createDefaultProject();
+    p.bpm = 133;
+    m.saveWorkSoon(p);
+    m.flushWork();
+    expect(m.projectStore.loadWork(entry.id)!.bpm).toBe(133);
+    expect(m.keepLastSession()).toBe(false);
+  });
+
   it('place: a cloud copy goes into a slot as it is (savedAt kept), replacing what was there', async () => {
     const { localProjects } = await import('../src/storage/projects');
     const p = createDefaultProject();

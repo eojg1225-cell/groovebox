@@ -61,7 +61,7 @@ import { toStored } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { INSTRUMENTS, macroAnchor, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
 import { mirrorToCloud } from '../storage/cloud';
-import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, projectStore, saveWorkSoon } from '../storage/projects';
+import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, forgetSession, lastSession, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
 import { exportProjects, importProjects } from '../storage/backupFile';
 import { isApp } from '../storage/native';
@@ -3668,6 +3668,7 @@ export class App {
       return [
         { label: 'EXPORT ALL PROJECTS', open: run('EXPORTING ...', exportProjects) },
         { label: 'IMPORT PROJECTS', open: run('IMPORTING ...', importProjects) },
+        { label: 'LAST UNSAVED WORK', open: () => this.restoreLastSession() },
       ];
     }
     if (page === 'project') {
@@ -4585,12 +4586,14 @@ export class App {
     // Into its own slot: the same project, saved over. Anywhere else: a new one (save as).
     // Every pattern and patch is saved with it.
     lockProject(this.project);
+    const wasUnsaved = !projectStore.openId();
     const saved = projectStore.save(slot, name, this.project, own ? entry.id : undefined);
     if (!saved) {
       this.flash('STORAGE FULL - NOT SAVED');
       return;
     }
     projectStore.setOpen(saved.id);
+    if (wasUnsaved) forgetSession(); // it has a slot now: no unsaved copy to bring back
     this.newSlot = -1;
     this.saved = this.savedOf(this.project);
     this.closeProjectMenu();
@@ -4656,6 +4659,30 @@ export class App {
     menu.confirm = -1;
     this.clearUsed = true;
     this.flash(`DELETED ${entry.name}`);
+  }
+
+  /**
+   * MENU > PROJECT BACKUP > LAST UNSAVED WORK: the project an earlier session left unsaved
+   * (storage/projects.ts keeps it), opened as a new, unsaved project. The project open now
+   * keeps its edits in its slot, as on any load.
+   */
+  private restoreLastSession(): void {
+    if (this.playing) {
+      this.flash('STOP TO LOAD');
+      return;
+    }
+    const project = lastSession();
+    if (!project) {
+      this.flash('NO UNSAVED WORK KEPT');
+      return;
+    }
+    const openId = projectStore.openId();
+    if (openId) projectStore.saveWork(openId, this.project);
+    projectStore.setOpen(null);
+    this.newSlot = -1;
+    this.replaceProject(project);
+    this.menu = null;
+    this.flash('UNSAVED WORK BACK: SAVE TO KEEP');
   }
 
   /** Open another project: it replaces this one in the UI and the engine (stopped). */

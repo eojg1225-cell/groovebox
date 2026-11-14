@@ -649,6 +649,26 @@ describe('PROJECT page TRIM, COUNT-IN, METRONOME', () => {
 describe('MENU and CANCEL', () => {
   const page = (app: App) => app.menu?.stack[app.menu.stack.length - 1];
 
+  it('PROJECT BACKUP > LAST UNSAVED WORK opens what an earlier session left unsaved', async () => {
+    const m = await import('../src/storage/projects');
+    const left = createDefaultProject();
+    left.bpm = 97;
+    m.projectStore.setOpen(null);
+    m.saveWorkSoon(left);
+    m.flushWork();
+    expect(m.keepLastSession()).toBe(true); // the next start
+    const { app, tap } = makeApp();
+    tap('menu');
+    tap('step4'); // PROJECT BACKUP
+    tap('cur+');
+    expect(page(app)?.page).toBe('backup');
+    tap('step3'); // LAST UNSAVED WORK
+    tap('cur+');
+    expect(app.menu).toBeNull();
+    expect(app.project.bpm).toBe(97);
+    expect(m.projectStore.openId()).toBeNull(); // unsaved: SAVE to keep
+  });
+
   it('MODE: ◀ ▶ change it on screen, PLAY saves (and goes back), CANCEL drops it', () => {
     const { app, tap, texts } = makeApp();
     tap('mode:design');

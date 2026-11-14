@@ -8,6 +8,7 @@
 import type { Project } from '../engine/project';
 import { fromStored, isOldFormat, toStored } from '../engine/projectFile';
 import { kv } from './kv';
+import { createDefaultProject } from '../engine/defaultProject';
 
 export const SLOTS_PER_BANK = 16;
 export const PROJECT_BANKS = 4;
@@ -94,10 +95,6 @@ class LocalProjectStore implements ProjectStore {
     const slots = this.slots();
     const old = slots[slot];
     if (!put(data(id), JSON.stringify(toStored(project)))) return null;
-    if (old && old.id !== id) {
-      drop(data(old.id));
-      drop(work(old.id));
-    }
     const entry = { id, name, savedAt: Date.now() };
     // The same project kept in one slot only.
     const moved: number[] = [];
@@ -106,7 +103,13 @@ class LocalProjectStore implements ProjectStore {
       if (slots[i]?.id === id) slots[i] = null;
     }
     slots[slot] = entry;
+    // The index first: the project it replaces goes only once the new one is in the index
+    // (storage full = the old one still there, not neither).
     if (!put(INDEX, JSON.stringify(slots))) return null;
+    if (old && old.id !== id) {
+      drop(data(old.id));
+      drop(work(old.id));
+    }
     this.saveWork(id, project);
     for (const i of moved) slotListener?.(i, id);
     slotListener?.(slot, old?.id ?? null);
@@ -204,12 +207,60 @@ class LocalProjectStore implements ProjectStore {
 export const localProjects = new LocalProjectStore();
 export const projectStore: ProjectStore = localProjects;
 
+/**
+ * A project not in any slot (every start is one: the blank slate) is kept too, so a reload,
+ * a crash or an app update never loses it: under SESSION while it is worked on; at the next
+ * start it moves to LAST (`keepLastSession`), which MENU > PROJECT BACKUP > LAST UNSAVED
+ * WORK brings back. The untouched default project is never written, so a start that
+ * changes nothing leaves LAST as it was.
+ */
+const SESSION = 'groovebox.session';
+const LAST = 'groovebox.session.last';
+let defaultText: string | null = null;
+
+/** Keep the project being worked on (its slot's working copy, or SESSION). False = not kept. */
+function writeWork(project: Project): boolean {
+  const id = projectStore.openId();
+  if (id) return projectStore.saveWork(id, project);
+  const text = JSON.stringify(toStored(project));
+  defaultText ??= JSON.stringify(toStored(createDefaultProject()));
+  if (text === defaultText) return true;
+  return put(SESSION, text);
+}
+
 let workTimer: ReturnType<typeof setTimeout> | undefined;
-/** Debounced: the open project's working copy follows every edit; `failed` is told when it could not be kept. */
+let workPending: { project: Project; failed?: () => void } | null = null;
+
+/** Debounced: the working copy follows every edit; `failed` is told when it could not be kept. */
 export function saveWorkSoon(project: Project, failed?: () => void): void {
   clearTimeout(workTimer);
-  workTimer = setTimeout(() => {
-    const id = projectStore.openId();
-    if (id && !projectStore.saveWork(id, project)) failed?.();
-  }, 1000);
+  workPending = { project, failed };
+  workTimer = setTimeout(flushWork, 1000);
+}
+
+/** Write a waiting working copy now (the page is being hidden or closed). */
+export function flushWork(): void {
+  clearTimeout(workTimer);
+  const w = workPending;
+  workPending = null;
+  if (w && !writeWork(w.project)) w.failed?.();
+}
+
+/** At start: the last session's unsaved project (if it left one) becomes LAST. True = it did. */
+export function keepLastSession(): boolean {
+  const text = get(SESSION);
+  if (!text) return false;
+  if (!put(LAST, text)) return false;
+  drop(SESSION);
+  return true;
+}
+
+/** The unsaved project an earlier session left (null: none). */
+export function lastSession(): Project | null {
+  return parse(get(LAST));
+}
+
+/** The unsaved project was saved into a slot: no copy of it is kept as unsaved any more. */
+export function forgetSession(): void {
+  drop(SESSION);
 }
