@@ -149,7 +149,7 @@ html, body {
 .btn.page { height: 100%; font-size: 14px; }
 .btn.page.disabled { opacity: 0.12; }
 
-/* ---------- Knob section: six track modules, like a hardware front panel ---------- */
+/* ---------- Knob section: eight track modules, like a hardware front panel ---------- */
 .knob-grid {
   display: flex;
   height: 242px; flex: none;

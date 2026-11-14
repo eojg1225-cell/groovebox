@@ -14,8 +14,8 @@
  *          The strip is an audition keyboard.
  * In RECORD and PLAY the 16 knobs are the live knobs: one module per track, two each
  * (+ two with FUNC), assigned on the SOUND page's FUNC layer.
- * FX 1-3 and LFO (RECORD / PLAY): the knobs and the screen switch to that bus's controls
- * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
+ * FX 1, FX 2 and LFO (RECORD / PLAY): the knobs and the screen switch to that bus's controls
+ * (FX 1 = the drum bus, FX 2 = the LEAD send, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
  * A-H (under FX): every track's pattern (hold channels + A-H = only those, unselected);
@@ -430,7 +430,7 @@ export class App {
   private heldTrack = -1;
   /** Every channel button down now (held + RESET = those tracks keep their state). */
   private readonly heldChannels = new Set<number>();
-  /** FX 1-3 / LFO buttons down now (1-4; held + RESET = that bus / the LFO keeps its state). */
+  /** FX 1 / FX 2 / LFO buttons down now (1-4; held + RESET = that bus / the LFO keeps its state). */
   private readonly heldBuses = new Set<number>();
   /** The bus view before the FX buttons now held opened / closed it (put back if they were held for RESET). */
   private fxViewBefore = 0;
@@ -2026,7 +2026,7 @@ export class App {
   private startReset(): void {
     this.endAudition();
     const now = performance.now();
-    // Track / FX 1-3 / LFO buttons held down: HOLD + RESET = KEEP HELD keeps them out of it,
+    // Track / FX 1 / FX 2 / LFO buttons held down: HOLD + RESET = KEEP HELD keeps them out of it,
     // RESET HELD resets only them. A held track takes along the FX / LFO knobs its live knobs
     // move. Their buttons no longer act on release (an FX press's view change is undone).
     const held = new Set(this.heldChannels);

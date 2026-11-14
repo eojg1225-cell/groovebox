@@ -2,7 +2,7 @@
  * The look (MENU > GLOBAL SETTINGS, kept on the device): THEME, SATURATION and INVERT.
  *  - COLOUR: each track type has its own colour (panel and screen); white is every track's
  *    second colour (cursor, playhead, accents, held knobs, values away from saved). Knobs of no
- *    track (LFO, project, TEMPO / MASTER, MENU) are neutral grey; FX 1-3's knob modules come
+ *    track (LFO, project, TEMPO / MASTER, MENU) are neutral grey; FX 1 / FX 2's knob modules come
  *    in pairs, two track colours alternating per bus. The screen is neutral grey.
  *  - CLASSIC (first and default): everything teal, gold as the second colour, a teal screen.
  *    REVERSE: gold, teal second. MONO: grey, white second.
