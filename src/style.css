@@ -1,4 +1,4 @@
-/* Panel design size is 1200x750 (see Panel.ts); everything below is in design pixels. */
+/* Panel design size is 1364x760 (see Panel.ts); everything below is in design pixels. */
 :root {
   --bg: #111417;
   --panel: #1c2126;
@@ -49,7 +49,7 @@ html, body {
    this see-through overlay only keeps the controls out of reach until it has zoomed out. */
 .title { position: fixed; inset: 0; z-index: 10; }
 
-/* ---------- Panel (design size 1200x760, scaled by Panel.fit) ---------- */
+/* ---------- Panel (design size 1364x760, scaled by Panel.fit) ---------- */
 .panel {
   font-family: 'Sarpanch', system-ui, sans-serif;
   font-synthesis: none;
@@ -58,9 +58,9 @@ html, body {
   background: var(--panel);
   border: 2px solid var(--panel-edge);
   border-radius: 24px;
-  /* 22 px at the sides: a 1152 px wide content box, so every column below is a whole pixel
-     (8 knob modules of 144 px; the strip's steps 55 px). */
-  padding: 20px 22px;
+  /* A 1152 px wide content box (8 knob modules of 144 px), 104 px in from each side: a
+     66 px column of side keys 22 px in, 16 px from the content; every box on a whole pixel. */
+  padding: 20px 104px;
   display: flex; flex-direction: column; gap: 14px;
 }
 .panel-top { display: flex; gap: 20px; height: 284px; flex: none; }
@@ -85,18 +85,17 @@ html, body {
 .row > * { flex: 1; min-width: 0; }
 /* Mode select sits at the top, set apart so it isn't hit by accident. */
 .row.modes { padding-bottom: 10px; margin-bottom: 2px; border-bottom: 2px solid var(--panel-edge); }
-/* The four modes, 140 px each, each over a pair of the FX / PATTERN keys below (16 px gap mid-row). */
+/* The four modes, 140 px each (16 px gap mid-row: over the 288 px boxes below). */
 .row.modes > .btn:nth-child(3) { margin-left: 8px; }
-/* FX 1-3 / LFO and PAT A-D (label, 7 px, 56 px keys: the channel buttons' height). */
-.row.buses { height: 76px; flex: none; gap: 16px; align-items: flex-end; }
+/* The selected track's knobs: a 576 px box over knob modules 5-8 (16 px in from the side). */
+.row.buses { height: 76px; flex: none; }
+.row.buses > .track-knobs { flex: none; width: 576px; margin-left: 16px; }
 .lower { display: flex; gap: 16px; flex: 1; min-height: 0; padding-bottom: 10px; border-bottom: 2px solid var(--panel-edge); }
-/* SAVE / pages over the FX keys, TEMPO / MASTER over the PATTERN keys: 288 px each. */
-.lower-rows { flex: none; width: 288px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-/* Three rows of three, 38 px with 6 px gaps (126 px): UNDO / SAVE/LOAD / RESET, CLEAR / COPY /
-   CANCEL, the page buttons. */
-.lower-rows { gap: 6px; }
+/* SAVE / pages (288 px), MASTER / TEMPO beside them over knob modules 7-8, as tall. */
+.lower-rows { flex: none; width: 288px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* Two rows of three, 38 px with 6 px gaps (82 px): SAVE PATTERN / SAVE/LOAD / CANCEL, the pages. */
 .lower-rows > .row { flex: none; height: 38px; min-height: 0; }
-.lower .master-knobs { flex: 1; }
+.lower .project-knobs { flex: none; width: 288px; height: 82px; }
 
 /* ---------- Buttons ---------- */
 .btn, .step {
@@ -123,26 +122,28 @@ html, body {
 .btn.mute, .btn.solo { height: 56px; width: 30px; font-size: 15px; flex: none; min-width: 0; padding: 0; }
 .btn.mute.lit { background: var(--mute); border-color: var(--mute); color: #1a0d0a; }
 .btn.solo.lit { background: var(--hot); border-color: var(--hot); color: var(--accent-ink); }
-.btn.pat, .btn.fxsend { flex: 1; min-width: 0; height: 56px; border-radius: 4px; }
-.btn.pat { font-size: 24px; }
-.btn.pat small, .btn.fxsend small { font-size: 10px; letter-spacing: 0.06em; margin-top: 3px; opacity: 0.8; white-space: nowrap; }
-.btn.play small { font-size: 12px; letter-spacing: 0.08em; margin-top: 4px; opacity: 0.8; }
-.btn.fxsend { font-size: 20px; }
-/* FX 1-3 / LFO and PAT A-D: square keys, the group's name printed underneath. */
-.key-group { flex: none; width: 288px; display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
-.key-row { display: flex; gap: 8px; }
-.group-label { text-align: center; font-size: 13px; letter-spacing: 0.12em; color: var(--ink-dim); line-height: 1; }
+/* The side columns: eight 66 x 62 px keys, 6 px apart, from the panel's top padding to the
+   knob panel's foot (538 px). */
+.side-keys { position: absolute; top: 20px; width: 66px; height: 538px; display: flex; flex-direction: column; gap: 6px; }
+.side-keys.left { left: 22px; }
+.side-keys.right { right: 22px; }
+.side-keys > .btn { flex: none; height: 62px; min-width: 0; padding: 0; }
+/* A pattern key: PATTERN over its letter (as a track key has its name under its number). */
+.btn.pat { font-size: 24px; position: relative; }
+.btn.pat small { font-size: 10px; letter-spacing: 0.04em; margin: 0 0 4px; opacity: 0.8; white-space: nowrap; }
+.btn.side { font-size: 14px; line-height: 1; letter-spacing: 0.04em; }
+.btn.side small { font-size: 10px; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; white-space: nowrap; }
+.btn.side.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
+.btn.side.fxsend.down { background: var(--key-down); color: var(--ink); border-color: var(--key-edge); }
+.btn.play small { font-size: 10px; letter-spacing: 0.06em; margin-top: 6px; opacity: 0.8; white-space: nowrap; }
 .btn.pat.playing { border-color: var(--accent); }
 .btn.save { height: 100%; font-size: 14px; line-height: 1; flex: 1 1 0; min-width: 0; letter-spacing: 0.04em; }
 .btn.save small { font-size: 11px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
 .btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
-.row.pages, .row.patterns, .row.tools { gap: 14px; }
+.row.pages, .row.patterns { gap: 14px; }
 .save-buttons { display: flex; gap: 6px; flex: 3; }
 .save-buttons > * { flex: 1; }
-.btn.pat.dirty::after { content: '*'; position: absolute; top: 6px; right: 10px; font-size: 18px; color: var(--hot); }
-.btn.pat { position: relative; }
-.tool-buttons { display: flex; gap: 6px; flex: 3; }
-.tool-buttons > * { flex: 1; }
+.btn.pat.dirty::after { content: '*'; position: absolute; bottom: 2px; right: 6px; font-size: 18px; color: var(--hot); }
 .page-buttons { display: flex; gap: 6px; flex: 3; }
 .page-buttons > * { flex: 1; }
 .btn.page { height: 100%; font-size: 14px; }
@@ -171,6 +172,9 @@ html, body {
   background: #0b0e10;
   box-shadow: 1px 0 0 rgba(255, 255, 255, 0.06), inset 1px 0 2px rgba(0, 0, 0, 0.8);
 }
+/* A lit groove: a knob group's edge (the track's knobs and its sends; an FX view's units),
+   light grey as the strip's dividers. */
+.knob-module.lit-groove::before { background: #4a5560; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); }
 /* The track's buttons between the module's two knobs: M, channel, S. */
 .module-track { display: flex; gap: 3px; }
 .module-track .btn.ch { width: 54px; padding: 0; }
@@ -215,12 +219,14 @@ html, body {
   font-size: 12px; line-height: 1; min-height: 0; max-width: none; max-height: 76px;
 }
 
-/* ---------- Function row, LEDs, strip, play ---------- */
-.panel-bottom { display: flex; gap: 16px; flex: 1; min-height: 0; }
-.bottom-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; position: relative; }
-/* Dividers after every four steps: one line each from the top of the function row to the
-   bottom of the strip, centred in the 16 px gap between groups (left set in Panel.ts); the
-   last one is the strip's right edge, under the groove between knob modules 7 and 8. */
+/* ---------- Function row, LEDs, strip, ALT / PLAY ---------- */
+.panel-bottom { display: flex; flex: 1; min-height: 0; }
+/* 1138 px, 7 px in from the knob panel's edges: 16 steps of 64 px, 6 px apart, 14 px between
+   groups of four. */
+.bottom-main { flex: none; width: 1138px; margin-left: 7px; display: flex; flex-direction: column; gap: 6px; position: relative; }
+/* Dividers after the first three groups of four: one line each from the top of the function
+   row to the bottom of the strip, centred in the 14 px gap between groups (left set in
+   Panel.ts), under the knob panel's grooves. */
 .strip-divider {
   position: absolute; width: 4px; top: 0; bottom: 0;
   border-radius: 2px;
@@ -230,8 +236,8 @@ html, body {
 
 .function-row { display: flex; gap: 6px; height: 40px; flex: none; }
 /* 16 keys, each straight above its strip step (the strip's gaps and group spacing). */
-.function-row > .btn.fn:nth-child(4n + 1):not(:first-child) { margin-left: 10px; }
-.btn.fn { flex: 1 1 0; font-size: 12px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
+.function-row > .btn.fn:nth-child(4n + 1):not(:first-child) { margin-left: 8px; }
+.btn.fn { flex: none; width: 64px; font-size: 12px; letter-spacing: 0.02em; line-height: 1; min-width: 0; padding: 0; }
 /* A larger touch target than the key itself (unseen): up through the 12 px gap to the knob
    panel's edge, down through the 6 px gap and the top half of the step light (5 of its 10 px),
    so the strip below is never in it. The key's own box and look stay as they are. */
@@ -243,17 +249,17 @@ html, body {
 
 /* Step position lights, one above each strip button. */
 .leds { display: flex; gap: 6px; height: 10px; flex: none; }
-.led { flex: 1 1 0; border-radius: 3px; background: #262d33; transition: background-color 40ms; }
+.led { flex: none; width: 64px; border-radius: 3px; background: #262d33; transition: background-color 40ms; }
 .led.on { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 .led.rec { background: var(--rec); box-shadow: 0 0 8px var(--rec); }
 .led.cursor { background: var(--hot); box-shadow: 0 0 8px var(--hot); }
 
 .steps { flex: 1; display: flex; gap: 6px; min-height: 0; }
-.steps > .step { flex: 1 1 0; min-width: 0; }
+.steps > .step { flex: none; width: 64px; min-width: 0; }
 /* Groups of four: a wider gap (with a .strip-divider in it) on the strip (steps and keyboard)
    and the LEDs, so step positions are easy to count. */
 .step:nth-child(4n + 1):not(:first-child),
-.led:nth-child(4n + 1):not(:first-child) { margin-left: 10px; }
+.led:nth-child(4n + 1):not(:first-child) { margin-left: 8px; }
 .step { font-size: 15px; color: var(--ink-dim); justify-content: flex-end; padding-bottom: 8px; position: relative; }
 .panel:not(.keyboard) .step.beat { border-top-width: 4px; }
 .step.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -296,22 +302,21 @@ html, body {
 .panel.keyboard .step.down { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .panel.keyboard .step.cursor { box-shadow: inset 0 0 0 3px var(--hot); }
 
-.play-area { width: 136px; flex: none; display: flex; flex-direction: column; gap: 6px; }
-.play-row { display: flex; flex-direction: column; gap: 6px; flex: 1; }
-/* FUNC level with the function keys + lights, PLAY level with the strip. */
-.btn.func { height: 56px; flex: none; font-size: 15px; }
+/* ALT left of the strip, PLAY right of it: the side columns' width, from the function row's
+   top (570 px) to the strip's foot (736 px). */
+.btn.func, .btn.play { position: absolute; top: 570px; height: 166px; width: 66px; padding: 0; }
+.btn.func { left: 22px; font-size: 15px; }
+.btn.play { right: 22px; }
 /* ALT latched (a tap): it blinks, so a latch is never mistaken for a key held down. */
 .btn.func.lit.latched { animation: latched 0.8s steps(1) infinite; }
 @keyframes latched { 50% { background: var(--key); color: var(--ink); } }
 @media (prefers-reduced-motion: reduce) { .btn.func.lit.latched { animation: none; border-style: dashed; } }
 /* CLEAR held: the keys a tap clears are outlined red. */
 .btn.clearable, .step.clearable { outline: 2px solid var(--rec); outline-offset: -5px; }
-.btn.play { flex: 1; min-height: 0; font-size: 24px; }
 .master-knobs {
   flex: 1; display: flex; justify-content: space-around; align-items: center;
   border-radius: 12px; background: #171b1f;
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5);
 }
-.knob.master { width: auto; }
-/* TEMPO / MASTER: the live knobs' size (72 px). */
-.knob.master .knob-label { font-size: 12px; }
+/* MASTER / TEMPO and the track's knobs: modules of 144 px, as the knob panel's. */
+.master-knobs > .knob-module { padding: 0; }

@@ -50,7 +50,7 @@ export function compactEntry(e: ClipEntry | undefined | null): ClipEntry | undef
 }
 
 /**
- * One song row: how many bars it lasts and, per track, the pattern it plays (0-3 = A-D)
+ * One song row: how many bars it lasts and, per track, the pattern it plays (0-3 = A-H)
  * or -1 = the track is silent for the row. Every track restarts its pattern at the row start.
  */
 export interface SongRow {
@@ -212,7 +212,7 @@ export function setStepDynamic(step: Step, d: Dynamic): void {
 }
 
 /**
- * A pattern's sound (v31: each pattern A-D has its own) for the track's type: the values,
+ * A pattern's sound (v31: each pattern A-H has its own) for the track's type: the values,
  * the SOUND page trims on top of TIMBRE / INTENSITY, and the preset it came from.
  */
 export interface Patch {

@@ -60,7 +60,7 @@ Main -> worklet:
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-128 steps |
 | `setPatternSpeed` | `channel`, `pattern`, `speed` | normal / double / half / triplet |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern at the next bar line where the loop starts (or now, if `immediate` / stopped); its patch glides in until then (coarse params at the switch); the playing pattern again cancels (glides back) |
-| `switchPatterns` | `channels`, `pattern`, `quick` | A-D on several tracks: playing, all switch together at the loop end of the one that ends last (`quick`: the next bar line), each from its first step; patches glide in until then; stopped: at once |
+| `switchPatterns` | `channels`, `pattern`, `quick` | A-H on several tracks: playing, all switch together at the loop end of the one that ends last (`quick`: the next bar line), each from its first step; patches glide in until then; stopped: at once |
 | `setPatch` | `channel`, `pattern`, `sound`, `glide` | A pattern's whole patch (COPY, RESET); `glide` = glide there by the next bar line |
 | `swapNotes` | `channel`, `pattern`, `length`, `steps`, `speed?` | RESET with notes: the saved notes replace the pattern's at the next bar line |
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's type and set its full sound |
@@ -195,7 +195,7 @@ then; a song jump glides over the rest of the bar (`glideToRow`).
 sound is untouched. `startFill` positions it so its first step comes where the fill ends. SONG: a
 clip's FILL starts from `runSongEdges` (from an empty bar it is a pickup: `songOff` cleared) and runs
 over other tracks' row lines into its clip (`enterRow`). JAM AUTO-FILL (`planFill`): a filling track's
-switch lands on an exact step (`landAt`), the fill from `fillAt`; A-D during a fill keeps its landing
+switch lands on an exact step (`landAt`), the fill from `fillAt`; A-H during a fill keeps its landing
 (the playing pattern again = that pattern restarts there).
 
 **Dynamics:** ghost / normal / accent = velocity 0.45 / 0.8 / 1.0, scaled per track by ACC/GHOST
@@ -288,7 +288,7 @@ once per chunk.
 ## UI
 
 `Panel` (a ControlSurface) emits button ids `mode:record|play|design|song`, `ch1..8`, `mute1..8`,
-`solo1..8`, `dpage0..2`, `fx1..4` (4 = LFO), `save`, `saveproject`, `reset`, `patA..D`, the function
+`solo1..8`, `dpage0..2`, `fx1..4` (4 = LFO), `savepattern`, `saveproject`, `reset`, `patA..H`, `mmaster` `mtempo` `mvol` `mpan` `mfx1` `mfx2` (the knobs above the knob panel), the function
 row (`ring`, `slide`, `dyn:accent`, `dyn:ghost`, `len`, `steppage`, `clear`, `copy`, `oct-`, `oct+`,
 `cur-`, `cur+`, `rest`), `step1..16`, `play`, `func`; knobs `k1..k16` (k1-k8 top row, k9-k16 bottom;
 module n = k(n) over k(n+8)) and master knobs `mtempo`, `mmaster`. Knobs send absolute values (0-127,

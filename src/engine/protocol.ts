@@ -24,8 +24,8 @@ export type MainToWorklet =
    */
   | { type: 'selectPattern'; channel: number; pattern: number; immediate: boolean }
   /**
-   * A-D on several tracks: they all switch together (playing), at the loop end of the one
-   * whose loop ends last (each on a bar line), or with `quick` (FUNC + A-D) at the next bar
+   * A-H on several tracks: they all switch together (playing), at the loop end of the one
+   * whose loop ends last (each on a bar line), or with `quick` (FUNC + A-H) at the next bar
    * line; each new pattern starts from its first step. Stopped: at once.
    */
   | { type: 'switchPatterns'; channels: number[]; pattern: number; quick: boolean }

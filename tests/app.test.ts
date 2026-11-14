@@ -7,7 +7,7 @@ import { fromStored, toStored } from '../src/engine/projectFile';
 import { CHORD_KNOB, CHORD_NAMES } from '../src/engine/chords';
 import { projectStore } from '../src/storage/projects';
 import type { ControlEvent } from '../src/controls/ControlSurface';
-import type { Panel } from '../src/ui/Panel';
+import { PLAY_ICON, SAVE_ICON, type Panel } from '../src/ui/Panel';
 import type { MainToWorklet } from '../src/engine/protocol';
 import { deviceSettings } from '../src/storage/settings';
 import { INK } from '../src/ui/screen';
@@ -254,12 +254,10 @@ describe('PAD / PLUCK with a CHORD: one root at a time, legato slides', () => {
 });
 
 describe('TEMPO', () => {
-  it('stays in whole BPM (DESIGN > PROJECT, knob 1)', () => {
-    const { app, emit, tap, sent } = makeApp();
-    tap('mode:design');
-    tap('dpage2');
-    emit({ type: 'knob', id: 'k1', value: 0.3337 });
-    emit({ type: 'knob', id: 'k1', value: 0.5511 });
+  it('stays in whole BPM (its own knob, mtempo)', () => {
+    const { app, emit, sent } = makeApp();
+    emit({ type: 'knob', id: 'mtempo', value: 0.3337 });
+    emit({ type: 'knob', id: 'mtempo', value: 0.5511 });
     expect(Number.isInteger(app.project.bpm)).toBe(true);
     const tempos = sent.filter((m) => m.type === 'setGlobal' && m.id === 'bpm').map((m) => (m as { value: number }).value);
     expect(tempos.length).toBeGreaterThan(1);
@@ -267,7 +265,24 @@ describe('TEMPO', () => {
   });
 });
 
-describe('VOLUME / PAN beside PLAY', () => {
+describe('the knobs above the knob panel: MASTER / TEMPO, the track\'s VOLUME / PAN / FX1 SEND / FX2 SEND', () => {
+  it('MASTER / TEMPO set the project; FX1 / FX2 SEND the selected track\'s sends; TEMPO and MASTER are off the PROJECT page', () => {
+    const { app, emit, tap, sent } = makeApp();
+    emit({ type: 'knob', id: 'mmaster', value: 0.5 });
+    expect(app.project.master).toBeCloseTo(0.5, 2);
+    tap('ch5');
+    emit({ type: 'knob', id: 'mfx1', value: 0.25 });
+    expect(app.project.channels[4].fx1).toBeCloseTo(0.25, 2);
+    expect(sent.some((m) => m.type === 'setMix' && m.channel === 4 && m.id === 'fx1')).toBe(true);
+    emit({ type: 'knob', id: 'mfx2', value: 0.75 });
+    expect(app.project.channels[4].sendLevel).toBeCloseTo(0.75, 2);
+    tap('mode:design');
+    tap('dpage2');
+    const labels = (app as unknown as { targets: ({ label: string } | null)[] }).targets.map((t) => t?.label ?? '');
+    expect(labels.slice(0, 8)).toEqual(['', 'SWING', '', 'TIME SIG', 'CURVE', 'AUTO-FILL', 'KEY', '']);
+  });
+
+
   it('set the selected track\'s VOLUME and PAN in every mode; UNDO takes a turn back', () => {
     const { app, emit, tap } = makeApp();
     tap('ch3');
@@ -2356,16 +2371,16 @@ describe('keys doing another job: the screen and the panel say so', () => {
     expect(app.functionView()).toBeNull();
   });
 
-  it('PROJECT (TEMPO ...) is a page in RECORD and PLAY too, beside SOUND and MIX', () => {
+  it('PROJECT (SWING ...) is a page in RECORD and PLAY too, beside SOUND and MIX', () => {
     const { app, tap } = makeApp();
     for (const mode of ['mode:record', 'mode:play']) {
       tap(mode);
-      expect(labels(app)).not.toContain('TEMPO');
+      expect(labels(app)).not.toContain('SWING');
       tap('dpage2');
-      expect(labels(app)).toContain('TEMPO');
+      expect(labels(app)).toContain('SWING');
       expect(app.playPaged).toBe(true);
       tap('dpage0');
-      expect(labels(app)).not.toContain('TEMPO');
+      expect(labels(app)).not.toContain('SWING');
     }
   });
 
@@ -2374,17 +2389,17 @@ describe('keys doing another job: the screen and the panel say so', () => {
     tap('mode:play');
     press('func');
     app.updateFrame(0);
-    expect(texts.get('play')).toBe('PLAY<small>FROM TOP</small>');
-    expect(texts.get('patA')).toBe('A<small>QUICK</small>');
-    expect(texts.get('fx1')).toBe('1<small>ON/OFF</small>');
+    expect(texts.get('play')).toBe(`${PLAY_ICON}<small>FROM TOP</small>`);
+    expect(texts.get('patA')).toBe('<small>QUICK</small>A');
+    expect(texts.get('fx1')).toBe('FX 1<small>ON/OFF</small>');
     expect(flags.get('func')?.has('latched')).toBe(false);
     release('func'); // a tap: latched
     expect(flags.get('func')?.has('latched')).toBe(true);
     tap('func');
-    expect(texts.get('play')).toBe('PLAY');
-    expect(texts.get('patA')).toBe('A');
+    expect(texts.get('play')).toBe(PLAY_ICON);
+    expect(texts.get('patA')).toBe('<small>PATTERN</small>A');
     tap('menu');
-    expect(texts.get('play')).toBe('SAVE');
+    expect(texts.get('play')).toBe(`${SAVE_ICON}<small>SAVE</small>`);
     expect(texts.get('oct-')).toBe('▼');
     tap('menu');
     tap('mode:record');

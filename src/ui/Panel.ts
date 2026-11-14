@@ -3,30 +3,32 @@
  * Fixed design-size box scaled to fit the window; on a portrait screen it is rotated
  * so the instrument is always landscape.
  *
- *   [ pixel screen ] [ MODE: record / play / sound design | MENU ]
- *                    [ cancel, save/load, reset | TEMPO MASTER ]
- *                    [ pages |                ]
- *                    [ FX 1-3, LFO | PAT A-D ]
- *   [ 8 track modules, each: knob / M, channel button, S / knob ]
- *   [ function row                                 ] | [      ]
- *   [ step LEDs                                    ] | [ FUNC ]
- *   [ 16-button strip (steps or keyboard)          ] | [ PLAY ]
- *   (the strip's right divider sits under the groove between modules 7 and 8)
+ *   [H] [ pixel screen ] [ MODE: design / record / play | MENU          ] [UNDO ]
+ *   [G]                  [ SAVE PATTERN, SAVE/LOAD, CANCEL | MASTER TEMPO ] [CLEAR]
+ *   [F]                  [ pages                           |              ] [COPY ]
+ *   [E]                  [       VOLUME PAN | FX1 SEND FX2 SEND           ] [RESET]
+ *   [D] [ 8 track modules, each: knob / M, channel button, S / knob       ] [ARP  ]
+ *   [C]                                                                     [LFO  ]
+ *   [B]                                                                     [FX 2 ]
+ *   [A]                                                                     [FX 1 ]
+ *   [ALT] [ function row / step LEDs / 16-button strip (steps or keyboard) ] [PLAY ]
+ *   (the strip's dividers sit under the grooves between knob modules 2-3, 4-5 and 6-7;
+ *   the MASTER / TEMPO and track knobs line up with knob modules 7-8 and 5-8)
  *
- * Control ids: mode:record|play|design, menu, ch1..8, mute1..8, solo1..8, cancel, saveproject,
- * reset, patA..D (beside the FX buttons), dpage0..2, fx1 / fx2 (FX 1 / 2), fx3 (ARP), fx4 (LFO), play, clear
- * (held: CLEAR + step / channel), copy (held: COPY + channel = same pattern slot there,
- * COPY + A-D = that pattern of this track),
+ * Control ids: mode:record|play|design, menu, ch1..8, mute1..8, solo1..8, cancel, savepattern,
+ * saveproject, reset, patA..H (the left column), dpage0..2, fx1 / fx2 (FX 1 / 2), fx3 (ARP),
+ * fx4 (LFO), play, clear (held: CLEAR + step / channel), copy (held: COPY + channel = same
+ * pattern slot there, COPY + A-H = that pattern of this track),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
- * bottom row; module i holds k(i+1) and k(i+9)); beside PLAY mvol, mpan (the selected track's
- * VOLUME / PAN).
+ * bottom row; module i holds k(i+1) and k(i+9)); mmaster, mtempo (the project's MASTER /
+ * TEMPO), mvol, mpan, mfx1, mfx2 (the selected track's VOLUME / PAN / FX1 SEND / FX2 SEND).
  */
 import { dimOf } from './colours';
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
 import { Knob } from './Knob';
 import { setRotated } from './orientation';
 
-const DESIGN_W = 1200;
+const DESIGN_W = 1364;
 const DESIGN_H = 760;
 export const KNOB_COUNT = 16;
 export const KNOBS_PER_ROW = 8;
@@ -34,10 +36,16 @@ export const STEP_BUTTONS = 16;
 export const DESIGN_PAGE_BUTTONS = 3;
 /** FX 1, FX 2, ARP (fx3: the selected track's ARP view) and the LFO (fx4). */
 export const FX_SEND_BUTTONS = 4;
-const MASTER_KNOBS = [
-  { id: 'mvol', label: 'VOLUME' },
-  { id: 'mpan', label: 'PAN' },
-] as const;
+/** The project's knobs (beside the page keys) and the selected track's (over modules 5-8). */
+const PROJECT_KNOBS = ['mmaster', 'mtempo'] as const;
+const TRACK_KNOBS = ['mvol', 'mpan', 'mfx1', 'mfx2'] as const;
+
+/** PLAY's faces (App sets them): play, pause (playing), stop, and SAVE (in MENU). */
+const icon = (path: string) => `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">${path}</svg>`;
+export const PLAY_ICON = icon('<path d="M7 4.5v15l13-7.5z" fill="currentColor"/>');
+export const PAUSE_ICON = icon('<path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z" fill="currentColor"/>');
+export const STOP_ICON = icon('<path d="M6 6h12v12H6z" fill="currentColor"/>');
+export const SAVE_ICON = icon('<path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>');
 
 export const MODES = [
   { id: 'design', label: 'DESIGN' },
@@ -69,6 +77,7 @@ export class Panel implements ControlSurface {
   private readonly buttons = new Map<string, HTMLElement>();
   private readonly disabled = new Set<string>();
   private readonly leds: HTMLElement[] = [];
+  private readonly modules: HTMLElement[] = [];
   private readonly masterKnobs = new Map<string, Knob>();
   private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
@@ -90,6 +99,8 @@ export class Panel implements ControlSurface {
     root.style.width = `${DESIGN_W}px`;
     root.style.height = `${DESIGN_H}px`;
     root.innerHTML = `
+      <div class="side-keys left"></div>
+      <div class="side-keys right"></div>
       <div class="panel-top">
         <div class="screen-bezel"><canvas class="screen"></canvas></div>
         <div class="side">
@@ -97,15 +108,11 @@ export class Panel implements ControlSurface {
           <div class="lower">
             <div class="lower-rows">
               <div class="row patterns"><div class="save-buttons"></div></div>
-              <div class="row tools"><div class="tool-buttons"></div></div>
               <div class="row pages"><div class="page-buttons"></div></div>
             </div>
-            <div class="master-knobs"></div>
+            <div class="master-knobs project-knobs"></div>
           </div>
-          <div class="row buses">
-            <div class="key-group"><div class="group-label">FX</div><div class="key-row fx-buttons"></div></div>
-            <div class="key-group"><div class="group-label">PATTERN</div><div class="key-row pat-buttons"></div></div>
-          </div>
+          <div class="row buses"><div class="master-knobs track-knobs"></div></div>
         </div>
       </div>
       <div class="knob-grid"></div>
@@ -115,7 +122,6 @@ export class Panel implements ControlSurface {
           <div class="leds"></div>
           <div class="steps"></div>
         </div>
-        <div class="play-area"></div>
       </div>`;
     host.appendChild(root);
     this.root = root;
@@ -124,16 +130,19 @@ export class Panel implements ControlSurface {
 
     for (const m of MODES) q('.modes').appendChild(this.makeButton(`mode:${m.id}`, m.label, 'btn mode'));
     q('.modes').appendChild(this.makeButton('menu', 'MENU', 'btn mode'));
-    q('.save-buttons').appendChild(this.makeButton('undo', 'UNDO', 'btn save'));
+    q('.save-buttons').appendChild(this.makeButton('savepattern', 'SAVE<small>PATTERN</small>', 'btn save'));
     q('.save-buttons').appendChild(this.makeButton('saveproject', 'SAVE/LOAD<small>PROJECT</small>', 'btn save'));
-    q('.save-buttons').appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn save'));
-    // The middle row of three: CLEAR, COPY (both held), CANCEL.
-    q('.tool-buttons').appendChild(this.makeButton('cancel', 'CANCEL', 'btn save'));
-    q('.tool-buttons').appendChild(this.makeButton('copy', 'COPY<small>HOLD</small>', 'btn save'));
-    q('.tool-buttons').appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn save'));
-    for (const p of cfg.patterns) q('.pat-buttons').appendChild(this.makeButton(`pat${p}`, p, 'btn pat'));
+    q('.save-buttons').appendChild(this.makeButton('cancel', 'CANCEL', 'btn save'));
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
-    for (let i = 1; i <= FX_SEND_BUTTONS; i++) q('.fx-buttons').appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : i === 3 ? 'ARP' : String(i), 'btn fxsend'));
+    // The left column: the pattern keys, A at the bottom.
+    for (const p of [...cfg.patterns].reverse()) q('.side-keys.left').appendChild(this.makeButton(`pat${p}`, `<small>PATTERN</small>${p}`, 'btn pat'));
+    // The right column: UNDO, CLEAR, COPY, RESET, then ARP, LFO, FX 2, FX 1.
+    const right = q('.side-keys.right');
+    right.appendChild(this.makeButton('undo', 'UNDO', 'btn side'));
+    right.appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn side'));
+    right.appendChild(this.makeButton('copy', 'COPY<small>HOLD</small>', 'btn side'));
+    right.appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn side'));
+    for (const i of [3, 4, 2, 1]) right.appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : i === 3 ? 'ARP' : `FX ${i}`, 'btn side fxsend'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel; the
     // track's channel button sits between its two knobs, MUTE left of it, SOLO right.
@@ -156,6 +165,7 @@ export class Panel implements ControlSurface {
       }
       module.append(this.knobs[m].el, track, this.knobs[m + KNOBS_PER_ROW].el);
       grid.appendChild(module);
+      this.modules.push(module);
     }
 
     const fnRow = q('.function-row');
@@ -180,28 +190,32 @@ export class Panel implements ControlSurface {
       if ((i - 1) % 4 === 0) b.classList.add('beat');
       steps.appendChild(b);
     }
-    // A divider after every four steps, from the function row down through the strip. Steps
-    // of 55 px, gaps of 6 px and 10 px more between groups (style.css): the gap after step
-    // 4k is centred at 254k - 8 px; the line is 4 px wide. The last one (1008 px) sits under
-    // the groove between knob modules 7 and 8.
+    // A divider after each of the first three groups of four, from the function row down
+    // through the strip. Steps of 64 px, gaps of 6 px and 14 px between groups (style.css),
+    // the strip 7 px in from the knob panel: the gap after step 4k is centred 288k - 7 px in,
+    // under the groove between knob modules 2k and 2k + 1; the line is 4 px wide.
     const bottom = q('.bottom-main');
-    for (let k = 1; k <= 4; k++) {
+    for (let k = 1; k <= 3; k++) {
       const line = document.createElement('div');
       line.className = 'strip-divider';
-      line.style.left = `${254 * k - 10}px`;
+      line.style.left = `${288 * k - 9}px`;
       bottom.appendChild(line);
     }
-    // FUNC (hold: the knobs' second layer; tap: latch) beside PLAY.
-    const playRow = document.createElement('div');
-    playRow.className = 'play-row';
-    playRow.append(this.makeButton('func', 'ALT', 'btn func'), this.makeButton('play', 'PLAY', 'btn play'));
-    q('.play-area').prepend(playRow);
-    for (const m of MASTER_KNOBS) {
-      const knob = new Knob(m.id, m.label, 0.5, this.knobEmit, this.encoderEmit, 127);
-      knob.el.classList.add('master');
-      this.masterKnobs.set(m.id, knob);
-      q('.master-knobs').appendChild(knob.el);
-    }
+    // ALT (hold: the knobs' second layer; tap: latch) left of the strip, PLAY right of it.
+    root.append(this.makeButton('func', 'ALT', 'btn func'), this.makeButton('play', PLAY_ICON, 'btn play'));
+    // MASTER / TEMPO beside the page keys, the track's knobs over knob modules 5-8: each in a
+    // module of its own (the name up its left side), a lit groove between the track's two
+    // and its two sends.
+    const sideKnob = (id: string, box: HTMLElement, lit = false) => {
+      const knob = new Knob(id, '', 0.5, this.knobEmit, this.encoderEmit, 127);
+      this.masterKnobs.set(id, knob);
+      const module = document.createElement('div');
+      module.className = lit ? 'knob-module lit-groove' : 'knob-module';
+      module.appendChild(knob.el);
+      box.appendChild(module);
+    };
+    for (const id of PROJECT_KNOBS) sideKnob(id, q('.project-knobs'));
+    for (const id of TRACK_KNOBS) sideKnob(id, q('.track-knobs'), id === 'mfx1');
 
     this.installKeyboard();
     // Nothing stays held when the app loses focus or goes to the background (the lift that
@@ -239,7 +253,18 @@ export class Panel implements ControlSurface {
     }
   }
 
-  /** A knob beside PLAY (the selected track's VOLUME / PAN), or null (no track: off). */
+  /**
+   * Light the grooves left of these knob modules (0-based, 1-7): a knob group's edge (an FX
+   * view's units, two modules each).
+   */
+  setLitGrooves(modules: readonly number[]): void {
+    this.modules.forEach((m, i) => {
+      const on = modules.includes(i);
+      if (m.classList.contains('lit-groove') !== on) m.classList.toggle('lit-groove', on);
+    });
+  }
+
+  /** A knob of the project's or the selected track's (above the knob panel), or null: off. */
   configureMaster(id: string, slot: { label: string; value: number; defaultValue: number; colour: string } | null): void {
     const k = this.masterKnobs.get(id);
     if (!k) return;
