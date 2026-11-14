@@ -85,7 +85,7 @@ fn i8w(x: f64) -> i8 {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Recorded {
     Note { channel: usize, pattern: usize, index: usize, note: f64, velocity: f64, accent: bool, gate: f64, slide: bool, start: bool },
-    Lock { channel: usize, pattern: usize, index: usize, id: String, value: f64 },
+    Lock { channel: usize, pattern: usize, index: usize, id: &'static str, value: f64 },
     Chord { channel: usize, pattern: usize, index: usize, note: f64, gate: f64 },
 }
 
@@ -241,7 +241,8 @@ fn find_spec(list: &'static [Spec], id: &str) -> Option<&'static Spec> {
 struct PendingNotes {
     length: f64,
     steps: Vec<Value>,
-    speed: Option<String>,
+    /// The pattern's speed (tables::speed_steps).
+    speed: f64,
 }
 
 pub struct Engine {
@@ -265,6 +266,9 @@ pub struct Engine {
     row_start: [i32; SONG_MAX_ROWS + 1],
     cell_of: [u8; 16],
     auto_base: HashMap<String, f64>,
+    /// `auto_base` keys are written here first (reused), so a knob already known costs no
+    /// allocation on the audio thread.
+    key_buf: String,
     auto_applying: bool,
     auto_snap: bool,
     auto_stale: [u8; NC],
@@ -501,7 +505,7 @@ impl Engine {
             active_pattern: [0; NC],
             song_row: -1,
             song_bar: 0,
-            recorded: Vec::new(),
+            recorded: Vec::with_capacity(64),
             bpm: 128.0,
             swing: 0.0,
             master: Smoother::new(0.8, 0.02, sr),
@@ -509,7 +513,8 @@ impl Engine {
             lanes: Vec::new(),
             row_start: [0; SONG_MAX_ROWS + 1],
             cell_of: [0; 16],
-            auto_base: HashMap::new(),
+            auto_base: HashMap::with_capacity(512),
+            key_buf: String::with_capacity(64),
             auto_applying: false,
             auto_snap: false,
             auto_stale: [0; NC],
@@ -762,11 +767,15 @@ impl Engine {
         Some(&mut self.insts[ch][kind_index(k)])
     }
 
-    /// A message from the UI (engine/protocol.ts MainToWorklet).
-    pub fn handle_message(&mut self, msg: &Value) {
+    /// A message from the UI (engine/protocol.ts MainToWorklet). Every index in it is
+    /// clamped or checked here or where it is used, so no message can reach outside the
+    /// engine's tables (a panic would stop the audio). `swapNotes` takes its steps out of
+    /// the message rather than copying them (the audio thread allocates nothing for it).
+    pub fn handle_message(&mut self, msg: &mut Value) {
         let ty = str_of(msg, "type").unwrap_or("");
-        let ch = num_or(msg, "channel", 0.0) as usize;
-        let chv = ch.min(NC - 1);
+        let chv = (num_or(msg, "channel", 0.0) as usize).min(NC - 1);
+        // A pattern A-D (as usize: a negative or NaN number is 0).
+        let pat = (num_or(msg, "pattern", 0.0) as usize).min(NUM_PATTERNS - 1);
         match ty {
             "loadProject" => {
                 if let Some(p) = msg.get("project") {
@@ -774,32 +783,38 @@ impl Engine {
                 }
             }
             "setStep" => {
-                let pat = num_or(msg, "pattern", 0.0) as usize;
                 let index = num_or(msg, "index", 0.0) as usize;
                 if let Some(step) = msg.get("step") {
                     self.write_step(chv, pat, index, step);
                 }
             }
             "setPatternLength" => {
-                let pat = num_or(msg, "pattern", 0.0) as usize;
                 self.pattern_length[chv * NUM_PATTERNS + pat] = u8w(num_or(msg, "length", 16.0).min(MAX_STEPS as f64).max(1.0));
             }
             "setPatternSpeed" => {
-                let k = chv * NUM_PATTERNS + num_or(msg, "pattern", 0.0) as usize;
+                let k = chv * NUM_PATTERNS + pat;
                 self.pending_rate[k] = speed_steps(str_of(msg, "speed"));
                 self.rate_pending = true;
                 if !self.playing {
                     self.apply_pending_rates(false);
                 }
             }
-            "selectPattern" => self.select_pattern(chv, num_or(msg, "pattern", 0.0) as usize, is_true(msg, "immediate")),
+            "selectPattern" => self.select_pattern(chv, pat, is_true(msg, "immediate")),
             "switchPatterns" => {
-                let chans: Vec<usize> = arr(msg.get("channels")).iter().filter_map(Value::as_f64).map(|c| c as usize).collect();
-                self.switch_patterns(&chans, num_or(msg, "pattern", 0.0) as usize, is_true(msg, "quick"));
+                let mut chans = [0usize; NC];
+                let mut n = 0;
+                for c in arr(msg.get("channels")).iter().filter_map(Value::as_f64) {
+                    let c = c as usize;
+                    if c < NC && n < NC && !chans[..n].contains(&c) {
+                        chans[n] = c;
+                        n += 1;
+                    }
+                }
+                self.switch_patterns(&chans[..n], pat, is_true(msg, "quick"));
             }
             "setSound" => {
                 let pat = match num(msg, "pattern") {
-                    Some(p) => p as usize,
+                    Some(_) => pat,
                     None => self.edited_pattern(chv),
                 };
                 let id = str_of(msg, "id").unwrap_or("");
@@ -807,27 +822,29 @@ impl Engine {
             }
             "setPatch" => {
                 let sound = record(msg.get("sound"));
-                self.set_patch(chv, num_or(msg, "pattern", 0.0) as usize, &sound, is_true(msg, "glide"));
+                self.set_patch(chv, pat, &sound, is_true(msg, "glide"));
             }
             "swapNotes" => {
-                let k = chv * NUM_PATTERNS + num_or(msg, "pattern", 0.0) as usize;
-                self.pending_notes[k] = Some(PendingNotes {
-                    length: num_or(msg, "length", 16.0),
-                    steps: arr(msg.get("steps")).to_vec(),
-                    speed: str_of(msg, "speed").map(str::to_string),
-                });
+                let k = chv * NUM_PATTERNS + pat;
+                let length = num_or(msg, "length", 16.0);
+                let speed = speed_steps(str_of(msg, "speed"));
+                let steps = match msg.get_mut("steps").map(Value::take) {
+                    Some(Value::Array(a)) => a,
+                    _ => Vec::new(),
+                };
+                self.pending_notes[k] = Some(PendingNotes { length, steps, speed });
                 self.notes_pending = true;
                 if !self.playing {
                     self.apply_pending_notes();
                 }
             }
             "setOffset" => {
-                let id = str_of(msg, "id").unwrap_or("").to_string();
-                self.set_offset(chv, &id, num_or(msg, "value", 0.0));
+                let id = str_of(msg, "id").unwrap_or("");
+                self.set_offset(chv, id, num_or(msg, "value", 0.0));
             }
             "setMix" => {
-                let id = str_of(msg, "id").unwrap_or("").to_string();
-                self.set_mix(chv, &id, num_or(msg, "value", 0.0));
+                let id = str_of(msg, "id").unwrap_or("");
+                self.set_mix(chv, id, num_or(msg, "value", 0.0));
             }
             "setListenLatency" => self.listen_frames = num_or(msg, "ms", 0.0).max(0.0) * 0.001 * self.sample_rate,
             "setGlobal" => {
@@ -849,17 +866,17 @@ impl Engine {
             "setRouting" => self.route[chv] = self.bus_index(num_or(msg, "send", 0.0)),
             "setDrumBus" => self.in_drum_bus[chv] = is_true(msg, "on") as u8,
             "setBus" => {
-                let id = str_of(msg, "id").unwrap_or("").to_string();
-                self.set_bus_param(num_or(msg, "bus", 0.0) as usize, &id, num_or(msg, "value", 0.0));
+                let id = str_of(msg, "id").unwrap_or("");
+                self.set_bus_param(num_or(msg, "bus", 0.0) as usize, id, num_or(msg, "value", 0.0));
             }
             "setLfo" => {
-                let id = str_of(msg, "id").unwrap_or("").to_string();
-                self.set_lfo(&id, num_or(msg, "value", 0.0));
+                let id = str_of(msg, "id").unwrap_or("");
+                self.set_lfo(id, num_or(msg, "value", 0.0));
             }
             "setLfoTrack" => self.lfo_on[chv] = is_true(msg, "on") as u8,
             "setArp" => {
-                let id = str_of(msg, "id").unwrap_or("").to_string();
-                self.set_arp(chv, &id, num_or(msg, "value", 0.0));
+                let id = str_of(msg, "id").unwrap_or("");
+                self.set_arp(chv, id, num_or(msg, "value", 0.0));
             }
             "holdRoll" => self.set_hold_roll(chv, is_true(msg, "on"), num_or(msg, "note", DRUM_ROOT)),
             "transport" => {
@@ -943,15 +960,29 @@ impl Engine {
                 }
             }
             "recordLock" => {
-                let id = str_of(msg, "id").unwrap_or("").to_string();
-                self.record_lock(chv, &id, num_or(msg, "value", 0.0));
+                let id = str_of(msg, "id").unwrap_or("");
+                self.record_lock(chv, id, num_or(msg, "value", 0.0));
             }
             _ => {}
         }
-        let _ = ch;
         if self.pat_dirty {
             self.flush_pat_lanes();
         }
+    }
+
+    /// A knob's own value (what automation returns to), by its lane key.
+    pub(super) fn set_base(&mut self, key: std::fmt::Arguments, value: f64) {
+        use std::fmt::Write;
+        let mut k = std::mem::take(&mut self.key_buf);
+        k.clear();
+        let _ = k.write_fmt(key);
+        match self.auto_base.get_mut(k.as_str()) {
+            Some(v) => *v = value,
+            None => {
+                self.auto_base.insert(k.clone(), value);
+            }
+        }
+        self.key_buf = k;
     }
 
     /// Tempo-synced onboard effects (PLUCK's delay) follow the tempo.
@@ -1069,7 +1100,7 @@ impl Engine {
             self.in_drum_bus[ch] = truthy(c, "fx1") as u8;
             let send = num_or(c, "sendLevel", 0.5);
             self.send_level[ch].set_immediate(send);
-            self.auto_base.insert(format!("m:{ch}:send"), send);
+            self.set_base(format_args!("m:{ch}:send"), send);
             self.volume[ch].set_immediate(volume);
             self.pan[ch].set_immediate(pan);
             self.cuts[ch].settle();

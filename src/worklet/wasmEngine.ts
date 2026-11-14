@@ -106,14 +106,20 @@ export interface EngineState {
 }
 
 export class WasmEngine {
+  /** The compiled module (to start a fresh instance from). */
+  readonly module: WebAssembly.Module;
   private readonly x: Exports;
   private buffer: ArrayBuffer | null = null;
   private audioView = new Float32Array(0);
   private frames = 0;
 
-  /** `bytes`: the module (engineWasm.gen.ts, decoded); compiled synchronously. */
-  constructor(bytes: Uint8Array, sampleRate: number, nowMs: () => number = () => Date.now()) {
-    const module = new WebAssembly.Module(bytes as BufferSource);
+  /**
+   * `bytes`: the module (engineWasm.gen.ts, decoded; compiled synchronously), or the module
+   * already compiled (a fresh instance after a trap: worklet processor.ts).
+   */
+  constructor(bytes: Uint8Array | WebAssembly.Module, sampleRate: number, nowMs: () => number = () => Date.now()) {
+    const module = bytes instanceof WebAssembly.Module ? bytes : new WebAssembly.Module(bytes as BufferSource);
+    this.module = module;
     const instance = new WebAssembly.Instance(module, { env: { now_ms: nowMs } });
     this.x = instance.exports as unknown as Exports;
     this.x.engine_new(sampleRate);

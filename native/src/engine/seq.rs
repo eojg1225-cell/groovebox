@@ -1433,7 +1433,9 @@ impl Engine {
         }
         self.step_lock_src[s] = Some(locks);
         self.lock_changed(ch, pattern);
-        self.recorded.push(Recorded::Lock { channel: ch, pattern, index, id: id.to_string(), value });
+        // The parameter's own id (static): nothing to allocate for the report.
+        let id = params_of(self.current[ch])[slot as usize].id;
+        self.recorded.push(Recorded::Lock { channel: ch, pattern, index, id, value });
     }
 }
 

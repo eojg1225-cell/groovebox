@@ -27,13 +27,25 @@ jobs:
       # The native audio library (native/, Rust) for 64- and 32-bit ARM phones / Fire tablets
       # and x86_64 emulators, into the app's jniLibs (cargo-ndk finds the runner's NDK by
       # ANDROID_NDK_ROOT; native/rust-toolchain.toml pins Rust and its Android targets).
+      # cargo-ndk and the engine's build kept between runs (a fresh install took minutes).
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-ndk
+            ~/.cargo/registry
+            native/target
+          key: native-${{ runner.os }}-${{ hashFiles('native/Cargo.lock', 'native/rust-toolchain.toml') }}
+          restore-keys: native-${{ runner.os }}-
+      # The library unwinds on a panic (the release profile aborts, as WebAssembly must), so
+      # host.rs catches one and starts a fresh engine instead of the app crashing.
       - name: Native library
         run: |
-          cargo install cargo-ndk --locked
+          command -v cargo-ndk || cargo install cargo-ndk --locked
           cd native
           cargo test
           cargo clippy --all-targets -- -D warnings
-          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 --platform 26 -o ../android/app/src/main/jniLibs build --release
+          cargo clippy --lib --target wasm32-unknown-unknown -- -D warnings
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 --platform 26 -o ../android/app/src/main/jniLibs build --release --config 'profile.release.panic="unwind"'
           ls -la ../android/app/src/main/jniLibs/*
       - run: npm ci
       # The engine golden test: the native and WebAssembly builds play the same, and as golden.json says.

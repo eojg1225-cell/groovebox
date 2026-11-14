@@ -9,8 +9,13 @@
  * with the DSP load, pongs. Where WebAssembly cannot start there is no sound: `ready` says so
  * (engine 'none') and the page shows it.
  *
+ * The page sends its messages as JSON text, a batch at a time (host.ts), so nothing is
+ * serialised here. A panic in the engine traps the module (Rust aborts there): the block is
+ * silent, a fresh instance of the same module takes over and the page is told
+ * (`engineReset`: it sends everything again), as for a non-finite output.
+ *
  * Audio-thread rules: no allocation in process() (but on the blocks the engine writes a
- * report), no logging, no blocking.
+ * report, and when a trapped engine is replaced), no logging, no blocking.
  */
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 import { ENGINE_WASM } from './engineWasm.gen';
@@ -18,9 +23,13 @@ import { WasmEngine, fromBase64 } from './wasmEngine';
 
 const PROCESSOR_NAME = 'groovebox-engine';
 
+/** A trapped engine is replaced at most this often (a project that traps on load again stays silent). */
+const RESTART_MS = 1000;
+
 class GrooveboxProcessor extends AudioWorkletProcessor {
-  private readonly engine: WasmEngine | null;
+  private engine: WasmEngine | null;
   private stopGen = 0;
+  private restartedAt = -Infinity;
 
   /**
    * STOP as an AudioParam (the UI's transport count): it arrives with each block even while
@@ -39,7 +48,14 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
       engine = null;
     }
     this.engine = engine;
-    this.port.onmessage = (e: MessageEvent<MainToWorklet>) => this.engine?.send(e.data);
+    this.port.onmessage = (e: MessageEvent<string | MainToWorklet | MainToWorklet[]>) => {
+      try {
+        if (typeof e.data === 'string') this.engine?.sendJson(e.data);
+        else this.engine?.send(e.data);
+      } catch {
+        this.restart();
+      }
+    };
     const ready: WorkletToMain = { type: 'ready', sampleRate, engine: engine ? 'rust' : 'none' };
     this.port.postMessage(ready);
   }
@@ -57,15 +73,39 @@ class GrooveboxProcessor extends AudioWorkletProcessor {
     const left = out[0];
     const right = out.length > 1 ? out[1] : out[0];
     const n = left.length;
-    engine.render(n);
-    const a = engine.audio;
-    for (let i = 0, j = 0; i < n; i++, j += 2) {
-      left[i] = a[j];
-      right[i] = a[j + 1];
+    try {
+      engine.render(n);
+      const a = engine.audio;
+      for (let i = 0, j = 0; i < n; i++, j += 2) {
+        left[i] = a[j];
+        right[i] = a[j + 1];
+      }
+      const msgs = engine.drain();
+      if (msgs) for (const m of msgs) this.port.postMessage(m);
+    } catch {
+      // The engine trapped (a panic): silence, then a fresh one.
+      left.fill(0);
+      right.fill(0);
+      this.restart();
     }
-    const msgs = engine.drain();
-    if (msgs) for (const m of msgs) this.port.postMessage(m);
     return true;
+  }
+
+  /** A fresh engine from the same module; the page sends everything again. */
+  private restart(): void {
+    const old = this.engine;
+    if (!old) return;
+    const now = Date.now();
+    try {
+      this.engine = new WasmEngine(old.module, sampleRate);
+    } catch {
+      this.engine = null;
+      return;
+    }
+    if (now - this.restartedAt < RESTART_MS) return;
+    this.restartedAt = now;
+    const reset: WorkletToMain = { type: 'engineReset' };
+    this.port.postMessage(reset);
   }
 }
 

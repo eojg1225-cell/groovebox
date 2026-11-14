@@ -41,7 +41,7 @@ fn main() {
         while pos < frames {
             let n = block.min(frames - pos);
             while next < msgs.len() && (msgs[next][0].as_u64().unwrap() as usize) < pos + n {
-                engine.handle_message(&msgs[next][1]);
+                engine.handle_message(&mut msgs[next][1].clone());
                 next += 1;
             }
             engine.process(&mut l, &mut r, n);

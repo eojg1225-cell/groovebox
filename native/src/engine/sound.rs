@@ -341,7 +341,7 @@ impl Engine {
 
     pub(super) fn set_bus_param(&mut self, k: usize, id: &str, value: f64) {
         if !self.auto_applying {
-            self.auto_base.insert(format!("b:{k}:{id}"), value);
+            self.set_base(format_args!("b:{k}:{id}"), value);
         }
         if let Some(b) = self.buses.get_mut(k) {
             b.set_param(id, value);
@@ -363,7 +363,7 @@ impl Engine {
 
     pub(super) fn set_offset(&mut self, ch: usize, id: &str, value: f64) {
         if !self.auto_applying {
-            self.auto_base.insert(format!("o:{ch}:{id}"), value);
+            self.set_base(format_args!("o:{ch}:{id}"), value);
         }
         {
             let offsets = &mut self.live_offsets[ch];
@@ -650,7 +650,7 @@ impl Engine {
 
     pub(super) fn set_lfo(&mut self, id: &str, value: f64) {
         if !self.auto_applying {
-            self.auto_base.insert(format!("l:{id}"), value);
+            self.set_base(format_args!("l:{id}"), value);
         }
         match id {
             "rate" => {
@@ -1069,7 +1069,7 @@ impl Engine {
             let ch = k / NUM_PATTERNS;
             let pat = k % NUM_PATTERNS;
             self.pattern_length[k] = u8w(next.length.min(MAX_STEPS as f64).max(1.0));
-            self.pattern_rate[k] = speed_steps(next.speed.as_deref()) as f32;
+            self.pattern_rate[k] = next.speed as f32;
             for i in 0..MAX_STEPS.min(next.steps.len()) {
                 self.write_step(ch, pat, i, &next.steps[i]);
             }
@@ -1098,7 +1098,7 @@ impl Engine {
 
     pub(super) fn set_arp(&mut self, ch: usize, id: &str, value: f64) {
         if !self.auto_applying {
-            self.auto_base.insert(format!("a:{ch}:{id}"), value);
+            self.set_base(format_args!("a:{ch}:{id}"), value);
         }
         let v = js::round(value).max(0.0);
         match id {
@@ -1163,7 +1163,7 @@ impl Engine {
 
     pub(super) fn set_mix(&mut self, ch: usize, id: &str, value: f64) {
         if !self.auto_applying {
-            self.auto_base.insert(format!("m:{ch}:{id}"), value);
+            self.set_base(format_args!("m:{ch}:{id}"), value);
         }
         match id {
             "send" => {

@@ -1,12 +1,16 @@
 /**
  * Main-thread side of the worklet bridge: owns the AudioContext and AudioWorkletNode and
  * speaks the protocol in engine/protocol.ts. This is the only place that touches Web Audio.
+ * If the processor itself fails (`processorerror`: nothing plays), a new node takes its
+ * place and the page sends everything again (`onEngineReset`), as for ENGINE RESTARTED.
  */
 import workletUrl from './processor.ts?worker&url';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
 
 // Must match the name registered in processor.ts.
 const PROCESSOR_NAME = 'groovebox-engine';
+/** A failed processor is replaced, but not again within this time (it would only fail again). */
+const NODE_RETRY_MS = 5000;
 
 export interface LatencyInfo {
   sampleRate: number;
@@ -46,6 +50,8 @@ export class AudioHost implements EngineHost {
   private pingSentAt = new Map<number, number>();
   /** Messages sent before the worklet exists; flushed in order once it does. */
   private pending: MainToWorklet[] = [];
+  private flushing = false;
+  private failedAt = -Infinity;
   roundTripMs = NaN;
   onStatus: ((s: StatusMsg) => void) | null = null;
   /** Motion-record results written by the worklet. */
@@ -69,17 +75,7 @@ export class AudioHost implements EngineHost {
       throw new Error('AudioWorklet is not supported in this browser (a secure https page is required).');
     }
     await this.loadWorklet();
-    const node = new AudioWorkletNode(this.ctx, PROCESSOR_NAME, {
-      numberOfInputs: 0,
-      numberOfOutputs: 1,
-      outputChannelCount: [2],
-    });
-    node.port.onmessage = (e: MessageEvent<WorkletToMain>) => this.onMessage(e.data);
-    node.connect(this.ctx.destination);
-    this.node = node;
-    this.stopParam = node.parameters.get('stop') ?? null;
-    for (const msg of this.pending) node.port.postMessage(msg);
-    this.pending = [];
+    this.makeNode();
     await this.ctx.resume();
 
     // Resume after the tab was backgrounded or the OS interrupted audio.
@@ -88,6 +84,30 @@ export class AudioHost implements EngineHost {
     });
     window.setInterval(() => this.ping(), 1000);
     this.ping();
+  }
+
+  /** The processor's node, connected; a failed one is replaced (at most every few seconds). */
+  private makeNode(): void {
+    const node = new AudioWorkletNode(this.ctx, PROCESSOR_NAME, {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+    });
+    node.port.onmessage = (e: MessageEvent<WorkletToMain>) => this.onMessage(e.data);
+    node.onprocessorerror = () => {
+      if (this.node !== node) return;
+      node.disconnect();
+      this.node = null;
+      const now = performance.now();
+      if (now - this.failedAt < NODE_RETRY_MS) return; // failing again at once: stay silent
+      this.failedAt = now;
+      this.makeNode();
+      this.onEngineReset?.();
+    };
+    node.connect(this.ctx.destination);
+    this.node = node;
+    this.stopParam = node.parameters.get('stop') ?? null;
+    this.flush();
   }
 
   /**
@@ -112,11 +132,25 @@ export class AudioHost implements EngineHost {
     }
   }
 
+  /**
+   * Messages go as one JSON text per task (serialised here, not on the audio thread), in
+   * order; before the worklet exists they wait.
+   */
   send(msg: MainToWorklet): void {
-    if (this.node) this.node.port.postMessage(msg);
-    else this.pending.push(msg);
+    this.pending.push(msg);
+    if (this.node && !this.flushing) {
+      this.flushing = true;
+      queueMicrotask(() => this.flush());
+    }
     // STOP also as the parameter (the message may wait behind an overloaded audio thread).
     if (msg.type === 'transport' && !msg.playing && msg.gen && this.stopParam) this.stopParam.value = msg.gen;
+  }
+
+  private flush(): void {
+    this.flushing = false;
+    if (!this.node || this.pending.length === 0) return;
+    this.node.port.postMessage(JSON.stringify(this.pending));
+    this.pending = [];
   }
 
   get running(): boolean {

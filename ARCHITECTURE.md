@@ -41,7 +41,7 @@ fails on unused files or exports.
 
 ```
 Panel (pointer / keyboard) --ControlEvent--> App --project edit + MainToWorklet--> AudioHost.send()
-     --postMessage--> processor.ts --JSON--> WasmEngine (host.rs: Engine::handle_message at the block's start, Engine::process each 128-frame block)
+     --postMessage (one JSON text per task)--> processor.ts --JSON--> WasmEngine (host.rs: Engine::handle_message at the block's start, Engine::process each 128-frame block)
 processor.ts <--status @30 Hz / pong / recorded* (JSON, drained after the block)-- host.rs; --> AudioHost --> App --> views --> PixelScreen (requestAnimationFrame)
 ```
 
@@ -99,7 +99,7 @@ Worklet -> main:
 | `ready` | `sampleRate`, `engine?` | Processor constructed; `engine` = `rust` (the WebAssembly engine is up) or `none` (WebAssembly could not start: no sound, the page says NO WEBASSEMBLY: NO SOUND) |
 | `status` | `peakL`, `peakR`, `frame`, `playing`, `steps[8]`, `patterns[8]`, `next[8]`, `nextMs[8]`, `barPhase`, `barSteps`, `songRow`, `songBar`, `load`, `countIn` | ~30 Hz: meters, COUNT-IN beats left, playhead and playing pattern per track, each track's next step and ms until it (the panel moves the lights on time between reports, `App.headStep`), position in the bar (`barSteps` = the time signature's bar in 16ths), DSP load (time in `process()` / audio time) |
 | `pong` | `id` | Answer to `ping` |
-| `engineReset` | — | The output went non-finite: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
+| `engineReset` | — | The output went non-finite, or the engine panicked: the block was muted and a fresh engine started (at most once a second); main resends `loadProject` + `transport` and shows ENGINE RESTARTED. (The host re-fetches the worklet file with `cache: 'reload'` before loading it, since its name is stable across builds.) |
 | `recordedNote` | `channel`, `pattern`, `index`, `note`, `velocity`, `accent`, `gate`, `slide`, `start?` | A live-recorded note was written (sent again with its length on release; `start` = it replaced the step's notes) |
 | `recordedChord` | `channel`, `pattern`, `index`, `note`, `gate` | PAD / PLUCK: a note played with the recorded one joined its step (`Step.extra`, one step long; sent again with its own length on release) |
 | `recordedLock` | `channel`, `pattern`, `index`, `id`, `value` | A recorded lock was written |

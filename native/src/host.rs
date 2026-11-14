@@ -10,6 +10,7 @@
 use crate::engine::{Engine, Recorded};
 use serde_json::Value;
 use std::fmt::Write;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -97,23 +98,43 @@ fn num(x: f64) -> f64 {
     if x.is_finite() { x } else { 0.0 }
 }
 
-fn recorded_json(r: &Recorded) -> String {
-    let v = match r {
-        Recorded::Note { channel, pattern, index, note, velocity, accent, gate, slide, start } => {
-            let mut v = serde_json::json!({ "type": "recordedNote", "channel": channel, "pattern": pattern, "index": index, "note": note, "velocity": velocity, "accent": accent, "gate": gate, "slide": slide });
-            if *start {
-                v["start"] = Value::Bool(true);
-            }
-            v
-        }
+/// A recorded note / lock as a JSON object, written into `into` (the audio thread's reused
+/// buffer: nothing allocated while it has room).
+fn write_recorded(into: &mut String, r: &Recorded) {
+    if !into.is_empty() {
+        into.push(',');
+    }
+    let _ = match r {
+        Recorded::Note { channel, pattern, index, note, velocity, accent, gate, slide, start } => write!(
+            into,
+            "{{\"type\":\"recordedNote\",\"channel\":{channel},\"pattern\":{pattern},\"index\":{index},\"note\":{},\"velocity\":{},\"accent\":{accent},\"gate\":{},\"slide\":{slide}{}}}",
+            num(*note),
+            num(*velocity),
+            num(*gate),
+            if *start { ",\"start\":true" } else { "" }
+        ),
         Recorded::Lock { channel, pattern, index, id, value } => {
-            serde_json::json!({ "type": "recordedLock", "channel": channel, "pattern": pattern, "index": index, "id": id, "value": value })
+            let _ = write!(into, "{{\"type\":\"recordedLock\",\"channel\":{channel},\"pattern\":{pattern},\"index\":{index},\"id\":\"");
+            // Parameter ids are plain ASCII; escape anyway so the JSON always parses.
+            for c in id.chars() {
+                match c {
+                    '"' | '\\' => {
+                        into.push('\\');
+                        into.push(c);
+                    }
+                    c if (c as u32) < 0x20 => {}
+                    c => into.push(c),
+                }
+            }
+            write!(into, "\",\"value\":{}}}", num(*value))
         }
-        Recorded::Chord { channel, pattern, index, note, gate } => {
-            serde_json::json!({ "type": "recordedChord", "channel": channel, "pattern": pattern, "index": index, "note": note, "gate": gate })
-        }
+        Recorded::Chord { channel, pattern, index, note, gate } => write!(
+            into,
+            "{{\"type\":\"recordedChord\",\"channel\":{channel},\"pattern\":{pattern},\"index\":{index},\"note\":{},\"gate\":{}}}",
+            num(*note),
+            num(*gate)
+        ),
     };
-    v.to_string()
 }
 
 pub struct Host {
@@ -179,7 +200,7 @@ impl Host {
         }
     }
 
-    fn handle(&mut self, msg: &Value) {
+    fn handle(&mut self, msg: &mut Value) {
         match msg.get("type").and_then(Value::as_str) {
             Some("ping") => {
                 let id = msg.get("id").and_then(Value::as_f64).unwrap_or(0.0);
@@ -199,17 +220,46 @@ impl Host {
                     self.transport_gen = g;
                 }
             }
+            #[cfg(test)]
+            Some("panicForTest") => panic!("a panic in the engine (test)"),
             _ => {}
         }
         self.engine.handle_message(msg);
     }
 
+    /// What the engine recorded (live recording) into the outgoing buffer; the list keeps
+    /// its room for the next ones.
+    fn take_recorded(&mut self) {
+        let mut rec = std::mem::take(&mut self.engine.recorded);
+        for r in &rec {
+            write_recorded(&mut self.pending, r);
+        }
+        rec.clear();
+        self.engine.recorded = rec;
+    }
+
+    /// The engine panicked (a bug: it must never happen, but must never stop the music for
+    /// good): a fresh engine, and the UI is told to send everything again, at most once a
+    /// second (a project that panics again on load leaves a silent engine, not a loop).
+    fn recover(&mut self) {
+        self.msgs.clear();
+        *self.engine = Engine::new(self.sample_rate);
+        if self.since_reset >= self.sample_rate as usize {
+            self.put("{\"type\":\"engineReset\"}");
+        }
+        self.since_reset = 0;
+        self.flush();
+    }
+
     /// Handle what was sent at once, without rendering (the tests read the state right after).
     pub fn apply(&mut self) {
-        self.take_messages();
-        for r in self.engine.recorded.drain(..).collect::<Vec<_>>() {
-            let s = recorded_json(&r);
-            self.put(&s);
+        let ok = catch_unwind(AssertUnwindSafe(|| {
+            self.take_messages();
+            self.take_recorded();
+        }))
+        .is_ok();
+        if !ok {
+            self.recover();
         }
         self.flush();
     }
@@ -261,12 +311,12 @@ impl Host {
         let stop = STOP_GEN.load(Ordering::Relaxed) as f64;
         if stop > self.transport_gen {
             self.transport_gen = stop;
-            let m = std::mem::take(&mut self.stop_msg);
-            self.engine.handle_message(&m);
+            let mut m = std::mem::take(&mut self.stop_msg);
+            self.engine.handle_message(&mut m);
             self.stop_msg = m;
         }
         let mut msgs = std::mem::take(&mut self.msgs);
-        for m in &msgs {
+        for m in &mut msgs {
             self.handle(m);
         }
         if !msgs.is_empty() {
@@ -278,14 +328,26 @@ impl Host {
         self.msgs = msgs;
     }
 
-    /// Render `frames` stereo frames, added into `out` (interleaved L R).
+    /// Render `frames` stereo frames, added into `out` (interleaved L R). A panic in the
+    /// engine is caught here (on Android; the web build's panics abort and the worklet
+    /// starts a fresh module): the block is silent and a fresh engine takes over (`recover`).
     pub fn render(&mut self, out: &mut [f32], frames: usize) {
         let started = clock();
-        self.take_messages();
-        for r in self.engine.recorded.drain(..).collect::<Vec<_>>() {
-            let s = recorded_json(&r);
-            self.put(&s);
+        let ok = catch_unwind(AssertUnwindSafe(|| self.render_engine(out, frames))).is_ok();
+        if !ok {
+            self.recover();
         }
+        self.since_status += frames;
+        self.busy += clock() - started;
+        if self.since_status >= self.status_every {
+            self.status();
+        }
+        self.flush();
+    }
+
+    fn render_engine(&mut self, out: &mut [f32], frames: usize) {
+        self.take_messages();
+        self.take_recorded();
         let mut done = 0;
         while done < frames {
             let n = (frames - done).min(MAX_BLOCK);
@@ -311,12 +373,6 @@ impl Host {
             }
             done += n;
         }
-        self.since_status += frames;
-        self.busy += clock() - started;
-        if self.since_status >= self.status_every {
-            self.status();
-        }
-        self.flush();
     }
 
     fn status(&mut self) {
@@ -367,8 +423,12 @@ impl Host {
 mod tests {
     use super::*;
 
+    /// The queues are global: the tests that use them take turns.
+    static QUEUES: Mutex<()> = Mutex::new(());
+
     #[test]
     fn plays_reports_and_answers() {
+        let _guard = QUEUES.lock().unwrap_or_else(|e| e.into_inner());
         reset_queues();
         let mut h = Host::new(48000.0);
         send(r#"[{"type":"setInstrument","channel":0,"kind":"kick","sound":{}},
@@ -393,5 +453,75 @@ mod tests {
         h.render(&mut out, 192);
         assert!(!h.engine.playing);
         assert_eq!(poll().chars().next(), Some('['));
+    }
+
+    #[test]
+    fn a_panic_restarts_the_engine() {
+        let _guard = QUEUES.lock().unwrap_or_else(|e| e.into_inner());
+        reset_queues();
+        let mut h = Host::new(48000.0);
+        let mut out = vec![0f32; 2 * 192];
+        // A second of audio first, so the reset is reported (at most once a second).
+        for _ in 0..250 {
+            h.render(&mut out, 192);
+        }
+        poll();
+        send(r#"[{"type":"transport","playing":true,"gen":1},{"type":"panicForTest"}]"#).unwrap();
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        h.render(&mut out, 192);
+        std::panic::set_hook(hook);
+        assert!(!h.engine.playing, "a fresh engine");
+        let msgs: Vec<Value> = serde_json::from_str(&poll()).unwrap();
+        assert!(msgs.iter().any(|m| m["type"] == "engineReset"));
+        // It plays on.
+        h.render(&mut out, 192);
+    }
+
+    #[test]
+    fn recorded_notes_are_json() {
+        let mut s = String::new();
+        write_recorded(&mut s, &Recorded::Note { channel: 1, pattern: 2, index: 3, note: 60.5, velocity: 0.8, accent: true, gate: 1.0, slide: false, start: true });
+        write_recorded(&mut s, &Recorded::Lock { channel: 0, pattern: 0, index: 5, id: "cut\"off", value: f64::NAN });
+        write_recorded(&mut s, &Recorded::Chord { channel: 5, pattern: 1, index: 0, note: 64.0, gate: 2.0 });
+        let v: Vec<Value> = serde_json::from_str(&format!("[{s}]")).unwrap();
+        assert_eq!(v[0]["type"], "recordedNote");
+        assert_eq!(v[0]["note"], 60.5);
+        assert_eq!(v[0]["start"], true);
+        assert_eq!(v[1]["id"], "cut\"off");
+        assert_eq!(v[1]["value"], 0.0);
+        assert_eq!(v[2]["gate"], 2.0);
+    }
+
+    /// Every message type with indices out of range (and odd values) is handled without a
+    /// panic: the engine checks what it is sent.
+    #[test]
+    fn out_of_range_messages_are_harmless() {
+        let mut e = Engine::new(48000.0);
+        let bad = [-3.0, 1e9, 4.0, 128.0, 999.0];
+        let types = [
+            "setStep", "setPatternLength", "setPatternSpeed", "selectPattern", "switchPatterns", "setSound", "setPatch",
+            "swapNotes", "setOffset", "setMix", "setGlobal", "setRouting", "setDrumBus", "setBus", "setLfo", "setLfoTrack",
+            "setArp", "holdRoll", "transport", "setChain", "setGlideCurve", "setAutoFill", "setClick", "songJump", "trigger",
+            "release", "setInstrument", "setChord", "setRoot", "setNotes", "setForce", "recordNote", "recordLock",
+        ];
+        for &x in &bad {
+            for kind in ["kick", "pad"] {
+                let mut m = serde_json::json!({ "type": "setInstrument", "channel": 0, "kind": kind, "sound": {} });
+                e.handle_message(&mut m);
+                for t in types {
+                    let mut m = serde_json::json!({
+                        "type": t, "channel": x, "pattern": x, "index": x, "bus": x, "row": x, "length": x, "note": x,
+                        "value": x, "id": "cutoff", "speed": "double", "channels": [x, 0, 0, -1], "steps": [{ "active": true, "note": 60 }],
+                        "step": { "active": true, "note": 60, "gate": x }, "playing": true, "song": true, "fromRow": x,
+                        "fromBar": x, "fromStep": x, "fromChannel": x, "send": x, "orders": [x], "tracks": [true],
+                        "chord": x, "root": x, "notes": x, "kind": kind, "sound": { "cutoff": x }
+                    });
+                    e.handle_message(&mut m);
+                    let (mut l, mut r) = (vec![0f32; 128], vec![0f32; 128]);
+                    e.process(&mut l, &mut r, 128);
+                }
+            }
+        }
     }
 }
