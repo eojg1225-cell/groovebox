@@ -26,6 +26,9 @@ static STREAM: Mutex<Option<Held>> = Mutex::new(None);
 static HOST: Mutex<Option<Host>> = Mutex::new(None);
 /// The app plays through the native engine: the stream stays open.
 static ENGINE: AtomicBool = AtomicBool::new(false);
+/// The app is in the background with nothing playing: the stream is closed (no CPU, no
+/// battery, the device free for other apps) until it comes back (`suspend(false)`).
+static SUSPENDED: AtomicBool = AtomicBool::new(false);
 
 /// What the device gave us.
 pub struct Info {
@@ -103,8 +106,24 @@ fn ensure_host(rate: f64) {
     }
 }
 
+/// The app went to the background with nothing playing (true): close the stream, keeping the
+/// engine and everything it was sent; back (false): open it again. Err = AAudio's error.
+pub fn suspend(on: bool) -> Result<(), i32> {
+    SUSPENDED.store(on, Ordering::Relaxed);
+    if on {
+        let mut held = STREAM.lock().unwrap_or_else(|e| e.into_inner());
+        *held = None; // closes it
+        return Ok(());
+    }
+    if !ENGINE.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    start().map(|_| ())
+}
+
 /// The stream, open and started (opened if it is not, or was lost).
 pub fn start() -> Result<Info, i32> {
+    SUSPENDED.store(false, Ordering::Relaxed);
     if !LOST.load(Ordering::Relaxed) {
         if let Some(i) = current() {
             return Ok(i);
@@ -146,6 +165,9 @@ fn now_ns() -> i64 {
 /// The output latency now (ms): how long a sample written next takes to reach the speaker,
 /// from the stream's own timestamps (as Oboe's calculateLatencyMillis). None = not known yet.
 pub fn latency_ms() -> Option<f64> {
+    if SUSPENDED.load(Ordering::Relaxed) {
+        return None;
+    }
     if LOST.load(Ordering::Relaxed) {
         reopen().ok()?;
     }

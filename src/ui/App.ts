@@ -1734,8 +1734,6 @@ export class App {
       return;
     }
     if (id === 'play') {
-      // STEP EDIT stays on through PLAY / STOP (its primed step and waiting knobs too).
-      if (!this.stepEdit) this.unprime();
       // FUNC + PLAY = from the top (stopping: back to the top for the next PLAY); FUNC lets go.
       const top = this.func;
       if (top) {
@@ -1743,36 +1741,7 @@ export class App {
         this.funcLatched = false;
         this.funcUsed = true;
       }
-      if (this.playing) {
-        this.keepBars(top);
-        this.endAudition();
-      }
-      if (this.playing && this.songPlaying) {
-        // STOP in SONG: the next PLAY carries on from the row and bar playing (FUNC: the top).
-        const row = top ? 0 : (this.status?.songRow ?? -1);
-        if (row >= 0) {
-          this.songRow = Math.min(row, this.songRows.length - 1);
-          this.songStartBar = top ? 0 : Math.max(0, this.status?.songBar ?? 0);
-          this.stripStart = this.songBarNumber(this.songRow, this.songStartBar) - 1;
-          this.songPage = Math.floor(this.stripStart / 16);
-        }
-      }
-      this.playing = !this.playing;
-      // PLAY in SONG mode plays the song from `stripStart` (FUNC: the top), in whichever row
-      // holds it; elsewhere the patterns, from the bar the strip shows for the selected track
-      // (every track where it would be then).
-      this.songPlaying = this.playing && this.song && this.project.song.rows.length > 0;
-      if (this.songPlaying) {
-        const at = top ? { row: 0, bar: 0 } : rowOfBar(this.songRows, Math.min(this.stripStart, songBars(this.songRows) - 1));
-        this.songRow = at.row;
-        this.songStartBar = at.bar;
-      }
-      this.send({
-        type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: top ? 0 : this.songRow, fromBar: top ? 0 : this.songStartBar,
-        fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16,
-        // COUNT-IN: before live recording only.
-        countIn: this.playing && this.mode === 'record' && !this.song ? this.setting('countIn') : 0, gen: ++this.transportGen,
-      });
+      this.togglePlay(top);
     } else if (id.startsWith('mode:')) {
       this.setMode(id.slice(5) as Mode);
     } else if ((m = /^ch(\d)$/.exec(id))) {
@@ -4317,6 +4286,56 @@ export class App {
   /** Something CANCEL would drop (the CANCEL key lights). */
   private get cancelShows(): boolean {
     return !!(this.menu || this.projMenu || this.waiting || (this.copyHeld && this.copySrc));
+  }
+
+  /**
+   * PLAY / STOP. `top` (ALT + PLAY) = from the top (stopping: back to the top for the next
+   * PLAY).
+   */
+  private togglePlay(top: boolean): void {
+    // STEP EDIT stays on through PLAY / STOP (its primed step and waiting knobs too).
+    if (!this.stepEdit) this.unprime();
+    if (this.playing) {
+      this.keepBars(top);
+      this.endAudition();
+    }
+    if (this.playing && this.songPlaying) {
+      // STOP in SONG: the next PLAY carries on from the row and bar playing (FUNC: the top).
+      const row = top ? 0 : (this.status?.songRow ?? -1);
+      if (row >= 0) {
+        this.songRow = Math.min(row, this.songRows.length - 1);
+        this.songStartBar = top ? 0 : Math.max(0, this.status?.songBar ?? 0);
+        this.stripStart = this.songBarNumber(this.songRow, this.songStartBar) - 1;
+        this.songPage = Math.floor(this.stripStart / 16);
+      }
+    }
+    this.playing = !this.playing;
+    // PLAY in SONG mode plays the song from `stripStart` (FUNC: the top), in whichever row
+    // holds it; elsewhere the patterns, from the bar the strip shows for the selected track
+    // (every track where it would be then).
+    this.songPlaying = this.playing && this.song && this.project.song.rows.length > 0;
+    if (this.songPlaying) {
+      const at = top ? { row: 0, bar: 0 } : rowOfBar(this.songRows, Math.min(this.stripStart, songBars(this.songRows) - 1));
+      this.songRow = at.row;
+      this.songStartBar = at.bar;
+    }
+    this.send({
+      type: 'transport', playing: this.playing, song: this.songPlaying, fromRow: top ? 0 : this.songRow, fromBar: top ? 0 : this.songStartBar,
+      fromChannel: this.selected, fromStep: top ? 0 : this.visiblePage(this.selected) * 16,
+      // COUNT-IN: before live recording only.
+      countIn: this.playing && this.mode === 'record' && !this.song ? this.setting('countIn') : 0, gen: ++this.transportGen,
+    });
+  }
+
+  /**
+   * Stop from outside the panel (the Android app lost the audio to a call or another app),
+   * as a STOP press would, and say why.
+   */
+  stopPlaying(reason: string): void {
+    if (!this.playing) return;
+    this.togglePlay(false);
+    this.flash(reason);
+    this.refreshPanel();
   }
 
   // ---------------------------------------------------------------- UNDO / REDO

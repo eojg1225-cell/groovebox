@@ -35,6 +35,9 @@ final class NativeAudio {
     /** The app plays through the native engine (opens the stream if need be): 0, or AAudio's error. */
     static native int engineStart();
 
+    /** In the background with nothing playing (true): the stream closed; back (false): opened again. 0, or AAudio's error. */
+    static native int suspend(boolean on);
+
     /** The UI's protocol messages (a JSON array) to the engine. */
     static native void send(String json);
 

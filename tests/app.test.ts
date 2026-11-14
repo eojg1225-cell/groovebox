@@ -649,6 +649,20 @@ describe('PROJECT page TRIM, COUNT-IN, METRONOME', () => {
 describe('MENU and CANCEL', () => {
   const page = (app: App) => app.menu?.stack[app.menu.stack.length - 1];
 
+  it('stopPlaying (the Android app lost the audio) stops as STOP would, and only when playing', () => {
+    const { app, tap, sent } = makeApp();
+    app.stopPlaying('STOPPED: AUDIO TAKEN');
+    expect(sent.filter((m) => m.type === 'transport')).toHaveLength(0);
+    tap('play');
+    expect(app.playing).toBe(true);
+    app.stopPlaying('STOPPED: AUDIO TAKEN');
+    expect(app.playing).toBe(false);
+    const last = sent.filter((m) => m.type === 'transport').pop() as Extract<MainToWorklet, { type: 'transport' }>;
+    expect(last.playing).toBe(false);
+    tap('play'); // PLAY starts again
+    expect(app.playing).toBe(true);
+  });
+
   it('PROJECT BACKUP > LAST UNSAVED WORK opens what an earlier session left unsaved', async () => {
     const m = await import('../src/storage/projects');
     const left = createDefaultProject();

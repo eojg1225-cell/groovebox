@@ -35,6 +35,13 @@ export interface EngineHost {
   latency(): LatencyInfo;
   /** Fetch what the engine wrote now (the native engine, which the page pulls from; the worklet's arrives by itself). */
   poll?(): void;
+  /**
+   * The page is hidden with nothing playing (true): let the audio device go (no CPU or
+   * battery spent on silence); visible again (false): take it back.
+   */
+  suspend(on: boolean): void;
+  /** A call or another app took the audio (the Android app): the page stops playing. */
+  onFocusLost?: (() => void) | null;
   roundTripMs: number;
   onStatus: ((s: StatusMsg) => void) | null;
   onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>) => void) | null;
@@ -52,6 +59,8 @@ export class AudioHost implements EngineHost {
   private pending: MainToWorklet[] = [];
   private flushing = false;
   private failedAt = -Infinity;
+  /** Let go while hidden (`suspend`): the ping does not wake it. */
+  private suspended = false;
   roundTripMs = NaN;
   onStatus: ((s: StatusMsg) => void) | null = null;
   /** Motion-record results written by the worklet. */
@@ -161,6 +170,12 @@ export class AudioHost implements EngineHost {
     void this.ctx.resume();
   }
 
+  suspend(on: boolean): void {
+    this.suspended = on;
+    if (on) void this.ctx.suspend();
+    else void this.ctx.resume();
+  }
+
   latency(): LatencyInfo {
     const c = this.ctx as AudioContext & { outputLatency?: number };
     return {
@@ -172,7 +187,7 @@ export class AudioHost implements EngineHost {
   }
 
   private ping(): void {
-    if (this.ctx.state !== 'running') void this.ctx.resume();
+    if (this.ctx.state !== 'running' && !this.suspended) void this.ctx.resume();
     const id = ++this.pingId;
     this.pingSentAt.set(id, performance.now());
     this.send({ type: 'ping', id });

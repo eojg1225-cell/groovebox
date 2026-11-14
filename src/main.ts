@@ -120,6 +120,7 @@ function unlockAudio(): void {
     // Queued until the worklet is up, then delivered in order.
     for (const msg of app.syncMessages()) host.send(msg);
     host.onRecorded = (m) => app.onRecorded(m);
+    host.onFocusLost = () => app.stopPlaying('STOPPED: AUDIO TAKEN');
     if (host instanceof AudioHost) host.onReady = (engine) => { if (engine === 'none') app.notify('NO WEBASSEMBLY: NO SOUND'); };
     host.onEngineReset = () => {
       for (const msg of app.syncMessages()) host?.send(msg);
@@ -176,6 +177,14 @@ function unlockAudio(): void {
   }
 }
 for (const t of UNLOCK_EVENTS) window.addEventListener(t, unlockAudio, true);
+
+// In the background with nothing playing the audio device is let go (the Android app closes
+// its stream; a browser suspends its AudioContext), and taken back on return. Playing, the
+// music carries on.
+document.addEventListener('visibilitychange', () => {
+  if (!host || audio.state !== 'on') return;
+  host.suspend(document.visibilityState === 'hidden' && !app.playing);
+});
 
 // ------------------------------------------------------------------ title screen
 

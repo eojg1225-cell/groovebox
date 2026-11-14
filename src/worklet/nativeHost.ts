@@ -13,9 +13,12 @@ import type { EngineHost, LatencyInfo } from './host';
 interface StreamInfo { rate: number; burst: number; buffer: number; exclusive: boolean; lowLatency: boolean }
 interface NativeEngine {
   engineStart(o: { events: boolean }): Promise<StreamInfo>;
+  focus(): Promise<void>;
+  suspend(o: { on: boolean }): Promise<void>;
   send(o: { msgs: string }): Promise<void>;
   latency(): Promise<StreamInfo & { ms: number }>;
   addListener(event: 'engine', cb: (e: { msgs: string }) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'focus', cb: (e: { lost: boolean }) => void): Promise<PluginListenerHandle>;
 }
 
 const Native = registerPlugin<NativeEngine>('NativeAudio');
@@ -42,7 +45,12 @@ export class NativeHost implements EngineHost {
   onRecorded: ((m: Extract<WorkletToMain, { type: 'recordedNote' | 'recordedLock' | 'recordedChord' }>) => void) | null = null;
   onEngineReset: (() => void) | null = null;
 
+  /** A call or another app took the audio (Android's audio focus): the page stops. */
+  onFocusLost: (() => void) | null = null;
+  private suspended = false;
+
   async start(): Promise<void> {
+    await Native.addListener('focus', () => this.onFocusLost?.());
     const d = direct();
     if (!d) await Native.addListener('engine', (e) => this.receive(e.msgs));
     this.info = await Native.engineStart({ events: !d });
@@ -61,6 +69,8 @@ export class NativeHost implements EngineHost {
   }
 
   send(msg: MainToWorklet): void {
+    // PLAY: hold Android's audio focus while playing.
+    if (msg.type === 'transport' && msg.playing && this.started) void Native.focus().catch(() => {});
     this.queue.push(msg);
     if (this.started && !this.flushing) {
       this.flushing = true;
@@ -95,6 +105,13 @@ export class NativeHost implements EngineHost {
 
   resume(): void {
     // The native stream runs on its own (no gesture or resume needed).
+  }
+
+  /** In the background with nothing playing (true): the stream closed; back (false): open again. */
+  suspend(on: boolean): void {
+    if (!this.started || on === this.suspended) return;
+    this.suspended = on;
+    void Native.suspend({ on }).catch(() => { this.suspended = false; });
   }
 
   latency(): LatencyInfo {

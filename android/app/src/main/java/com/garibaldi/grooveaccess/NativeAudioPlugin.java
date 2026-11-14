@@ -1,5 +1,10 @@
 package com.garibaldi.grooveaccess;
 
+import android.content.Context;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.webkit.JavascriptInterface;
@@ -15,12 +20,54 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  * page's `GrooveNative` object (a JavaScript interface: send / poll, called on the WebView's
  * own thread, no trip through the main thread, so status reports reach the panel on time);
  * without it, through `send` here and "engine" events polled every few ms.
+ *
+ * The app holds Android's audio focus while it plays (`focus`, sent as PLAY starts): a call
+ * or another app taking the audio sends a "focus" event and the page stops (App.stopPlaying).
+ * In the background with nothing playing the page calls `suspend` (the stream closed, the
+ * focus given back) and again on coming back.
  */
 @CapacitorPlugin(name = "NativeAudio")
 public class NativeAudioPlugin extends Plugin {
     private static final long POLL_MS = 8;
     private HandlerThread pollThread;
     private Handler poller;
+    private AudioFocusRequest focusRequest;
+
+    private final AudioManager.OnAudioFocusChangeListener onFocus = change -> {
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            JSObject o = new JSObject();
+            o.put("lost", true);
+            notifyListeners("focus", o);
+        }
+    };
+
+    private AudioManager audioManager() {
+        return (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+    }
+
+    /** Take the audio focus (Android 8+, as the native engine needs). */
+    private void requestFocus() {
+        if (Build.VERSION.SDK_INT < 26) return;
+        AudioManager am = audioManager();
+        if (am == null) return;
+        if (focusRequest == null) {
+            AudioAttributes attrs = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+            focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attrs)
+                .setOnAudioFocusChangeListener(onFocus)
+                .build();
+        }
+        am.requestAudioFocus(focusRequest);
+    }
+
+    private void abandonFocus() {
+        if (Build.VERSION.SDK_INT < 26 || focusRequest == null) return;
+        AudioManager am = audioManager();
+        if (am != null) am.abandonAudioFocusRequest(focusRequest);
+    }
 
     /** The page's direct line to the engine (window.GrooveNative). */
     public static final class Direct {
@@ -104,6 +151,29 @@ public class NativeAudioPlugin extends Plugin {
     public void send(PluginCall call) {
         String msgs = call.getString("msgs");
         if (NativeAudio.loaded && msgs != null) NativeAudio.send(msgs);
+    }
+
+    /** PLAY started: hold the audio focus (a call or another app taking it stops the music). */
+    @PluginMethod(returnType = PluginMethod.RETURN_NONE)
+    public void focus(PluginCall call) {
+        requestFocus();
+    }
+
+    /** {on: true}: in the background with nothing playing (the stream closed, the focus given back); false: back. */
+    @PluginMethod
+    public void suspend(PluginCall call) {
+        if (!NativeAudio.loaded) {
+            call.reject("unavailable");
+            return;
+        }
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        if (on) abandonFocus();
+        int err = NativeAudio.suspend(on);
+        if (err != 0) {
+            call.reject("aaudio " + err);
+            return;
+        }
+        call.resolve();
     }
 
     @PluginMethod

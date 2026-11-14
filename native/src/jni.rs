@@ -58,6 +58,16 @@ pub extern "system" fn Java_com_garibaldi_grooveaccess_NativeAudio_engineStart(_
     }
 }
 
+/// The app in the background with nothing playing (1): the stream closed; back (0): opened
+/// again. 0, or AAudio's error.
+#[no_mangle]
+pub extern "system" fn Java_com_garibaldi_grooveaccess_NativeAudio_suspend(_: Env, _: Class, on: u8) -> i32 {
+    match audio::suspend(on != 0) {
+        Ok(()) => 0,
+        Err(code) => code,
+    }
+}
+
 /// The UI's messages (a JSON array of protocol messages) to the engine.
 #[no_mangle]
 pub extern "system" fn Java_com_garibaldi_grooveaccess_NativeAudio_send(mut env: jni::JNIEnv, _: jni::objects::JClass, json: jni::objects::JString) {
