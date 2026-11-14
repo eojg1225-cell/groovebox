@@ -60,7 +60,7 @@ Main -> worklet:
 | `setPatternLength` | `channel`, `pattern`, `length` | 1-128 steps |
 | `setPatternSpeed` | `channel`, `pattern`, `speed` | normal / double / half / triplet |
 | `selectPattern` | `channel`, `pattern`, `immediate` | Switch pattern at the next bar line where the loop starts (or now, if `immediate` / stopped); its patch glides in until then (coarse params at the switch); the playing pattern again cancels (glides back) |
-| `switchPatterns` | `channels`, `pattern`, `quick` | A-D on several tracks: playing, all switch together at the loop end of the one that ends last (`quick`: the next bar line), each from its first step; patches glide in until then; stopped: at once |
+| `switchPatterns` | `channels`, `pattern`, `quick` | A-H on several tracks: playing, all switch together at the loop end of the one that ends last (`quick`: the next bar line), each from its first step; patches glide in until then; stopped: at once |
 | `setPatch` | `channel`, `pattern`, `sound`, `glide` | A pattern's whole patch (COPY, RESET); `glide` = glide there by the next bar line |
 | `swapNotes` | `channel`, `pattern`, `length`, `steps`, `speed?` | RESET with notes: the saved notes replace the pattern's at the next bar line |
 | `setInstrument` | `channel`, `kind`, `sound` | Change a track's type and set its full sound |
@@ -71,11 +71,10 @@ Main -> worklet:
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setSound` | `channel`, `id`, `value`, `pattern?` | Instrument parameter (real units) in that pattern's patch |
 | `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred); the engine sums each knob's push per param (`liveTargets` / `liveContribution` in the registry) on top of the base or locked value |
-| `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut` `ring`), `value` | Track mixer (`gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
+| `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut` `ring` `fx1`), `value` | Track mixer (`send` = FX2 SEND, `fx1` = FX1 SEND: how much goes through FX 1, the drum insert, the rest straight out; `gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
 | `setGlobal` | `id` (`bpm` `swing` `master` `meter`), `value` | Project-wide settings; `meter` changes at the next bar line |
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
 | `setRouting` | `channel`, `send` | Send FX 2 (2; 0 = none) |
-| `setDrumBus` | `channel`, `on` | Through FX 1, the drum bus |
 | `setBus` | `bus` (0-1 = FX 1 / 2), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
@@ -196,7 +195,7 @@ then; a song jump glides over the rest of the bar (`glideToRow`).
 sound is untouched. `startFill` positions it so its first step comes where the fill ends. SONG: a
 clip's FILL starts from `runSongEdges` (from an empty bar it is a pickup: `songOff` cleared) and runs
 over other tracks' row lines into its clip (`enterRow`). JAM AUTO-FILL (`planFill`): a filling track's
-switch lands on an exact step (`landAt`), the fill from `fillAt`; A-D during a fill keeps its landing
+switch lands on an exact step (`landAt`), the fill from `fillAt`; A-H during a fill keeps its landing
 (the playing pattern again = that pattern restarts there).
 
 **Dynamics:** ghost / normal / accent = velocity 0.45 / 0.8 / 1.0, scaled per track by ACC/GHOST
@@ -289,7 +288,7 @@ once per chunk.
 ## UI
 
 `Panel` (a ControlSurface) emits button ids `mode:record|play|design|song`, `ch1..8`, `mute1..8`,
-`solo1..8`, `dpage0..2`, `fx1..4` (4 = LFO), `save`, `saveproject`, `reset`, `patA..D`, the function
+`solo1..8`, `dpage0..2`, `fx1..4` (4 = LFO), `savepattern`, `saveproject`, `reset`, `patA..H`, `mmaster` `mtempo` `mvol` `mpan` `mfx1` `mfx2` (the knobs above the knob panel), the function
 row (`ring`, `slide`, `dyn:accent`, `dyn:ghost`, `len`, `steppage`, `clear`, `copy`, `oct-`, `oct+`,
 `cur-`, `cur+`, `rest`), `step1..16`, `play`, `func`; knobs `k1..k16` (k1-k8 top row, k9-k16 bottom;
 module n = k(n) over k(n+8)) and master knobs `mtempo`, `mmaster`. Knobs send absolute values (0-127,

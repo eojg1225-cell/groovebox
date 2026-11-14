@@ -18,15 +18,15 @@
  * (FX 1 = the drum bus, FX 2 / 3 = sends, LFO = the shared LFO); the channel buttons then
  * add / remove tracks.
  * CLEAR (held): tap a step to clear it, or a channel button to clear that track's pattern.
- * A-D (under FX): every track's pattern (hold channels + A-D = only those, unselected);
+ * A-H (under FX): every track's pattern (hold channels + A-H = only those, unselected);
  * playing, each switches at its loop end. Each pattern has its own patch: RECORD / DESIGN edit the
  * chosen one; PLAY primes the switch for the loop end and the sound glides there.
  * SAVE PROJECT saves every pattern and patch; edits since are marked * on the screen.
  * MENU: MODE (JAM / SONG), PROJECT SETTINGS, GLOBAL SETTINGS, PROJECT BACKUP. CANCEL / UNDO: see cancel().
- * SONG  (MENU > MODE; RECORD = the grid, PLAY / DESIGN play the song) arranging: a tracker-style grid of rows (bars + a pattern A-D or OFF per track).
+ * SONG  (MENU > MODE; RECORD = the grid, PLAY / DESIGN play the song) arranging: a tracker-style grid of rows (bars + a pattern A-H or OFF per track).
  *          Knobs: top = each track's pattern in the cursor row, bottom 1 = BARS. ◀ ▶ column,
  *          ROW ▼ / ▲ (the OCT keys) row, INSERT / DELETE row, strip = jump to a row (while the song plays: at
- *          the next bar), channel taps select tracks, A-D = the row: that pattern on the selected tracks
+ *          the next bar), channel taps select tracks, A-H = the row: that pattern on the selected tracks
  *          (none selected: all), the rest OFF; ROW ▼ past the end adds a row. PLAY here plays the
  *          song from the cursor row (it keeps playing in the other modes until STOP).
  * RESET: every patch returns to its saved version and the rest (mix, FX, LFO) to the saved
@@ -71,7 +71,7 @@ import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/drumSpecs';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
-import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, STEP_BUTTONS, type Panel } from './Panel';
+import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, PAUSE_ICON, PLAY_ICON, SAVE_ICON, STEP_BUTTONS, STOP_ICON, type Panel } from './Panel';
 import type { CopyView, DesignView, FunctionView, LaneCell, LiveView, MenuView, ProjectView, SongStripView } from './views';
 import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, songBars, songClips, type Clip } from './songClips';
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
@@ -304,8 +304,13 @@ const SONG_KEEPS = 'SONG: EDIT PATTERNS IN JAM';
 /** DSP load from which the footer shows it in alert (the audio is about to break up). */
 const DSP_ALERT = 0.8;
 type GlobalId = 'bpm' | 'swing' | 'master';
-/** The two knobs beside PLAY: the selected track's VOLUME and PAN (TEMPO / MASTER: DESIGN > PROJECT). */
-const TRACK_KNOBS: Readonly<Record<string, string>> = { mvol: 'mix:volume', mpan: 'mix:pan' };
+/**
+ * The knobs above the knob panel: the project's MASTER / TEMPO (`global:`) and the selected
+ * track's VOLUME / PAN / FX1 SEND / FX2 SEND (`mix:`, as on the MIX page).
+ */
+const TRACK_KNOBS: Readonly<Record<string, string>> = {
+  mmaster: 'global:master', mtempo: 'global:bpm', mvol: 'mix:volume', mpan: 'mix:pan', mfx1: 'mix:fx1', mfx2: 'mix:send',
+};
 
 /** A step's locks on its track's sound (its own params, live knobs) go; mixer / FX / LFO / ARP ones stay. */
 function dropSoundLocks(step: Step, ch: number): void {
@@ -418,10 +423,10 @@ export class App {
   private gesture: { key: string; label: string; skip: boolean } | null = null;
   /** Buttons held down (FUNC aside): a press while one is held belongs to its gesture. */
   private down = new Set<string>();
-  /** COPY held: + channel = copy the current pattern there, + A-D = to that pattern of this track. */
+  /** COPY held: + channel = copy the current pattern there, + A-H = to that pattern of this track. */
   private copyHeld = false;
   private copyUsed = false;
-  /** Channel button held down (+ A-D = its pattern; selected on release if A-D was not used). */
+  /** Channel button held down (+ A-H = its pattern; selected on release if A-H was not used). */
   private heldTrack = -1;
   /** Every channel button down now (held + RESET = those tracks keep their state). */
   private readonly heldChannels = new Set<number>();
@@ -836,7 +841,7 @@ export class App {
 
   /** Whether a track is on bus n (1 = the drum bus, 2 = the send FX 2, 4 = the LFO; 3 is the ARP key). */
   private onBus(c: ChannelState, n: number): boolean {
-    return n === 1 ? c.fx1 : n === 4 ? c.lfoOn : c.fxSend === n;
+    return n === 1 ? c.fx1 > 0 : n === 4 ? c.lfoOn : c.fxSend === n;
   }
 
   private busName(n: number): string {
@@ -847,8 +852,9 @@ export class App {
   private toggleBus(ch: number, n: number): void {
     const c = this.project.channels[ch];
     if (n === 1) {
-      c.fx1 = !c.fx1;
-      this.send({ type: 'setDrumBus', channel: ch, on: c.fx1 });
+      // FX 1 SEND all or nothing (the knob sets any amount between).
+      c.fx1 = c.fx1 > 0 ? 0 : 1;
+      this.send({ type: 'setMix', channel: ch, id: 'fx1', value: c.fx1 });
     } else if (n === 4) {
       c.lfoOn = !c.lfoOn;
       this.send({ type: 'setLfoTrack', channel: ch, on: c.lfoOn });
@@ -865,7 +871,7 @@ export class App {
     return this.mode === 'record' && this.playing && !this.song;
   }
 
-  /** SONG DESIGN: the grid takes the strip, knobs, A-D, the function row and the screen. */
+  /** SONG DESIGN: the grid takes the strip, knobs, A-H, the function row and the screen. */
   get songGrid(): boolean {
     return this.song && this.mode === 'design';
   }
@@ -1311,17 +1317,14 @@ export class App {
   }
 
   /**
-   * DESIGN > PROJECT (global): TEMPO, SWING, MASTER, TIME SIG on top; every track's
-   * ACC/GHOST below. With FUNC below: TRIM on a synth track, RING (how long RING steps ring)
-   * on a drum track; each slot follows its track's type (see TRACKS).
+   * DESIGN > PROJECT (global): SWING, TIME SIG, CURVE, AUTO-FILL, KEY on top (modules 2, 4-7;
+   * TEMPO and MASTER have their own knobs); every track's ACC/GHOST below. With ALT below: TRIM on a
+   * synth track, RING (how long RING steps ring) on a drum track; each slot follows its
+   * track's type (see TRACKS).
    */
   private projectTargets(): (KnobTarget | null)[] {
-    const top: (KnobTarget | null)[] = GLOBAL_PARAMS.map((spec) => ({
-      label: spec.name, spec, channel: this.selected, key: `global:${spec.id}`, neutral: true,
-      base: () => this.savedProject()[spec.id as GlobalId | 'meter'],
-      get: () => this.getGlobal(spec.id as GlobalId),
-      set: (v: number) => this.setGlobal(spec.id as GlobalId, v),
-    }));
+    // Each where it was before TEMPO and MASTER left the page (their slots free).
+    const top: (KnobTarget | null)[] = [null, this.globalTarget('swing'), null, this.globalTarget('meter')];
     top.push(this.settingTarget('glideCurve', CURVE_SPEC), this.settingTarget('autoFill', AUTO_FILL_SPEC), this.keyTarget());
     while (top.length < KNOBS_PER_ROW) top.push(null);
     if (this.func) {
@@ -1553,7 +1556,7 @@ export class App {
         } else if (!this.sendOpen && !this.heldUsed && this.stepEdit && this.waiting && this.heldTrack !== this.selected) {
           this.flash('LOCK OR CANCEL FIRST');
         } else if (!this.sendOpen && !this.heldUsed) {
-          // A plain tap (no A-D meanwhile) selects the track; in DESIGN it opens its SOUND
+          // A plain tap (no A-H meanwhile) selects the track; in DESIGN it opens its SOUND
           // page (MIX and PROJECT are global).
           this.selected = this.heldTrack;
           if (this.mode === 'design' || this.songRecord) {
@@ -1566,7 +1569,7 @@ export class App {
       }
       if (id === 'clear') {
         this.clearHeld = false;
-        if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK / A-D');
+        if (!this.clearUsed) this.flash('HOLD CLEAR + STEP / TRACK / A-H');
         this.refreshPanel();
       }
       if (id === 'steppage' && this.barHeld) {
@@ -1642,7 +1645,7 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.copyHeld && !this.songGrid && (id === 'steppage' || /^(ch\d|pat[A-D]|step\d+)$/.test(id))) {
+    if (this.copyHeld && !this.songGrid && (id === 'steppage' || /^(ch\d|pat[A-H]|step\d+)$/.test(id))) {
       // COPY held: the first tap picks what to copy, the next ones where to (SONG DESIGN: its own).
       if (this.song) {
         this.copyUsed = true;
@@ -1657,8 +1660,8 @@ export class App {
       this.refreshPanel();
       return;
     }
-    if (this.clearHeld && !this.songGrid && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-D])$/.exec(id)))) {
-      // CLEAR + channel: that track's pattern; + A-D: that pattern of the selected track (the
+    if (this.clearHeld && !this.songGrid && ((m = /^ch(\d)$/.exec(id)) || (m = /^pat([A-H])$/.exec(id)))) {
+      // CLEAR + channel: that track's pattern; + A-H: that pattern of the selected track (the
       // one playing / edited too).
       const pat = id.startsWith('pat') ? PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]) : -1;
       if (this.song) { this.clearUsed = true; this.flash(SONG_KEEPS); }
@@ -1677,13 +1680,13 @@ export class App {
       this.heldTrack = Number(m[1]) - 1;
       this.heldUsed = false;
     }
-    if (this.songGrid && (m = /^pat([A-D])$/.exec(id))) {
+    if (this.songGrid && (m = /^pat([A-H])$/.exec(id))) {
       this.stripPattern(PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]));
       this.refreshPanel();
       return;
     }
-    if ((m = /^pat([A-D])$/.exec(id))) {
-      // A-D: every track; channels held: HOLD + PATTERN = KEEP HELD switches all but those,
+    if ((m = /^pat([A-H])$/.exec(id))) {
+      // A-H: every track; channels held: HOLD + PATTERN = KEEP HELD switches all but those,
       // SWITCH HELD only those.
       // Playing, the tracks switch together: at the loop end of the one that ends last, or
       // with FUNC (the quick switch; FUNC lets go) at the next bar line.
@@ -1774,7 +1777,7 @@ export class App {
       this.setMode(id.slice(5) as Mode);
     } else if ((m = /^ch(\d)$/.exec(id))) {
       // Channel buttons act on release: a tap selects (or, a bus open, FUNC + tap = on /
-      // off the bus, a tap = back to that track); held + A-D = its pattern.
+      // off the bus, a tap = back to that track); held + A-H = its pattern.
     } else if ((m = /^mute(\d)$/.exec(id))) {
       const ch = Number(m[1]) - 1;
       const c = this.project.channels[ch];
@@ -1821,6 +1824,8 @@ export class App {
       this.undo(this.func);
     } else if (id === 'reset') {
       this.startReset();
+    } else if (id === 'savepattern') {
+      this.savePattern();
     } else if (id === 'saveproject') {
       // SAVE PROJECT = name + slot; FUNC + SAVE PROJECT = load another (stopped only).
       if (this.funcHeld) this.funcUsed = true;
@@ -2265,7 +2270,7 @@ export class App {
   }
 
   /**
-   * SONG strip A-D: the pattern goes on the cursor's bar of the selected track, as long as it
+   * SONG strip A-H: the pattern goes on the cursor's bar of the selected track, as long as it
    * plays (what it covers goes), and the cursor moves on past it, as notes in step entry.
    */
   private stripPattern(pattern: number): void {
@@ -2911,8 +2916,8 @@ export class App {
   /**
    * A tap while COPY is held. Nothing picked yet (or a tap that can't be a place for it): it
    * picks what to copy: BAR = the bar the strip shows, a step, a channel = that track's pattern,
-   * A-D = that pattern of the selected track. Then: a bar goes onto the bars on the track keys
-   * (an unlit one grows the pattern), a step onto other steps, a pattern onto A-D (the same track)
+   * A-H = that pattern of the selected track. Then: a bar goes onto the bars on the track keys
+   * (an unlit one grows the pattern), a step onto other steps, a pattern onto A-H (the same track)
    * or a channel (its pattern of that letter); FUNC = the sound only. As many as wanted.
    */
   private copyTap(id: string): void {
@@ -2952,7 +2957,7 @@ export class App {
       this.copyTargets = [];
       return;
     }
-    if ((m = /^pat([A-D])$/.exec(id))) {
+    if ((m = /^pat([A-H])$/.exec(id))) {
       const pat = PATTERN_NAMES.indexOf(m[1] as (typeof PATTERN_NAMES)[number]);
       if (src?.kind === 'pattern') {
         this.copyPatternTo(src.ch, src.pat, src.ch, pat);
@@ -3043,7 +3048,7 @@ export class App {
     const c = this.channel;
     let title = 'COPY';
     let sub = `${this.selected + 1} ${this.kindName(c)} ${PATTERN_NAMES[c.activePattern]}`;
-    let hint = 'TAP A STEP, BAR, TRACK OR A-D';
+    let hint = 'TAP A STEP, BAR, TRACK OR A-H';
     if (src?.kind === 'bar') {
       title = `COPY BAR ${src.bar + 1}`;
       hint = 'TO: TAP A BAR ON THE TRACK KEYS';
@@ -3053,7 +3058,7 @@ export class App {
     } else if (src?.kind === 'pattern') {
       title = `COPY PATTERN ${PATTERN_NAMES[src.pat]}`;
       sub = `${src.ch + 1} ${this.kindName(this.project.channels[src.ch])}`;
-      hint = this.func ? 'SOUND ONLY: TAP A-D OR A TRACK' : 'TO: TAP A-D OR A TRACK';
+      hint = this.func ? 'SOUND ONLY: TAP A-H OR A TRACK' : 'TO: TAP A-H OR A TRACK';
     }
     const done = this.copyTargets.length ? `> ${this.copyTargets.slice(-6).join(' / ')}` : '';
     return { title, sub, hint, done, message: performance.now() < this.messageUntil ? this.message : '', ink: inkOf(this.trackColour(this.selected)) };
@@ -3067,7 +3072,7 @@ export class App {
     this.send({ type: 'setPatternLength', channel: ch, pattern: c.activePattern, length });
   }
 
-  /** CLEAR + channel / A-D: empty a track's pattern (its sound stays). */
+  /** CLEAR + channel / A-H: empty a track's pattern (its sound stays). */
   private clearTrack(ch: number, p = this.project.channels[ch].activePattern): void {
     const c = this.project.channels[ch];
     const pat = c.patterns[p];
@@ -3455,21 +3460,37 @@ export class App {
     if (this.viewPage[this.selected] >= this.pageCount()) this.viewPage[this.selected] = 0;
   }
 
-  /** The knob beside PLAY (`mvol` / `mpan`): the selected track's VOLUME / PAN, as on the MIX page. */
+  /**
+   * A knob above the knob panel (TRACK_KNOBS): the project's MASTER / TEMPO, or the selected
+   * track's VOLUME / PAN / FX1 SEND / FX2 SEND, as on the MIX page.
+   */
   private trackKnob(id: string): KnobTarget | null {
-    const mix = TRACK_KNOBS[id];
-    if (!mix || this.channel.instrument === 'none') return null;
-    return this.paramTarget(this.selected, mix, mix === 'mix:volume' ? 'VOLUME' : 'PAN', true);
+    const key = TRACK_KNOBS[id];
+    if (key?.startsWith('global:')) return this.globalTarget(key.slice(7) as GlobalId);
+    if (!key || this.channel.instrument === 'none') return null;
+    const spec = MIX_PARAMS.find((p) => `mix:${p.id}` === key) as ParamSpec;
+    return this.paramTarget(this.selected, key, spec.name, true);
   }
 
-  /** VOLUME / PAN beside PLAY: straight onto the selected track (no priming, no audition). */
+  /** A project-wide knob (TEMPO, SWING, MASTER, TIME SIG): neutral grey, saved-value yellow. */
+  private globalTarget(id: GlobalId | 'meter'): KnobTarget {
+    const spec = GLOBAL_PARAMS.find((p) => p.id === id) as ParamSpec;
+    return {
+      label: spec.name, spec, channel: this.selected, key: `global:${id}`, neutral: true,
+      base: () => this.savedProject()[id],
+      get: () => this.getGlobal(id as GlobalId),
+      set: (v: number) => this.setGlobal(id as GlobalId, v),
+    };
+  }
+
+  /** A knob above the knob panel: straight onto the project / the selected track (no priming, no audition). */
   private onTrackKnob(id: string, value: number): void {
     const t = this.trackKnob(id);
     if (!t) return;
     if (this.funcHeld) this.funcUsed = true;
     if (t.key) this.glides.delete(t.key);
     t.set(value);
-    this.flash(`CH${this.selected + 1} ${t.label} ${formatValue(t.spec, t.get())}`);
+    this.flash(`${t.key?.startsWith('global:') ? '' : `CH${this.selected + 1} `}${t.label} ${formatValue(t.spec, t.get())}`);
     this.save();
   }
 
@@ -4508,6 +4529,48 @@ export class App {
     return true;
   }
 
+  /**
+   * SAVE PATTERN: the selected track's pattern (its notes and its sound) as it is now becomes
+   * its saved copy, also in the open project's slot (the rest of the slot's saved copy as it
+   * was); with no project open, until the project is saved.
+   */
+  private savePattern(): void {
+    const c = this.channel;
+    const p = c.activePattern;
+    const name = `${this.kindName(c)} ${PATTERN_NAMES[p]}`;
+    if (c.instrument === 'none') {
+      this.flash('NO TRACK');
+      return;
+    }
+    const pat = c.patterns[p];
+    pat.savedNotes = cloneNotes(pat);
+    pat.notesDirty = false;
+    pat.savedPatch = clonePatch(patchOf(c, p));
+    pat.patchDirty = false;
+    const openId = projectStore.openId();
+    const slot = openId ? projectStore.slots().findIndex((e) => e?.id === openId) : -1;
+    const stored = openId ? projectStore.load(openId) : null;
+    const into = stored?.channels[this.selected];
+    if (!openId || slot < 0 || !stored || !into || into.instrument !== c.instrument) {
+      this.flash(`SAVED ${name} (PROJECT NOT SAVED)`);
+      this.save();
+      return;
+    }
+    const target = into.patterns[p];
+    target.length = pat.length;
+    target.steps = cloneNotes(pat).steps;
+    if (pat.speed && pat.speed !== 'normal') target.speed = pat.speed;
+    else delete target.speed;
+    setPatchOf(into, p, patchOf(c, p));
+    lockProject(stored);
+    const entry = projectStore.slots()[slot]!;
+    if (!projectStore.save(slot, entry.name, stored, openId) || !projectStore.saveWork(openId, this.project)) {
+      this.flash('STORAGE FULL - NOT SAVED');
+      return;
+    }
+    this.flash(`SAVED ${name}`);
+  }
+
   private saveToSlot(slot: number): void {
     const menu = this.projMenu!;
     const name = menu.name.join('').trim() || 'PROJECT';
@@ -4730,6 +4793,8 @@ export class App {
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       this.panel.setButtonLit(`fx${n}`, n === 3 ? this.arpOpen : this.fxView === n);
     }
+    // An FX view's units are two knob modules each: the grooves between them lit.
+    this.panel.setLitGrooves(this.sendOpen && this.fxView <= NUM_BUSES ? [2, 4, 6] : []);
     // DESIGN: SOUND / MIX / PROJECT. RECORD / PLAY: SOUND (the live knobs) / MIX / PROJECT.
     const names = this.pageNames();
     const current = this.usesPlayPage ? this.playPage : this.designPage;
@@ -4753,14 +4818,16 @@ export class App {
     this.panel.setButtonEnabled('copy', this.mode !== 'design' || this.songGrid);
     this.panel.setButtonLit('play', this.playing);
     // The keys' other jobs on their labels: MENU (PLAY saves the page), ALT (from the top).
-    this.panel.setButtonText('play', this.menu ? 'SAVE' : this.func && !this.projMenu ? (this.playing ? 'STOP<small>TO TOP</small>' : 'PLAY<small>FROM TOP</small>') : this.playing ? 'STOP' : 'PLAY');
+    this.panel.setButtonText('play', this.menu ? `${SAVE_ICON}<small>SAVE</small>`
+      : this.func && !this.projMenu ? (this.playing ? `${STOP_ICON}<small>TO TOP</small>` : `${PLAY_ICON}<small>FROM TOP</small>`)
+      : this.playing ? PAUSE_ICON : PLAY_ICON);
     const quick = this.func && !this.songGrid && !this.menu && !this.projMenu;
-    for (const name of PATTERN_NAMES) this.panel.setButtonText(`pat${name}`, quick ? `${name}<small>QUICK</small>` : name);
+    for (const name of PATTERN_NAMES) this.panel.setButtonText(`pat${name}`, `<small>${quick ? 'QUICK' : 'PATTERN'}</small>${name}`);
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
-      const name = n === 4 ? 'LFO' : n === 3 ? 'ARP' : String(n);
+      const name = n === 4 ? 'LFO' : n === 3 ? 'ARP' : `FX ${n}`;
       this.panel.setButtonText(`fx${n}`, this.func && !this.songGrid && !this.menu ? `${name}<small>ON/OFF</small>` : name);
     }
-    // CLEAR held: what a tap would clear (steps; tracks and A-D but in SONG).
+    // CLEAR held: what a tap would clear (steps; tracks and A-H but in SONG).
     const clearing = this.clearHeld && !this.songGrid;
     const clearSteps = clearing && (!this.song || this.autoSteps);
     for (let i = 1; i <= STEP_BUTTONS; i++) this.panel.setButtonFlag(`step${i}`, 'clearable', clearSteps);
@@ -4993,7 +5060,7 @@ export class App {
   }
 
   /**
-   * A-D: the selected track's patterns (a channel held: that track's). Lit = chosen, blinking
+   * A-H: the selected track's patterns (a channel held: that track's). Lit = chosen, blinking
    * = waiting for its loop end, outlined = playing; * = unsaved edits.
    */
   private updatePatternButtons(now: number): void {
@@ -5085,7 +5152,7 @@ export class App {
     const message = performance.now() < this.messageUntil ? this.message : '';
     const keys = (on: (ch: number) => boolean) => Array.from({ length: NUM_CHANNELS }, (_, ch) => ({ label: String(ch + 1), on: on(ch) }));
     if (this.clearHeld) {
-      const sub = this.stepEdit || this.autoSteps ? 'TAP A STEP / TOUCH A KNOB' : this.song ? SONG_KEEPS : 'TAP A STEP / TRACK / A-D';
+      const sub = this.stepEdit || this.autoSteps ? 'TAP A STEP / TOUCH A KNOB' : this.song ? SONG_KEEPS : 'TAP A STEP / TRACK / A-H';
       return { title: 'CLEAR', sub, message };
     }
     if (this.scaleHeld) {
@@ -5149,7 +5216,7 @@ export class App {
     const f = this.footer(audio);
     return {
       ...this.header(),
-      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK / A-D' :  this.func && this.fxView === 0 ? 'ALT: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
+      stepsLabel: this.stepsMode ? 'STEPS: TAP = ON / OFF' : this.clearHeld ? 'CLEAR: STEP / TRACK / A-H' :  this.func && this.fxView === 0 ? 'ALT: LIVE 3 / 4' : (len > 16 ? `${page * 16 + 1}-${Math.min(len, page * 16 + 16)}/${len}` : `${len} STEPS`) + SPEED_MARK[this.pattern.speed ?? 'normal'],
       motion: this.recording && this.keyboard,
       lanes,
       modeLabel: this.mode === 'record' ? 'RECORD' : 'PLAY',

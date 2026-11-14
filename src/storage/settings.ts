@@ -25,7 +25,7 @@ export const METRONOMES = ['OFF', 'RECORDING', 'ALWAYS'] as const;
 export const CLICK_LEVELS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 /** HOLD + RESET: track / FX / LFO buttons held while RESET is pressed are kept out of it, or are all it resets. */
 export const HOLD_RESETS = ['KEEP HELD', 'RESET HELD'] as const;
-/** HOLD + PATTERN: track buttons held while A-D is pressed keep their pattern (the others switch), or are the only ones that switch. */
+/** HOLD + PATTERN: track buttons held while A-H is pressed keep their pattern (the others switch), or are the only ones that switch. */
 export const HOLD_PATTERNS = ['KEEP HELD', 'SWITCH HELD'] as const;
 /** TOUCH DELAY choices (ms): how much later than the engine the player hears a tap land. */
 export const TOUCH_DELAYS = [0, 5, 10, 15, 20, 25, 30, 40, 50] as const;

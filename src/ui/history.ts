@@ -169,7 +169,6 @@ export function changes(a: Project, b: Project): MainToWorklet[] {
       if (c[f] !== o[f]) out.push({ type: 'setMix', channel: ch, id, value: c[f] });
     }
     if (c.fxSend !== o.fxSend) out.push({ type: 'setRouting', channel: ch, send: c.fxSend });
-    if (c.fx1 !== o.fx1) out.push({ type: 'setDrumBus', channel: ch, on: c.fx1 });
     if (c.lfoOn !== o.lfoOn) out.push({ type: 'setLfoTrack', channel: ch, on: c.lfoOn });
   });
   return out;

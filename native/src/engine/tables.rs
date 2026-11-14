@@ -4,7 +4,7 @@ use crate::math::cos_turn;
 use crate::params::{to_norm, to_value, Spec};
 
 pub const NUM_CHANNELS: usize = 8;
-pub const NUM_PATTERNS: usize = 4;
+pub const NUM_PATTERNS: usize = 8;
 pub const MAX_STEPS: usize = 128;
 pub const SONG_MAX_ROWS: usize = 64;
 pub const STEP_NOTES: usize = 6;

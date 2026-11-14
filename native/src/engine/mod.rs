@@ -438,7 +438,8 @@ pub struct Engine {
     scratch_r: [f32; CHUNK],
 
     buses: Vec<FxBus>,
-    in_drum_bus: [u8; NC],
+    /// FX 1 SEND: how much of the track goes through FX 1 (the drum insert); the rest straight out.
+    fx1_level: Vec<Smoother>,
     route: [i8; NC],
     send_level: Vec<Smoother>,
     dyn_depth: [f32; NC],
@@ -680,7 +681,7 @@ impl Engine {
             scratch_l: [0.0; CHUNK],
             scratch_r: [0.0; CHUNK],
             buses: (0..NUM_BUSES).map(|k| FxBus::new(sr, k)).collect(),
-            in_drum_bus: [0; NC],
+            fx1_level: (0..NC).map(|_| Smoother::new(0.0, 0.02, sr)).collect(),
             route: [-1; NC],
             send_level: (0..NC).map(|_| Smoother::new(0.5, 0.02, sr)).collect(),
             dyn_depth: [1.0; NC],
@@ -864,7 +865,6 @@ impl Engine {
                 }
             }
             "setRouting" => self.route[chv] = self.bus_index(num_or(msg, "send", 0.0)),
-            "setDrumBus" => self.in_drum_bus[chv] = is_true(msg, "on") as u8,
             "setBus" => {
                 let id = str_of(msg, "id").unwrap_or("");
                 self.set_bus_param(num_or(msg, "bus", 0.0) as usize, id, num_or(msg, "value", 0.0));
@@ -1097,7 +1097,13 @@ impl Engine {
             self.set_mix(ch, "ring", num_or(c, "ringLength", 1.0));
             self.set_mix(ch, "cut", num_or(c, "midCut", 0.0));
             self.route[ch] = self.bus_index(num_or(c, "fxSend", 0.0));
-            self.in_drum_bus[ch] = truthy(c, "fx1") as u8;
+            // FX 1 SEND: an amount (0-1); saves before v86 stored on / off.
+            let fx1 = match c.get("fx1") {
+                Some(serde_json::Value::Bool(b)) => *b as u8 as f64,
+                _ => num_or(c, "fx1", 0.0).clamp(0.0, 1.0),
+            };
+            self.fx1_level[ch].set_immediate(fx1);
+            self.auto_base.insert(format!("m:{ch}:fx1"), fx1);
             let send = num_or(c, "sendLevel", 0.5);
             self.send_level[ch].set_immediate(send);
             self.set_base(format_args!("m:{ch}:send"), send);

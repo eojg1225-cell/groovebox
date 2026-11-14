@@ -10,7 +10,7 @@
 import { ARP_MODES, ARP_RATES, defaultArp } from './arp';
 import {
   CLIP_ENTRY, FILL_STEPS, GLIDE_STEPS, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
-  compactEntry, dropTiedRests, emptyPattern, initPatterns, patchOf,
+  clonePatch, compactEntry, dropTiedRests, emptyPattern, initPatterns, patchOf,
   type ChannelState, type ClipEntry, type Patch, type Pattern, type Project, type SongRow, type SoundKind, type Step,
 } from './project';
 import { applyPreset, liveDefaults, createDefaultProject } from './defaultProject';
@@ -117,7 +117,11 @@ function storePattern(c: ChannelState, pat: Pattern, p: number): StoredPattern {
   if (pat.speed && pat.speed !== 'normal') out.sp = pat.speed;
   const f = storeFlips(pat.steps);
   if (f) out.f = f;
-  if (c.instrument !== 'none' && p !== c.activePattern) out.patch = storePatch(patchOf(c, p));
+  // A pattern sounding as the edited one leaves its patch out (read back as a copy of it).
+  if (c.instrument !== 'none' && p !== c.activePattern) {
+    const patch = storePatch(patchOf(c, p));
+    if (JSON.stringify(patch) !== JSON.stringify(storePatch(patchOf(c, c.activePattern)))) out.patch = patch;
+  }
   if (pat.notesDirty && pat.savedNotes) {
     out.saved = { len: pat.savedNotes.length, steps: storeSteps(pat.savedNotes.steps) };
     if (pat.savedNotes.speed && pat.savedNotes.speed !== 'normal') out.saved.sp = pat.savedNotes.speed;
@@ -140,7 +144,8 @@ interface StoredChannel {
   notes?: number;
   volume: number;
   pan: number;
-  fx1: boolean;
+  /** FX 1 SEND, 0-1 (before v86 on / off). */
+  fx1: number | boolean;
   fxSend: number;
   sendLevel: number;
   dynamics?: number;
@@ -970,7 +975,8 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (typeof src.keyFrom === 'number' && src.keyFrom) ch.keyFrom = Math.round(num(src.keyFrom, 0, 0, 11));
   ch.midCut = num(src.midCut, 0, 0, 1);
   ch.mute = src.mute === true;
-  ch.fx1 = src.fx1 === true;
+  // v86: FX 1 SEND is an amount; before, on / off (fx1V86: on = all of it).
+  ch.fx1 = typeof src.fx1 === 'number' ? num(src.fx1, 0, 0, 1) : src.fx1 === true ? 1 : 0;
   // Before v81 sends 2 / 3 (FX 2 / FX 3); sendsV81 (fromStored) moves them on.
   const send = Math.round(num(src.fxSend, 0, 0, version < 81 ? 3 : NUM_SENDS));
   ch.fxSend = send >= 2 ? send : 0;
@@ -1004,6 +1010,12 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
       pat.savedPatch = savedPatch;
       pat.patchDirty = true;
     }
+  }
+  // v86: eight patterns a track; a save with fewer (or a pattern stored without its patch)
+  // gives the rest the active pattern's sound.
+  if (ch.instrument === 'none') return;
+  for (let p = 0; p < NUM_PATTERNS; p++) {
+    if (p !== ch.activePattern && !ch.patterns[p].patch) ch.patterns[p].patch = clonePatch(patchOf(ch, ch.activePattern));
   }
 }
 
