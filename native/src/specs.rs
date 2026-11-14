@@ -304,7 +304,7 @@ pub fn type_gain(kind: SoundKind) -> f64 {
     }
 }
 
-pub static MIX_PARAMS: [Spec; 7] = [
+pub static MIX_PARAMS: [Spec; 8] = [
     Spec { id: "volume", min: 0.0, max: 1.0, default: 0.8, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "pan", min: -1.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "send", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -312,6 +312,7 @@ pub static MIX_PARAMS: [Spec; 7] = [
     Spec { id: "cut", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "gate", min: 0.125, max: 2.0, default: 1.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "ring", min: 0.25, max: 4.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
+    Spec { id: "fx1", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
 ];
 pub static BUS0_PARAMS: [Spec; 16] = [
     Spec { id: "cmp_ratio", min: 1.0, max: 20.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },

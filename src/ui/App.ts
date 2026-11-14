@@ -836,7 +836,7 @@ export class App {
 
   /** Whether a track is on bus n (1 = the drum bus, 2 = the send FX 2, 4 = the LFO; 3 is the ARP key). */
   private onBus(c: ChannelState, n: number): boolean {
-    return n === 1 ? c.fx1 : n === 4 ? c.lfoOn : c.fxSend === n;
+    return n === 1 ? c.fx1 > 0 : n === 4 ? c.lfoOn : c.fxSend === n;
   }
 
   private busName(n: number): string {
@@ -847,8 +847,9 @@ export class App {
   private toggleBus(ch: number, n: number): void {
     const c = this.project.channels[ch];
     if (n === 1) {
-      c.fx1 = !c.fx1;
-      this.send({ type: 'setDrumBus', channel: ch, on: c.fx1 });
+      // FX 1 SEND all or nothing (the knob sets any amount between).
+      c.fx1 = c.fx1 > 0 ? 0 : 1;
+      this.send({ type: 'setMix', channel: ch, id: 'fx1', value: c.fx1 });
     } else if (n === 4) {
       c.lfoOn = !c.lfoOn;
       this.send({ type: 'setLfoTrack', channel: ch, on: c.lfoOn });

@@ -283,6 +283,7 @@ impl Engine {
                             "volume" => self.volume[i].set_immediate(v),
                             "pan" => self.pan[i].set_immediate(v),
                             "send" => self.send_level[i].set_immediate(v),
+                            "fx1" => self.fx1_level[i].set_immediate(v),
                             _ => {}
                         }
                     }
@@ -528,13 +529,14 @@ impl Engine {
             let send_depth = if lfo { self.lfo_send } else { 0.0 };
             let tg = self.type_gain[ch] as f64;
             let bus = self.route[ch];
-            let drum = self.in_drum_bus[ch] != 0;
             let sl = &self.scratch_l;
             let sr = &self.scratch_r;
             let vol = &mut self.volume[ch];
             let pan = &mut self.pan[ch];
             let level = &mut self.send_level[ch];
+            let f1 = &mut self.fx1_level[ch];
             if silent(&sl[..n], &sr[..n]) {
+                f1.advance(n as u32);
                 vol.advance(n as u32);
                 pan.advance(n as u32);
                 level.advance(n as u32);
@@ -548,22 +550,17 @@ impl Engine {
             let send_r: Option<&mut [f32; CHUNK]> = if bus == 1 { Some(&mut b1_r[0]) } else { None };
             // A send onto bus 0 (never routed: FX 1 is the drum bus) is left out, as busIndex never gives it.
             let (mut send_l, mut send_r) = (send_l, send_r);
-            if vol_depth == 0.0 && pan_depth == 0.0 && send_depth == 0.0 && vol.settled() && pan.settled() && level.settled() {
+            if vol_depth == 0.0 && pan_depth == 0.0 && send_depth == 0.0 && vol.settled() && pan.settled() && level.settled() && f1.settled() {
                 let v = vol.value() * tg;
                 let a = (pan.value() + 1.0) * 0.25 * std::f64::consts::PI;
                 let cl = a.cos();
                 let cr = a.sin();
                 let g = level.value();
+                let a = f1.value();
                 for i in 0..n {
                     let l = sl[i] as f64 * v * cl;
                     let r = sr[i] as f64 * v * cr;
-                    if drum {
-                        js::add_f32(&mut d0l[i], l);
-                        js::add_f32(&mut d0r[i], r);
-                    } else {
-                        js::add_f32(&mut out_l[off + i], l);
-                        js::add_f32(&mut out_r[off + i], r);
-                    }
+                    split_fx1(a, l, r, &mut d0l[i], &mut d0r[i], &mut out_l[off + i], &mut out_r[off + i]);
                     if let (Some(bl), Some(br)) = (send_l.as_deref_mut(), send_r.as_deref_mut()) {
                         js::add_f32(&mut bl[i], l * g);
                         js::add_f32(&mut br[i], r * g);
@@ -585,13 +582,8 @@ impl Engine {
                 let a = (pp + 1.0) * 0.25 * std::f64::consts::PI;
                 let l = sl[i] as f64 * v * a.cos();
                 let r = sr[i] as f64 * v * a.sin();
-                if drum {
-                    js::add_f32(&mut d0l[i], l);
-                    js::add_f32(&mut d0r[i], r);
-                } else {
-                    js::add_f32(&mut out_l[off + i], l);
-                    js::add_f32(&mut out_r[off + i], r);
-                }
+                let a = f1.next();
+                split_fx1(a, l, r, &mut d0l[i], &mut d0r[i], &mut out_l[off + i], &mut out_r[off + i]);
                 let mut g = level.next();
                 if send_depth > 0.0 {
                     g += send_depth * lfo_buf[lb + i] as f64;
@@ -1170,6 +1162,10 @@ impl Engine {
                 self.send_level[ch].set_target(value);
                 return;
             }
+            "fx1" => {
+                self.fx1_level[ch].set_target(value.clamp(0.0, 1.0));
+                return;
+            }
             "dyn" => {
                 self.dyn_depth[ch] = (value / 100.0) as f32;
                 return;
@@ -1194,5 +1190,23 @@ impl Engine {
         }
         let v = self.volume_value[ch] as f64;
         self.volume[ch].set_target(v);
+    }
+}
+
+/// FX 1 SEND: `a` of the sample into FX 1 (the drum insert), the rest straight out (all or
+/// none adds the sample whole, so a track fully on or off plays exactly as the on / off switch did).
+#[inline]
+fn split_fx1(a: f64, l: f64, r: f64, fl: &mut f32, fr: &mut f32, ol: &mut f32, or: &mut f32) {
+    if a >= 1.0 {
+        js::add_f32(fl, l);
+        js::add_f32(fr, r);
+    } else if a <= 0.0 {
+        js::add_f32(ol, l);
+        js::add_f32(or, r);
+    } else {
+        js::add_f32(fl, l * a);
+        js::add_f32(fr, r * a);
+        js::add_f32(ol, l * (1.0 - a));
+        js::add_f32(or, r * (1.0 - a));
     }
 }

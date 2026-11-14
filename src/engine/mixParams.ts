@@ -10,7 +10,7 @@ export const RING_MAX = 4;
 export const MIX_PARAMS: readonly ParamSpec[] = [
   { id: 'volume', name: 'VOLUME', min: 0, max: 1, defaultValue: 0.8, unit: '', curve: 'linear' },
   { id: 'pan', name: 'PAN', min: -1, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'send', name: 'SEND LVL', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
+  { id: 'send', name: 'FX2 SEND', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   // ACCENT / GHOST depth: how far accents and ghosts sit from a normal hit (100 % = as
   // designed, 0 % = every hit the same, 200 % = twice the difference in dB).
   { id: 'dyn', name: 'ACC/GHOST', min: 0, max: 200, defaultValue: 100, unit: '%', curve: 'linear', decimals: 0 },
@@ -23,12 +23,15 @@ export const MIX_PARAMS: readonly ParamSpec[] = [
   // RING (drums): how long a RING step rings, x its length as designed (each layer's decay
   // x3 plus the type's ring extension).
   { id: 'ring', name: 'RING', min: RING_MIN, max: RING_MAX, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 2 },
+  // FX 1 SEND: how much of the track goes through FX 1 (the drum insert); the rest goes
+  // straight out. A new project's drums are all on it.
+  { id: 'fx1', name: 'FX1 SEND', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
 ];
 
-export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate' | 'cut' | 'ring';
+export type MixId = 'volume' | 'pan' | 'send' | 'dyn' | 'gate' | 'cut' | 'ring' | 'fx1';
 
 /** The channel field each mixer parameter lives in. */
-export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength', cut: 'midCut', ring: 'ringLength' } as const;
+export const MIX_FIELD = { volume: 'volume', pan: 'pan', send: 'sendLevel', dyn: 'dynamics', gate: 'gateLength', cut: 'midCut', ring: 'ringLength', fx1: 'fx1' } as const;
 
 /** Velocity of a normal hit (ghost 0.45, accent 1.0). */
 const NORMAL_VELOCITY = 0.8;

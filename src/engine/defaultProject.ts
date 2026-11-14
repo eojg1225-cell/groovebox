@@ -76,7 +76,7 @@ export function createDefaultProject(): Project {
   // Routing: the drums through FX 1 (transparent until its effects are turned up), LEAD to
   // FX 2; BASS, PAD and PLUCK carry their own effects. No track on the LFO.
   const of = (kind: SoundKind) => channels.find((c) => c.instrument === kind) as ChannelState;
-  for (const c of channels) if (INSTRUMENTS[c.instrument as SoundKind].drum) c.fx1 = true;
+  for (const c of channels) if (INSTRUMENTS[c.instrument as SoundKind].drum) c.fx1 = 1;
   of('lead').fxSend = 2;
   for (const c of channels) c.volume = defaultVolume(c.instrument as SoundKind);
   return {

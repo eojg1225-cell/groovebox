@@ -2234,7 +2234,7 @@ describe('song transitions: GLIDE CURVE, JAM AUTO-FILL, SONG DESIGN clip knobs',
     expect(row.entry?.[0]).toEqual({ glideStart: 8, glideEnd: 8 });
     emit({ type: 'knob', id: 'k9', value: GLIDE_STEPS.indexOf(-4) / n }); // END -4: START follows
     expect(app.project.song.rows.find((r) => r.patterns[0] === 1)!.entry?.[0]).toEqual({ glideStart: -4, glideEnd: -4 });
-    emit({ type: 'knob', id: 'k2', value: 3 / 4 }); // FILL C
+    emit({ type: 'knob', id: 'k2', value: 3 / 8 }); // FILL C (OFF, A-H)
     emit({ type: 'knob', id: 'k10', value: FILL_STEPS.indexOf(8) / (FILL_STEPS.length - 1) });
     expect(app.project.song.rows.find((r) => r.patterns[0] === 1)!.entry?.[0]).toEqual({ glideStart: -4, glideEnd: -4, fill: 2, fillLen: 8 });
     const back = fromStored(JSON.parse(JSON.stringify(toStored(app.project))))!;
@@ -2330,10 +2330,10 @@ describe('keys doing another job: the screen and the panel say so', () => {
     press('func');
     const v = app.functionView()!;
     expect(v.title).toBe('FX 1 CHANNELS');
-    expect(v.keys!.map((k) => k.on)).toEqual(app.project.channels.map((c) => c.fx1));
+    expect(v.keys!.map((k) => k.on)).toEqual(app.project.channels.map((c) => c.fx1 > 0));
     tap('ch1'); // ALT + a track: on / off the bus (ALT used, not latched)
     release('func');
-    expect(app.project.channels[0].fx1).toBe(!v.keys![0].on);
+    expect(app.project.channels[0].fx1 > 0).toBe(!v.keys![0].on);
     tap('fx1');
     tap('mode:record');
     press('clear');

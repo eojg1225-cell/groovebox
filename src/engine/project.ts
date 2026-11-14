@@ -2,15 +2,15 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 85;
+export const PROJECT_VERSION = 86;
 /** FX 1 = the drum bus (tracks pass through it), FX 2 = the send (buses.ts); fxSend 2 = on FX 2. */
 export const NUM_SENDS = 2;
 export const NUM_CHANNELS = 8;
-export const NUM_PATTERNS = 4;
+export const NUM_PATTERNS = 8;
 export const MAX_STEPS = 128;
 /** Length of a new pattern. */
 const DEFAULT_STEPS = 16;
-export const PATTERN_NAMES = ['A', 'B', 'C', 'D'] as const;
+export const PATTERN_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
 /** Song: up to this many rows, each up to SONG_MAX_BARS bars. */
 export const SONG_MAX_ROWS = 64;
 export const SONG_MAX_BARS = 64;
@@ -317,8 +317,8 @@ export interface ChannelState {
   notes: number;
   volume: number; // 0..1
   pan: number; // -1..1
-  /** The track passes through FX 1, the drum bus (independent of its send). */
-  fx1: boolean;
+  /** FX 1 SEND: how much of the track goes through FX 1, the drum insert (0-1; the rest straight out; independent of its send). */
+  fx1: number;
   /** Which send the track feeds: 0 = none, 2 = FX 2. */
   fxSend: number;
   /** How much of the track goes to its send, 0..1. */
@@ -408,7 +408,7 @@ export function emptyChannel(): ChannelState {
     notes: MAX_CHORD_NOTES,
     volume: 0.8,
     pan: 0,
-    fx1: false,
+    fx1: 0,
     fxSend: 0,
     sendLevel: 0.5,
     dynamics: 100,

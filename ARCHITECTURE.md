@@ -71,11 +71,10 @@ Main -> worklet:
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setSound` | `channel`, `id`, `value`, `pattern?` | Instrument parameter (real units) in that pattern's patch |
 | `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred); the engine sums each knob's push per param (`liveTargets` / `liveContribution` in the registry) on top of the base or locked value |
-| `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut` `ring`), `value` | Track mixer (`gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
+| `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut` `ring` `fx1`), `value` | Track mixer (`send` = FX2 SEND, `fx1` = FX1 SEND: how much goes through FX 1, the drum insert, the rest straight out; `gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
 | `setGlobal` | `id` (`bpm` `swing` `master` `meter`), `value` | Project-wide settings; `meter` changes at the next bar line |
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
 | `setRouting` | `channel`, `send` | Send FX 2 (2; 0 = none) |
-| `setDrumBus` | `channel`, `on` | Through FX 1, the drum bus |
 | `setBus` | `bus` (0-1 = FX 1 / 2), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
