@@ -223,6 +223,29 @@ describe('SAVE PROJECT', () => {
     saveAs('RENAMED', 1); // its own slot: saved over, under the new name
     expect(projectStore.slots()[0]?.name).toBe('RENAMED');
   });
+
+  it('SAVE PATTERN: the selected track\'s pattern into the open slot\'s saved copy, the rest as saved', () => {
+    const { app, tap } = makeApp();
+    tap('saveproject');
+    (app as unknown as { projMenu: { name: string[] } }).projMenu.name = [...'PATS'];
+    tap('step5');
+    const id = projectStore.openId()!;
+    tap('mode:record');
+    tap('ch1');
+    tap('step3'); // KICK A: a hit on step 3
+    tap('ch2');
+    tap('step7'); // SNARE A: a hit on step 7 (not saved)
+    tap('ch1');
+    tap('savepattern');
+    const kick = app.project.channels[0].patterns[0];
+    expect(kick.notesDirty).toBe(false);
+    expect(app.project.channels[1].patterns[0].notesDirty).toBe(true);
+    const saved = projectStore.load(id)!;
+    expect(saved.channels[0].patterns[0].steps[2].active).toBe(true);
+    expect(saved.channels[1].patterns[0].steps[6].active).toBe(false);
+    // The working copy keeps the unsaved SNARE hit.
+    expect(projectStore.loadWork(id)!.channels[1].patterns[0].steps[6].active).toBe(true);
+  });
 });
 
 describe('PAD / PLUCK with a CHORD: one root at a time, legato slides', () => {
