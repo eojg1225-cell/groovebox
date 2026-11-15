@@ -307,13 +307,13 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: trackFunc(SWEEP_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: DRUM_ROOT },
   snare: {
-    name: 'SNARE', gain: 0.467, live: ['fx1:mod_vol', 'intensity'], liveFunc: ['mix:volume', 'macro:air'], params: SNARE_PARAMS,
+    name: 'SNARE', gain: 0.467, live: ['fx1:s2_vol', 'intensity'], liveFunc: ['mix:volume', 'macro:air'], params: SNARE_PARAMS,
     // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SNARE_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT },
   hat: {
-    name: 'HAT', gain: 1.783, live: ['fx1:dly_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
+    name: 'HAT', gain: 1.783, live: ['fx1:s3_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
     // The metal's character on 5, AIR (its natural room, v81) on 6; the click's on FUNC 3.
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'hairsize']),
     funcLayout: trackFunc(HAT_FUNC),

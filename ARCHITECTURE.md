@@ -71,11 +71,11 @@ Main -> worklet:
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setSound` | `channel`, `id`, `value`, `pattern?` | Instrument parameter (real units) in that pattern's patch |
 | `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred); the engine sums each knob's push per param (`liveTargets` / `liveContribution` in the registry) on top of the base or locked value |
-| `setMix` | `channel`, `id` (`volume` `pan` `mute` `send` `dyn` `gate` `cut` `ring` `fx1`), `value` | Track mixer (`send` = FX2 SEND, `fx1` = FX1 SEND: how much goes through FX 1, the drum insert, the rest straight out; `gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
+| `setMix` | `channel`, `id` (`volume` `pan` `mute` `dyn` `gate` `cut` `ring` `lvl1`-`lvl4`), `value` | Track mixer (`lvl1`-`lvl4` = the track's level into each slot of its bus: on FX 1 COMP MIX, two sends, FILTER MIX; on FX 2 four sends; `gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
 | `setGlobal` | `id` (`bpm` `swing` `master` `meter`), `value` | Project-wide settings; `meter` changes at the next bar line |
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
-| `setRouting` | `channel`, `send` | Send FX 2 (2; 0 = none) |
-| `setBus` | `bus` (0-1 = FX 1 / 2), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units, TYPE as an index) |
+| `setRouting` | `channel`, `bus` | The bus the track is on (0 = FX 1, 1 = FX 2) |
+| `setBus` | `bus` (0-1 = FX 1 / 2), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units; a free slot's TYPE an index into `FX_BANK`, its two controls `s<n>_a` / `_b` as knob positions 0-1) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
 | `setArp` | `channel`, `id` (`on` / `mode` / `rate` / `oct`), `value` | A track's ARP (engine/arp.ts): plays when on and MODE is not OFF |
@@ -252,25 +252,36 @@ LFO, and the FX ids from `fx/buses.ts` `FX_LIVE`) set the value itself (`setMix`
 
 ## Buses and master
 
-Three `FxBus`es (defined in `fx/buses.ts`). Each is four units of two knob modules; an effect unit has
-VOLUME (its return level, smoothed; at 0 it fades for 0.15 s and is then skipped, starting clean when
-turned up) over TYPE (a change fades the unit out for 15 ms, switches mode, resets and fades back in)
-and two controls. The effects (`native/src/fx/units.rs`) write their wet signal into a scratch buffer; the bus
-scales and sums them:
-- **FX 1** (an insert): tracks with `fx1` are summed into it instead of the mix; they go through
-  `Compressor` (series, RATIO 1:1 = off), with MOD (FLANGER, PHASER) and DELAY (TAPE, SWEEP,
-  REVERSE) returning alongside at their VOLUMEs; drums + returns then pass the FILTER (one SVF:
-  `djCutoff` maps the knob to LP left / HP right / OFF centre, where it is skipped and reset; RESO;
-  ENV raises or lowers the cutoff from a peak follower, ENV REL its fall) on to the mix.
-- **FX 2** (the send, LEAD's; the old FX 2, the PAD's send, went in v81, the PAD has its own LOW CUT /
-  MOD / VERB in `Synth.padPost`): post-fader, by the track's send level; only the returns reach the
-  mix, through TONE: LOW CUT / HI CUT (12 dB SVFs) and DUCK (a peak follower on the bus input).
-  `FxBus.kick` (from `Engine.kickHit`) pumps a TONE set to `duck: 'kick'`; no bus has one now.
-- Units: `ModFx` (CHORUS, ENSEMBLE, FLANGER, PHASER; RATE in Hz), `DelayFx` (STEREO, PING-PONG, TAPE,
-  DUB TAPE, SWEEP, REVERSE, SLAPBACK; RATE = `FX_DELAY_TIMES`, tempo-synced, FEEDBACK up to 1.1 into
-  tanh), `VerbFx` (Freeverb combs stretched by SIZE (fractional while moving, whole samples at rest):
-  ROOM, HALL, PLATE (diffused input); EARLY (a tap line), SHIMMER (octave-up feedback), SPRING
-  (dispersion loop)), `DriveFx` (TUBE, FUZZ, BIT).
+Two `FxBus`es (defined in `fx/buses.ts`, run by `native/src/fx/bus.rs`). Every track is on one of them
+(`ChannelState.bus`) and has a level into each of its bus's four slots (`lvl1`-`lvl4`): the engine
+(`render_chunk`) mixes the track, after VOLUME / PAN, into each slot's own input (`BusIn`), so a track
+can feed one effect without the others.
+- **Free slots** (FX 1 slots 2-3, FX 2 slots 1-4; ids `s<n>_vol` / `_type` / `_a` / `_b`): VOLUME (the
+  return level, smoothed; at 0 it fades for 0.15 s and is then skipped, starting clean when turned up)
+  over TYPE, then two controls. TYPE picks from the whole bank (`FX_BANK`: TUBE, FUZZ, BIT, CHORUS,
+  FLANGER, PHASER, TAPE, SWEEP, REVERSE, PING-PONG, DUB TAPE, SLAPBACK, ROOM, PLATE, SPRING, HALL), so a
+  bus may hold four of a kind; each slot keeps one unit of every family ready (`Slot.units`), so a
+  change fades the slot out for 15 ms, loads the other unit, resets and fades back in, allocating
+  nothing. The controls are stored as knob positions and read in the loaded family's scale
+  (`FX_FAMILIES` / `specs::FX_FAMILY_SPECS`); the UI shows them in those units (`busKnob`) and puts a
+  new family's controls on its defaults.
+- **FX 1** (the drum processor): FILTER first, on every track of its own (`filter_track`, one set of
+  knobs, `djCutoff`: LP left / HP right / OFF centre, skipped and reset while off; RESO; ENV raises or
+  lowers the cutoff from the track's own peak follower, ENV REL its fall), by the track's FILTER MIX
+  (`lvl4`, dry to filtered); then COMP in parallel by its COMP MIX (`lvl1`: that much of the track
+  into the `Compressor`, the rest straight out; RATIO 1:1 = off) and slots 2-3 by `lvl2` / `lvl3`.
+- **FX 2** (the synths' multi FX): the track goes straight out and into each slot by its level (the
+  LFO's SEND MOD moves the levels that are up); the returns pass the built-in TONE (LOW CUT / HI CUT,
+  12 dB SVFs, and DUCK under a peak follower on what the tracks send at their highest level, the
+  `SIDE` input; no knobs: `tone_...` stay in the project). `FxBus.kick` (from `Engine.kickHit`) would
+  pump a TONE set to follow the KICK; no bus does now.
+- Units (`native/src/fx/units.rs`, each writing its wet signal into a scratch buffer): `ModFx`
+  (CHORUS, ENSEMBLE, FLANGER, PHASER; RATE in Hz), `DelayFx` (STEREO, PING-PONG, TAPE, DUB TAPE, SWEEP,
+  REVERSE, SLAPBACK; RATE = `FX_DELAY_TIMES`, tempo-synced, FEEDBACK up to 1.1 into tanh), `VerbFx`
+  (Freeverb combs stretched by SIZE (fractional while moving, whole samples at rest): ROOM, HALL,
+  PLATE (diffused input); EARLY (a tap line), SHIMMER (octave-up feedback), SPRING (dispersion
+  loop)), `DriveFx` (TUBE, FUZZ, BIT). ENSEMBLE, STEREO, EARLY and SHIMMER are the PAD's / PLUCK's
+  own; the bank leaves them out.
 - A send with nothing in or out for 5 s is skipped altogether.
 
 Each track has its own MID CUT (`TrackCut`: 18 dB peaking cut at the sound's MID FREQ, after the
@@ -288,7 +299,7 @@ once per chunk.
 ## UI
 
 `Panel` (a ControlSurface) emits button ids `mode:record|play|design|song`, `ch1..8`, `mute1..8`,
-`solo1..8`, `dpage0..2`, `fx1..4` (4 = LFO), `savepattern`, `saveproject`, `reset`, `patA..H`, `mmaster` `mtempo` `mvol` `mpan` `mfx1` `mfx2` (the knobs above the knob panel), the function
+`solo1..8`, `dpage0..2`, `fx1..4` (4 = LFO), `savepattern`, `saveproject`, `reset`, `patA..H`, `mmaster` `mtempo` `mlvl1`-`mlvl4` (the knobs above the knob panel), the function
 row (`ring`, `slide`, `dyn:accent`, `dyn:ghost`, `len`, `steppage`, `clear`, `copy`, `oct-`, `oct+`,
 `cur-`, `cur+`, `rest`), `step1..16`, `play`, `func`; knobs `k1..k16` (k1-k8 top row, k9-k16 bottom;
 module n = k(n) over k(n+8)) and master knobs `mtempo`, `mmaster`. Knobs send absolute values (0-127,

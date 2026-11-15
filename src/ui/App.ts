@@ -45,9 +45,9 @@
  */
 import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
-import { GLOBAL_PARAMS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
+import { GLOBAL_PARAMS, LEVEL_IDS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busParam } from '../fx/buses';
+import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busKnob, busParam, controlNorm, controlStored, controlValue, fxLiveName, slotFamily, slotName } from '../fx/buses';
 import { CHORD_KNOB, CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
@@ -270,9 +270,10 @@ interface KnobTarget {
   base?(): number;
   /**
    * SONG automation: the knob's lane key (engine/automation.ts) and how its value maps to
-   * the stored / engine value (x scale; the relative live knobs: % -> -1..1).
+   * the stored / engine value (x scale; the relative live knobs: % -> -1..1; `norm`: stored
+   * as the knob's position in that spec, an FX slot's two controls): `autoStored` / `autoShown`.
    */
-  auto?: { key: string; scale?: number };
+  auto?: { key: string; scale?: number; norm?: ParamSpec };
   /** SONG RECORD: touched while a step is primed (locked there on the second tap). */
   staged?: boolean;
   /** A primed step's stand-in for this knob: the knob it stands for. */
@@ -306,11 +307,17 @@ const DSP_ALERT = 0.8;
 type GlobalId = 'bpm' | 'swing' | 'master';
 /**
  * The knobs above the knob panel: the project's MASTER / TEMPO (`global:`) and the selected
- * track's VOLUME / PAN / FX1 SEND / FX2 SEND (`mix:`, as on the MIX page).
+ * track's four FX levels (`mix:lvl1-4`: into each slot of the bus it is on).
  */
 const TRACK_KNOBS: Readonly<Record<string, string>> = {
-  mmaster: 'global:master', mtempo: 'global:bpm', mvol: 'mix:volume', mpan: 'mix:pan', mfx1: 'mix:fx1', mfx2: 'mix:send',
+  mmaster: 'global:master', mtempo: 'global:bpm', mlvl1: 'mix:lvl1', mlvl2: 'mix:lvl2', mlvl3: 'mix:lvl3', mlvl4: 'mix:lvl4',
 };
+
+/** A knob's value as its lock / lane stores it, and back (KnobTarget.auto). */
+const autoStored = (t: KnobTarget, v: number): number => (t.auto?.norm ? toNorm(t.auto.norm, v) : v * (t.auto?.scale ?? 1));
+const autoShown = (t: KnobTarget, stored: number): number => (t.auto?.norm ? toValue(t.auto.norm, stored) : stored / (t.auto?.scale ?? 1));
+/** Stored as the knob shows it: its locks glide in the knob's own scale. */
+const autoPlain = (t: KnobTarget): boolean => !t.auto?.norm && (t.auto?.scale ?? 1) === 1;
 
 /** A step's locks on its track's sound (its own params, live knobs) go; mixer / FX / LFO / ARP ones stay. */
 function dropSoundLocks(step: Step, ch: number): void {
@@ -839,30 +846,35 @@ export class App {
     return !this.songGrid && this.fxView > 0;
   }
 
-  /** Whether a track is on bus n (1 = the drum bus, 2 = the send FX 2, 4 = the LFO; 3 is the ARP key). */
+  /** Whether a track is on bus n (1 = FX 1, 2 = FX 2: each track is on one of the two; 4 = the LFO; 3 is the ARP key). */
   private onBus(c: ChannelState, n: number): boolean {
-    return n === 1 ? c.fx1 > 0 : n === 4 ? c.lfoOn : c.fxSend === n;
+    return n === 4 ? c.lfoOn : c.bus === n - 1;
   }
 
   private busName(n: number): string {
     return n === 4 ? 'LFO' : `FX ${n}`;
   }
 
-  /** Put a track on / take it off bus n. */
+  /**
+   * The LFO (n = 4): a track on / off it. FX 1 / FX 2 (n = 1, 2): the track moves onto that
+   * bus (it is always on one of the two; its four levels stay as they are, now into that
+   * bus's slots); already there, it only says so.
+   */
   private toggleBus(ch: number, n: number): void {
     const c = this.project.channels[ch];
-    if (n === 1) {
-      // FX 1 SEND all or nothing (the knob sets any amount between).
-      c.fx1 = c.fx1 > 0 ? 0 : 1;
-      this.send({ type: 'setMix', channel: ch, id: 'fx1', value: c.fx1 });
-    } else if (n === 4) {
+    if (n === 4) {
       c.lfoOn = !c.lfoOn;
       this.send({ type: 'setLfoTrack', channel: ch, on: c.lfoOn });
+      this.flash(`${this.kindName(c)} ${c.lfoOn ? '->' : 'OFF'} LFO`);
     } else {
-      c.fxSend = c.fxSend === n ? 0 : n;
-      this.send({ type: 'setRouting', channel: ch, send: c.fxSend });
+      if (c.bus === n - 1) {
+        this.flash(`${this.kindName(c)} IS ON ${this.busName(n)}`);
+        return;
+      }
+      c.bus = n - 1;
+      this.send({ type: 'setRouting', channel: ch, bus: c.bus });
+      this.flash(`${this.kindName(c)} -> ${this.busName(n)}`);
     }
-    this.flash(`${this.kindName(c)} ${this.onBus(c, n) ? '->' : 'OFF'} ${this.busName(n)}`);
     this.save();
   }
 
@@ -979,8 +991,8 @@ export class App {
         if (spec && !list.some((x) => x.id === spec.id)) list.push({ id: spec.id, spec });
       }
     }
-    for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec });
-    for (const fx of FX_LIVE) list.push({ id: fx.id, spec: { ...busParam(fx.bus, fx.param)!, name: fx.name } });
+    for (const spec of MIX_PARAMS) list.push({ id: MIX_PREFIX + spec.id, spec: { ...spec, name: this.mixName(c, spec.id) } });
+    for (const fx of FX_LIVE) list.push({ id: fx.id, spec: { ...busParam(fx.bus, fx.param)!, name: fxLiveName(fx, this.project.buses[fx.bus]) } });
     for (const id of ['rate', 'vol', 'pitch', 'filter', 'pan', 'send', 'fm', 'morph', 'phase', 'smooth'] as const) list.push({ id: `lfo:${id}`, spec: LFO_PARAMS[id] });
     return list;
   }
@@ -989,11 +1001,11 @@ export class App {
   private liveName(c: ChannelState, id: string): string {
     if (id.startsWith('macro:')) return c.instrument === 'none' ? '-' : LIVE_MACROS[c.instrument].find((m) => m.id === id)?.name ?? '-';
     if (id.startsWith('lfo:')) return LFO_PARAMS[id.slice(4) as LfoId]?.name ?? '-';
-    if (id.startsWith(MIX_PREFIX)) return MIX_PARAMS.find((p) => MIX_PREFIX + p.id === id)?.name ?? '-';
+    if (id.startsWith(MIX_PREFIX)) return this.mixName(c, id.slice(MIX_PREFIX.length));
     if (id === 'track:notes') return 'NOTES';
     if (id === 'track:chord') return 'CHORD';
     const fx = FX_LIVE.find((f) => f.id === id);
-    if (fx) return fx.name;
+    if (fx) return fxLiveName(fx, this.project.buses[fx.bus]);
     return paramSpec(c.instrument, id)?.name ?? '-';
   }
 
@@ -1033,7 +1045,7 @@ export class App {
   private paramTarget(ch: number, id: string, label?: string, highlight?: boolean): KnobTarget | null {
     const c = this.project.channels[ch];
     const fx = FX_LIVE.find((f) => f.id === id);
-    if (fx) return { ...this.busTarget(fx.bus, fx.param), label: label ?? fx.name, channel: ch, highlight };
+    if (fx) return { ...this.busTarget(fx.bus, fx.param), label: label ?? fxLiveName(fx, this.project.buses[fx.bus]), channel: ch, highlight };
     if (id.startsWith('lfo:')) {
       const lfoId = id.slice(4) as LfoId;
       const spec = LFO_PARAMS[lfoId];
@@ -1097,7 +1109,7 @@ export class App {
       if (!spec) return null;
       const field = MIX_FIELD[mixId];
       return {
-        label: label ?? spec.name, spec, channel: ch, highlight, key: `${ch}:${id}`, auto: { key: `m:${ch}:${mixId}` },
+        label: label ?? this.mixName(c, mixId), spec, channel: ch, highlight, key: `${ch}:${id}`, auto: { key: `m:${ch}:${mixId}` },
         base: () => this.savedChannel(ch)?.[field] ?? spec.defaultValue,
         get: () => c[field],
         set: (v) => {
@@ -1293,13 +1305,38 @@ export class App {
 
   /** One bus knob (also a live knob's FX target). */
   private busTarget(k: number, id: string): KnobTarget {
-    const spec = busParam(k, id)!;
-    return {
-      label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`, auto: { key: `b:${k}:${id}` },
-      get: () => this.project.buses[k][id] ?? spec.defaultValue,
-      base: () => this.savedProject().buses[k]?.[id] ?? spec.defaultValue,
-      set: (v: number) => { this.project.buses[k][id] = v; this.send({ type: 'setBus', bus: k, id, value: v }); },
+    // As the bus is now: a free slot's VOLUME named by its effect, its two controls the loaded
+    // effect's own (stored and sent as knob positions, shown in the effect's units).
+    const { spec, control } = busKnob(k, id, this.project.buses[k])!;
+    const stored = busParam(k, id)!;
+    const shown = (b: Readonly<Record<string, number>> | undefined) => {
+      const v = b?.[id] ?? stored.defaultValue;
+      return control ? controlValue(spec, v) : v;
     };
+    const put = (pid: string, v: number) => { this.project.buses[k][pid] = v; this.send({ type: 'setBus', bus: k, id: pid, value: v }); };
+    return {
+      label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`, auto: control ? { key: `b:${k}:${id}`, norm: spec } : { key: `b:${k}:${id}` },
+      get: () => shown(this.project.buses[k]),
+      base: () => shown(this.savedProject().buses[k]),
+      set: (v: number) => {
+        const type = /^s(\d)_type$/.exec(id);
+        const before = type ? slotFamily(k, Number(type[1]), this.project.buses[k]) : -1;
+        put(id, control ? controlStored(spec, v) : v);
+        // A TYPE of another family: the slot's two controls go to that effect's defaults.
+        const after = type ? slotFamily(k, Number(type[1]), this.project.buses[k]) : -1;
+        if (type && after !== before) {
+          put(`s${type[1]}_a`, controlNorm(after, 'a'));
+          put(`s${type[1]}_b`, controlNorm(after, 'b'));
+        }
+      },
+    };
+  }
+
+  /** A mixer knob's name: an FX level is named by the slot it feeds on the track's bus (COMP MIX, DELAY ...). */
+  private mixName(c: ChannelState, id: string): string {
+    const slot = (LEVEL_IDS as readonly string[]).indexOf(id);
+    if (slot >= 0) return slotName(c.bus, slot, this.project.buses[c.bus]);
+    return MIX_PARAMS.find((p) => p.id === id)?.name ?? '-';
   }
 
   /** One knob per track (knob = track number); `only` leaves the others blank. */
@@ -1312,7 +1349,7 @@ export class App {
    * top, MID CUT below (the centre is each sound's MID FREQ, SOUND page FUNC).
    */
   private mixTargets(): (KnobTarget | null)[] {
-    if (this.func) return [...this.trackRow('mix:send', 'SEND'), ...this.trackRow('mix:cut', 'CUT')];
+    if (this.func) return [...this.trackRow('mix:cut', 'CUT'), ...this.trackRow('midfreq', 'FREQ', (c) => c.instrument !== 'none')];
     return [...this.trackRow('mix:volume', 'VOL'), ...this.trackRow('mix:pan', 'PAN')];
   }
 
@@ -3431,14 +3468,13 @@ export class App {
 
   /**
    * A knob above the knob panel (TRACK_KNOBS): the project's MASTER / TEMPO, or the selected
-   * track's VOLUME / PAN / FX1 SEND / FX2 SEND, as on the MIX page.
+   * track's four FX levels (named by what each slot of its bus holds).
    */
   private trackKnob(id: string): KnobTarget | null {
     const key = TRACK_KNOBS[id];
     if (key?.startsWith('global:')) return this.globalTarget(key.slice(7) as GlobalId);
     if (!key || this.channel.instrument === 'none') return null;
-    const spec = MIX_PARAMS.find((p) => `mix:${p.id}` === key) as ParamSpec;
-    return this.paramTarget(this.selected, key, spec.name, true);
+    return this.paramTarget(this.selected, key, undefined, true);
   }
 
   /** A project-wide knob (TEMPO, SWING, MASTER, TIME SIG): neutral grey, saved-value yellow. */
@@ -3870,8 +3906,7 @@ export class App {
   private laneAt(t: KnobTarget, p: number): number {
     const pts = this.project.song.auto?.[t.auto!.key];
     if (!pts?.length) return NaN;
-    const scale = t.auto!.scale ?? 1;
-    return valueAt(pts.map((q) => q[0]), pts.map((q) => q[1]), pts.length, p, scale === 1 ? t.spec : null) / scale;
+    return autoShown(t, valueAt(pts.map((q) => q[0]), pts.map((q) => q[1]), pts.length, p, autoPlain(t) ? t.spec : null));
   }
 
   /**
@@ -3895,7 +3930,6 @@ export class App {
   private heardValue(t: KnobTarget): number {
     const st = this.status;
     if (!st || !st.playing || !t.auto) return NaN;
-    const scale = t.auto.scale ?? 1;
     if (this.songPlaying && st.songRow >= 0) {
       const v = this.laneAt(t, this.songCell(st.songRow, st.songBar, st.barPhase, st.barSteps));
       if (v === v) return v;
@@ -3915,8 +3949,8 @@ export class App {
         const v = pat.steps[i].locks?.[key];
         if (v !== undefined) { pos.push(i); val.push(v); }
       }
-      const v = valueAt(pos, val, pos.length, idx, scale === 1 ? t.spec : null);
-      if (v === v) return v / scale;
+      const v = valueAt(pos, val, pos.length, idx, autoPlain(t) ? t.spec : null);
+      if (v === v) return autoShown(t, v);
     }
     return NaN;
   }
@@ -4069,7 +4103,7 @@ export class App {
   /** A knob's lock on a pattern step, in its own units; NaN = none. */
   private lockAt(t: KnobTarget, ch: number, p: number, index: number): number {
     const v = this.project.channels[ch].patterns[p].steps[index]?.locks?.[this.lockKey(t.auto!.key, ch)];
-    return v === undefined ? NaN : v / (t.auto!.scale ?? 1);
+    return v === undefined ? NaN : autoShown(t, v);
   }
 
   /** STEP EDIT strip: tap the yellow step = lock; another = prime it; CLEAR + step = its locks go. */
@@ -4138,7 +4172,7 @@ export class App {
       const pat = this.project.channels[ch].patterns[p];
       const step = pat.steps[pr.cell];
       const locks = { ...step.locks };
-      for (const [key, { t, v }] of pr.staged) locks[this.lockKey(key, ch)] = v * (t.auto?.scale ?? 1);
+      for (const [key, { t, v }] of pr.staged) locks[this.lockKey(key, ch)] = autoStored(t, v);
       this.unprime();
       this.primeAt(pr.cell);
       if (n === 0) {
@@ -4156,7 +4190,7 @@ export class App {
     const lanes = (this.project.song.auto ??= {});
     for (const [key, { t, v }] of pr.staged) {
       const pts = (lanes[key] ?? []).filter((q) => q[0] !== pr.cell);
-      pts.push([pr.cell, v * (t.auto?.scale ?? 1)]);
+      pts.push([pr.cell, autoStored(t, v)]);
       pts.sort((a, b) => a[0] - b[0]);
       lanes[key] = pts;
     }
@@ -4871,7 +4905,8 @@ export class App {
     for (const name of PATTERN_NAMES) this.panel.setButtonText(`pat${name}`, `<small>${quick ? 'QUICK' : 'PATTERN'}</small>${name}`);
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       const name = n === 4 ? 'LFO' : n === 3 ? 'ARP' : `FX ${n}`;
-      this.panel.setButtonText(`fx${n}`, this.func && !this.songGrid && !this.menu ? `${name}<small>ON/OFF</small>` : name);
+      // With ALT: FX 1 / FX 2 = the selected track onto that bus; ARP / LFO = on / off.
+      this.panel.setButtonText(`fx${n}`, this.func && !this.songGrid && !this.menu ? `${name}<small>${n <= NUM_BUSES ? 'PUT ON' : 'ON/OFF'}</small>` : name);
     }
     // CLEAR held: what a tap would clear (steps; tracks and A-H but in SONG).
     const clearing = this.clearHeld && !this.songGrid;
@@ -5386,7 +5421,7 @@ export class App {
       slots: this.slots(),
       touchedSlot: this.touchedKnob,
       liveLabel: members.length ? `TRACKS ${members.join(' ')}` : 'NO TRACKS',
-      chordLabel: 'ALT+TRACK = ON/OFF',
+      chordLabel: this.fxView === 4 ? 'ALT+TRACK = ON/OFF' : 'ALT+TRACK = MOVE HERE',
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,
@@ -5433,7 +5468,7 @@ export class App {
       liveLabel: this.func
         ? `ALT LIVE ${liveName(c.liveFunc[0])} + ${liveName(c.liveFunc[1])}`
         : `LIVE ${liveName(c.live[0])} + ${liveName(c.live[1])}`,
-      chordLabel: [c.fx1 ? 'FX1' : '', c.fxSend ? `FX${c.fxSend}` : '', c.lfoOn ? 'LFO' : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
+      chordLabel: [`FX${c.bus + 1}`, c.lfoOn ? 'LFO' : '', !isDrum(c.instrument) && c.chord > 0 ? CHORD_NAMES[c.chord] : ''].filter(Boolean).join(' '),
       peak: audio.peak,
       footerRight: f.text,
       footerAlert: f.alert,

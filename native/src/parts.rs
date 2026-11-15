@@ -175,7 +175,7 @@ pub extern "C" fn part_run(h: usize, n: usize) {
         match part {
             Part::Drum(d) => d.render(&mut ol[..n], &mut or[..n], 0, n),
             Part::Synth(s) => s.render(&mut ol[..n], &mut or[..n], 0, n),
-            Part::Bus(b) => b.process(&mut il[..n], &mut ir[..n], &mut ol[..n], &mut or[..n]),
+            Part::Bus(b) => b.process_all(&il[..n], &ir[..n], &mut ol[..n], &mut or[..n]),
             Part::Limiter(l) => l.process(&mut ol[..n], &mut or[..n]),
             Part::Cut(c) => c.process(&mut ol[..n], &mut or[..n]),
         }

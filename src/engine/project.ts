@@ -2,9 +2,8 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 86;
-/** FX 1 = the drum bus (tracks pass through it), FX 2 = the send (buses.ts); fxSend 2 = on FX 2. */
-export const NUM_SENDS = 2;
+export const PROJECT_VERSION = 87;
+/** The FX buses (buses.ts): FX 1 = the drum processor, FX 2 = the synths' multi FX; a track is on one. */
 export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 8;
 export const MAX_STEPS = 128;
@@ -101,7 +100,7 @@ export function chainBefore85(kind: InstrumentKind): number {
 }
 
 /** Live-knob target: an instrument param id, or a mixer param. */
-export type LiveTarget = string; // e.g. "t_decay", "cutoff", "mix:volume", "mix:send"
+export type LiveTarget = string; // e.g. "t_decay", "cutoff", "mix:volume", "mix:lvl2"
 
 export interface Step {
   active: boolean;
@@ -317,12 +316,16 @@ export interface ChannelState {
   notes: number;
   volume: number; // 0..1
   pan: number; // -1..1
-  /** FX 1 SEND: how much of the track goes through FX 1, the drum insert (0-1; the rest straight out; independent of its send). */
-  fx1: number;
-  /** Which send the track feeds: 0 = none, 2 = FX 2. */
-  fxSend: number;
-  /** How much of the track goes to its send, 0..1. */
-  sendLevel: number;
+  /** The FX bus the track is on: 0 = FX 1 (the drum processor), 1 = FX 2 (the synths' multi FX). */
+  bus: number;
+  /**
+   * Its level (0-1) into each of that bus's four slots (fx/buses.ts): on FX 1 COMP MIX, two
+   * sends, FILTER MIX; on FX 2 four sends. 0 = not in that effect at all.
+   */
+  lvl1: number;
+  lvl2: number;
+  lvl3: number;
+  lvl4: number;
   /** ACC/GHOST: how far accents and ghosts sit from normal hits, % (100 = as designed). */
   dynamics: number;
   /** TRIM (mix id 'gate'): how long each sequenced note's last step is held, in steps (1/8 .. 2; 1 = as entered). */
@@ -402,15 +405,17 @@ export function emptyChannel(): ChannelState {
     trims: {},
     presets: {},
     live: ['mix:volume', 'mix:pan'],
-    liveFunc: ['mix:send', 'mix:pan'],
+    liveFunc: ['mix:lvl1', 'mix:pan'],
     liveOffset: {},
     chord: 0,
     notes: MAX_CHORD_NOTES,
     volume: 0.8,
     pan: 0,
-    fx1: 0,
-    fxSend: 0,
-    sendLevel: 0.5,
+    bus: 1,
+    lvl1: 0,
+    lvl2: 0,
+    lvl3: 0,
+    lvl4: 0,
     dynamics: 100,
     gateLength: 1,
     ringLength: 1,

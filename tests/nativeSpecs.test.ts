@@ -10,7 +10,7 @@ import type { ParamSpec } from '../src/engine/params';
 import { MIX_PARAMS } from '../src/engine/mixParams';
 import { ARP_PARAMS } from '../src/engine/arp';
 import { LFO_PARAMS } from '../src/engine/lfo';
-import { BUS_PARAMS } from '../src/fx/buses';
+import { BUS_PARAMS, FX_BANK, FX_FAMILIES } from '../src/fx/buses';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams } from '../src/instruments/registry';
 
 const FILE = 'native/src/specs.rs';
@@ -32,6 +32,8 @@ function generate(): string {
   out += `\n/// The type's output trim (InstrumentEntry.gain).\npub fn type_gain(kind: SoundKind) -> f64 {\n    match kind {\n${SOUND_KINDS.map((k) => `        SoundKind::${k[0].toUpperCase()}${k.slice(1)} => ${num(INSTRUMENTS[k].gain ?? 1)},`).join('\n')}\n    }\n}\n\n`;
   out += list('MIX_PARAMS', MIX_PARAMS);
   BUS_PARAMS.forEach((b, i) => { out += list(`BUS${i}_PARAMS`, b); });
+  out += `\n/// The bank a free FX slot's TYPE picks from: (the unit's mode name, its family: 0 DIST, 1 MOD, 2 DELAY, 3 VERB).\npub static FX_BANK: [(&str, usize); ${FX_BANK.length}] = [${FX_BANK.map((t) => `("${t.name}", ${t.family})`).join(', ')}];\n`;
+  out += `\n/// Each family's two controls (the unit's own ids and scales; a slot stores knob positions).\npub static FX_FAMILY_SPECS: [[Spec; 2]; ${FX_FAMILIES.length}] = [\n${FX_FAMILIES.map((f) => `    [${spec(f.a)}, ${spec(f.b)}],`).join('\n')}\n];\n`;
   out += list('LFO_PARAMS', Object.values(LFO_PARAMS));
   out += list('ARP_PARAMS', ARP_PARAMS);
   out += `\n/// A live macro's targets: (param id, amount, top).\npub type Macro = (&'static str, &'static [(&'static str, f64, bool)]);\n\n/// LIVE_MACROS per type.\npub fn live_macros(kind: SoundKind) -> &'static [Macro] {\n    match kind {\n`;

@@ -1,23 +1,28 @@
 /**
- * The two FX buses (pure data: shared by the engine, the UI and the save file). v81: the old
- * FX 2 (the PAD's send) went (the PAD has its own LOW CUT / MOD / VERB); the old FX 3 is FX 2.
+ * The two FX buses (pure data: shared by the engine, the UI and the save file).
  *
- * Every bus is four units of two knob modules each (no FUNC layer). An effect unit's first
- * module is VOLUME (its return level; labelled with the effect) over TYPE, its second the
- * two controls of that effect:
- *  FX 1  drums: COMP (in series on the drums: RATIO / THRESH, ATTACK / RELEASE), MOD
- *        (FLANGER, PHASER), DELAY (TAPE, SWEEP, REVERSE), FILTER (FILTER / RESO, ENV / ENV
- *        REL). The drums stay in the mix (through COMP); MOD and DELAY return alongside
- *        them, and FILTER (after COMP) takes the drums and both returns.
- *  FX 2  LEAD (a send): DIST (TUBE, FUZZ, BIT), DELAY (PING-PONG, DUB TAPE, SLAPBACK), VERB
- *        (ROOM, PLATE, SPRING), TONE (LOW CUT / HI CUT, DUCK / DUCK REL: the lead's own
- *        playing ducks its echoes, so they bloom in the gaps).
+ * Every track is on one bus (`ChannelState.bus`) and has a level into each of its four slots
+ * (`fxLevels`), so it can feed one effect without the others. A slot is two knob modules:
+ *  FX 1  the drum processor: COMP (slot 1: RATIO / THRESH, ATTACK / RELEASE; in parallel: a
+ *        track's level is its MIX, that much of it through the compressor, the rest straight
+ *        out), two free effects (slots 2-3), FILTER (slot 4: FILTER / RESO, ENV / ENV REL;
+ *        one set of knobs, a filter of its own on every track, before everything else; the
+ *        track's level is its MIX).
+ *  FX 2  the synths' multi FX: four free effects. Their returns pass a built-in TONE (LOW
+ *        CUT 200 Hz / HI CUT 16 kHz, DUCK under what the tracks send): no knobs; a project
+ *        keeps the values it was saved with (`tone_...`).
+ * A free slot: VOLUME (its return level; labelled with the effect) over TYPE, then the two
+ * controls of whatever it holds. TYPE picks from the whole bank (`FX_BANK`: DIST, MOD, DELAY
+ * and VERB types in one list), so a bus can hold four choruses; the controls are stored as
+ * knob positions (0-1) and read in the loaded effect's own scale (`FX_FAMILIES`: MOD RATE /
+ * DEPTH, DELAY RATE (tempo-synced) / FDBK, VERB SIZE / LENGTH, DIST DRIVE / TONE), so a TYPE of
+ * another family leaves the knobs where they are and gives them its own meaning (the UI puts
+ * them on that family's defaults).
  * FILTER: one knob, low-pass left of the centre, high-pass right, off in the middle
- * (djCutoff); RESO; ENV (the bus's level lifts (+) or lowers (-) the cutoff on every hit, up
- * to 8 octaves) / ENV REL (how fast that falls back). MOD: RATE / DEPTH. DELAY: RATE (tempo-synced) / FEEDBACK. VERB: SIZE / LENGTH. DIST:
- * DRIVE / TONE.
+ * (djCutoff); RESO; ENV (the track's level lifts (+) or lowers (-) its cutoff on every hit,
+ * up to 8 octaves) / ENV REL (how fast that falls back).
  */
-import { choice, type ParamSpec } from '../engine/params';
+import { choice, toNorm, toValue, type ParamSpec } from '../engine/params';
 
 /**
  * FX 1's COMP (the engine's: native/src/fx/compressor.rs): THRESH and RATIO set how hard
@@ -33,8 +38,6 @@ const COMP_PARAMS: readonly ParamSpec[] = [
 
 export const NUM_BUSES = 2;
 
-type UnitKind = 'comp' | 'mod' | 'delay' | 'verb' | 'drive' | 'tone' | 'filter';
-
 /** Tempo-synced delay times, in 16th steps. */
 export const FX_DELAY_TIMES = [
   { name: '1/32', steps: 0.5 }, { name: '1/16T', steps: 2 / 3 }, { name: '1/16', steps: 1 }, { name: '1/8T', steps: 4 / 3 },
@@ -42,123 +45,183 @@ export const FX_DELAY_TIMES = [
   { name: '3/8', steps: 6 }, { name: '1/2', steps: 8 }, { name: '3/4', steps: 12 }, { name: '1 BAR', steps: 16 },
 ] as const;
 
-/** TONE's ducking: PUMP follows the KICK, DUCK follows the bus's own input. */
-type DuckSource = 'kick' | 'input';
-
-interface UnitDef {
-  kind: UnitKind;
-  /** TYPE choices (engine mode names), for effect units. */
-  types?: readonly string[];
-  /** TONE: what ducks the returns. */
-  duck?: DuckSource;
-  /** Starting values (by param id; the rest from the specs). */
-  defaults: Readonly<Record<string, number>>;
-}
-
-interface BusDef {
-  name: string;
-  /** FX 1: the members pass through it (COMP in series), not a send. */
-  insert: boolean;
-  units: readonly UnitDef[];
-}
-
-export const BUSES: readonly BusDef[] = [
-  {
-    name: 'FX 1', insert: true, units: [
-      { kind: 'comp', defaults: {} },
-      { kind: 'mod', types: ['FLANGER', 'PHASER'], defaults: { mod_vol: 0, mod_rate: 0.3, mod_depth: 0.5 } },
-      { kind: 'delay', types: ['TAPE', 'SWEEP', 'REVERSE'], defaults: { dly_vol: 0, dly_rate: 4, dly_fdbk: 0.35 } },
-      { kind: 'filter', defaults: {} },
-    ],
-  },
-  {
-    name: 'FX 2', insert: false, units: [
-      { kind: 'drive', types: ['TUBE', 'FUZZ', 'BIT'], defaults: { drv_vol: 0, drv_drive: 0.4, drv_tone: 5000 } },
-      { kind: 'delay', types: ['PING-PONG', 'DUB TAPE', 'SLAPBACK'], defaults: { dly_vol: 0.35, dly_rate: 5, dly_fdbk: 0.4 } },
-      { kind: 'verb', types: ['ROOM', 'PLATE', 'SPRING'], defaults: { vrb_vol: 0.25, vrb_type: 1, vrb_size: 0.5, vrb_len: 0.5 } },
-      { kind: 'tone', duck: 'input', defaults: { tone_low: 200, tone_high: 16000, tone_duck: 0.4, tone_rel: 0.3 } },
-    ],
-  },
-];
-
 const linear = (id: string, name: string, min: number, max: number, defaultValue: number, unit = '', decimals?: number): ParamSpec =>
   ({ id, name, min, max, defaultValue, unit, curve: 'linear', ...(decimals !== undefined ? { decimals } : {}) });
 const exp = (id: string, name: string, min: number, max: number, defaultValue: number, unit: string, decimals?: number): ParamSpec =>
   ({ id, name, min, max, defaultValue, unit, curve: 'exp', ...(decimals !== undefined ? { decimals } : {}) });
 
-const COMP = Object.fromEntries(COMP_PARAMS.map((p) => [p.id, p]));
-
 /**
- * A unit's four knobs in panel order: module 1 top, module 1 bottom, module 2 top, module 2
- * bottom (an effect: VOLUME, TYPE, then its two controls).
+ * The effect families a free slot can hold: the name on its VOLUME knob and its two
+ * controls (ids = the engine unit's own, native/src/fx/units.rs).
  */
-function unitSpecs(u: UnitDef): ParamSpec[] {
-  const types = u.types ?? [];
-  const specs: ParamSpec[] = (() => {
-    switch (u.kind) {
-      case 'comp': return [
-        { ...COMP.cmp_ratio, name: 'RATIO' }, { ...COMP.cmp_thresh, name: 'THRESH' },
-        { ...COMP.cmp_attack, name: 'ATTACK' }, { ...COMP.cmp_release, name: 'RELEASE' },
-      ];
-      case 'mod': return [
-        linear('mod_vol', 'MOD', 0, 1, 0), choice('mod_type', 'TYPE', types),
-        exp('mod_rate', 'RATE', 0.05, 10, 0.5, 'HZ', 2), linear('mod_depth', 'DEPTH', 0, 1, 0.5),
-      ];
-      case 'delay': return [
-        linear('dly_vol', 'DELAY', 0, 1, 0), choice('dly_type', 'TYPE', types),
-        choice('dly_rate', 'RATE', FX_DELAY_TIMES.map((d) => d.name), 4), linear('dly_fdbk', 'FDBK', 0, 1.1, 0.4),
-      ];
-      case 'verb': return [
-        linear('vrb_vol', 'VERB', 0, 1, 0), choice('vrb_type', 'TYPE', types),
-        linear('vrb_size', 'SIZE', 0, 1, 0.5), linear('vrb_len', 'LENGTH', 0, 1, 0.5),
-      ];
-      case 'drive': return [
-        linear('drv_vol', 'DIST', 0, 1, 0), choice('drv_type', 'TYPE', types),
-        linear('drv_drive', 'DRIVE', 0, 1, 0.4), exp('drv_tone', 'TONE', 300, 16000, 5000, 'HZ', 0),
-      ];
-      case 'filter': return [
-        { ...linear('flt', 'FILTER', 0, 1, 0.5), display: 'dj' }, linear('flt_reso', 'RESO', 0, 1, 0),
-        linear('flt_env', 'ENV', -1, 1, 0), exp('flt_rel', 'ENV REL', 0.005, 2, 0.15, 'S', 3),
-      ];
-      case 'tone': {
-        const pump = u.duck === 'kick';
-        return [
-          exp('tone_low', 'LOW CUT', 20, 1000, 20, 'HZ', 0), exp('tone_high', 'HI CUT', 1000, 20000, 20000, 'HZ', 0),
-          linear('tone_duck', pump ? 'PUMP' : 'DUCK', 0, 1, 0), exp('tone_rel', pump ? 'PUMP REL' : 'DUCK REL', 0.03, 2, 0.25, 'S', 2),
-        ];
-      }
-    }
-  })();
-  return specs.map((s) => ({ ...s, defaultValue: u.defaults[s.id] ?? s.defaultValue }));
+export const FX_FAMILIES: readonly { name: string; a: ParamSpec; b: ParamSpec }[] = [
+  { name: 'DIST', a: linear('drv_drive', 'DRIVE', 0, 1, 0.4), b: exp('drv_tone', 'TONE', 300, 16000, 5000, 'HZ', 0) },
+  { name: 'MOD', a: exp('mod_rate', 'RATE', 0.05, 10, 0.5, 'HZ', 2), b: linear('mod_depth', 'DEPTH', 0, 1, 0.5) },
+  { name: 'DELAY', a: choice('dly_rate', 'RATE', FX_DELAY_TIMES.map((d) => d.name), 4), b: linear('dly_fdbk', 'FDBK', 0, 1.1, 0.4) },
+  { name: 'VERB', a: linear('vrb_size', 'SIZE', 0, 1, 0.5), b: linear('vrb_len', 'LENGTH', 0, 1, 0.5) },
+];
+const [DIST, MOD, DELAY, VERB] = [0, 1, 2, 3];
+
+/** The bank a free slot's TYPE picks from (the engine's mode names), family by family. */
+export const FX_BANK: readonly { name: string; family: number }[] = [
+  ...['TUBE', 'FUZZ', 'BIT'].map((name) => ({ name, family: DIST })),
+  ...['CHORUS', 'FLANGER', 'PHASER'].map((name) => ({ name, family: MOD })),
+  ...['TAPE', 'SWEEP', 'REVERSE', 'PING-PONG', 'DUB TAPE', 'SLAPBACK'].map((name) => ({ name, family: DELAY })),
+  ...['ROOM', 'PLATE', 'SPRING', 'HALL'].map((name) => ({ name, family: VERB })),
+];
+/** A bank entry's index by name. */
+export const fxType = (name: string): number => Math.max(0, FX_BANK.findIndex((t) => t.name === name));
+
+type SlotDef =
+  | { kind: 'comp' | 'filter' }
+  /** A free slot `n` (its ids `s<n>_vol` ...): what it holds to start with (control values in real units). */
+  | { kind: 'free'; n: number; type: string; vol: number; a?: number; b?: number };
+
+interface BusDef {
+  name: string;
+  slots: readonly SlotDef[];
+  /** FX 2's built-in TONE (no knobs): its settings. */
+  tone?: Readonly<Record<string, number>>;
 }
 
-/** Each bus's parameters, by id. */
-export const BUS_PARAMS: readonly (readonly ParamSpec[])[] = BUSES.map((b) => b.units.flatMap(unitSpecs));
+export const BUSES: readonly BusDef[] = [
+  {
+    name: 'FX 1', slots: [
+      { kind: 'comp' },
+      { kind: 'free', n: 2, type: 'FLANGER', vol: 0, a: 0.3 },
+      { kind: 'free', n: 3, type: 'TAPE', vol: 0, b: 0.35 },
+      { kind: 'filter' },
+    ],
+  },
+  {
+    name: 'FX 2', slots: [
+      { kind: 'free', n: 1, type: 'TUBE', vol: 0 },
+      { kind: 'free', n: 2, type: 'PING-PONG', vol: 0.35, a: 5 },
+      { kind: 'free', n: 3, type: 'PLATE', vol: 0.25 },
+      { kind: 'free', n: 4, type: 'CHORUS', vol: 0 },
+    ],
+    tone: { tone_low: 200, tone_high: 16000, tone_duck: 0.4, tone_rel: 0.3 },
+  },
+];
 
-/** Each bus's 16 knobs (top row, then bottom row): unit u on modules 2u + 1 and 2u + 2. */
+const COMP = Object.fromEntries(COMP_PARAMS.map((p) => [p.id, p]));
+
+/** A control's default knob position for a family (`which`: 'a' / 'b'), or of a real value. */
+export function controlNorm(family: number, which: 'a' | 'b', value?: number): number {
+  const spec = FX_FAMILIES[family][which];
+  return toNorm(spec, value ?? spec.defaultValue);
+}
+
+/**
+ * A slot's four knobs in panel order: module 1 top, module 1 bottom, module 2 top, module 2
+ * bottom (a free slot: VOLUME, TYPE, then its two controls as knob positions).
+ */
+function slotSpecs(u: SlotDef): ParamSpec[] {
+  switch (u.kind) {
+    case 'comp': return [
+      { ...COMP.cmp_ratio, name: 'RATIO' }, { ...COMP.cmp_thresh, name: 'THRESH' },
+      { ...COMP.cmp_attack, name: 'ATTACK' }, { ...COMP.cmp_release, name: 'RELEASE' },
+    ];
+    case 'filter': return [
+      { ...linear('flt', 'FILTER', 0, 1, 0.5), display: 'dj' }, linear('flt_reso', 'RESO', 0, 1, 0),
+      linear('flt_env', 'ENV', -1, 1, 0), exp('flt_rel', 'ENV REL', 0.005, 2, 0.15, 'S', 3),
+    ];
+    case 'free': {
+      const t = fxType(u.type);
+      const family = FX_BANK[t].family;
+      return [
+        linear(`s${u.n}_vol`, 'FX', 0, 1, u.vol),
+        choice(`s${u.n}_type`, 'TYPE', FX_BANK.map((b) => b.name), t),
+        linear(`s${u.n}_a`, 'A', 0, 1, controlNorm(family, 'a', u.a)),
+        linear(`s${u.n}_b`, 'B', 0, 1, controlNorm(family, 'b', u.b)),
+      ];
+    }
+  }
+}
+
+/** FX 2's TONE: stored and sent with the bus, on no knob. */
+const TONE_PARAMS: readonly ParamSpec[] = [
+  exp('tone_low', 'LOW CUT', 20, 1000, 20, 'HZ', 0), exp('tone_high', 'HI CUT', 1000, 20000, 20000, 'HZ', 0),
+  linear('tone_duck', 'DUCK', 0, 1, 0), exp('tone_rel', 'DUCK REL', 0.03, 2, 0.25, 'S', 2),
+];
+
+/** Each bus's parameters, by id (as stored and sent: a free slot's controls as knob positions). */
+export const BUS_PARAMS: readonly (readonly ParamSpec[])[] = BUSES.map((b) => [
+  ...b.slots.flatMap(slotSpecs),
+  ...(b.tone ? TONE_PARAMS.map((s) => ({ ...s, defaultValue: b.tone![s.id] ?? s.defaultValue })) : []),
+]);
+
+/** Each bus's 16 knobs (top row, then bottom row): slot u on modules 2u + 1 and 2u + 2. */
 export const BUS_LAYOUT: readonly (readonly string[])[] = BUSES.map((b) => {
   const top: string[] = [];
   const bottom: string[] = [];
-  for (const u of b.units) {
-    const [m1t, m1b, m2t, m2b] = unitSpecs(u).map((s) => s.id);
+  for (const u of b.slots) {
+    const [m1t, m1b, m2t, m2b] = slotSpecs(u).map((s) => s.id);
     top.push(m1t, m2t);
     bottom.push(m1b, m2b);
   }
   return [...top, ...bottom];
 });
 
-/**
- * What a live knob may take from the buses: each effect's VOLUME and FX 1's FILTER (a unit's
- * first knob; not COMP / TONE), id "fx<n>:<param>", named "FX<n>:<knob>".
- */
-export const FX_LIVE: readonly { id: string; bus: number; param: string; name: string }[] = BUSES.flatMap((b, k) =>
-  b.units.filter((u) => u.kind !== 'comp' && u.kind !== 'tone').map((u) => {
-    const spec = unitSpecs(u)[0];
-    return { id: `fx${k + 1}:${spec.id}`, bus: k, param: spec.id, name: `FX${k + 1}:${spec.name}` };
-  }));
-
 export function busParam(bus: number, id: string): ParamSpec | undefined {
   return BUS_PARAMS[bus]?.find((p) => p.id === id);
+}
+
+/** A free slot's knob id: its slot number and which knob (null: not one). */
+function slotKnob(id: string): { n: number; knob: 'vol' | 'type' | 'a' | 'b' } | null {
+  const m = /^s(\d)_(vol|type|a|b)$/.exec(id);
+  return m ? { n: Number(m[1]), knob: m[2] as 'vol' | 'type' | 'a' | 'b' } : null;
+}
+
+/** The family of the effect a bus's free slot `n` holds now (`values`: the bus's settings). */
+export function slotFamily(bus: number, n: number, values: Readonly<Record<string, number>>): number {
+  const t = Math.round(values[`s${n}_type`] ?? busParam(bus, `s${n}_type`)?.defaultValue ?? 0);
+  return FX_BANK[Math.min(FX_BANK.length - 1, Math.max(0, t))].family;
+}
+
+/**
+ * A bus knob as the panel shows it with the bus's settings as they are: a free slot's
+ * VOLUME carries its effect's name, its controls are the loaded effect's own (`control`:
+ * the stored value is a knob position, shown and set through this spec, `controlValue` /
+ * `controlStored`); every other knob is as stored.
+ */
+export function busKnob(bus: number, id: string, values: Readonly<Record<string, number>>): { spec: ParamSpec; control: boolean } | undefined {
+  const spec = busParam(bus, id);
+  if (!spec) return undefined;
+  const k = slotKnob(id);
+  if (!k || k.knob === 'type') return { spec, control: false };
+  const family = FX_FAMILIES[slotFamily(bus, k.n, values)];
+  if (k.knob === 'vol') return { spec: { ...spec, name: family.name }, control: false };
+  // The family's own spec under the slot's id, its default where the family's is.
+  return { spec: { ...family[k.knob], id }, control: true };
+}
+/** A free slot's control: its stored knob position as the value the panel shows, and back. */
+export const controlValue = (spec: ParamSpec, stored: number): number => toValue(spec, stored);
+export const controlStored = (spec: ParamSpec, value: number): number => toNorm(spec, value);
+
+/**
+ * The name of slot `slot` (0-3) of a bus as the track's level knob shows it: COMP MIX,
+ * FILTER MIX, or the loaded effect's family, numbered where the bus holds it more than once
+ * (DELAY 1, DELAY 2).
+ */
+export function slotName(bus: number, slot: number, values: Readonly<Record<string, number>>): string {
+  const names = BUSES[bus].slots.map((u) => (u.kind === 'free' ? FX_FAMILIES[slotFamily(bus, u.n, values)].name : u.kind === 'comp' ? 'COMP MIX' : 'FLT MIX'));
+  const name = names[slot] ?? '';
+  if (names.filter((x) => x === name).length < 2) return name;
+  return `${name} ${names.slice(0, slot + 1).filter((x) => x === name).length}`;
+}
+
+/**
+ * What a live knob may take from the buses: each free slot's VOLUME and FX 1's FILTER, id
+ * "fx<n>:<param>"; `fxLiveName` names it with what the slot holds ("FX1:DELAY").
+ */
+export const FX_LIVE: readonly { id: string; bus: number; param: string }[] = BUSES.flatMap((b, k) =>
+  b.slots.filter((u) => u.kind !== 'comp').map((u) => {
+    const param = u.kind === 'free' ? `s${u.n}_vol` : 'flt';
+    return { id: `fx${k + 1}:${param}`, bus: k, param };
+  }));
+export function fxLiveName(fx: { bus: number; param: string }, values: Readonly<Record<string, number>>): string {
+  return `FX${fx.bus + 1}:${busKnob(fx.bus, fx.param, values)?.spec.name ?? ''}`;
 }
 
 /** A bus's starting settings. */
@@ -169,4 +232,3 @@ export function defaultBus(bus: number): Record<string, number> {
 export function defaultBuses(): Record<string, number>[] {
   return BUSES.map((_, k) => defaultBus(k));
 }
-

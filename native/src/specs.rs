@@ -304,51 +304,68 @@ pub fn type_gain(kind: SoundKind) -> f64 {
     }
 }
 
-pub static MIX_PARAMS: [Spec; 8] = [
+pub static MIX_PARAMS: [Spec; 10] = [
     Spec { id: "volume", min: 0.0, max: 1.0, default: 0.8, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "pan", min: -1.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "send", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "dyn", min: 0.0, max: 200.0, default: 100.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "cut", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "gate", min: 0.125, max: 2.0, default: 1.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "ring", min: 0.25, max: 4.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
-    Spec { id: "fx1", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "lvl1", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "lvl2", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "lvl3", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "lvl4", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
 ];
 pub static BUS0_PARAMS: [Spec; 16] = [
     Spec { id: "cmp_ratio", min: 1.0, max: 20.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "cmp_thresh", min: -60.0, max: 0.0, default: -18.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "cmp_attack", min: 0.0001, max: 0.1, default: 0.005, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "cmp_release", min: 0.01, max: 2.0, default: 0.15, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
-    Spec { id: "mod_vol", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "mod_type", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 2, coarse: true },
-    Spec { id: "mod_rate", min: 0.05, max: 10.0, default: 0.3, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
-    Spec { id: "mod_depth", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "dly_vol", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "dly_type", min: 0.0, max: 2.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 3, coarse: true },
-    Spec { id: "dly_rate", min: 0.0, max: 11.0, default: 4.0, curve: Curve::Linear, power: 2.0, options: 12, coarse: true },
-    Spec { id: "dly_fdbk", min: 0.0, max: 1.1, default: 0.35, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s2_vol", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s2_type", min: 0.0, max: 15.0, default: 4.0, curve: Curve::Linear, power: 2.0, options: 16, coarse: true },
+    Spec { id: "s2_a", min: 0.0, max: 1.0, default: 0.3381751875681663, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s2_b", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s3_vol", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s3_type", min: 0.0, max: 15.0, default: 6.0, curve: Curve::Linear, power: 2.0, options: 16, coarse: true },
+    Spec { id: "s3_a", min: 0.0, max: 1.0, default: 0.36363636363636365, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s3_b", min: 0.0, max: 1.0, default: 0.3181818181818181, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "flt", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "flt_reso", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "flt_env", min: -1.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "flt_rel", min: 0.005, max: 2.0, default: 0.15, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static BUS1_PARAMS: [Spec; 16] = [
-    Spec { id: "drv_vol", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "drv_type", min: 0.0, max: 2.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 3, coarse: true },
-    Spec { id: "drv_drive", min: 0.0, max: 1.0, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "drv_tone", min: 300.0, max: 16000.0, default: 5000.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
-    Spec { id: "dly_vol", min: 0.0, max: 1.0, default: 0.35, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "dly_type", min: 0.0, max: 2.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 3, coarse: true },
-    Spec { id: "dly_rate", min: 0.0, max: 11.0, default: 5.0, curve: Curve::Linear, power: 2.0, options: 12, coarse: true },
-    Spec { id: "dly_fdbk", min: 0.0, max: 1.1, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "vrb_vol", min: 0.0, max: 1.0, default: 0.25, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "vrb_type", min: 0.0, max: 2.0, default: 1.0, curve: Curve::Linear, power: 2.0, options: 3, coarse: true },
-    Spec { id: "vrb_size", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "vrb_len", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+pub static BUS1_PARAMS: [Spec; 20] = [
+    Spec { id: "s1_vol", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s1_type", min: 0.0, max: 15.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 16, coarse: true },
+    Spec { id: "s1_a", min: 0.0, max: 1.0, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s1_b", min: 0.0, max: 1.0, default: 0.7074983495074413, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s2_vol", min: 0.0, max: 1.0, default: 0.35, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s2_type", min: 0.0, max: 15.0, default: 9.0, curve: Curve::Linear, power: 2.0, options: 16, coarse: true },
+    Spec { id: "s2_a", min: 0.0, max: 1.0, default: 0.45454545454545453, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s2_b", min: 0.0, max: 1.0, default: 0.36363636363636365, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s3_vol", min: 0.0, max: 1.0, default: 0.25, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s3_type", min: 0.0, max: 15.0, default: 13.0, curve: Curve::Linear, power: 2.0, options: 16, coarse: true },
+    Spec { id: "s3_a", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s3_b", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s4_vol", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s4_type", min: 0.0, max: 15.0, default: 3.0, curve: Curve::Linear, power: 2.0, options: 16, coarse: true },
+    Spec { id: "s4_a", min: 0.0, max: 1.0, default: 0.4345879896760937, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "s4_b", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "tone_low", min: 20.0, max: 1000.0, default: 200.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "tone_high", min: 1000.0, max: 20000.0, default: 16000.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "tone_duck", min: 0.0, max: 1.0, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "tone_rel", min: 0.03, max: 2.0, default: 0.3, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
+];
+
+/// The bank a free FX slot's TYPE picks from: (the unit's mode name, its family: 0 DIST, 1 MOD, 2 DELAY, 3 VERB).
+pub static FX_BANK: [(&str, usize); 16] = [("TUBE", 0), ("FUZZ", 0), ("BIT", 0), ("CHORUS", 1), ("FLANGER", 1), ("PHASER", 1), ("TAPE", 2), ("SWEEP", 2), ("REVERSE", 2), ("PING-PONG", 2), ("DUB TAPE", 2), ("SLAPBACK", 2), ("ROOM", 3), ("PLATE", 3), ("SPRING", 3), ("HALL", 3)];
+
+/// Each family's two controls (the unit's own ids and scales; a slot stores knob positions).
+pub static FX_FAMILY_SPECS: [[Spec; 2]; 4] = [
+    [Spec { id: "drv_drive", min: 0.0, max: 1.0, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false }, Spec { id: "drv_tone", min: 300.0, max: 16000.0, default: 5000.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false }],
+    [Spec { id: "mod_rate", min: 0.05, max: 10.0, default: 0.5, curve: Curve::Exp, power: 2.0, options: 0, coarse: false }, Spec { id: "mod_depth", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false }],
+    [Spec { id: "dly_rate", min: 0.0, max: 11.0, default: 4.0, curve: Curve::Linear, power: 2.0, options: 12, coarse: true }, Spec { id: "dly_fdbk", min: 0.0, max: 1.1, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false }],
+    [Spec { id: "vrb_size", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false }, Spec { id: "vrb_len", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false }],
 ];
 pub static LFO_PARAMS: [Spec; 14] = [
     Spec { id: "rate", min: 0.0, max: 23.0, default: 13.0, curve: Curve::Linear, power: 2.0, options: 24, coarse: false },

@@ -5,7 +5,7 @@ import { Engine, type RecordedMsg } from './rustEngine';
 import { BASS_FIXED, Drum, FxBus, Instrument, LEAD_FIXED, Limiter, PAD_FIXED, PLUCK_FIXED, Synth, TrackCut } from './rustParts';
 import { formatValue, toNorm, toValue } from '../src/engine/params';
 import { GLOBAL_PARAMS, MIX_PARAMS } from '../src/engine/mixParams';
-import { DYNAMIC_VELOCITY, METERS, NUM_PATTERNS, stepPlays, editPattern, emptyPattern, initPatterns, lockProject, patchOf, type Project, type SoundKind } from '../src/engine/project';
+import { DYNAMIC_VELOCITY, METERS, NUM_PATTERNS, stepPlays, editPattern, emptyPattern, initPatterns, lockProject, patchOf, type ChannelState, type Project, type SoundKind } from '../src/engine/project';
 import { fromStored, toStored } from '../src/engine/projectFile';
 import { applyPreset, createDefaultProject, createStartProject } from '../src/engine/defaultProject';
 import { CHORDS } from '../src/engine/chords';
@@ -24,7 +24,7 @@ import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound }
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { drumPage, linkedParams, synthPage, stepsOnStrip } from '../src/instruments/registry';
-import { BUSES, BUS_LAYOUT, BUS_PARAMS, FX_DELAY_TIMES, busParam, defaultBus } from '../src/fx/buses';
+import { BUSES, BUS_LAYOUT, FX_BANK, FX_DELAY_TIMES, busKnob, busParam, controlNorm, defaultBus, fxType } from '../src/fx/buses';
 
 const SR = 48000;
 /** A note's frequency (A4 = 440 Hz). */
@@ -90,6 +90,17 @@ function kickProject(steps: number[], opts: { length?: number; bpm?: number; swi
   kick.patterns[0].length = opts.length ?? 16;
   for (const s of steps) kick.patterns[0].steps[s].active = true;
   return p;
+}
+
+/** A free slot's settings: its TYPE by name, its VOLUME, its two controls in real units (absent: the effect's defaults). */
+function slot(n: number, type: string, vol: number, a?: number, b?: number): Record<string, number> {
+  const family = FX_BANK[fxType(type)].family;
+  return { [`s${n}_vol`]: vol, [`s${n}_type`]: fxType(type), [`s${n}_a`]: controlNorm(family, 'a', a), [`s${n}_b`]: controlNorm(family, 'b', b) };
+}
+
+/** A track that feeds no effect (its four levels at 0). */
+function noFx(c: ChannelState): void {
+  c.lvl1 = c.lvl2 = c.lvl3 = c.lvl4 = 0;
 }
 
 /** Bus k with every effect off (VOLUME 0, no ducking, no cuts), then `on` on top. */
@@ -824,7 +835,7 @@ describe('chords and gates', () => {
     p.channels[5].sounds.pad!.release = 0.02;
     p.channels[5].sounds.pad!.release2 = 0.02;
     p.channels[5].sounds.pad!.attack = 0.002;
-    p.channels[5].fxSend = 0;
+    noFx(p.channels[5]);
     p.channels[5].chord = 0;
     p.channels[5].patterns[0].steps[0].active = true;
     const plain = engineWith(p);
@@ -879,9 +890,10 @@ describe('send effects', () => {
   it('a track routed to a send gets that send\'s effects (FX 2 delay = 1/4 note)', () => {
     const dry = kickProject([0], { bpm: 120 });
     const wet = kickProject([0], { bpm: 120 });
-    wet.channels[0].fxSend = 2;
-    wet.channels[0].sendLevel = 1;
-    onlyBus(wet, 1, { dly_vol: 1, dly_type: 0, dly_rate: TIME('1/4') }); // only the delay (PING-PONG), full
+    wet.channels[0].bus = 1;
+    noFx(wet.channels[0]);
+    wet.channels[0].lvl2 = 1;
+    onlyBus(wet, 1, slot(2, 'PING-PONG', 1, TIME('1/4'))); // only the delay, full
     const tail = (p: Project) => {
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
@@ -893,13 +905,13 @@ describe('send effects', () => {
 
   it('routing can be changed and removed live', () => {
     const p = kickProject([0], { bpm: 120 });
-    onlyBus(p, 1, { dly_vol: 1 });
+    onlyBus(p, 1, slot(2, 'PING-PONG', 1));
     const e = engineWith(p);
-    e.handleMessage({ type: 'setRouting', channel: 0, send: 2 });
-    e.handleMessage({ type: 'setMix', channel: 0, id: 'send', value: 1 });
+    e.handleMessage({ type: 'setRouting', channel: 0, bus: 1 });
+    e.handleMessage({ type: 'setMix', channel: 0, id: 'lvl2', value: 1 });
     e.handleMessage({ type: 'transport', playing: true });
     render(e, 0.05);
-    e.handleMessage({ type: 'setRouting', channel: 0, send: 0 });
+    e.handleMessage({ type: 'setRouting', channel: 0, bus: 0 });
     // FX 2's delay is 3/16 = 18000 frames: with the route removed right after the hit
     // the echo still comes (it was already in the delay line), so check nothing new feeds it.
     expect(stats(render(e, 1).l).nan).toBe(false);
@@ -925,7 +937,7 @@ describe('note lengths', () => {
   /** Lead track (mono, short release) with one note at step 0 of the given gate. */
   const leadProject = (gate: number) => {
     const p = kickProject([]);
-    p.channels.forEach((c) => (c.fxSend = 0));
+    p.channels.forEach(noFx);
     const lead = p.channels[6];
     lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, sustain2: 1, release: 0.005, release2: 0.005 };
     lead.patterns[0].steps[0].active = true;
@@ -970,7 +982,7 @@ describe('LFO', () => {
   const padWithLfo = (lfo: { rate: number; shape: number; vol: number; pitch: number }, seconds: number, on = true) => {
     const p = kickProject([], { bpm: 120 });
     const pad = p.channels[5];
-    pad.fxSend = 0;
+    noFx(pad);
     pad.chord = 0;
     pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, sustain: 1, sustain2: 1, release: 0.01, release2: 0.01 };
     pad.patterns[0].steps[0].active = true;
@@ -1118,7 +1130,7 @@ describe('RING and REST', () => {
     const run = (ring: boolean, nextHitAt: number) => {
       const p = kickProject([], { bpm: 120 });
       const hat = p.channels[2];
-      hat.fxSend = 0;
+      noFx(hat);
       hat.patterns[0].steps[0].active = true;
       hat.patterns[0].steps[0].ring = ring;
       if (nextHitAt >= 0) hat.patterns[0].steps[nextHitAt].active = true;
@@ -1138,7 +1150,7 @@ describe('RING and REST', () => {
 
   it('a RING synth note holds over empty steps until a rest', () => {
     const p = kickProject([], { bpm: 120 });
-    p.channels.forEach((c) => (c.fxSend = 0));
+    p.channels.forEach(noFx);
     const lead = p.channels[6];
     lead.sounds.lead = { ...presetSound('lead', 0), attack: 0.001, sustain: 1, sustain2: 1, release: 0.005, release2: 0.005 };
     lead.patterns[0].steps[0].active = true;
@@ -1155,7 +1167,7 @@ describe('RING and REST', () => {
     const jump = (l: Float32Array, a: number, b: number) => { let m = 0; for (let i = a + 1; i < b; i++) m = Math.max(m, Math.abs(l[i] - l[i - 1])); return m; };
     // PAD: two notes of their own lengths, a 3 s release; a rest at step 4 (24000).
     const p = kickProject([], { bpm: 120 });
-    p.channels.forEach((c) => (c.fxSend = 0));
+    p.channels.forEach(noFx);
     const pad = p.channels[5];
     pad.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, sustain2: 1, release: 3, release2: 3 };
     Object.assign(pad.patterns[0].steps[0], { active: true, note: 60, gate: 2, extra: [64], extraGate: [3] });
@@ -1188,15 +1200,18 @@ describe('project', () => {
     p.channels[4].patterns[1].length = 32;
     const s = p.channels[4].patterns[1].steps[20];
     Object.assign(s, { active: true, note: 41, gate: 3, velocity: 0.45, locks: { cutoff: 900 } });
-    p.channels[5].fxSend = 2;
-    p.channels[5].sendLevel = 0.7;
-    p.buses[1].vrb_vol = 0.9;
+    p.channels[5].bus = 1;
+    p.channels[5].lvl3 = 0.7;
+    p.buses[1].s3_vol = 0.9;
     p.buses[0].cmp_ratio = 4;
     p.buses[0].cmp_thresh = -30;
-    p.buses[1].dly_fdbk = 0.8;
-    p.buses[1].vrb_type = 2;
-    p.buses[0].dly_type = 2;
-    p.channels[4].fx1 = 1;
+    p.buses[1].s2_b = 0.8;
+    p.buses[1].s3_type = fxType('SPRING');
+    p.buses[0].s3_type = fxType('REVERSE');
+    p.buses[1].s4_type = fxType('DUB TAPE');
+    p.channels[4].bus = 0;
+    p.channels[4].lvl1 = 1;
+    p.channels[4].lvl4 = 0.25;
     p.lfo = { rate: 7, shape: 5, morph: 0.3, fm: 0.4, vol: 0.4, pitch: 3, filter: 2, pan: 0.5, phase: 0.25, smooth: 0.3, fade: 1, retrig: 1, send: 0.6, spread: 0.5 };
     p.channels[6].lfoOn = true;
     p.channels[2].patterns[0].steps[6].active = true;
@@ -1420,7 +1435,7 @@ describe('slides and rolls', () => {
     const pat = b.patterns[0];
     Object.assign(pat.steps[0], { active: true, note: 45, gate: 1, slide: true }); // slides into step 2
     Object.assign(pat.steps[1], { active: true, note: 57, gate: 1 });
-    b.fxSend = 0;
+    noFx(b);
     const crossingsAfterBoundary = (slide: boolean) => {
       pat.steps[0].slide = slide;
       const e = engineWith(p);
@@ -1437,7 +1452,7 @@ describe('slides and rolls', () => {
     const p = kickProject([], { bpm: 120 }); // a 16th = 6000 frames
     const b = p.channels[4];
     b.sounds.bass = { ...b.sounds.bass!, sustain: 1, release: 0.01 };
-    b.fxSend = 0;
+    noFx(b);
     Object.assign(b.patterns[0].steps[0], { active: true, note: 45, gate: 3, slide: true });
     b.patterns[0].steps[1].rest = true;
     const e = engineWith(p);
@@ -1453,7 +1468,7 @@ describe('slides and rolls', () => {
       const p = kickProject([], { bpm: 120 }); // a 16th = 0.125 s
       const b = p.channels[4];
       b.sounds.bass = { ...b.sounds.bass!, sustain: 1, release: 0.01 };
-      b.fxSend = 0;
+      noFx(b);
       Object.assign(b.patterns[0].steps[0], { active: true, note: 45, gate: 8 }); // 0-1 s
       Object.assign(b.patterns[0].steps[8], { active: true, note: 45, gate: 4 }); // 1-1.5 s
       return p;
@@ -1517,9 +1532,9 @@ describe('slides and rolls', () => {
     const stored = toStored(p) as { version: number };
     stored.version = 64;
     const back = fromStored(stored)!;
-    expect(back.channels[1].live).toEqual(['fx1:mod_vol', 'intensity']);
+    expect(back.channels[1].live).toEqual(['fx1:s2_vol', 'intensity']);
     expect(back.channels[1].liveFunc).toEqual(['mix:volume', 'macro:air']);
-    expect(back.channels[2].live).toEqual(['fx1:dly_vol', 'macro:attack']);
+    expect(back.channels[2].live).toEqual(['fx1:s3_vol', 'macro:attack']);
     expect(back.channels[2].liveFunc).toEqual(['mix:volume', 'macro:grit']);
     expect(back.channels[4].live).toEqual(['fm', 'macro:env']);
   });
@@ -1648,7 +1663,7 @@ describe('LFO options', () => {
   const pad = (lfo: Partial<Project['lfo']>, notes: number[]) => {
     const p = kickProject([], { bpm: 120 });
     const c = p.channels[5];
-    c.fxSend = 0;
+    noFx(c);
     c.chord = 0;
     c.sounds.pad = { ...presetSound('pad', 0), attack: 0.001, attack2: 0.001, sustain: 1, sustain2: 1, release: 0.01, release2: 0.01 };
     for (const s of notes) Object.assign(c.patterns[0].steps[s], { active: true, gate: 2 });
@@ -1783,7 +1798,7 @@ describe('notes held past the loop end', () => {
   it('a note tied over the end of a 16-step loop keeps sounding into the next bar', () => {
     const p = kickProject([], { bpm: 120 }); // 6000 frames per step, loop = 96000
     const b = p.channels[4];
-    b.fxSend = 0;
+    noFx(b);
     b.sounds.bass = { ...b.sounds.bass!, attack: 0.002, attack2: 0.002, decay: 5, decay2: 5, sustain: 1, sustain2: 1, release: 0.005, release2: 0.005 };
     Object.assign(b.patterns[0].steps[14], { active: true, note: 45, gate: 4 }); // steps 14, 15, 0, 1
     const e = engineWith(p);
@@ -1836,7 +1851,7 @@ describe('PERC track', () => {
     const p = createDefaultProject();
     expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']);
     // Drums on FX 1, LEAD on FX 2; no LFO; PLUCK's delay / room dry.
-    expect(p.channels.map((c) => (c.fx1 ? 1 : 0) + c.fxSend)).toEqual([1, 1, 1, 1, 0, 0, 2, 0]);
+    expect(p.channels.map((c) => c.bus)).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
     expect(p.channels.every((c) => !c.lfoOn)).toBe(true);
     expect(p.channels[7].sounds.pluck!.dmix).toBe(0);
     expect(p.channels[7].sounds.pluck!.verb).toBe(0);
@@ -2051,7 +2066,7 @@ describe('PLUCK and ARP', () => {
   it('ARP steps through the held chord at its rate', () => {
     const p = kickProject([], { bpm: 120 }); // 1/16 = 6000 frames
     const t = p.channels[7];
-    t.fxSend = 0;
+    noFx(t);
     t.chord = CHORDS.findIndex((c) => c.name === 'MAJOR');
     t.sounds.pluck = { ...t.sounds.pluck!, decay: 0.03, decay2: 0.03, release: 0.01, release2: 0.01 };
     Object.assign(t.patterns[0].steps[0], { active: true, note: 45, gate: 4 });
@@ -2068,7 +2083,7 @@ describe('v12 slide flag', () => {
   it('a SLIDE note holds into the next note even after a gap', () => {
     const p = kickProject([], { bpm: 120 });
     const b = p.channels[4];
-    b.fxSend = 0;
+    noFx(b);
     b.sounds.bass = { ...b.sounds.bass!, sustain: 1, sustain2: 1, decay: 2, decay2: 2, release: 0.005, release2: 0.005 };
     Object.assign(b.patterns[0].steps[0], { active: true, note: 45, gate: 1, slide: true });
     Object.assign(b.patterns[0].steps[3], { active: true, note: 52, gate: 1 });
@@ -2112,7 +2127,7 @@ describe('FUNC layer and per-oscillator SUSTAIN / RELEASE', () => {
 describe('relative live knobs', () => {
   const kickTail = (offset: number, viaProject = false) => {
     const p = kickProject([0], { bpm: 120 });
-    p.channels[0].fx1 = 0;
+    noFx(p.channels[0]);
     p.channels[0].sounds.kick = { ...p.channels[0].sounds.kick!, t_decay: 0.3 };
     if (viaProject && offset) p.channels[0].liveOffset = { 'macro:decay': offset };
     const e = engineWith(p);
@@ -2351,7 +2366,7 @@ describe('LFO: odd rates, MORPH, FM MOD', () => {
     const render1 = (fmMod: number) => {
       const p = kickProject([], { bpm: 120 });
       const c = p.channels[6]; // LEAD
-      c.fxSend = 0;
+      noFx(c);
       c.sounds.lead = { ...presetSound('lead', 0), fm: 0.5 };
       c.patterns[0].steps[0].active = true;
       c.patterns[0].steps[0].gate = 16;
@@ -3744,10 +3759,10 @@ describe('v36: time signature, STEPS, triplet time', () => {
 });
 
 describe('FX buses (v41)', () => {
-  it('FX1 SEND: how much goes through FX 1 (the rest straight out); all of it as the old on / off', () => {
-    const hit = (fx1: number) => {
+  it('FILTER MIX: how much of the track FX 1\'s FILTER filters (the rest as it was)', () => {
+    const hit = (mix: number) => {
       const p = kickProject([0], { bpm: 120 });
-      p.channels[0].fx1 = fx1;
+      p.channels[0].lvl4 = mix;
       p.buses[0].flt = 0.05; // FX 1's FILTER: a low low-pass, so what goes through it shows
       const e = engineWith(p);
       e.handleMessage({ type: 'transport', playing: true });
@@ -3790,48 +3805,52 @@ describe('FX buses (v41)', () => {
     return p.buses[k];
   };
 
-  it('each bus: four units of two modules, VOLUME / TYPE first (COMP, TONE their own)', () => {
-    const names = (k: number) => BUS_LAYOUT[k].map((id) => BUS_PARAMS[k].find((p) => p.id === id)!.name);
-    // Top row then bottom row; unit u on modules 2u + 1, 2u + 2.
+  it('each bus: four slots of two modules; a free slot = VOLUME / TYPE, then the loaded effect\'s two controls', () => {
+    const names = (k: number, values = defaultBus(k)) => BUS_LAYOUT[k].map((id) => busKnob(k, id, values)!.spec.name);
+    // Top row then bottom row; slot u on modules 2u + 1, 2u + 2.
     expect(names(0)).toEqual([
       'RATIO', 'ATTACK', 'MOD', 'RATE', 'DELAY', 'RATE', 'FILTER', 'ENV',
       'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'RESO', 'ENV REL',
     ]);
     expect(names(1)).toEqual([
-      'DIST', 'DRIVE', 'DELAY', 'RATE', 'VERB', 'SIZE', 'LOW CUT', 'DUCK',
-      'TYPE', 'TONE', 'TYPE', 'FDBK', 'TYPE', 'LENGTH', 'HI CUT', 'DUCK REL',
+      'DIST', 'DRIVE', 'DELAY', 'RATE', 'VERB', 'SIZE', 'MOD', 'RATE',
+      'TYPE', 'TONE', 'TYPE', 'FDBK', 'TYPE', 'LENGTH', 'TYPE', 'DEPTH',
     ]);
-    const types = (k: number, kind: string) => BUSES[k].units.find((u) => u.kind === kind)!.types;
-    expect(types(0, 'mod')).toEqual(['FLANGER', 'PHASER']);
-    expect(types(0, 'delay')).toEqual(['TAPE', 'SWEEP', 'REVERSE']);
-    expect(types(1, 'drive')).toEqual(['TUBE', 'FUZZ', 'BIT']);
-    expect(types(1, 'delay')).toEqual(['PING-PONG', 'DUB TAPE', 'SLAPBACK']);
-    expect(types(1, 'verb')).toEqual(['ROOM', 'PLATE', 'SPRING']);
-    expect(formatValue(BUS_PARAMS[1].find((p) => p.id === 'vrb_type')!, 2)).toBe('SPRING');
+    // Any effect in any slot: FX 2 as four delays.
+    const delays = { ...defaultBus(1), s1_type: fxType('TAPE'), s3_type: fxType('SLAPBACK'), s4_type: fxType('REVERSE') };
+    expect(names(1, delays).slice(0, 8)).toEqual(['DELAY', 'RATE', 'DELAY', 'RATE', 'DELAY', 'RATE', 'DELAY', 'RATE']);
+    // One TYPE list for the whole bank.
+    expect(FX_BANK.map((t) => t.name)).toEqual(['TUBE', 'FUZZ', 'BIT', 'CHORUS', 'FLANGER', 'PHASER', 'TAPE', 'SWEEP', 'REVERSE', 'PING-PONG', 'DUB TAPE', 'SLAPBACK', 'ROOM', 'PLATE', 'SPRING', 'HALL']);
+    expect(formatValue(busParam(1, 's3_type')!, fxType('SPRING'))).toBe('SPRING');
+    // A control is stored as a knob position and shown in the loaded effect's units.
+    const tone = busKnob(1, 's1_b', defaultBus(1))!;
+    expect(tone.control).toBe(true);
+    expect(formatValue(tone.spec, 5000)).toBe(formatValue(tone.spec, 5000));
+    expect(defaultBus(1).s1_b).toBeCloseTo(controlNorm(0, 'b', 5000), 9);
     expect(BUSES.length).toBe(2); // v81: the PAD's send went
+    // FX 2's TONE has no knob, but is part of the bus.
+    expect(BUS_LAYOUT[1].some((id) => id.startsWith('tone_'))).toBe(false);
+    expect(defaultBus(1).tone_duck).toBe(0.4);
   });
 
-  it('every TYPE of every effect on every bus makes a sound from a hit, finite and bounded', () => {
-    BUSES.forEach((bus, k) => {
-      for (const u of bus.units) {
-        if (!u.types) continue;
-        const prefix = ({ mod: 'mod', delay: 'dly', verb: 'vrb', drive: 'drv' } as Record<string, string>)[u.kind];
-        u.types.forEach((name, t) => {
-          for (const extreme of [false, true]) {
-            const on: Record<string, number> = { [`${prefix}_vol`]: 1, [`${prefix}_type`]: t };
-            if (extreme) Object.assign(on, { mod_rate: 10, mod_depth: 1, dly_fdbk: 1.1, dly_rate: 0, vrb_size: 1, vrb_len: 1, drv_drive: 1 });
-            const x = burst(1.5);
-            const wet = runBus(k, only(k, on), x);
-            const dry = k === 0 ? x : new Float32Array(x.length); // FX 1 passes the drums through
-            const diff = wet.map((v, i) => v - dry[i]);
-            const s = stats(diff);
-            expect(s.nan, `${bus.name} ${name}`).toBe(false);
-            expect(s.peak, `${bus.name} ${name}`).toBeGreaterThan(0.005);
-            expect(s.peak, `${bus.name} ${name}${extreme ? ' extreme' : ''}`).toBeLessThan(4);
-          }
-        });
-      }
-    });
+  it('every effect of the bank in a slot of either bus makes a sound from a hit, finite and bounded', () => {
+    for (const [k, n] of [[0, 2], [1, 1]] as const) {
+      FX_BANK.forEach(({ name, family }) => {
+        for (const extreme of [false, true]) {
+          const on = slot(n, name, 1);
+          // Extreme: everything up (a delay at its shortest time, full feedback).
+          if (extreme) Object.assign(on, { [`s${n}_a`]: family === 2 ? 0 : 1, [`s${n}_b`]: 1 });
+          const x = burst(1.5);
+          const wet = runBus(k, only(k, on), x);
+          const dry = k === 0 ? x : new Float32Array(x.length); // FX 1 passes the drums through
+          const diff = wet.map((v, i) => v - dry[i]);
+          const st = stats(diff);
+          expect(st.nan, `FX ${k + 1} ${name}`).toBe(false);
+          expect(st.peak, `FX ${k + 1} ${name}`).toBeGreaterThan(0.005);
+          expect(st.peak, `FX ${k + 1} ${name}${extreme ? ' extreme' : ''}`).toBeLessThan(4);
+        }
+      });
+    }
   });
 
   it('FX 1 is transparent at its defaults (the drums pass through) and never fully wet', () => {
@@ -3841,12 +3860,12 @@ describe('FX buses (v41)', () => {
     for (let i = 0; i < x.length; i++) err = Math.max(err, Math.abs(out[i] - x[i]));
     expect(err).toBeLessThan(1e-6);
     // With DELAY up the drums are still there, the echoes add alongside.
-    const echo = runBus(0, only(0, { dly_vol: 1, dly_fdbk: 0 }), x);
+    const echo = runBus(0, only(0, slot(3, 'TAPE', 1, undefined, 0)), x);
     expect(stats(echo.subarray(0, 400).map((v, i) => v - x[i])).peak).toBeLessThan(0.05); // the hit itself unchanged at first
     expect(stats(echo.subarray(SR * 0.2, SR * 0.4)).peak).toBeGreaterThan(0.001); // then the echo
   });
 
-  it('FX 1 FILTER: left = low-pass, right = high-pass, centre off; it takes the drums and the returns', () => {
+  it('FX 1 FILTER: left = low-pass, right = high-pass, centre off; it comes before the effects', () => {
     expect(formatValue(busParam(0, 'flt')!, 0.5)).toBe('OFF');
     expect(formatValue(busParam(0, 'flt')!, 0.1)).toMatch(/^LP /);
     expect(formatValue(busParam(0, 'flt')!, 0.9)).toMatch(/^HP /);
@@ -3859,12 +3878,12 @@ describe('FX buses (v41)', () => {
     // High-pass three quarters of the way: the other way round.
     expect(level(runBus(0, only(0, { flt: 0.8 }), low))).toBeLessThan(0.05);
     expect(level(runBus(0, only(0, { flt: 0.8 }), high))).toBeGreaterThan(0.4);
-    // The DELAY's return goes through it too.
-    const echo = (flt: number) => stats(runBus(0, only(0, { flt, dly_vol: 1, dly_fdbk: 0 }), burst(0.5)).subarray(SR * 0.2, SR * 0.4)).peak;
+    // What goes into the DELAY is filtered too (the filter comes first).
+    const echo = (flt: number) => stats(runBus(0, only(0, { flt, ...slot(3, 'TAPE', 1, undefined, 0) }), burst(0.5)).subarray(SR * 0.2, SR * 0.4)).peak;
     expect(echo(0.15)).toBeLessThan(echo(0.5) * 0.1);
   });
 
-  it('FX 1 COMP squeezes the drums in series (1:1 = untouched)', () => {
+  it('FX 1 COMP squeezes what goes through it (1:1 = untouched)', () => {
     const x = Float32Array.from({ length: SR }, (_, i) => Math.sin(i * 0.05) * ((i % 12000) < 600 ? 0.9 : 0.1));
     const on = runBus(0, { ...defaultBus(0), cmp_thresh: -30, cmp_ratio: 8, cmp_attack: 0.0005 }, x);
     const range = (l: Float32Array) => stats(l.subarray(24000, 24500)).peak / stats(l.subarray(30000, 36000)).peak;
@@ -3873,8 +3892,7 @@ describe('FX buses (v41)', () => {
 
   it('FX 1 DELAY REVERSE: a hit swells in instead of starting hard', () => {
     const x = burst(1);
-    const t = BUSES[0].units[2].types!.indexOf('REVERSE');
-    const out = runBus(0, only(0, { dly_vol: 1, dly_type: t, dly_rate: TIME('1/8'), dly_fdbk: 0 }), x);
+    const out = runBus(0, only(0, slot(3, 'REVERSE', 1, TIME('1/8'), 0)), x);
     const w = out.map((v, i) => v - x[i]);
     const env = (a: number) => stats(w.subarray(a, a + 480)).peak;
     let peakAt = 0;
@@ -3887,7 +3905,7 @@ describe('FX buses (v41)', () => {
 
   it('DELAY FEEDBACK sets how many repeats come back', () => {
     const tail = (fdbk: number) => {
-      const out = runBus(1, only(1, { dly_vol: 1, dly_type: 1, dly_rate: TIME('1/4'), dly_fdbk: fdbk }), burst(2.2));
+      const out = runBus(1, only(1, slot(2, 'DUB TAPE', 1, TIME('1/4'), fdbk)), burst(2.2));
       return stats(out.subarray(95000, 98000)).peak; // FX 2 DUB TAPE: the 4th repeat at 120 BPM
     };
     expect(tail(0.9)).toBeGreaterThan(tail(0.1) * 5);
@@ -3895,13 +3913,13 @@ describe('FX buses (v41)', () => {
 
   it('FX 2 DUCK: the lead playing ducks its own echoes', () => {
     const held = Float32Array.from({ length: SR }, (_, i) => Math.sin(i * 0.05) * 0.5);
-    const echo = (duck: number) => stats(runBus(1, only(1, { dly_vol: 1, dly_rate: TIME('1/16'), tone_duck: duck }), held).subarray(SR / 2)).peak;
+    const echo = (duck: number) => stats(runBus(1, only(1, { ...slot(2, 'PING-PONG', 1, TIME('1/16')), tone_duck: duck }), held).subarray(SR / 2)).peak;
     expect(echo(1)).toBeLessThan(echo(0) * 0.3);
   });
 
   it('a send with nothing coming in falls silent and is skipped; a unit turned up again starts clean', () => {
     const bus = new FxBus(SR, 1);
-    for (const [id, v] of Object.entries(only(1, { dly_vol: 0.6 }))) bus.setParam(id, v);
+    for (const [id, v] of Object.entries(only(1, slot(2, 'PING-PONG', 0.6)))) bus.setParam(id, v);
     bus.settle();
     const n = 128;
     const inL = new Float32Array(n), inR = new Float32Array(n);
@@ -3916,9 +3934,9 @@ describe('FX buses (v41)', () => {
       heard = Math.max(heard, ...outL);
     }
     expect(heard).toBeGreaterThan(0.01);
-    bus.setParam('dly_vol', 0);
+    bus.setParam('s2_vol', 0);
     for (let i = 0; i < (SR * 0.3) / n; i++) bus.process(inL, inR, outL, outR, 0, n);
-    bus.setParam('dly_vol', 0.6);
+    bus.setParam('s2_vol', 0.6);
     let stale = 0;
     for (let i = 0; i < (SR * 2) / n; i++) {
       outL.fill(0);
@@ -3931,12 +3949,12 @@ describe('FX buses (v41)', () => {
   it('a TYPE change while running fades over (no jump)', () => {
     const tone = Float32Array.from({ length: SR }, (_, i) => Math.sin(i * 0.02) * 0.5);
     const bus = new FxBus(SR, 1);
-    for (const [id, v] of Object.entries(only(1, { drv_vol: 1, drv_type: 0 }))) bus.setParam(id, v);
+    for (const [id, v] of Object.entries(only(1, slot(1, 'TUBE', 1)))) bus.setParam(id, v);
     bus.settle();
     const out = new Float32Array(SR);
     const oL = new Float32Array(BLOCK), oR = new Float32Array(BLOCK);
     for (let o = 0; o < SR; o += BLOCK) {
-      if (o === SR / 2) bus.setParam('drv_type', 1); // TUBE -> FUZZ
+      if (o === SR / 2) bus.setParam('s1_type', fxType('FUZZ')); // TUBE -> FUZZ
       oL.fill(0);
       bus.process(tone.subarray(o, o + BLOCK), tone.subarray(o, o + BLOCK), oL, oR, 0, BLOCK);
       out.set(oL, o);
@@ -3946,21 +3964,166 @@ describe('FX buses (v41)', () => {
     expect(jump).toBeLessThan(0.05);
   });
 
-  it('a new project routes the drums to FX 1, LEAD to FX 2; BASS, PAD and PLUCK dry (their own effects off)', () => {
+  it('a new project: the drums on FX 1 at every level, the synths on FX 2, only the LEAD sending; BASS, PAD and PLUCK dry (their own effects off)', () => {
     const p = createDefaultProject();
     const by = (k: string) => p.channels.find((c) => c.instrument === k)!;
-    for (const k of ['kick', 'snare', 'hat', 'perc']) expect(by(k).fx1, k).toBe(1);
-    expect(by('lead').fxSend).toBe(2);
-    for (const k of ['bass', 'pad', 'pluck']) expect([by(k).fx1, by(k).fxSend], k).toEqual([0, 0]);
+    const levels = (k: string) => [by(k).bus, by(k).lvl1, by(k).lvl2, by(k).lvl3, by(k).lvl4];
+    for (const k of ['kick', 'snare', 'hat', 'perc']) expect(levels(k), k).toEqual([0, 1, 1, 1, 1]);
+    expect(levels('lead')).toEqual([1, 0.5, 0.5, 0.5, 0]);
+    for (const k of ['bass', 'pad', 'pluck']) expect(levels(k), k).toEqual([1, 0, 0, 0, 0]);
     expect([by('pad').sounds.pad!.verb, by('pad').sounds.pad!.modmix, by('pad').sounds.pad!.lowcut]).toEqual([0, 0, 20]);
   });
 
   it('bus settings are saved', () => {
     const p = createDefaultProject();
-    p.buses[0].dly_type = 2;
-    p.buses[1].vrb_size = 0.83;
+    p.buses[0].s3_type = fxType('REVERSE');
+    p.buses[1].s3_a = 0.83;
+    p.buses[1].tone_duck = 0.9;
     const back = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
     expect(back.buses).toEqual(p.buses);
+  });
+
+  it('a track\'s level into one slot feeds that effect only', () => {
+    // A kick on FX 2 with a delay in slot 2 and a reverb in slot 3, both up.
+    const tail = (lvl2: number, lvl3: number) => {
+      const p = kickProject([0], { bpm: 120 });
+      p.channels[0].bus = 1;
+      noFx(p.channels[0]);
+      Object.assign(p.channels[0], { lvl2, lvl3 });
+      onlyBus(p, 1, { ...slot(2, 'PING-PONG', 1, TIME('1/4'), 0), ...slot(3, 'PLATE', 1) });
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const { l } = render(e, 0.6);
+      // The reverb rings right after the hit has died; the echo comes a quarter note later.
+      return { verb: stats(l.subarray(9000, 12000)).peak, echo: stats(l.subarray(24000, 26000)).peak };
+    };
+    const none = tail(0, 0), delay = tail(1, 0), verb = tail(0, 1);
+    expect(none.verb).toBeLessThan(1e-4);
+    expect(none.echo).toBeLessThan(1e-4);
+    expect(delay.echo).toBeGreaterThan(0.01);
+    expect(delay.verb).toBeLessThan(1e-4); // in the delay, not in the reverb
+    expect(verb.verb).toBeGreaterThan(0.001);
+    expect(verb.echo).toBeLessThan(delay.echo * 0.2); // in the reverb, not in the delay
+  });
+
+  it('COMP MIX: the compressor in parallel (0 = the track untouched, 1 = all of it compressed); the sends do not depend on it', () => {
+    const play = (mix: number, send = 0) => {
+      const p = kickProject([0, 4, 8, 12], { bpm: 120 });
+      p.channels[0].volume = 1;
+      noFx(p.channels[0]);
+      Object.assign(p.channels[0], { lvl1: mix, lvl3: send });
+      onlyBus(p, 0, { cmp_thresh: -40, cmp_ratio: 20, cmp_attack: 0.0001, ...slot(3, 'TAPE', 1, TIME('1/8'), 0) });
+      const dry = kickProject([0, 4, 8, 12], { bpm: 120 });
+      dry.channels[0].volume = 1;
+      noFx(dry.channels[0]);
+      const run = (q: Project) => {
+        const e = engineWith(q);
+        e.handleMessage({ type: 'transport', playing: true });
+        return render(e, 0.5).l;
+      };
+      return { out: run(p), dry: run(dry) };
+    };
+    const off = play(0);
+    let err = 0;
+    for (let i = 0; i < off.dry.length; i++) err = Math.max(err, Math.abs(off.out[i] - off.dry[i]));
+    expect(err).toBeLessThan(1e-7); // MIX 0: not in the compressor at all
+    const on = play(1), half = play(0.5);
+    const body = (l: Float32Array) => Math.sqrt(l.subarray(600, 3000).reduce((a, v) => a + v * v, 0) / 2400);
+    expect(body(on.out)).not.toBeCloseTo(body(on.dry), 3); // compressed
+    // Half: between the two.
+    const lo = Math.min(body(on.out), body(on.dry)), hi = Math.max(body(on.out), body(on.dry));
+    expect(body(half.out)).toBeGreaterThan(lo);
+    expect(body(half.out)).toBeLessThan(hi);
+    // In the DELAY without being in the compressor: the echo is there, the hit as it was.
+    const sent = play(0, 1);
+    let diff = 0;
+    for (let i = 12000; i < 14000; i++) diff = Math.max(diff, Math.abs(sent.out[i] - off.out[i]));
+    expect(diff).toBeGreaterThan(0.001); // the echo, an eighth later
+  });
+
+  it('FX 1\'s FILTER is each track\'s own: one knob, a MIX per track', () => {
+    // KICK and SNARE both playing, the FILTER a low low-pass: only the track with FILTER MIX up loses its highs.
+    const highs = (kickMix: number, snareMix: number) => {
+      const p = kickProject([0], { bpm: 120 });
+      const snare = p.channels[1];
+      snare.patterns[0].steps[0].active = true;
+      p.channels[0].lvl4 = kickMix;
+      snare.lvl4 = snareMix;
+      p.buses[0].flt = 0.1;
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const { l } = render(e, 0.2);
+      // Energy above ~4 kHz: the difference of neighbouring samples.
+      let hf = 0;
+      for (let i = 1; i < l.length; i++) hf += (l[i] - l[i - 1]) ** 2;
+      return hf;
+    };
+    const both = highs(1, 1), neither = highs(0, 0), kickOnly = highs(1, 0);
+    expect(both).toBeLessThan(neither * 0.05);
+    expect(kickOnly).toBeGreaterThan(neither * 0.3); // the snare's highs are still there
+    expect(kickOnly).toBeLessThan(neither);
+  });
+
+  it('a track is on one bus: moved to the other, its levels feed that bus\'s slots', () => {
+    const p = kickProject([0], { bpm: 120 });
+    noFx(p.channels[0]);
+    p.channels[0].lvl2 = 1;
+    onlyBus(p, 0, slot(2, 'FLANGER', 0)); // FX 1's slot 2 silent
+    onlyBus(p, 1, slot(2, 'PING-PONG', 1, TIME('1/4'), 0));
+    const echo = (bus: number) => {
+      const e = engineWith(p);
+      e.handleMessage({ type: 'setRouting', channel: 0, bus });
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 0.6).l.subarray(24000, 26000)).peak;
+    };
+    expect(echo(0)).toBeLessThan(1e-4);
+    expect(echo(1)).toBeGreaterThan(0.01);
+  });
+
+  it('a v86 save: a track on FX 1 keeps its amount on all four slots, one on FX 2 its level into the three effects it had; settings, live knobs, locks and lanes follow', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 86;
+    for (const c of stored.channels) { delete c.bus; delete c.lvl; }
+    Object.assign(stored.channels[0], { fx1: 1, fxSend: 0, sendLevel: 0.5 });
+    Object.assign(stored.channels[1], { fx1: 0.4, fxSend: 2, sendLevel: 0.9 }); // on both: FX 1 stays
+    Object.assign(stored.channels[4], { fx1: 0, fxSend: 0, sendLevel: 0.5 }); // on neither
+    Object.assign(stored.channels[6], { fx1: 0, fxSend: 2, sendLevel: 0.7 });
+    stored.channels[6].liveFunc = ['fx2:dly_vol', 'mix:send'];
+    stored.channels[1].live = ['fx1:mod_vol', 'mix:fx1'];
+    stored.buses = [
+      { cmp_ratio: 4, mod_vol: 0.3, mod_type: 1, mod_rate: 2, mod_depth: 0.8, dly_vol: 0.2, dly_type: 2, dly_rate: 6, dly_fdbk: 0.55, flt: 0.3 },
+      { drv_vol: 0.1, drv_type: 2, drv_drive: 0.7, drv_tone: 1000, dly_vol: 0.6, dly_type: 1, dly_rate: 3, dly_fdbk: 0.9, vrb_vol: 0.5, vrb_type: 2, vrb_size: 0.2, vrb_len: 0.9, tone_low: 300, tone_duck: 0.8 },
+    ];
+    stored.channels[6].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { 'b:1:dly_fdbk': 0.55, 'm:6:send': 0.2, 'b:1:vrb_type': 0 } }];
+    stored.song = { rows: [{ b: 4, p: [0, 0, 0, 0, 0, 0, 0, 0] }], a: { 'm:0:fx1': [[0, 0.5]], 'b:0:mod_vol': [[0, 0.9]], 'm:4:send': [[0, 1]] } };
+    const back = fromStored(stored)!;
+    const levels = (ch: number) => { const c = back.channels[ch]; return [c.bus, c.lvl1, c.lvl2, c.lvl3, c.lvl4]; };
+    expect(levels(0)).toEqual([0, 1, 1, 1, 1]);
+    expect(levels(1)).toEqual([0, 0.4, 0.4, 0.4, 0.4]);
+    expect(levels(4)).toEqual([1, 0, 0, 0, 0]);
+    expect(levels(6)).toEqual([1, 0.7, 0.7, 0.7, 0]);
+    const [fx1, fx2] = back.buses;
+    expect([fx1.cmp_ratio, fx1.flt]).toEqual([4, 0.3]);
+    expect([fx1.s2_vol, FX_BANK[fx1.s2_type].name, fx1.s2_b]).toEqual([0.3, 'PHASER', 0.8]);
+    expect(fx1.s2_a).toBeCloseTo(controlNorm(1, 'a', 2), 9);
+    expect([fx1.s3_vol, FX_BANK[fx1.s3_type].name]).toEqual([0.2, 'REVERSE']);
+    expect(fx1.s3_a).toBeCloseTo(6 / 11, 9);
+    expect(fx1.s3_b).toBeCloseTo(0.5, 9);
+    expect([fx2.s1_vol, FX_BANK[fx2.s1_type].name, fx2.s1_a]).toEqual([0.1, 'BIT', 0.7]);
+    expect([fx2.s2_vol, FX_BANK[fx2.s2_type].name]).toEqual([0.6, 'DUB TAPE']);
+    expect([fx2.s3_vol, FX_BANK[fx2.s3_type].name, fx2.s3_a, fx2.s3_b]).toEqual([0.5, 'SPRING', 0.2, 0.9]);
+    expect([fx2.s4_vol, fx2.tone_low, fx2.tone_duck, fx2.tone_high]).toEqual([0, 300, 0.8, 16000]);
+    expect(back.channels[6].liveFunc).toEqual(['fx2:s2_vol', 'mix:lvl2']);
+    expect(back.channels[1].live).toEqual(['fx1:s2_vol', 'mix:lvl1']);
+    const locks = back.channels[6].patterns[0].steps[0].locks!;
+    expect(locks['b:1:s2_b']).toBeCloseTo(0.5, 9);
+    expect([locks['m:6:lvl1'], locks['m:6:lvl2'], locks['m:6:lvl3'], locks['m:6:lvl4']]).toEqual([0.2, 0.2, 0.2, undefined]);
+    expect(FX_BANK[locks['b:1:s3_type']].name).toBe('ROOM');
+    expect(back.song.auto).toEqual({
+      'm:0:lvl1': [[0, 0.5]], 'm:0:lvl2': [[0, 0.5]], 'm:0:lvl3': [[0, 0.5]], 'm:0:lvl4': [[0, 0.5]], 'b:0:s2_vol': [[0, 0.9]],
+    }); // the BASS's old send lane goes: it sent nothing
+    // And as saved now, it reads back the same.
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(back))))).toEqual(back);
   });
 });
 
@@ -3968,7 +4131,7 @@ describe('v41: the FM envelope', () => {
   const play = (sound: Record<string, number>) => {
     const p = kickProject([], { bpm: 120 });
     const bass = p.channels[4];
-    bass.fxSend = 0;
+    noFx(bass);
     bass.sounds.bass = { ...presetSound('bass', INSTRUMENTS.bass.presets.findIndex((x) => x.name === 'ACID')), fm: 0.6, ...sound }; // ACID with the old FM 2:3's FM LVL
     bass.patterns[0].steps[0].active = true;
     bass.patterns[0].steps[0].gate = 8;
@@ -4019,8 +4182,8 @@ describe('v41: the FM envelope', () => {
     expect(b.patterns[0].steps[0].locks).toEqual({ fdecay: 0.4, fmdecay: 0.4 });
     // v41 swapped them (PAD on the pad bus, LEAD on its own); v81: the PAD's bus went (its own
     // VERB / MOD stand in), the LEAD's is FX 2.
-    expect([back.channels[5].fxSend, back.channels[6].fxSend]).toEqual([0, 2]);
-    expect(back.channels[5].sounds.pad!.verb).toBeCloseTo(0.45 * back.channels[5].sendLevel, 9);
+    expect([back.channels[5].lvl2, back.channels[6].bus, back.channels[6].lvl2]).toEqual([0, 1, 0.5]);
+    expect(back.channels[5].sounds.pad!.verb).toBeCloseTo(0.45 * 0.5, 9);
     expect(back.buses).toEqual(createDefaultProject().buses);
   });
 });
@@ -4840,15 +5003,15 @@ describe('v81: PAD effects, HAT AIR, one send', () => {
     stored.channels[6].patterns[0].steps = [{ i: 0, n: 57, v: 0.8, l: { 'b:2:dly_vol': 0.3, 'b:1:vrb_vol': 0.2 } }];
     stored.song = { rows: [{ b: 4, p: [0, 0, 0, 0, 0, 0, 0, 0] }], a: { 'b:2:vrb_size': [[0, 0.2]], 'b:1:mod_vol': [[0, 0.5]] } };
     const back = fromStored(stored)!;
-    expect(back.channels.map((c) => c.fxSend)).toEqual([0, 0, 0, 0, 0, 0, 2, 0]);
+    expect(back.channels.map((c) => c.lvl2)).toEqual([0, 0, 0, 0, 0, 0, 0.5, 0]);
     expect(back.buses.length).toBe(2);
-    expect(back.buses[1].dly_vol).toBe(0.77);
+    expect(back.buses[1].s2_vol).toBe(0.77);
     const pad = back.channels[5].sounds.pad!;
     expect([pad.verb, pad.modmix, pad.modtype]).toEqual([0.3, 0.2, 2]);
     expect(back.channels[5].patterns.every((pat) => !pat.patch || pat.patch.sound.verb === 0.3)).toBe(true);
     expect(back.channels[6].liveFunc).toEqual(INSTRUMENTS.lead.liveFunc); // an old FX 2 knob: the defaults
-    expect(back.channels[6].patterns[0].steps[0].locks).toEqual({ 'b:1:dly_vol': 0.3 });
-    expect(back.song.auto).toEqual({ 'b:1:vrb_size': [[0, 0.2]] });
+    expect(back.channels[6].patterns[0].steps[0].locks).toEqual({ 'b:1:s2_vol': 0.3 });
+    expect(back.song.auto).toEqual({ 'b:1:s3_a': [[0, 0.2]] });
   });
 });
 

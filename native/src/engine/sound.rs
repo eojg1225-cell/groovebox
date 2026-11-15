@@ -282,9 +282,11 @@ impl Engine {
                         match lane.id.as_str() {
                             "volume" => self.volume[i].set_immediate(v),
                             "pan" => self.pan[i].set_immediate(v),
-                            "send" => self.send_level[i].set_immediate(v),
-                            "fx1" => self.fx1_level[i].set_immediate(v),
-                            _ => {}
+                            id => {
+                                if let Some(k) = level_slot(id) {
+                                    self.fx_level[i][k].set_immediate(v);
+                                }
+                            }
                         }
                     }
                 }
@@ -466,10 +468,13 @@ impl Engine {
     // ------------------------------------------------------------------ audio
 
     pub(super) fn render_chunk(&mut self, out_l: &mut [f32], out_r: &mut [f32], off: usize, n: usize) {
-        for k in 0..NUM_SENDS {
-            self.bus_l[k][..n].fill(0.0);
-            self.bus_r[k][..n].fill(0.0);
+        for k in 0..NUM_BUSES {
+            for b in 0..BUS_INPUTS {
+                self.bus_l[k][b][..n].fill(0.0);
+                self.bus_r[k][b][..n].fill(0.0);
+            }
         }
+        self.buses[0].begin(n);
         let lfo_active = self.lfo_vol > 0.0 || self.lfo_pitch > 0.0 || self.lfo_filter > 0.0 || self.lfo_pan > 0.0 || self.lfo_send > 0.0 || self.lfo_fm > 0.0;
         for ch in 0..NC {
             let Some(kind) = self.current[ch] else { continue };
@@ -528,75 +533,115 @@ impl Engine {
             let pan_depth = if lfo { self.lfo_pan } else { 0.0 };
             let send_depth = if lfo { self.lfo_send } else { 0.0 };
             let tg = self.type_gain[ch] as f64;
-            let bus = self.route[ch];
-            let sl = &self.scratch_l;
-            let sr = &self.scratch_r;
+            let bus = self.bus_of[ch] as usize;
             let vol = &mut self.volume[ch];
             let pan = &mut self.pan[ch];
-            let level = &mut self.send_level[ch];
-            let f1 = &mut self.fx1_level[ch];
-            if silent(&sl[..n], &sr[..n]) {
-                f1.advance(n as u32);
+            let levels = &mut self.fx_level[ch];
+            if silent(&self.scratch_l[..n], &self.scratch_r[..n]) {
                 vol.advance(n as u32);
                 pan.advance(n as u32);
-                level.advance(n as u32);
+                for s in levels.iter_mut() {
+                    s.advance(n as u32);
+                }
                 continue;
             }
-            let (b01_l, b1_l) = self.bus_l.split_at_mut(1);
-            let (b01_r, b1_r) = self.bus_r.split_at_mut(1);
-            let d0l = &mut b01_l[0];
-            let d0r = &mut b01_r[0];
-            let send_l: Option<&mut [f32; CHUNK]> = if bus == 1 { Some(&mut b1_l[0]) } else { None };
-            let send_r: Option<&mut [f32; CHUNK]> = if bus == 1 { Some(&mut b1_r[0]) } else { None };
-            // A send onto bus 0 (never routed: FX 1 is the drum bus) is left out, as busIndex never gives it.
-            let (mut send_l, mut send_r) = (send_l, send_r);
-            if vol_depth == 0.0 && pan_depth == 0.0 && send_depth == 0.0 && vol.settled() && pan.settled() && level.settled() && f1.settled() {
+            // The track at its VOLUME and PAN.
+            let ml = &mut self.mix_l;
+            let mr = &mut self.mix_r;
+            if vol_depth == 0.0 && pan_depth == 0.0 && vol.settled() && pan.settled() {
                 let v = vol.value() * tg;
                 let a = (pan.value() + 1.0) * 0.25 * std::f64::consts::PI;
                 let cl = a.cos();
                 let cr = a.sin();
-                let g = level.value();
-                let a = f1.value();
                 for i in 0..n {
-                    let l = sl[i] as f64 * v * cl;
-                    let r = sr[i] as f64 * v * cr;
-                    split_fx1(a, l, r, &mut d0l[i], &mut d0r[i], &mut out_l[off + i], &mut out_r[off + i]);
-                    if let (Some(bl), Some(br)) = (send_l.as_deref_mut(), send_r.as_deref_mut()) {
-                        js::add_f32(&mut bl[i], l * g);
-                        js::add_f32(&mut br[i], r * g);
+                    ml[i] = self.scratch_l[i] as f64 * v * cl;
+                    mr[i] = self.scratch_r[i] as f64 * v * cr;
+                }
+            } else {
+                let lfo_buf = &self.lfo_buf;
+                for i in 0..n {
+                    let mut v = vol.next() * tg;
+                    if vol_depth > 0.0 {
+                        v *= 1.0 - vol_depth * (0.5 - 0.5 * lfo_buf[lb + i] as f64);
+                    }
+                    let mut pp = pan.next();
+                    if pan_depth > 0.0 {
+                        pp += pan_depth * lfo_buf[lb + i] as f64;
+                        pp = if pp > 1.0 { 1.0 } else if pp < -1.0 { -1.0 } else { pp };
+                    }
+                    let a = (pp + 1.0) * 0.25 * std::f64::consts::PI;
+                    ml[i] = self.scratch_l[i] as f64 * v * a.cos();
+                    mr[i] = self.scratch_r[i] as f64 * v * a.sin();
+                }
+            }
+            let settled = levels.iter().all(|s| s.settled());
+            let [bus0_l, bus1_l] = &mut self.bus_l;
+            let [bus0_r, bus1_r] = &mut self.bus_r;
+            if bus == 0 {
+                // FX 1: its FILTER first (this track's own, by its MIX), then that much of the
+                // track through COMP (the rest straight out) and into the two effects.
+                let f = &mut levels[3];
+                if self.buses[0].filtering() && (f.value() > 0.0 || !f.settled()) {
+                    for x in self.flt_mix[..n].iter_mut() {
+                        *x = f.next() as f32;
+                    }
+                    self.buses[0].filter_track(ch, &mut ml[..n], &mut mr[..n], &self.flt_mix[..n]);
+                } else {
+                    f.advance(n as u32);
+                }
+                let (c0, m0, d0) = (levels[0].value(), levels[1].value(), levels[2].value());
+                for i in 0..n {
+                    let (c, m, d) = if settled { (c0, m0, d0) } else { (levels[0].next(), levels[1].next(), levels[2].next()) };
+                    let (l, r) = (ml[i], mr[i]);
+                    split_mix(c, l, r, &mut bus0_l[0][i], &mut bus0_r[0][i], &mut out_l[off + i], &mut out_r[off + i]);
+                    if m > 0.0 {
+                        js::add_f32(&mut bus0_l[1][i], l * m);
+                        js::add_f32(&mut bus0_r[1][i], r * m);
+                    }
+                    if d > 0.0 {
+                        js::add_f32(&mut bus0_l[2][i], l * d);
+                        js::add_f32(&mut bus0_r[2][i], r * d);
                     }
                 }
-                continue;
-            }
-            let lfo_buf = &self.lfo_buf;
-            for i in 0..n {
-                let mut v = vol.next() * tg;
-                if vol_depth > 0.0 {
-                    v *= 1.0 - vol_depth * (0.5 - 0.5 * lfo_buf[lb + i] as f64);
-                }
-                let mut pp = pan.next();
-                if pan_depth > 0.0 {
-                    pp += pan_depth * lfo_buf[lb + i] as f64;
-                    pp = if pp > 1.0 { 1.0 } else if pp < -1.0 { -1.0 } else { pp };
-                }
-                let a = (pp + 1.0) * 0.25 * std::f64::consts::PI;
-                let l = sl[i] as f64 * v * a.cos();
-                let r = sr[i] as f64 * v * a.sin();
-                let a = f1.next();
-                split_fx1(a, l, r, &mut d0l[i], &mut d0r[i], &mut out_l[off + i], &mut out_r[off + i]);
-                let mut g = level.next();
-                if send_depth > 0.0 {
-                    g += send_depth * lfo_buf[lb + i] as f64;
-                    g = if g > 1.0 { 1.0 } else if g < 0.0 { 0.0 } else { g };
-                }
-                if let (Some(bl), Some(br)) = (send_l.as_deref_mut(), send_r.as_deref_mut()) {
-                    js::add_f32(&mut bl[i], l * g);
-                    js::add_f32(&mut br[i], r * g);
+            } else {
+                // FX 2: the track straight out, and into each effect at its level (SEND MOD
+                // moves the levels that are up); the side chain hears it at its highest.
+                let lfo_buf = &self.lfo_buf;
+                let mut g = [levels[0].value(), levels[1].value(), levels[2].value(), levels[3].value()];
+                for i in 0..n {
+                    if !settled {
+                        for k in 0..SLOTS {
+                            g[k] = levels[k].next();
+                        }
+                    }
+                    let (l, r) = (ml[i], mr[i]);
+                    js::add_f32(&mut out_l[off + i], l);
+                    js::add_f32(&mut out_r[off + i], r);
+                    let mut top = 0.0;
+                    for k in 0..SLOTS {
+                        let mut x = g[k];
+                        if x <= 0.0 {
+                            continue;
+                        }
+                        if send_depth > 0.0 {
+                            x += send_depth * lfo_buf[lb + i] as f64;
+                            x = if x > 1.0 { 1.0 } else if x < 0.0 { 0.0 } else { x };
+                        }
+                        if x > top {
+                            top = x;
+                        }
+                        js::add_f32(&mut bus1_l[k][i], l * x);
+                        js::add_f32(&mut bus1_r[k][i], r * x);
+                    }
+                    if top > 0.0 {
+                        js::add_f32(&mut bus1_l[SIDE][i], l * top);
+                        js::add_f32(&mut bus1_r[SIDE][i], r * top);
+                    }
                 }
             }
         }
         for k in 0..NUM_BUSES {
-            self.buses[k].process(&mut self.bus_l[k][..n], &mut self.bus_r[k][..n], &mut out_l[off..off + n], &mut out_r[off..off + n]);
+            self.buses[k].process(&mut self.bus_l[k], &mut self.bus_r[k], &mut out_l[off..off + n], &mut out_r[off..off + n], n);
         }
         self.lfo_clock += n as f64 * self.lfo_step_inc();
     }
@@ -1158,12 +1203,10 @@ impl Engine {
             self.set_base(format_args!("m:{ch}:{id}"), value);
         }
         match id {
-            "send" => {
-                self.send_level[ch].set_target(value);
-                return;
-            }
-            "fx1" => {
-                self.fx1_level[ch].set_target(value.clamp(0.0, 1.0));
+            "lvl1" | "lvl2" | "lvl3" | "lvl4" => {
+                if let Some(k) = level_slot(id) {
+                    self.fx_level[ch][k].set_target(value.clamp(0.0, 1.0));
+                }
                 return;
             }
             "dyn" => {
@@ -1193,10 +1236,21 @@ impl Engine {
     }
 }
 
-/// FX 1 SEND: `a` of the sample into FX 1 (the drum insert), the rest straight out (all or
-/// none adds the sample whole, so a track fully on or off plays exactly as the on / off switch did).
+/// A track's level id ("lvl1" ... "lvl4") as its slot, 0-3.
+pub(super) fn level_slot(id: &str) -> Option<usize> {
+    match id {
+        "lvl1" => Some(0),
+        "lvl2" => Some(1),
+        "lvl3" => Some(2),
+        "lvl4" => Some(3),
+        _ => None,
+    }
+}
+
+/// COMP MIX: `a` of the sample into FX 1's compressor, the rest straight out (all or none
+/// adds the sample whole).
 #[inline]
-fn split_fx1(a: f64, l: f64, r: f64, fl: &mut f32, fr: &mut f32, ol: &mut f32, or: &mut f32) {
+fn split_mix(a: f64, l: f64, r: f64, fl: &mut f32, fr: &mut f32, ol: &mut f32, or: &mut f32) {
     if a >= 1.0 {
         js::add_f32(fl, l);
         js::add_f32(fr, r);

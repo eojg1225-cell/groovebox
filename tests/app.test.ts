@@ -10,6 +10,7 @@ import type { ControlEvent } from '../src/controls/ControlSurface';
 import { PLAY_ICON, SAVE_ICON, type Panel } from '../src/ui/Panel';
 import type { MainToWorklet } from '../src/engine/protocol';
 import { deviceSettings } from '../src/storage/settings';
+import { FX_BANK, fxType } from '../src/fx/buses';
 import { INK } from '../src/ui/screen';
 import { applyTheme } from '../src/ui/colours';
 import { changes, restore, snapshot } from '../src/ui/history';
@@ -288,45 +289,68 @@ describe('TEMPO', () => {
   });
 });
 
-describe('the knobs above the knob panel: MASTER / TEMPO, the track\'s VOLUME / PAN / FX1 SEND / FX2 SEND', () => {
-  it('MASTER / TEMPO set the project; FX1 / FX2 SEND the selected track\'s sends; TEMPO and MASTER are off the PROJECT page', () => {
+describe('the knobs above the knob panel: MASTER / TEMPO and the track\'s four FX levels', () => {
+  it('MASTER / TEMPO set the project; the four level knobs the selected track\'s levels into its bus\'s slots; TEMPO and MASTER are off the PROJECT page', () => {
     const { app, emit, tap, sent } = makeApp();
     emit({ type: 'knob', id: 'mmaster', value: 0.5 });
     expect(app.project.master).toBeCloseTo(0.5, 2);
-    tap('ch5');
-    emit({ type: 'knob', id: 'mfx1', value: 0.25 });
-    expect(app.project.channels[4].fx1).toBeCloseTo(0.25, 2);
-    expect(sent.some((m) => m.type === 'setMix' && m.channel === 4 && m.id === 'fx1')).toBe(true);
-    emit({ type: 'knob', id: 'mfx2', value: 0.75 });
-    expect(app.project.channels[4].sendLevel).toBeCloseTo(0.75, 2);
+    tap('ch5'); // BASS: on FX 2, sending nothing
+    const bass = app.project.channels[4];
+    expect([bass.bus, bass.lvl1, bass.lvl2, bass.lvl3, bass.lvl4]).toEqual([1, 0, 0, 0, 0]);
+    emit({ type: 'knob', id: 'mlvl2', value: 0.25 });
+    expect(bass.lvl2).toBeCloseTo(0.25, 2);
+    expect([bass.lvl1, bass.lvl3, bass.lvl4]).toEqual([0, 0, 0]); // into that effect only
+    expect(sent.some((m) => m.type === 'setMix' && m.channel === 4 && m.id === 'lvl2')).toBe(true);
+    emit({ type: 'knob', id: 'mlvl4', value: 0.75 });
+    expect(bass.lvl4).toBeCloseTo(0.75, 2);
     tap('mode:design');
     tap('dpage2');
     const labels = (app as unknown as { targets: ({ label: string } | null)[] }).targets.map((t) => t?.label ?? '');
     expect(labels.slice(0, 8)).toEqual(['', 'SWING', '', 'TIME SIG', 'CURVE', 'AUTO-FILL', 'KEY', '']);
   });
 
-
-  it('set the selected track\'s VOLUME and PAN in every mode; UNDO takes a turn back', () => {
+  it('the level knobs are named by what each slot of the track\'s bus holds; UNDO takes a turn back', () => {
     const { app, emit, tap } = makeApp();
-    tap('ch3');
-    const c = app.project.channels[2];
-    const vol = c.volume, pan = c.pan;
-    emit({ type: 'touch', id: 'mvol' });
-    emit({ type: 'knob', id: 'mvol', value: 0.2 });
-    emit({ type: 'release', id: 'mvol' });
-    expect(c.volume).not.toBe(vol);
-    expect(app.project.channels[1].volume).toBe(app.project.channels[1].volume); // others untouched
-    emit({ type: 'encoder', id: 'mpan', delta: 10 });
-    expect(c.pan).toBeGreaterThan(pan);
-    tap('mode:play');
-    tap('ch5');
-    const bass = app.project.channels[4], bassVol = bass.volume;
-    emit({ type: 'touch', id: 'mvol' });
-    emit({ type: 'knob', id: 'mvol', value: 0.9 });
-    emit({ type: 'release', id: 'mvol' });
-    expect(bass.volume).not.toBe(bassVol);
+    const names = () => ['mlvl1', 'mlvl2', 'mlvl3', 'mlvl4'].map((id) => (app as unknown as { trackKnob(id: string): { label: string } }).trackKnob(id).label);
+    tap('ch1'); // KICK: FX 1
+    expect(names()).toEqual(['COMP MIX', 'MOD', 'DELAY', 'FLT MIX']);
+    tap('ch7'); // LEAD: FX 2
+    expect(names()).toEqual(['DIST', 'DELAY', 'VERB', 'MOD']);
+    // Slot 4 loaded with a delay: two DELAYs, numbered.
+    app.project.buses[1].s4_type = app.project.buses[1].s2_type;
+    expect(names()).toEqual(['DIST', 'DELAY 1', 'VERB', 'DELAY 2']);
+    const lead = app.project.channels[6], was = lead.lvl3;
+    emit({ type: 'touch', id: 'mlvl3' });
+    emit({ type: 'knob', id: 'mlvl3', value: 0.9 });
+    emit({ type: 'release', id: 'mlvl3' });
+    expect(lead.lvl3).toBeCloseTo(0.9, 2);
     tap('undo');
-    expect(bass.volume).toBe(bassVol);
+    expect(lead.lvl3).toBe(was);
+  });
+
+  it('a free slot\'s TYPE picks from the whole bank; its controls are the loaded effect\'s and go to its defaults with a new family', () => {
+    const { app, emit, tap, sent } = makeApp();
+    tap('mode:play');
+    tap('fx2');
+    const targets = () => (app as unknown as { targets: { label: string; spec: { unit: string }; get(): number; set(v: number): void }[] }).targets;
+    // Slot 1 (modules 1-2): DIST over TYPE, DRIVE over TONE.
+    expect([targets()[0].label, targets()[8].label, targets()[1].label, targets()[9].label]).toEqual(['DIST', 'TYPE', 'DRIVE', 'TONE']);
+    expect(targets()[9].get()).toBeCloseTo(5000, 0); // shown in the effect's own units
+    targets()[8].set(fxType('PLATE')); // a reverb in slot 1
+    app.refreshPanel();
+    expect([targets()[0].label, targets()[1].label, targets()[9].label]).toEqual(['VERB', 'SIZE', 'LENGTH']);
+    expect(targets()[1].get()).toBeCloseTo(0.5, 6);
+    expect(sent).toContainEqual({ type: 'setBus', bus: 1, id: 's1_type', value: fxType('PLATE') });
+    expect(sent).toContainEqual({ type: 'setBus', bus: 1, id: 's1_a', value: 0.5 });
+    // Another type of the same family leaves the controls where they are.
+    emit({ type: 'knob', id: 'k2', value: 0.8 });
+    targets()[8].set(fxType('ROOM'));
+    app.refreshPanel();
+    expect(targets()[1].get()).toBeCloseTo(0.8, 2);
+    // Four of a kind are allowed.
+    for (const n of [2, 3, 4]) app.project.buses[1][`s${n}_type`] = fxType('CHORUS');
+    targets()[8].set(fxType('CHORUS'));
+    expect([1, 2, 3, 4].map((n) => FX_BANK[app.project.buses[1][`s${n}_type`]].name)).toEqual(['CHORUS', 'CHORUS', 'CHORUS', 'CHORUS']);
   });
 });
 
@@ -525,13 +549,13 @@ describe('live knobs', () => {
     emit({ type: 'knob', id: 'k2', value: 1 });
     emit({ type: 'knob', id: 'k3', value: 0.5 });
     emit({ type: 'knob', id: 'k4', value: 0 });
-    expect(app.project.buses[0].mod_vol).toBe(1);
-    expect(app.project.buses[0].dly_vol).toBe(0.5);
+    expect(app.project.buses[0].s2_vol).toBe(1);
+    expect(app.project.buses[0].s3_vol).toBe(0.5);
     expect(app.project.buses[0].flt).toBe(0);
     const live = (ch: number) => [...app.project.channels[ch].live, ...app.project.channels[ch].liveFunc];
     expect(live(0)).toEqual(['intensity', 'macro:decay', 'mix:volume', 'macro:air']);
-    expect(live(1)).toEqual(['fx1:mod_vol', 'intensity', 'mix:volume', 'macro:air']);
-    expect(live(2)).toEqual(['fx1:dly_vol', 'macro:attack', 'mix:volume', 'macro:grit']);
+    expect(live(1)).toEqual(['fx1:s2_vol', 'intensity', 'mix:volume', 'macro:air']);
+    expect(live(2)).toEqual(['fx1:s3_vol', 'macro:attack', 'mix:volume', 'macro:grit']);
     expect(live(3)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'macro:grit']);
     expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
   });
@@ -550,7 +574,7 @@ describe('live knobs', () => {
   it('a live knob can take every sound page parameter, the FX volumes and CHORD', () => {
     const { app } = makeApp();
     const ids = (ch: number) => (app as unknown as { liveCandidates(c: unknown): { id: string }[] }).liveCandidates(app.project.channels[ch]).map((x) => x.id);
-    expect(ids(0)).toEqual(expect.arrayContaining(['rolldiv', 'fx1:mod_vol', 'fx1:dly_vol', 'fx1:flt', 'fx2:vrb_vol', 'fx2:drv_vol']));
+    expect(ids(0)).toEqual(expect.arrayContaining(['rolldiv', 'fx1:s2_vol', 'fx1:s3_vol', 'fx1:flt', 'fx2:s3_vol', 'fx2:s1_vol', 'fx2:s4_vol', 'mix:lvl1', 'mix:lvl4']));
     expect(ids(0).some((id) => id.startsWith('fx3:'))).toBe(false);
     expect(ids(0)).not.toContain('fx1:cmp_ratio');
     expect(ids(5)).toContain('track:chord');
@@ -982,14 +1006,14 @@ describe('RESET with buttons held', () => {
     emit({ type: 'knob', id: 'k3', value: 0.9 }); // HAT FX1:DELAY
     emit({ type: 'knob', id: 'k11', value: 0.9 }); // HAT ATTACK
     emit({ type: 'knob', id: 'k2', value: 0.1 }); // SNARE LIVE 1 = FX1:MOD
-    const dly = app.project.buses[0].dly_vol;
+    const dly = app.project.buses[0].s3_vol;
     press('ch3');
     tap('reset');
     release('ch3');
     glide(app);
-    expect(app.project.buses[0].dly_vol).toBe(dly);
+    expect(app.project.buses[0].s3_vol).toBe(dly);
     expect(app.project.channels[2].liveOffset['macro:attack']).toBeGreaterThan(0);
-    expect(app.project.buses[0].mod_vol).toBe(createDefaultProject().buses[0].mod_vol); // SNARE's: reset
+    expect(app.project.buses[0].s2_vol).toBe(createDefaultProject().buses[0].s2_vol); // SNARE's: reset
     expect(app.selected).toBe(0);
   });
 
@@ -1044,7 +1068,7 @@ describe('HOLD + RESET and project settings', () => {
     glide(app);
     const fresh = createDefaultProject();
     expect(app.project.channels[2].volume).toBe(fresh.channels[2].volume);
-    expect(app.project.buses[0].dly_vol).toBe(fresh.buses[0].dly_vol);
+    expect(app.project.buses[0].s3_vol).toBe(fresh.buses[0].s3_vol);
     expect(app.project.channels[0].volume).toBe(kick);
     expect(app.project.channels[0].liveOffset['macro:decay']).toBeGreaterThan(0);
     expect(JSON.stringify(app.project.buses[1])).toBe(fx2);
@@ -1649,7 +1673,7 @@ describe('SONG RECORD step entry', () => {
     press('func');
     tap('step1'); // FUNC + tap: every knob on the page (its FUNC layer: SEND / MID CUT)
     expect(Object.keys(app.project.song.auto!)).toHaveLength(16);
-    expect(app.project.song.auto!['m:0:send']).toBeDefined();
+    expect(app.project.song.auto!['m:0:cut']).toBeDefined();
     press('clear');
     emit({ type: 'touch', id: 'k1' }); // SEND 1
     release('clear');
@@ -2402,10 +2426,10 @@ describe('keys doing another job: the screen and the panel say so', () => {
     press('func');
     const v = app.functionView()!;
     expect(v.title).toBe('FX 1 CHANNELS');
-    expect(v.keys!.map((k) => k.on)).toEqual(app.project.channels.map((c) => c.fx1 > 0));
-    tap('ch1'); // ALT + a track: on / off the bus (ALT used, not latched)
+    expect(v.keys!.map((k) => k.on)).toEqual(app.project.channels.map((c) => c.bus === 0));
+    tap('ch5'); // ALT + a track: onto this bus (ALT used, not latched); every track is on one of the two
     release('func');
-    expect(app.project.channels[0].fx1 > 0).toBe(!v.keys![0].on);
+    expect(app.project.channels[4].bus).toBe(0);
     tap('fx1');
     tap('mode:record');
     press('clear');
@@ -2448,7 +2472,8 @@ describe('keys doing another job: the screen and the panel say so', () => {
     app.updateFrame(0);
     expect(texts.get('play')).toBe(`${PLAY_ICON}<small>FROM TOP</small>`);
     expect(texts.get('patA')).toBe('<small>QUICK</small>A');
-    expect(texts.get('fx1')).toBe('FX 1<small>ON/OFF</small>');
+    expect(texts.get('fx1')).toBe('FX 1<small>PUT ON</small>');
+    expect(texts.get('fx4')).toBe('LFO<small>ON/OFF</small>');
     expect(flags.get('func')?.has('latched')).toBe(false);
     release('func'); // a tap: latched
     expect(flags.get('func')?.has('latched')).toBe(true);

@@ -6,7 +6,7 @@ import type { InstrumentKind, PatternSpeed, Project, Song, Step } from './projec
 import type { LfoId } from './lfo';
 import type { ArpId } from './arp';
 
-export type MixParam = 'volume' | 'pan' | 'mute' | 'send' | 'dyn' | 'gate' | 'cut' | 'ring' | 'fx1';
+export type MixParam = 'volume' | 'pan' | 'mute' | 'dyn' | 'gate' | 'cut' | 'ring' | 'lvl1' | 'lvl2' | 'lvl3' | 'lvl4';
 /** meter: the time signature (index into METERS); playing, it changes at the next bar line. */
 export type GlobalParam = 'bpm' | 'swing' | 'master' | 'meter';
 
@@ -63,9 +63,9 @@ export type MainToWorklet =
    */
   | { type: 'setListenLatency'; ms: number }
   /** Route a track to the send FX 2 (send 2; 0 = none). */
-  | { type: 'setRouting'; channel: number; send: number }
+  | { type: 'setRouting'; channel: number; bus: number }
   /** Pass a track through FX 1, the drum bus, or not. */
-  /** An FX bus parameter (bus 0-1 = FX 1 / 2; BUS_PARAMS id), real units / TYPE index. */
+  /** An FX bus parameter (bus 0-1 = FX 1 / 2; BUS_PARAMS id): real units, a TYPE index, a free slot's controls as knob positions. */
   | { type: 'setBus'; bus: number; id: string; value: number }
   /** LFO setting (rate/shape as option indices, vol / pan 0..1, pitch in semitones, filter in octaves). */
   | { type: 'setLfo'; id: LfoId; value: number }

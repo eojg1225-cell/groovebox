@@ -8,7 +8,6 @@ pub const NUM_PATTERNS: usize = 8;
 pub const MAX_STEPS: usize = 128;
 pub const SONG_MAX_ROWS: usize = 64;
 pub const STEP_NOTES: usize = 6;
-pub const NUM_SENDS: usize = 2;
 pub const NUM_BUSES: usize = 2;
 pub const CELLS_PER_BAR: i32 = 16;
 pub const MAX_CHORD_NOTES: usize = 6;

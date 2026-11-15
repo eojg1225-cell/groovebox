@@ -6,7 +6,7 @@
  *   [H] [ pixel screen ] [ MODE: design / record / play | MENU          ] [UNDO ]
  *   [G]                  [ SAVE PATTERN, SAVE/LOAD, CANCEL | MASTER TEMPO ] [CLEAR]
  *   [F]                  [ pages                           |              ] [COPY ]
- *   [E]                  [       VOLUME PAN | FX1 SEND FX2 SEND           ] [RESET]
+ *   [E]                  [    the track's four FX levels (LVL 1-4)        ] [RESET]
  *   [D] [ 8 track modules, each: knob / M, channel button, S / knob       ] [ARP  ]
  *   [C]                                                                     [LFO  ]
  *   [B]                                                                     [FX 2 ]
@@ -21,7 +21,7 @@
  * pattern slot there, COPY + A-H = that pattern of this track),
  * step1..16, function row ids (FUNCTION_ROW); knobs k1..k16 (k1..k8 top row, k9..k16
  * bottom row; module i holds k(i+1) and k(i+9)); mmaster, mtempo (the project's MASTER /
- * TEMPO), mvol, mpan, mfx1, mfx2 (the selected track's VOLUME / PAN / FX1 SEND / FX2 SEND).
+ * TEMPO), mlvl1-4 (the selected track's four FX levels).
  */
 import { dimOf } from './colours';
 import { ControlEmitter, type ControlListener, type ControlSurface } from '../controls/ControlSurface';
@@ -38,7 +38,7 @@ export const DESIGN_PAGE_BUTTONS = 3;
 export const FX_SEND_BUTTONS = 4;
 /** The project's knobs (beside the page keys) and the selected track's (over modules 5-8). */
 const PROJECT_KNOBS = ['mmaster', 'mtempo'] as const;
-const TRACK_KNOBS = ['mvol', 'mpan', 'mfx1', 'mfx2'] as const;
+const TRACK_KNOBS = ['mlvl1', 'mlvl2', 'mlvl3', 'mlvl4'] as const;
 
 /** PLAY's faces (App sets them): play, pause (playing), stop, and SAVE (in MENU). */
 const icon = (path: string) => `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">${path}</svg>`;
@@ -215,7 +215,7 @@ export class Panel implements ControlSurface {
       box.appendChild(module);
     };
     for (const id of PROJECT_KNOBS) sideKnob(id, q('.project-knobs'));
-    for (const id of TRACK_KNOBS) sideKnob(id, q('.track-knobs'), id === 'mfx1');
+    for (const id of TRACK_KNOBS) sideKnob(id, q('.track-knobs'));
 
     this.installKeyboard();
     // Nothing stays held when the app loses focus or goes to the background (the lift that

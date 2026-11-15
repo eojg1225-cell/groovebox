@@ -168,7 +168,7 @@ export function changes(a: Project, b: Project): MainToWorklet[] {
       const f = MIX_FIELD[id];
       if (c[f] !== o[f]) out.push({ type: 'setMix', channel: ch, id, value: c[f] });
     }
-    if (c.fxSend !== o.fxSend) out.push({ type: 'setRouting', channel: ch, send: c.fxSend });
+    if (c.bus !== o.bus) out.push({ type: 'setRouting', channel: ch, bus: c.bus });
     if (c.lfoOn !== o.lfoOn) out.push({ type: 'setLfoTrack', channel: ch, on: c.lfoOn });
   });
   return out;

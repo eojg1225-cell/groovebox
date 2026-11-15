@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use crate::dsp::{Noise, Svf};
-use crate::fx::bus::FxBus;
+use crate::fx::bus::{BusIn, FxBus, BUS_INPUTS, SIDE, SLOTS};
 use crate::fx::limiter::Limiter;
 use crate::fx::track_cut::TrackCut;
 use crate::instruments::click::Click;
@@ -438,16 +438,20 @@ pub struct Engine {
     scratch_r: [f32; CHUNK],
 
     buses: Vec<FxBus>,
-    /// FX 1 SEND: how much of the track goes through FX 1 (the drum insert); the rest straight out.
-    fx1_level: Vec<Smoother>,
-    route: [i8; NC],
-    send_level: Vec<Smoother>,
+    /// The bus each track is on (0 = FX 1, 1 = FX 2) and its level into each of that bus's
+    /// four slots (FX 1: COMP MIX, two sends, FILTER MIX; FX 2: four sends).
+    bus_of: [u8; NC],
+    fx_level: Vec<[Smoother; SLOTS]>,
+    /// The track at its VOLUME / PAN, and its FILTER MIX over the block.
+    mix_l: [f64; CHUNK],
+    mix_r: [f64; CHUNK],
+    flt_mix: [f32; CHUNK],
     dyn_depth: [f32; NC],
     force_ring: [u8; NC],
     force_slide: [u8; NC],
     force_vel: [f32; NC],
-    bus_l: [[f32; CHUNK]; NUM_BUSES],
-    bus_r: [[f32; CHUNK]; NUM_BUSES],
+    bus_l: [BusIn<CHUNK>; NUM_BUSES],
+    bus_r: [BusIn<CHUNK>; NUM_BUSES],
 
     lfo_clock: f64,
     lfo_steps: f64,
@@ -681,15 +685,17 @@ impl Engine {
             scratch_l: [0.0; CHUNK],
             scratch_r: [0.0; CHUNK],
             buses: (0..NUM_BUSES).map(|k| FxBus::new(sr, k)).collect(),
-            fx1_level: (0..NC).map(|_| Smoother::new(0.0, 0.02, sr)).collect(),
-            route: [-1; NC],
-            send_level: (0..NC).map(|_| Smoother::new(0.5, 0.02, sr)).collect(),
+            bus_of: [0; NC],
+            fx_level: (0..NC).map(|_| std::array::from_fn(|_| Smoother::new(0.0, 0.02, sr))).collect(),
+            mix_l: [0.0; CHUNK],
+            mix_r: [0.0; CHUNK],
+            flt_mix: [0.0; CHUNK],
             dyn_depth: [1.0; NC],
             force_ring: [0; NC],
             force_slide: [0; NC],
             force_vel: [0.0; NC],
-            bus_l: [[0.0; CHUNK]; NUM_BUSES],
-            bus_r: [[0.0; CHUNK]; NUM_BUSES],
+            bus_l: [[[0.0; CHUNK]; BUS_INPUTS]; NUM_BUSES],
+            bus_r: [[[0.0; CHUNK]; BUS_INPUTS]; NUM_BUSES],
             lfo_clock: 0.0,
             lfo_steps: 4.0,
             lfo_rate: 0,
@@ -864,7 +870,7 @@ impl Engine {
                     _ => {}
                 }
             }
-            "setRouting" => self.route[chv] = self.bus_index(num_or(msg, "send", 0.0)),
+            "setRouting" => self.bus_of[chv] = (num_or(msg, "bus", 0.0) >= 1.0) as u8,
             "setBus" => {
                 let id = str_of(msg, "id").unwrap_or("");
                 self.set_bus_param(num_or(msg, "bus", 0.0) as usize, id, num_or(msg, "value", 0.0));
@@ -1096,17 +1102,12 @@ impl Engine {
             self.set_mix(ch, "gate", num_or(c, "gateLength", 1.0));
             self.set_mix(ch, "ring", num_or(c, "ringLength", 1.0));
             self.set_mix(ch, "cut", num_or(c, "midCut", 0.0));
-            self.route[ch] = self.bus_index(num_or(c, "fxSend", 0.0));
-            // FX 1 SEND: an amount (0-1); saves before v86 stored on / off.
-            let fx1 = match c.get("fx1") {
-                Some(serde_json::Value::Bool(b)) => *b as u8 as f64,
-                _ => num_or(c, "fx1", 0.0).clamp(0.0, 1.0),
-            };
-            self.fx1_level[ch].set_immediate(fx1);
-            self.auto_base.insert(format!("m:{ch}:fx1"), fx1);
-            let send = num_or(c, "sendLevel", 0.5);
-            self.send_level[ch].set_immediate(send);
-            self.set_base(format_args!("m:{ch}:send"), send);
+            self.bus_of[ch] = (num_or(c, "bus", 0.0) >= 1.0) as u8;
+            for (k, id) in ["lvl1", "lvl2", "lvl3", "lvl4"].into_iter().enumerate() {
+                let v = num_or(c, id, 0.0).clamp(0.0, 1.0);
+                self.fx_level[ch][k].set_immediate(v);
+                self.set_base(format_args!("m:{ch}:{id}"), v);
+            }
             self.volume[ch].set_immediate(volume);
             self.pan[ch].set_immediate(pan);
             self.cuts[ch].settle();
@@ -1247,13 +1248,6 @@ impl Engine {
         self.seq_pattern(ch)
     }
 
-    fn bus_index(&self, send: f64) -> i8 {
-        if send >= 2.0 && send <= NUM_SENDS as f64 {
-            (send - 1.0) as i8
-        } else {
-            -1
-        }
-    }
 }
 
 use crate::js;

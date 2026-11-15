@@ -9,7 +9,7 @@
  */
 import { ARP_MODES, ARP_RATES, defaultArp } from './arp';
 import {
-  CLIP_ENTRY, FILL_STEPS, GLIDE_STEPS, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, NUM_SENDS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
+  CLIP_ENTRY, FILL_STEPS, GLIDE_STEPS, MAX_STEPS, NUM_CHANNELS, NUM_PATTERNS, PROJECT_VERSION, SETTING_KEYS, SONG_MAX_BARS, SONG_MAX_ROWS, STEP_NOTES,
   clonePatch, compactEntry, dropTiedRests, emptyPattern, initPatterns, patchOf,
   type ChannelState, type ClipEntry, type Patch, type Pattern, type Project, type SongRow, type SoundKind, type Step,
 } from './project';
@@ -19,9 +19,9 @@ import { macroIds, macroSoundOf, type MacroDef } from '../instruments/macros';
 import { DEFAULT_ROLL_RATE } from '../instruments/drumSpecs';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { BUS_PARAMS, FX_LIVE, NUM_BUSES } from '../fx/buses';
+import { BUS_PARAMS, FX_BANK, FX_LIVE, NUM_BUSES, busParam, controlNorm, fxType } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
-import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN, RING_MAX, RING_MIN } from './mixParams';
+import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN, LEVEL_IDS, RING_MAX, RING_MIN } from './mixParams';
 import { METERS, chainBefore85, chainOrders, type InstrumentKind, type PatternSpeed } from './project';
 import { LFO_RATES, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
@@ -144,10 +144,13 @@ interface StoredChannel {
   notes?: number;
   volume: number;
   pan: number;
-  /** FX 1 SEND, 0-1 (before v86 on / off). */
-  fx1: number | boolean;
-  fxSend: number;
-  sendLevel: number;
+  /** v87: the FX bus the track is on (0 / 1) and its four levels into that bus's slots. */
+  bus?: number;
+  lvl?: number[];
+  /** Before v87: FX 1 SEND (0-1; before v86 on / off), the send it fed (2 = FX 2) and its level. */
+  fx1?: number | boolean;
+  fxSend?: number;
+  sendLevel?: number;
   dynamics?: number;
   gateLength?: number;
   /** v50 on (older: 1 = as designed). */
@@ -246,9 +249,8 @@ export function toStored(p: Project): StoredProject {
       notes: c.notes,
       volume: c.volume,
       pan: c.pan,
-      fx1: c.fx1,
-      fxSend: c.fxSend,
-      sendLevel: c.sendLevel,
+      bus: c.bus,
+      lvl: [c.lvl1, c.lvl2, c.lvl3, c.lvl4],
       dynamics: c.dynamics,
       gateLength: c.gateLength,
       ringLength: c.ringLength,
@@ -852,6 +854,115 @@ function busKeysV81(locks: Record<string, number>): void {
   }
 }
 
+/** A track's routing as saves before v87 had it (read by readChannel, used up by fxV87). */
+interface OldRouting { fx1: number; fxSend: number; sendLevel: number }
+const OLD_ROUTING = new WeakMap<ChannelState, OldRouting>();
+
+/**
+ * v87: the buses' effects became free slots (ids `s<n>_...`, one TYPE list for the whole
+ * bank, the two controls as knob positions). Per bus, each old effect's id prefix, the slot
+ * it is now, its old TYPE list and its two controls' old ids.
+ */
+const SLOTS_V87: readonly Readonly<Record<string, { n: number; types: readonly string[]; a: string; b: string }>>[] = [
+  { mod: { n: 2, types: ['FLANGER', 'PHASER'], a: 'mod_rate', b: 'mod_depth' }, dly: { n: 3, types: ['TAPE', 'SWEEP', 'REVERSE'], a: 'dly_rate', b: 'dly_fdbk' } },
+  {
+    drv: { n: 1, types: ['TUBE', 'FUZZ', 'BIT'], a: 'drv_drive', b: 'drv_tone' },
+    dly: { n: 2, types: ['PING-PONG', 'DUB TAPE', 'SLAPBACK'], a: 'dly_rate', b: 'dly_fdbk' },
+    vrb: { n: 3, types: ['ROOM', 'PLATE', 'SPRING'], a: 'vrb_size', b: 'vrb_len' },
+  },
+];
+
+/** v87: a bus parameter of before (id and value) as it is now; null = it has no place (unknown id). */
+function busParamV87(bus: number, id: string, value: number): [string, number] | null {
+  if (busParam(bus, id) && !/^s\d_/.test(id)) return [id, value]; // COMP, FILTER, TONE: as they were
+  const old = SLOTS_V87[bus]?.[id.slice(0, 3)];
+  if (!old || id[3] !== '_') return null;
+  const type = fxType(old.types[Math.max(0, Math.min(old.types.length - 1, Math.round(value)))]);
+  const family = FX_BANK[fxType(old.types[0])].family;
+  if (id.endsWith('_vol')) return [`s${old.n}_vol`, Math.max(0, Math.min(1, value))];
+  if (id.endsWith('_type')) return [`s${old.n}_type`, type];
+  if (id === old.a) return [`s${old.n}_a`, controlNorm(family, 'a', value)];
+  if (id === old.b) return [`s${old.n}_b`, controlNorm(family, 'b', value)];
+  return null;
+}
+
+/** v87: a live knob id of before as it is now (the buses' VOLUMEs, the old sends). */
+function liveIdV87(id: string): string {
+  const m = /^fx([12]):(.+)$/.exec(id);
+  if (m) {
+    const to = busParamV87(Number(m[1]) - 1, m[2], 0);
+    return to ? `fx${m[1]}:${to[0]}` : id;
+  }
+  return id === 'mix:send' ? 'mix:lvl2' : id === 'mix:fx1' ? 'mix:lvl1' : id;
+}
+
+/**
+ * v87: an automation key of before (a SONG lane's or a step lock's) with its value, as the
+ * keys it is now: a bus parameter moves to its slot; a track's old send level becomes its
+ * level into each effect it fed (FX 2: slots 1-3, FX 1: all four), if it is still on that bus.
+ */
+function autoKeyV87(p: Project, key: string, value: number): [string, number][] {
+  const t = parseAutoKey(key);
+  if (t?.kind === 'b') {
+    const to = busParamV87(t.index, t.id, value);
+    return to ? [[`b:${t.index}:${to[0]}`, to[1]]] : [];
+  }
+  if (t?.kind === 'm' && (t.id === 'send' || t.id === 'fx1')) {
+    const bus = t.id === 'fx1' ? 0 : 1;
+    const c = p.channels[t.index];
+    const old = c && OLD_ROUTING.get(c);
+    // Only a lane that was heard: the track was routed there then, and still is.
+    const routed = old && (bus === 0 ? old.fx1 > 0 : old.fxSend === 2);
+    if (!c || !routed || c.bus !== bus) return [];
+    return LEVEL_IDS.slice(0, bus === 0 ? 4 : 3).map((id) => [`m:${t.index}:${id}`, value] as [string, number]);
+  }
+  return [[key, value]];
+}
+
+/**
+ * v87 (after every older migration): each track is on one bus with a level into each of its
+ * slots. A track that was on FX 1 stays there at that amount on all four (COMP MIX, both
+ * effects, FILTER MIX: as it played, but for COMP and FILTER used together, where FILTER now
+ * comes first); else one that fed FX 2 sends its level to the three effects FX 2 had (slot 4
+ * is new); a track on both keeps FX 1 and loses its send; one on neither goes on its type's
+ * bus (drums FX 1, the rest FX 2) at 0. Live knobs, step locks and SONG lanes follow.
+ */
+function fxV87(p: Project): void {
+  for (const c of p.channels) {
+    const old = OLD_ROUTING.get(c);
+    if (!old) continue;
+    const drum = c.instrument !== 'none' && isDrum(c.instrument);
+    c.bus = old.fx1 > 0 ? 0 : old.fxSend === 2 ? 1 : drum ? 0 : 1;
+    const level = old.fx1 > 0 ? old.fx1 : old.fxSend === 2 ? old.sendLevel : 0;
+    LEVEL_IDS.forEach((id, k) => { c[id] = c.bus === 1 && k === 3 ? 0 : level; });
+    c.live = [liveIdV87(c.live[0]), liveIdV87(c.live[1])];
+    c.liveFunc = [liveIdV87(c.liveFunc[0]), liveIdV87(c.liveFunc[1])];
+  }
+  const locks = (steps: Step[]) => {
+    for (const st of steps) {
+      if (!st.locks) continue;
+      const out: Record<string, number> = {};
+      for (const key in st.locks) for (const [k, v] of autoKeyV87(p, key, st.locks[key])) out[k] = v;
+      if (Object.keys(out).length) st.locks = out;
+      else delete st.locks;
+    }
+  };
+  for (const c of p.channels) {
+    for (const pat of c.patterns) {
+      locks(pat.steps);
+      if (pat.savedNotes) locks(pat.savedNotes.steps);
+    }
+  }
+  if (p.song.auto) {
+    const out: Record<string, [number, number][]> = {};
+    for (const key in p.song.auto) {
+      for (const [at, v] of p.song.auto[key]) for (const [k, nv] of autoKeyV87(p, key, v)) (out[k] ??= []).push([at, nv]);
+    }
+    if (Object.keys(out).length) p.song.auto = out;
+    else delete p.song.auto;
+  }
+}
+
 /** The old FX 2's settings a PAD's own effects stand in for (its defaults, for saves without them). */
 const FX2_V81 = { mod_vol: 0.3, mod_type: 1, vrb_vol: 0.45 };
 
@@ -865,12 +976,14 @@ function sendsV81(p: Project, oldFx2: unknown): void {
   const fx = { ...FX2_V81, ...(isObj(oldFx2) ? numbers(oldFx2) : {}) };
   const clamp = (v: number) => Math.max(0, Math.min(1, v));
   for (const c of p.channels) {
-    if (c.fxSend === 2 && c.instrument === 'pad') {
-      const own = { verb: clamp(fx.vrb_vol * c.sendLevel), modmix: clamp(fx.mod_vol * c.sendLevel), modtype: modTypeV82(Math.max(0, Math.min(2, Math.round(fx.mod_type)))) };
+    const old = OLD_ROUTING.get(c);
+    if (!old) continue;
+    if (old.fxSend === 2 && c.instrument === 'pad') {
+      const own = { verb: clamp(fx.vrb_vol * old.sendLevel), modmix: clamp(fx.mod_vol * old.sendLevel), modtype: modTypeV82(Math.max(0, Math.min(2, Math.round(fx.mod_type)))) };
       const sounds = [c.sounds.pad, ...c.patterns.flatMap((pat) => [pat.patch?.sound, pat.savedPatch?.sound])];
       for (const sound of sounds) if (sound) Object.assign(sound, own);
     }
-    c.fxSend = c.fxSend === 3 ? 2 : 0;
+    old.fxSend = old.fxSend === 3 ? 2 : 0;
   }
 }
 
@@ -947,7 +1060,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     for (const id in offsets) if (offsets[id] !== 0) ch.liveOffset[id] = Math.max(-1, Math.min(1, version < 66 ? macroOffsetV66(offsets[id]) : offsets[id]));
   }
   // Live knobs on parameters the type does not have: back to the type's defaults.
-  if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, id))) liveDefaults(ch);
+  if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, version < 87 ? liveIdV87(id) : id))) liveDefaults(ch);
   if (version < 51) liveV51(ch);
   if (version < 63) kickLiveV63(ch);
   if (version < 64) drumLiveV64(ch);
@@ -975,15 +1088,22 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (typeof src.keyFrom === 'number' && src.keyFrom) ch.keyFrom = Math.round(num(src.keyFrom, 0, 0, 11));
   ch.midCut = num(src.midCut, 0, 0, 1);
   ch.mute = src.mute === true;
-  // v86: FX 1 SEND is an amount; before, on / off (fx1V86: on = all of it).
-  ch.fx1 = typeof src.fx1 === 'number' ? num(src.fx1, 0, 0, 1) : src.fx1 === true ? 1 : 0;
-  // Before v81 sends 2 / 3 (FX 2 / FX 3); sendsV81 (fromStored) moves them on.
-  const send = Math.round(num(src.fxSend, 0, 0, version < 81 ? 3 : NUM_SENDS));
-  ch.fxSend = send >= 2 ? send : 0;
-  // v41: FX 2 is the PAD's bus and FX 3 the LEAD's (before: FX 2 the dub delay for bass /
-  // lead, FX 3 the pad reverb), so older routings swap.
-  if (version < 41 && ch.fxSend) ch.fxSend = ch.fxSend === 2 ? 3 : 2;
-  ch.sendLevel = num(src.sendLevel, ch.sendLevel, 0, 1);
+  if (version >= 87) {
+    ch.bus = num(src.bus, ch.bus, 0, 1) >= 1 ? 1 : 0;
+    const lvl = Array.isArray(src.lvl) ? src.lvl : [];
+    LEVEL_IDS.forEach((id, k) => { ch[id] = num(lvl[k], 0, 0, 1); });
+  } else {
+    // Before v87 a track was on FX 1 by an amount (v86; before, on / off: on = all of it)
+    // and / or fed a send: kept aside for the older migrations, then fxV87 (fromStored).
+    const old: OldRouting = { fx1: typeof src.fx1 === 'number' ? num(src.fx1, 0, 0, 1) : src.fx1 === true ? 1 : 0, fxSend: 0, sendLevel: num(src.sendLevel, 0.5, 0, 1) };
+    // Before v81 sends 2 / 3 (FX 2 / FX 3); sendsV81 (fromStored) moves them on.
+    const send = Math.round(num(src.fxSend, 0, 0, version < 81 ? 3 : 2));
+    old.fxSend = send >= 2 ? send : 0;
+    // v41: FX 2 is the PAD's bus and FX 3 the LEAD's (before: FX 2 the dub delay for bass /
+    // lead, FX 3 the pad reverb), so older routings swap.
+    if (version < 41 && old.fxSend) old.fxSend = old.fxSend === 2 ? 3 : 2;
+    OLD_ROUTING.set(ch, old);
+  }
   ch.activePattern = Math.round(num(src.activePattern, 0, 0, NUM_PATTERNS - 1));
 
   if (!Array.isArray(src.patterns)) return;
@@ -1110,8 +1230,16 @@ export function fromStored(data: unknown): Project | null {
       // v81: the old FX 2 (index 1) went; FX 3 (2) is FX 2 (1).
       const src = data.buses[version < 81 && k === 1 ? 2 : k];
       if (!isObj(src)) continue;
+      // v87: the effects are free slots (busParamV87 moves an older save's settings over).
+      const stored: Record<string, number> = {};
+      for (const id in src) {
+        const v = src[id];
+        if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+        const to = version < 87 ? busParamV87(k, id, v) : [id, v] as [string, number];
+        if (to) stored[to[0]] = to[1];
+      }
       for (const spec of BUS_PARAMS[k]) {
-        const v = num(src[spec.id], p.buses[k][spec.id], spec.min, spec.max);
+        const v = num(stored[spec.id], p.buses[k][spec.id], spec.min, spec.max);
         p.buses[k][spec.id] = spec.options ? Math.round(v) : v;
       }
     }
@@ -1161,6 +1289,7 @@ export function fromStored(data: unknown): Project | null {
   }
   if (version < 81) sendsV81(p, version >= 41 && Array.isArray(data.buses) ? data.buses[1] : undefined);
   if (version < 49) typeGainV49(p);
+  if (version < 87) fxV87(p);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.
   if (version < 79 && p.song.auto) {
