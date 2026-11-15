@@ -265,9 +265,11 @@ can feed one effect without the others.
   nothing. The controls are stored as knob positions and read in the loaded family's scale
   (`FX_FAMILIES` / `specs::FX_FAMILY_SPECS`); the UI shows them in those units (`busKnob`) and puts a
   new family's controls on its defaults.
-- **FX 1** (the drum processor): FILTER first, on every track of its own (`filter_track`, one set of
-  knobs, `djCutoff`: LP left / HP right / OFF centre, skipped and reset while off; RESO; ENV raises or
-  lowers the cutoff from the track's own peak follower, ENV REL its fall), by the track's FILTER MIX
+- **FX 1** (the drum processor): FILTER first: one cutoff per block for the whole kit (`FxBus.begin`,
+  called by `Engine.finish_kit` once every FX 1 track is in: `djCutoff`, LP left / HP right / OFF
+  centre, skipped and reset while off; ENV raises or lowers it from a peak follower on the tracks
+  summed by their FLT MIX, ENV REL its fall), applied on a filter of each track's own
+  (`filter_track`; RESO; a filter still ringing keeps its silent track running), by the track's FILTER MIX
   (`lvl4`, dry to filtered); then COMP in parallel by its COMP MIX (`lvl1`: that much of the track
   into the `Compressor`, the rest straight out; RATIO 1:1 = off) and slots 2-3 by `lvl2` / `lvl3`.
 - **FX 2** (the synths' multi FX): the track goes straight out and into each slot by its level (the

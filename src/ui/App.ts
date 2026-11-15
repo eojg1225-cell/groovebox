@@ -1509,7 +1509,7 @@ export class App {
     if (this.fxView > 0) {
       const bus = this.fxView;
       return step(this.func ? new Array(KNOB_COUNT).fill(null)
-        : this.sendTargets(bus - 1).map((t, i) => t && (bus <= 2 ? { ...t, colour: fxColour(bus, i % KNOBS_PER_ROW) } : { ...t, neutral: true })));
+        : this.sendTargets(bus - 1).map((t) => t && (bus <= 2 ? { ...t, colour: fxColour() } : { ...t, neutral: true })));
     }
     // STEP EDIT: the RECORD knobs; FUNC = the track's SOUND page (its first layer).
     // STEP EDIT in RECORD / PLAY: their knobs; FUNC = the track's SOUND page. DESIGN: its pages (below).
@@ -3472,7 +3472,8 @@ export class App {
    */
   private trackKnob(id: string): KnobTarget | null {
     const key = TRACK_KNOBS[id];
-    if (key?.startsWith('global:')) return this.globalTarget(key.slice(7) as GlobalId);
+    // (MASTER reads VOLUME there: its box is named MASTER.)
+    if (key?.startsWith('global:')) return { ...this.globalTarget(key.slice(7) as GlobalId), ...(key === 'global:master' ? { label: 'VOLUME' } : {}) };
     if (!key || this.channel.instrument === 'none') return null;
     return this.paramTarget(this.selected, key, undefined, true);
   }
@@ -3495,7 +3496,7 @@ export class App {
     if (this.funcHeld) this.funcUsed = true;
     if (t.key) this.glides.delete(t.key);
     t.set(value);
-    this.flash(`${t.key?.startsWith('global:') ? '' : `CH${this.selected + 1} `}${t.label} ${formatValue(t.spec, t.get())}`);
+    this.flash(`${t.key?.startsWith('global:') ? (t.key === 'global:master' ? 'MASTER ' : '') : `CH${this.selected + 1} `}${t.label} ${formatValue(t.spec, t.get())}`);
     this.save();
   }
 
@@ -4432,7 +4433,7 @@ export class App {
   }
 
   private knobLabel(id: string): string {
-    if (TRACK_KNOBS[id]) return this.trackKnob(id)?.label ?? 'KNOB';
+    if (TRACK_KNOBS[id]) return id === 'mmaster' ? 'MASTER' : this.trackKnob(id)?.label ?? 'KNOB';
     return this.targets[Number(id.slice(1)) - 1]?.label ?? 'KNOB';
   }
 
@@ -4870,6 +4871,8 @@ export class App {
       const t = this.trackKnob(id);
       this.panel.configureMaster(id, t && { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), colour: this.knobColour(t) });
     }
+    // Under the track's four level knobs: whose they are and the bus they feed.
+    this.panel.setTrackBoxLabel(this.channel.instrument === 'none' ? 'TRACK FX' : `${this.kindName(this.channel)}: FX ${this.channel.bus + 1} LEVELS`);
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       this.panel.setButtonLit(`fx${n}`, n === 3 ? this.arpOpen : this.fxView === n);
     }

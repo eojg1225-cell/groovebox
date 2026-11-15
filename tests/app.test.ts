@@ -805,7 +805,7 @@ describe('MENU and CANCEL', () => {
     deviceSettings.touchDelay = 3;
   });
 
-  it('GLOBAL SETTINGS > THEME: CLASSIC first (the first look); a pick shows at once, CANCEL goes back; COLOUR = FX knobs in alternating pairs', () => {
+  it('GLOBAL SETTINGS > THEME: CLASSIC first (the first look); a pick shows at once, CANCEL goes back; COLOUR = FX knobs all off-white', () => {
     const { app, tap } = makeApp();
     const colour = (slot: number) => (app as unknown as { knobColour(t: unknown): string; targets: unknown[] }).knobColour((app as unknown as { targets: unknown[] }).targets[slot]);
     expect(deviceSettings.theme).toBe(0); // CLASSIC at HIGH
@@ -830,11 +830,9 @@ describe('MENU and CANCEL', () => {
     expect(deviceSettings.saturation).toBe(1);
     expect(INK.warn).toBe('#ffffff');
     tap('menu'); // closed
-    tap('fx2'); // FX 2's knobs: modules 1-2 one colour, 3-4 the other, 5-6 the first again
-    expect(colour(0)).toBe(colour(1));
-    expect(colour(2)).not.toBe(colour(0));
-    expect(colour(4)).toBe(colour(0));
-    expect(colour(14)).toBe(colour(2));
+    tap('fx2'); // FX 2's knobs: all the one off-white (the lit grooves group them), no track's colour
+    expect(colour(0)).toBe('#c9d3dc');
+    expect([1, 2, 4, 14].every((i) => colour(i) === colour(0))).toBe(true);
     tap('fx2');
     // INVERT: hues turned half way round (CLASSIC: gold -> blue); MONO ignores it.
     Object.assign(deviceSettings, { theme: 0, saturation: 2, invert: 1 });

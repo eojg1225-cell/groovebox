@@ -474,7 +474,9 @@ impl Engine {
                 self.bus_r[k][b][..n].fill(0.0);
             }
         }
-        self.buses[0].begin(n);
+        self.kit_on = [false; NC];
+        self.kit_sum_l[..n].fill(0.0);
+        self.kit_sum_r[..n].fill(0.0);
         let lfo_active = self.lfo_vol > 0.0 || self.lfo_pitch > 0.0 || self.lfo_filter > 0.0 || self.lfo_pan > 0.0 || self.lfo_send > 0.0 || self.lfo_fm > 0.0;
         for ch in 0..NC {
             let Some(kind) = self.current[ch] else { continue };
@@ -537,7 +539,8 @@ impl Engine {
             let vol = &mut self.volume[ch];
             let pan = &mut self.pan[ch];
             let levels = &mut self.fx_level[ch];
-            if silent(&self.scratch_l[..n], &self.scratch_r[..n]) {
+            // (A track on FX 1 whose filter still rings is run on, silent as it is.)
+            if silent(&self.scratch_l[..n], &self.scratch_r[..n]) && !(bus == 0 && self.buses[0].ringing(ch)) {
                 vol.advance(n as u32);
                 pan.advance(n as u32);
                 for s in levels.iter_mut() {
@@ -575,34 +578,21 @@ impl Engine {
                 }
             }
             let settled = levels.iter().all(|s| s.settled());
-            let [bus0_l, bus1_l] = &mut self.bus_l;
-            let [bus0_r, bus1_r] = &mut self.bus_r;
+            let [_, bus1_l] = &mut self.bus_l;
+            let [_, bus1_r] = &mut self.bus_r;
             if bus == 0 {
-                // FX 1: its FILTER first (this track's own, by its MIX), then that much of the
-                // track through COMP (the rest straight out) and into the two effects.
+                // FX 1: kept until every track is in (the FILTER's cutoff is the whole kit's:
+                // `finish_kit`), with its FLT MIX over the block.
                 let f = &mut levels[3];
-                if self.buses[0].filtering() && (f.value() > 0.0 || !f.settled()) {
-                    for x in self.flt_mix[..n].iter_mut() {
-                        *x = f.next() as f32;
-                    }
-                    self.buses[0].filter_track(ch, &mut ml[..n], &mut mr[..n], &self.flt_mix[..n]);
-                } else {
-                    f.advance(n as u32);
-                }
-                let (c0, m0, d0) = (levels[0].value(), levels[1].value(), levels[2].value());
                 for i in 0..n {
-                    let (c, m, d) = if settled { (c0, m0, d0) } else { (levels[0].next(), levels[1].next(), levels[2].next()) };
-                    let (l, r) = (ml[i], mr[i]);
-                    split_mix(c, l, r, &mut bus0_l[0][i], &mut bus0_r[0][i], &mut out_l[off + i], &mut out_r[off + i]);
-                    if m > 0.0 {
-                        js::add_f32(&mut bus0_l[1][i], l * m);
-                        js::add_f32(&mut bus0_r[1][i], r * m);
-                    }
-                    if d > 0.0 {
-                        js::add_f32(&mut bus0_l[2][i], l * d);
-                        js::add_f32(&mut bus0_r[2][i], r * d);
-                    }
+                    let m = f.next();
+                    self.kit_mix[ch][i] = m as f32;
+                    self.kit_l[ch][i] = ml[i];
+                    self.kit_r[ch][i] = mr[i];
+                    self.kit_sum_l[i] += ml[i] * m;
+                    self.kit_sum_r[i] += mr[i] * m;
                 }
+                self.kit_on[ch] = true;
             } else {
                 // FX 2: the track straight out, and into each effect at its level (SEND MOD
                 // moves the levels that are up); the side chain hears it at its highest.
@@ -640,10 +630,45 @@ impl Engine {
                 }
             }
         }
+        self.finish_kit(out_l, out_r, off, n);
         for k in 0..NUM_BUSES {
             self.buses[k].process(&mut self.bus_l[k], &mut self.bus_r[k], &mut out_l[off..off + n], &mut out_r[off..off + n], n);
         }
         self.lfo_clock += n as f64 * self.lfo_step_inc();
+    }
+
+    /// FX 1's tracks, once all are in: the FILTER (each track's own, on the one cutoff the
+    /// whole kit sets, by its FLT MIX), then that much of each through COMP (the rest
+    /// straight out) and into the two effects.
+    fn finish_kit(&mut self, out_l: &mut [f32], out_r: &mut [f32], off: usize, n: usize) {
+        self.buses[0].begin(n, &self.kit_sum_l[..n], &self.kit_sum_r[..n]);
+        let filtering = self.buses[0].filtering();
+        for ch in 0..NC {
+            if !self.kit_on[ch] {
+                continue;
+            }
+            if filtering {
+                self.buses[0].filter_track(ch, &mut self.kit_l[ch][..n], &mut self.kit_r[ch][..n], &self.kit_mix[ch][..n]);
+            }
+            let levels = &mut self.fx_level[ch];
+            let settled = levels[..3].iter().all(|s| s.settled());
+            let (c0, m0, d0) = (levels[0].value(), levels[1].value(), levels[2].value());
+            let [bus_l, _] = &mut self.bus_l;
+            let [bus_r, _] = &mut self.bus_r;
+            for i in 0..n {
+                let (c, m, d) = if settled { (c0, m0, d0) } else { (levels[0].next(), levels[1].next(), levels[2].next()) };
+                let (l, r) = (self.kit_l[ch][i], self.kit_r[ch][i]);
+                split_mix(c, l, r, &mut bus_l[0][i], &mut bus_r[0][i], &mut out_l[off + i], &mut out_r[off + i]);
+                if m > 0.0 {
+                    js::add_f32(&mut bus_l[1][i], l * m);
+                    js::add_f32(&mut bus_r[1][i], r * m);
+                }
+                if d > 0.0 {
+                    js::add_f32(&mut bus_l[2][i], l * d);
+                    js::add_f32(&mut bus_r[2][i], r * d);
+                }
+            }
+        }
     }
 
     fn lfo_step_inc(&self) -> f64 {

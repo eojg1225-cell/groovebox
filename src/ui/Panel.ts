@@ -3,10 +3,10 @@
  * Fixed design-size box scaled to fit the window; on a portrait screen it is rotated
  * so the instrument is always landscape.
  *
- *   [H] [ pixel screen ] [ MODE: design / record / play | MENU          ] [UNDO ]
- *   [G]                  [ SAVE PATTERN, SAVE/LOAD, CANCEL | MASTER TEMPO ] [CLEAR]
- *   [F]                  [ pages                           |              ] [COPY ]
- *   [E]                  [    the track's four FX levels (LVL 1-4)        ] [RESET]
+ *   [H] [ pixel screen ] [ MODE: design / record / play | MENU          ] [RESET]
+ *   [G]                  [ SAVE PATTERN, SAVE/LOAD, CANCEL | MASTER:      ] [UNDO ]
+ *   [F]                  [ pages                           | VOLUME TEMPO ] [CLEAR]
+ *   [E]                  [ TRACK FX: the track's four FX levels           ] [COPY ]
  *   [D] [ 8 track modules, each: knob / M, channel button, S / knob       ] [ARP  ]
  *   [C]                                                                     [LFO  ]
  *   [B]                                                                     [FX 2 ]
@@ -110,9 +110,9 @@ export class Panel implements ControlSurface {
               <div class="row patterns"><div class="save-buttons"></div></div>
               <div class="row pages"><div class="page-buttons"></div></div>
             </div>
-            <div class="master-knobs project-knobs"></div>
+            <div class="master-knobs project-knobs"><div class="box-label">MASTER</div></div>
           </div>
-          <div class="row buses"><div class="master-knobs track-knobs"></div></div>
+          <div class="row buses"><div class="master-knobs track-knobs"><div class="box-label">TRACK FX</div></div></div>
         </div>
       </div>
       <div class="knob-grid"></div>
@@ -136,12 +136,12 @@ export class Panel implements ControlSurface {
     for (let i = 0; i < DESIGN_PAGE_BUTTONS; i++) q('.page-buttons').appendChild(this.makeButton(`dpage${i}`, '', 'btn page'));
     // The left column: the pattern keys, A at the bottom.
     for (const p of [...cfg.patterns].reverse()) q('.side-keys.left').appendChild(this.makeButton(`pat${p}`, `<small>PATTERN</small>${p}`, 'btn pat'));
-    // The right column: UNDO, CLEAR, COPY, RESET, then ARP, LFO, FX 2, FX 1.
+    // The right column: RESET (the corner, away from the SAVE keys), UNDO, CLEAR, COPY, then ARP, LFO, FX 2, FX 1.
     const right = q('.side-keys.right');
+    right.appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn side'));
     right.appendChild(this.makeButton('undo', 'UNDO', 'btn side'));
     right.appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn side'));
     right.appendChild(this.makeButton('copy', 'COPY<small>HOLD</small>', 'btn side'));
-    right.appendChild(this.makeButton('reset', 'RESET<small>TO SAVED</small>', 'btn side'));
     for (const i of [3, 4, 2, 1]) right.appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : i === 3 ? 'ARP' : `FX ${i}`, 'btn side fxsend'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel; the
@@ -203,16 +203,16 @@ export class Panel implements ControlSurface {
     }
     // ALT (hold: the knobs' second layer; tap: latch) left of the strip, PLAY right of it.
     root.append(this.makeButton('func', 'ALT', 'btn func'), this.makeButton('play', PLAY_ICON, 'btn play'));
-    // MASTER / TEMPO beside the page keys, the track's knobs over knob modules 5-8: each in a
-    // module of its own (the name up its left side), a lit groove between the track's two
-    // and its two sends.
-    const sideKnob = (id: string, box: HTMLElement, lit = false) => {
+    // The MASTER box (VOLUME / TEMPO) beside the page keys and the TRACK FX box (the selected
+    // track's four FX levels) over knob modules 5-8: each knob in a module of its own (the
+    // name up its left side), the box's name under its knobs.
+    const sideKnob = (id: string, box: HTMLElement) => {
       const knob = new Knob(id, '', 0.5, this.knobEmit, this.encoderEmit, 127);
       this.masterKnobs.set(id, knob);
       const module = document.createElement('div');
-      module.className = lit ? 'knob-module lit-groove' : 'knob-module';
+      module.className = 'knob-module';
       module.appendChild(knob.el);
-      box.appendChild(module);
+      box.insertBefore(module, box.querySelector('.box-label'));
     };
     for (const id of PROJECT_KNOBS) sideKnob(id, q('.project-knobs'));
     for (const id of TRACK_KNOBS) sideKnob(id, q('.track-knobs'));
@@ -262,6 +262,12 @@ export class Panel implements ControlSurface {
       const on = modules.includes(i);
       if (m.classList.contains('lit-groove') !== on) m.classList.toggle('lit-groove', on);
     });
+  }
+
+  /** The name under the TRACK FX box's knobs (whose levels they are, into which bus). */
+  setTrackBoxLabel(text: string): void {
+    const el = this.root.querySelector('.track-knobs .box-label') as HTMLElement;
+    if (el.textContent !== text) el.textContent = text;
   }
 
   /** A knob of the project's or the selected track's (above the knob panel), or null: off. */

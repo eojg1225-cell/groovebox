@@ -4064,6 +4064,26 @@ describe('FX buses (v41)', () => {
     expect(kickOnly).toBeLessThan(neither);
   });
 
+  it('FX 1\'s FILTER ENV follows the whole kit: a kick opens the filter for the hat too', () => {
+    // A HAT under a low low-pass with ENV up: on its own it stays dark; with the KICK hitting
+    // on the same step (itself out of the filter's sound: we listen to the highs) it opens.
+    const highs = (withKick: boolean) => {
+      const p = kickProject(withKick ? [0] : [], { bpm: 120 });
+      p.channels[0].volume = 1;
+      const hat = p.channels[2];
+      hat.patterns[0].steps[0].active = true;
+      hat.volume = 0.05; // quiet: on its own it barely moves the filter
+      Object.assign(p.buses[0], { flt: 0.12, flt_env: 1, flt_rel: 0.3 });
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      const { l } = render(e, 0.15);
+      let hf = 0;
+      for (let i = 2; i < l.length; i++) hf += (l[i] - 2 * l[i - 1] + l[i - 2]) ** 2; // the top of the band
+      return hf;
+    };
+    expect(highs(true)).toBeGreaterThan(highs(false) * 3);
+  });
+
   it('a track is on one bus: moved to the other, its levels feed that bus\'s slots', () => {
     const p = kickProject([0], { bpm: 120 });
     noFx(p.channels[0]);

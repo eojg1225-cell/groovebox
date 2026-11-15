@@ -442,10 +442,17 @@ pub struct Engine {
     /// four slots (FX 1: COMP MIX, two sends, FILTER MIX; FX 2: four sends).
     bus_of: [u8; NC],
     fx_level: Vec<[Smoother; SLOTS]>,
-    /// The track at its VOLUME / PAN, and its FILTER MIX over the block.
+    /// The track at its VOLUME / PAN.
     mix_l: [f64; CHUNK],
     mix_r: [f64; CHUNK],
-    flt_mix: [f32; CHUNK],
+    /// FX 1's tracks over the block, kept until all are in (`finish_kit`): each at its
+    /// VOLUME / PAN, its FLT MIX, and their sum by those mixes (the FILTER's ENV hears it).
+    kit_on: [bool; NC],
+    kit_l: [[f64; CHUNK]; NC],
+    kit_r: [[f64; CHUNK]; NC],
+    kit_mix: [[f32; CHUNK]; NC],
+    kit_sum_l: [f64; CHUNK],
+    kit_sum_r: [f64; CHUNK],
     dyn_depth: [f32; NC],
     force_ring: [u8; NC],
     force_slide: [u8; NC],
@@ -689,7 +696,12 @@ impl Engine {
             fx_level: (0..NC).map(|_| std::array::from_fn(|_| Smoother::new(0.0, 0.02, sr))).collect(),
             mix_l: [0.0; CHUNK],
             mix_r: [0.0; CHUNK],
-            flt_mix: [0.0; CHUNK],
+            kit_on: [false; NC],
+            kit_l: [[0.0; CHUNK]; NC],
+            kit_r: [[0.0; CHUNK]; NC],
+            kit_mix: [[0.0; CHUNK]; NC],
+            kit_sum_l: [0.0; CHUNK],
+            kit_sum_r: [0.0; CHUNK],
             dyn_depth: [1.0; NC],
             force_ring: [0; NC],
             force_slide: [0; NC],

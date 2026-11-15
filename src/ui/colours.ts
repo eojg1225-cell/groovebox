@@ -2,8 +2,8 @@
  * The look (MENU > GLOBAL SETTINGS, kept on the device): THEME, SATURATION and INVERT.
  *  - COLOUR: each track type has its own colour (panel and screen); white is every track's
  *    second colour (cursor, playhead, accents, held knobs, values away from saved). Knobs of no
- *    track (LFO, project, TEMPO / MASTER, MENU) are neutral grey; FX 1 / FX 2's knob modules come
- *    in pairs, two track colours alternating per bus. The screen is neutral grey.
+ *    track (LFO, project, TEMPO / MASTER, MENU) are neutral grey; an FX bus's knobs are
+ *    off-white (the lit grooves group them by slot). The screen is neutral grey.
  *  - CLASSIC (first and default): everything teal, gold as the second colour, a teal screen.
  *    REVERSE: gold, teal second. MONO: grey, white second.
  *  - SATURATION: LOW / MEDIUM / HIGH. COLOUR's list is MEDIUM; CLASSIC / REVERSE's teal and
@@ -27,9 +27,6 @@ export const TRACK_COLOURS: Record<InstrumentKind, string> = {
   pluck: '#d3b6c4',
 };
 
-/** FX 1 / 2: the two colours their knob modules alternate in (modules 1-2, 5-6 / 3-4, 7-8). */
-const FX_PAIRS: [InstrumentKind, InstrumentKind][] = [['kick', 'perc'], ['snare', 'bass']];
-
 export const THEMES = ['CLASSIC', 'COLOUR', 'MONO', 'REVERSE'] as const;
 export const SATURATIONS = ['LOW', 'MEDIUM', 'HIGH'] as const;
 /** Saturation against MEDIUM, per level. */
@@ -40,6 +37,7 @@ const TEAL = '#3cc8b4';
 const GOLD = '#e8b53a';
 const GREY = '#a9b3bd';
 const WHITE = '#f4f7fa';
+const FX_WHITE = '#c9d3dc';
 const SCREEN_BG = '#0b0e10';
 const GREY_SCREEN = { bg: SCREEN_BG, dim: '#2b3238', mid: '#8d98a3', hi: '#e9eef2', warn: '#ffffff', shade: '#161b1f' };
 
@@ -129,10 +127,12 @@ export function neutralColour(): string {
   return theme === 'COLOUR' ? GREY : primary();
 }
 
-/** FX bus n (1-2), knob module m (0-7): its pair's colour. */
-export function fxColour(bus: number, module: number): string {
-  const pair = FX_PAIRS[bus - 1];
-  return pair ? trackColour(pair[(module >> 1) & 1]) : neutralColour();
+/**
+ * An FX bus's knobs: in COLOUR an off-white (the lit grooves group them by slot; a knob away
+ * from its saved value still shows in the brighter second colour), else the theme's colour.
+ */
+export function fxColour(): string {
+  return theme === 'COLOUR' ? FX_WHITE : primary();
 }
 
 /** One colour's shades on the pixel screen. */

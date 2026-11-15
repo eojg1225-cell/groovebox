@@ -115,14 +115,15 @@ impl Slot {
     }
 }
 
-/// FX 1's FILTER on one track.
+/// FX 1's FILTER on one track: its own filter, on the cutoff the whole kit sets (`begin`).
 #[derive(Default)]
 struct TrackFilter {
     l: Svf,
     r: Svf,
-    follow: f64,
-    counter: i32,
-    mode: i32,
+    /// The cutoff it is set up for (0 = not yet).
+    fc: f64,
+    /// Still sounding (its input, or its own ringing): the engine keeps running it.
+    ringing: bool,
 }
 
 /// A bus's inputs for one block (N frames each).
@@ -153,9 +154,16 @@ pub struct FxBus {
     flt_pos: Smoother,
     flt_target: f64,
     flt_reso: f64, flt_env: f64, flt_rel_mul: f64,
-    /// The FILTER knob's position over this block (`begin`), and whether it filters at all.
-    flt_buf: [f32; FX_BLOCK],
+    /// The cutoff (Hz) and side (-1 low-pass, 1 high-pass, 0 off) over this block, the same
+    /// for every track (`begin`: the knob's glide and ENV from the whole kit's level), and
+    /// whether the filter filters at all.
+    fc_buf: [f64; FX_BLOCK],
+    mode_buf: [i8; FX_BLOCK],
     flt_active: bool,
+    flt_follow: f64,
+    flt_counter: i32,
+    flt_fc: f64,
+    flt_mode: i8,
     filters: [TrackFilter; TRACKS],
 }
 
@@ -187,8 +195,13 @@ impl FxBus {
             flt_pos: Smoother::new(0.5, 0.02, sample_rate),
             flt_target: 0.5,
             flt_reso: 0.0, flt_env: 0.0, flt_rel_mul: 0.0,
-            flt_buf: [0.5; FX_BLOCK],
+            fc_buf: [20.0; FX_BLOCK],
+            mode_buf: [0; FX_BLOCK],
             flt_active: false,
+            flt_follow: 0.0,
+            flt_counter: 0,
+            flt_fc: 20.0,
+            flt_mode: 0,
             filters: Default::default(),
         };
         // buses.ts' defaults (specs.rs, generated from it).
@@ -216,7 +229,7 @@ impl FxBus {
             "flt_reso" => {
                 self.flt_reso = v;
                 for f in &mut self.filters {
-                    f.counter = 0;
+                    f.fc = 0.0; // set up again
                 }
                 return;
             }
@@ -305,14 +318,11 @@ impl FxBus {
         self.pump_x = 0.0;
     }
 
-    /// The start of a block of `n` frames (FX 1, before the tracks are filtered): the FILTER
-    /// knob's glide over it, and whether the filter is on at all.
-    /// FX 1's FILTER is filtering now (after `begin`).
-    pub fn filtering(&self) -> bool {
-        self.flt_active
-    }
-
-    pub fn begin(&mut self, n: usize) {
+    /// The start of a block of `n` frames (FX 1, before its tracks are filtered): the cutoff
+    /// over the block, one for the whole kit: the FILTER knob's glide, and ENV from the level
+    /// of everything going through the filter (`kit`: the tracks summed, each by its FLT MIX),
+    /// so a kick opens the filter for the hats too, as one filter over the drums would.
+    pub fn begin(&mut self, n: usize, kit_l: &[f64], kit_r: &[f64]) {
         if !self.drums {
             return;
         }
@@ -322,44 +332,73 @@ impl FxBus {
                 for f in &mut self.filters {
                     *f = TrackFilter::default();
                 }
+                self.flt_follow = 0.0;
+                self.flt_counter = 0;
             }
             self.flt_pos.set_immediate(self.flt_target);
-        } else {
-            for i in 0..n.min(FX_BLOCK) {
-                self.flt_buf[i] = self.flt_pos.next() as f32;
-            }
+            self.flt_active = false;
+            return;
         }
-        self.flt_active = on;
+        self.flt_active = true;
+        for i in 0..n.min(FX_BLOCK) {
+            let a = kit_l[i].abs() + kit_r[i].abs();
+            self.flt_follow = if a > self.flt_follow { a } else { self.flt_follow * self.flt_rel_mul };
+            let pos = self.flt_pos.next();
+            let due = self.flt_counter <= 0;
+            self.flt_counter -= 1;
+            if due {
+                self.flt_counter = FILTER_UPDATE;
+                let c = dj_cutoff(pos);
+                self.flt_mode = if c < 0.0 { -1 } else if c > 0.0 { 1 } else { 0 };
+                let base = c.abs();
+                let fc = if self.flt_env == 0.0 { base } else { base * 2f64.powf(self.flt_env * 8.0 * self.flt_follow.min(1.0)) };
+                self.flt_fc = if fc < 20.0 { 20.0 } else { fc };
+            }
+            self.fc_buf[i] = self.flt_fc;
+            self.mode_buf[i] = self.flt_mode;
+        }
+        if self.flt_follow < 1e-9 {
+            self.flt_follow = 0.0;
+        }
+    }
+
+    /// FX 1's FILTER is filtering now (after `begin`).
+    pub fn filtering(&self) -> bool {
+        self.flt_active
+    }
+
+    /// Track `ch`'s filter still rings (after its input stopped): keep running it.
+    pub fn ringing(&self, ch: usize) -> bool {
+        self.flt_active && self.filters.get(ch).is_some_and(|f| f.ringing)
     }
 
     /// FX 1's FILTER on track `ch`, in place: `mix[i]` of each frame filtered (the track's
-    /// FILTER MIX), the rest as it was. Every track has its own filter, all on the one set of
-    /// knobs; ENV follows the track's own level. Call `begin` first.
+    /// FLT MIX), the rest as it was. Every track has its own filter, all on the block's one
+    /// cutoff (`begin`, called first), so together they sound as one filter over the kit,
+    /// while each track can be in it or out of it.
     pub fn filter_track(&mut self, ch: usize, l: &mut [f64], r: &mut [f64], mix: &[f32]) {
         if !self.flt_active || ch >= TRACKS {
             return;
         }
         let f = &mut self.filters[ch];
+        let mut peak = 0.0f64;
         for i in 0..l.len().min(FX_BLOCK) {
             let x = l[i];
             let y = r[i];
-            let a = x.abs() + y.abs();
-            f.follow = if a > f.follow { a } else { f.follow * self.flt_rel_mul };
-            let due = f.counter <= 0;
-            f.counter -= 1;
-            if due {
-                f.counter = FILTER_UPDATE;
-                let c = dj_cutoff(self.flt_buf[i] as f64);
-                f.mode = if c < 0.0 { -1 } else if c > 0.0 { 1 } else { 0 };
-                let base = c.abs();
-                let fc = if self.flt_env == 0.0 { base } else { base * 2f64.powf(self.flt_env * 8.0 * f.follow.min(1.0)) };
-                let fc = if fc < 20.0 { 20.0 } else { fc };
+            let fc = self.fc_buf[i];
+            if fc != f.fc {
+                f.fc = fc;
                 f.l.setup(fc, self.flt_reso, self.sr);
                 f.r.setup(fc, self.flt_reso, self.sr);
             }
             f.l.process(x);
             f.r.process(y);
-            let (fx, fy) = if f.mode < 0 { (f.l.low, f.r.low) } else if f.mode > 0 { (f.l.high, f.r.high) } else { (x, y) };
+            let mode = self.mode_buf[i];
+            let (fx, fy) = if mode < 0 { (f.l.low, f.r.low) } else if mode > 0 { (f.l.high, f.r.high) } else { (x, y) };
+            let a = x.abs() + y.abs() + fx.abs() + fy.abs();
+            if a > peak {
+                peak = a;
+            }
             let m = mix[i] as f64;
             if m >= 1.0 {
                 l[i] = fx;
@@ -369,9 +408,7 @@ impl FxBus {
                 r[i] = y + (fy - y) * m;
             }
         }
-        if f.follow < 1e-9 {
-            f.follow = 0.0;
-        }
+        f.ringing = peak > 1e-7;
     }
 
     /// Reads the bus's inputs (FX 1's COMP input is changed in place) and ADDS the result
@@ -463,14 +500,14 @@ impl FxBus {
             let mut r = [0.0f32; N];
             l[..n].copy_from_slice(&in_l[done..done + n]);
             r[..n].copy_from_slice(&in_r[done..done + n]);
-            self.begin(n);
+            let mut fl = [0.0f64; N];
+            let mut fr = [0.0f64; N];
+            for i in 0..n {
+                fl[i] = l[i] as f64;
+                fr[i] = r[i] as f64;
+            }
+            self.begin(n, &fl[..n], &fr[..n]);
             if self.drums && self.flt_active {
-                let mut fl = [0.0f64; N];
-                let mut fr = [0.0f64; N];
-                for i in 0..n {
-                    fl[i] = l[i] as f64;
-                    fr[i] = r[i] as f64;
-                }
                 self.filter_track(0, &mut fl[..n], &mut fr[..n], &ones[..n]);
                 for i in 0..n {
                     l[i] = fl[i] as f32;

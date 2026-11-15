@@ -87,15 +87,16 @@ html, body {
 .row.modes { padding-bottom: 10px; margin-bottom: 2px; border-bottom: 2px solid var(--panel-edge); }
 /* The four modes, 140 px each (16 px gap mid-row: over the 288 px boxes below). */
 .row.modes > .btn:nth-child(3) { margin-left: 8px; }
-/* The selected track's knobs: a 576 px box over knob modules 5-8 (16 px in from the side). */
-.row.buses { height: 76px; flex: none; }
+/* Under the modes, two rows of the same height (106 px each): the SAVE / page keys (288 px)
+   with the MASTER box beside them (over knob modules 7-8), and the TRACK FX box (576 px, over
+   knob modules 5-8, 16 px in from the side). */
+.lower, .row.buses { flex: 1 1 0; min-height: 0; }
 .row.buses > .track-knobs { flex: none; width: 576px; margin-left: 16px; }
-.lower { display: flex; gap: 16px; flex: 1; min-height: 0; padding-bottom: 10px; border-bottom: 2px solid var(--panel-edge); }
-/* SAVE / pages (288 px), MASTER / TEMPO beside them over knob modules 7-8, as tall. */
+.lower { display: flex; gap: 16px; }
 .lower-rows { flex: none; width: 288px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-/* Two rows of three, 38 px with 6 px gaps (82 px): SAVE PATTERN / SAVE/LOAD / CANCEL, the pages. */
-.lower-rows > .row { flex: none; height: 38px; min-height: 0; }
-.lower .project-knobs { flex: none; width: 288px; height: 82px; }
+/* Two rows of three keys sharing the row's height (50 px each): SAVE PATTERN / SAVE/LOAD / CANCEL, the pages. */
+.lower-rows > .row { flex: 1 1 0; min-height: 0; }
+.lower .project-knobs { flex: none; width: 288px; }
 
 /* ---------- Buttons ---------- */
 .btn, .step {
@@ -113,7 +114,8 @@ html, body {
 .btn.lit { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .btn.disabled { opacity: 0.3; cursor: default; }
 
-.btn.mode { height: 40px; font-size: 16px; }
+/* Two thirds of a side key's height. */
+.btn.mode { height: 42px; font-size: 16px; }
 .btn.mode.lit { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .btn.ch { height: 56px; font-size: 24px; line-height: 1; box-shadow: inset 0 -4px 0 var(--accent); }
 /* Each track's colour as a band under its name; lit = filled with it. */
@@ -317,6 +319,13 @@ html, body {
   flex: 1; display: flex; justify-content: space-around; align-items: center;
   border-radius: 12px; background: #171b1f;
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5);
+  /* Room for the box's name under its knobs. */
+  position: relative; padding-bottom: 20px;
+}
+.box-label {
+  position: absolute; left: 0; right: 0; bottom: 7px;
+  text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; line-height: 1;
+  color: var(--ink-dim); white-space: nowrap;
 }
 /* MASTER / TEMPO and the track's knobs: modules of 144 px, as the knob panel's. */
 .master-knobs > .knob-module { padding: 0; }
