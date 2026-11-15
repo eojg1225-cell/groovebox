@@ -69,7 +69,8 @@ html, body {
 .screen-bezel {
   background: #050807;
   border-radius: 12px;
-  padding: 12px;
+  /* 20 px at the sides (556 px in all): the column beside it starts over knob module 5. */
+  padding: 12px 20px;
   border: 2px solid #000;
   flex: none;
 }
@@ -85,16 +86,22 @@ html, body {
 .row > * { flex: 1; min-width: 0; }
 /* Mode select sits at the top, set apart so it isn't hit by accident. */
 .row.modes { padding-bottom: 10px; margin-bottom: 2px; border-bottom: 2px solid var(--panel-edge); }
-/* The four modes, 140 px each (16 px gap mid-row: over the 288 px boxes below). */
+/* The four modes in two pairs, each pair over the box below it (16 px gap mid-row): DESIGN /
+   RECORD 132 px over the 272 px of keys, PLAY / MENU 140 px over the MASTER box. */
+.row.modes > .btn { flex: none; width: 132px; }
+.row.modes > .btn:nth-child(n + 3) { width: 140px; }
 .row.modes > .btn:nth-child(3) { margin-left: 8px; }
-/* Under the modes, two rows of the same height (106 px each): the SAVE / page keys (288 px)
-   with the MASTER box beside them (over knob modules 7-8), and the TRACK FX box (576 px, over
-   knob modules 5-8, 16 px in from the side). */
-.lower, .row.buses { flex: 1 1 0; min-height: 0; }
-.row.buses > .track-knobs { flex: none; width: 576px; margin-left: 16px; }
+/* The column (576 px) starts over knob module 5. Under the modes, two rows of the same
+   height (100 px each), a divider between them as under the modes: the SAVE / page keys
+   (272 px, their left edge on the TRACK FX box's) with the MASTER box beside them (288 px,
+   over knob modules 7-8), and the TRACK FX box (576 px, over knob modules 5-8). */
+.lower { flex: 1 1 12px; min-height: 0; padding-bottom: 10px; border-bottom: 2px solid var(--panel-edge); }
+.row.buses { flex: 1 1 0; min-height: 0; }
+.row.buses > .track-knobs { flex: none; width: 576px; }
 .lower { display: flex; gap: 16px; }
-.lower-rows { flex: none; width: 288px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-/* Two rows of three keys sharing the row's height (50 px each): SAVE PATTERN / SAVE/LOAD / CANCEL, the pages. */
+.lower-rows { flex: none; width: 272px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* Two rows of three keys sharing the row's height (47 px each), 86 px wide, 7 px apart:
+   SAVE PATTERN / SAVE/LOAD / CANCEL, the pages. */
 .lower-rows > .row { flex: 1 1 0; min-height: 0; }
 .lower .project-knobs { flex: none; width: 288px; }
 
@@ -143,10 +150,10 @@ html, body {
 .btn.save small { font-size: 11px; letter-spacing: 0.12em; margin-top: 3px; opacity: 0.75; }
 .btn.save.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
 .row.pages, .row.patterns { gap: 14px; }
-.save-buttons { display: flex; gap: 6px; flex: 3; }
+.save-buttons { display: flex; gap: 7px; flex: 3; }
 .save-buttons > * { flex: 1; }
 .btn.pat.dirty::after { content: '*'; position: absolute; bottom: 2px; right: 6px; font-size: 18px; color: var(--hot); }
-.page-buttons { display: flex; gap: 6px; flex: 3; }
+.page-buttons { display: flex; gap: 7px; flex: 3; }
 .page-buttons > * { flex: 1; }
 .btn.page { height: 100%; font-size: 14px; }
 .btn.page.disabled { opacity: 0.12; }
@@ -320,10 +327,10 @@ html, body {
   border-radius: 12px; background: #171b1f;
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5);
   /* Room for the box's name under its knobs. */
-  position: relative; padding-bottom: 20px;
+  position: relative; padding-bottom: 14px;
 }
 .box-label {
-  position: absolute; left: 0; right: 0; bottom: 7px;
+  position: absolute; left: 0; right: 0; bottom: 5px;
   text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; line-height: 1;
   color: var(--ink-dim); white-space: nowrap;
 }
