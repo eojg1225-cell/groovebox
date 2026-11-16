@@ -347,6 +347,34 @@ describe('the knobs above the knob panel: MASTER / TEMPO and the track\'s four F
     expect(lead.fxMute).toBe(8);
   });
 
+  it('a tap on a delay\'s RATE switches it SYNC / FREE, keeping the time; other knobs keep their double tap', () => {
+    const { app, emit, tap, sent } = makeApp();
+    tap('mode:play');
+    tap('fx2');
+    app.project.bpm = 120;
+    const targets = () => (app as unknown as { targets: { label: string; spec: { unit: string }; get(): number; tap?: () => void }[] }).targets;
+    const bus = app.project.buses[1];
+    // Slot 2 (modules 3-4): PING-PONG at 3/16 = 375 ms at 120 BPM; its RATE is knob 4.
+    expect(targets()[3].label).toBe('RATE');
+    expect(targets()[3].tap).toBeDefined();
+    expect(targets()[11].tap).toBeUndefined(); // FDBK
+    expect(targets()[1].tap).toBeUndefined(); // DIST's DRIVE
+    emit({ type: 'tap', id: 'k4' });
+    expect(bus.s2_free).toBe(1);
+    expect(targets()[3].spec.unit).toBe('MS');
+    expect(targets()[3].get()).toBeCloseTo(375, 0);
+    expect(sent).toContainEqual({ type: 'setBus', bus: 1, id: 's2_free', value: 1 });
+    // A free time between note values: back on SYNC, the nearest (1/8 = 250 ms).
+    (targets()[3] as unknown as { set(v: number): void }).set(240);
+    emit({ type: 'tap', id: 'k4' });
+    expect(bus.s2_free).toBe(0);
+    expect(targets()[3].get()).toBe(4); // 1/8
+    // A TYPE of another family puts the slot back on SYNC.
+    emit({ type: 'tap', id: 'k4' });
+    (targets()[10] as unknown as { set(v: number): void }).set(fxType('PLATE'));
+    expect(bus.s2_free).toBe(0);
+  });
+
   it('a free slot\'s TYPE picks from the whole bank; its controls are the loaded effect\'s and go to its defaults with a new family', () => {
     const { app, emit, tap, sent } = makeApp();
     tap('mode:play');

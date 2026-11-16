@@ -92,6 +92,17 @@ export function typeSpec(type: number, which: 'a' | 'b'): ParamSpec {
   const t = FX_BANK[Math.min(FX_BANK.length - 1, Math.max(0, Math.round(type)))];
   return t[which] ?? FX_FAMILIES[t.family][which];
 }
+/**
+ * A delay's RATE on FREE (v98; a free slot's `s<n>_free` = 1): milliseconds instead of note
+ * values, swept on a log scale so the short end (the comb / flange range, 1-30 ms) gets
+ * almost half the knob. Its delays glide to a new time (the echoes bend in pitch).
+ */
+export const FREE_RATE: ParamSpec = exp('dly_ms', 'RATE', 1, 2000, 250, 'MS', 0);
+
+/** Whether control `which` of bank entry `type` can go FREE (a delay's RATE). */
+export const canFree = (type: number, which: 'a' | 'b'): boolean =>
+  which === 'a' && FX_BANK[Math.min(FX_BANK.length - 1, Math.max(0, Math.round(type)))].family === DELAY;
+
 /** A bank entry's index by name. */
 export const fxType = (name: string): number => Math.max(0, FX_BANK.findIndex((t) => t.name === name));
 
@@ -184,6 +195,8 @@ const TONE_PARAMS: readonly ParamSpec[] = [
 /** Each bus's parameters, by id (as stored and sent: a free slot's controls as knob positions). */
 export const BUS_PARAMS: readonly (readonly ParamSpec[])[] = BUSES.map((b) => [
   ...b.slots.flatMap(slotSpecs),
+  // Each free slot's SYNC / FREE (v98; no knob: a tap on its RATE knob): 1 = a delay's RATE in ms.
+  ...b.slots.flatMap((u) => (u.kind === 'free' ? [linear(`s${u.n}_free`, 'FREE', 0, 1, 0)] : [])),
   ...(b.tone ? TONE_PARAMS.map((s) => ({ ...s, defaultValue: b.tone![s.id] ?? s.defaultValue })) : []),
 ]);
 
@@ -215,6 +228,30 @@ export function slotType(bus: number, n: number, values: Readonly<Record<string,
   return Math.min(FX_BANK.length - 1, Math.max(0, t));
 }
 
+/** A free slot's SYNC / FREE: on FREE (and holding a delay) its RATE is in ms. */
+export const slotFree = (n: number, values: Readonly<Record<string, number>>): boolean => (values[`s${n}_free`] ?? 0) >= 0.5;
+
+/**
+ * A delay RATE's time in ms at `bpm`: `stored` its knob position in the spec it is on (FREE:
+ * `FREE_RATE`, else the note values), for the SYNC / FREE switch to keep the time.
+ */
+export function rateMs(stored: number, free: boolean, bpm: number): number {
+  if (free) return toValue(FREE_RATE, stored);
+  const i = Math.round(toValue(FX_FAMILIES[DELAY].a, stored));
+  return (FX_DELAY_TIMES[Math.min(FX_DELAY_TIMES.length - 1, Math.max(0, i))].steps * 60000) / (bpm * 4);
+}
+
+/** The knob position on the other scale nearest `ms` (to FREE: that time; to SYNC: the nearest note value). */
+export function rateStored(ms: number, free: boolean, bpm: number): number {
+  if (free) return toNorm(FREE_RATE, Math.min(FREE_RATE.max, Math.max(FREE_RATE.min, ms)));
+  let best = 0;
+  FX_DELAY_TIMES.forEach((d, i) => {
+    const at = (s: number) => Math.abs(Math.log((s * 60000) / (bpm * 4) / ms));
+    if (at(d.steps) < at(FX_DELAY_TIMES[best].steps)) best = i;
+  });
+  return toNorm(FX_FAMILIES[DELAY].a, best);
+}
+
 /** The family of the effect a bus's free slot `n` holds now. */
 export function slotFamily(bus: number, n: number, values: Readonly<Record<string, number>>): number {
   return FX_BANK[slotType(bus, n, values)].family;
@@ -234,8 +271,10 @@ export function busKnob(bus: number, id: string, values: Readonly<Record<string,
   const family = FX_FAMILIES[slotFamily(bus, k.n, values)];
   // A GLITCH slot is an insert: its VOLUME is MIX (dry / effected, for what the tracks put through it).
   if (k.knob === 'vol') return { spec: { ...spec, name: family.name === 'GLITCH' ? 'MIX' : family.name }, control: false };
-  // The loaded effect's own spec (else its family's) under the slot's id.
-  return { spec: { ...typeSpec(slotType(bus, k.n, values), k.knob), id }, control: true };
+  // The loaded effect's own spec (else its family's) under the slot's id; a delay's RATE on FREE in ms.
+  const t = slotType(bus, k.n, values);
+  const free = canFree(t, k.knob) && slotFree(k.n, values);
+  return { spec: { ...(free ? FREE_RATE : typeSpec(t, k.knob)), id }, control: true };
 }
 /** A free slot's control: its stored knob position as the value the panel shows, and back. */
 export const controlValue = (spec: ParamSpec, stored: number): number => toValue(spec, stored);

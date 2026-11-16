@@ -75,7 +75,7 @@ Main -> worklet:
 | `setGlobal` | `id` (`bpm` `swing` `master` `meter`), `value` | Project-wide settings; `meter` changes at the next bar line |
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
 | `setRouting` | `channel`, `bus` | The bus the track is on (0 = FX 1, 1 = FX 2) |
-| `setBus` | `bus` (0-1 = FX 1 / 2), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units; a free slot's TYPE an index into `FX_BANK`, its two controls `s<n>_a` / `_b` as knob positions 0-1) |
+| `setBus` | `bus` (0-1 = FX 1 / 2), `id`, `value` | An FX bus parameter (`BUS_PARAMS[bus]` id; real units; a free slot's TYPE an index into `FX_BANK`, its two controls `s<n>_a` / `_b` as knob positions 0-1, `s<n>_free` 1 = a delay's RATE on FREE, in ms on `FREE_RATE`) |
 | `setLfo` | `id` (an `LfoState` key), `value` | The shared LFO |
 | `setLfoTrack` | `channel`, `on` | A track on / off the LFO |
 | `setArp` | `channel`, `id` (`on` / `mode` / `rate` / `oct`), `value` | A track's ARP (engine/arp.ts): plays when on and MODE is not OFF |

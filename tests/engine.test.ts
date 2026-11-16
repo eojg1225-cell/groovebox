@@ -24,7 +24,7 @@ import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound }
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { linkedParams, pageParams, soundGroups, stepsOnStrip } from '../src/instruments/registry';
-import { BUSES, BUS_LAYOUT, FX_BANK, FX_DELAY_TIMES, FX_FAMILIES, busKnob, busParam, controlNorm, defaultBus, fxType, typeNorm, typeSpec } from '../src/fx/buses';
+import { BUSES, BUS_LAYOUT, FREE_RATE, FX_BANK, FX_DELAY_TIMES, FX_FAMILIES, busKnob, busParam, controlNorm, defaultBus, fxType, typeNorm, typeSpec } from '../src/fx/buses';
 
 const SR = 48000;
 /** A note's frequency (A4 = 440 Hz). */
@@ -3876,6 +3876,24 @@ describe('FX buses (v41)', () => {
     expect(peakAt - firstAt).toBeGreaterThan(SR * 0.02);
   });
 
+  it('DELAY RATE on FREE: the echo comes back at its time in ms, whatever the tempo; the knob shows ms', () => {
+    const click = Float32Array.from({ length: SR }, (_, i) => (i < 24 ? 0.8 : 0));
+    const echoAt = (ms: number, bpm: number) => {
+      const s = { ...only(1, slot(2, 'TAPE', 1, 0, 0)), s2_free: 1, s2_a: toNorm(FREE_RATE, ms) };
+      const w = runBus(1, s, click, bpm);
+      let at = 0;
+      for (let i = 0; i < w.length; i++) if (Math.abs(w[i]) > Math.abs(w[at])) at = i;
+      return (at / SR) * 1000;
+    };
+    expect(echoAt(7, 120)).toBeGreaterThan(6);
+    expect(echoAt(7, 120)).toBeLessThan(9.5);
+    expect(echoAt(80, 120)).toBeCloseTo(echoAt(80, 90), 0);
+    expect(echoAt(80, 120)).toBeGreaterThan(79);
+    expect(echoAt(80, 120)).toBeLessThan(83);
+    expect(busKnob(1, 's2_a', { ...defaultBus(1), s2_free: 1 })!.spec.unit).toBe('MS');
+    expect(busKnob(1, 's2_a', defaultBus(1))!.spec.options).toBeDefined(); // SYNC: note values
+  });
+
   it('DELAY FEEDBACK sets how many repeats come back', () => {
     const tail = (fdbk: number) => {
       const out = runBus(1, only(1, slot(2, 'DUB TAPE', 1, TIME('1/4'), fdbk)), burst(2.2));
@@ -4989,12 +5007,6 @@ describe('v49: track type gains from the gated loudness measure', () => {
     expect(p.channels[0].volume).toBeCloseTo((0.5 * old.kick) / INSTRUMENTS.kick.gain!, 4);
     expect(p.master).toBe(0.8);
   });
-});
-
-describe('skipping silent work', () => {
-
-
-
 });
 
 describe('BASS / LEAD INT = the wave (v76, CZ)', () => {

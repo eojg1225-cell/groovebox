@@ -47,7 +47,7 @@ import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { GLOBAL_PARAMS, LEVEL_IDS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { BUS_LAYOUT, FX_BANK, FX_FAMILIES, FX_LIVE, NUM_BUSES, SLOT_ORDER, busKnob, busParam, controlStored, controlValue, fxLiveName, slotName, slotType, typeNorm, typeSpec } from '../fx/buses';
+import { BUS_LAYOUT, BUSES, FX_BANK, FX_FAMILIES, FX_LIVE, NUM_BUSES, SLOT_ORDER, busKnob, busParam, canFree, controlStored, controlValue, fxLiveName, rateMs, rateStored, slotFree, slotName, slotType, typeNorm, typeSpec } from '../fx/buses';
 import { CHORD_KNOB, CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
@@ -288,6 +288,8 @@ interface KnobTarget {
   patch?: boolean;
   /** Playing: shows what its locks give at the playhead (`heardTarget`), updated every frame. */
   heard?: boolean;
+  /** A tap job (a delay's RATE: SYNC / FREE); such a knob has no double tap. */
+  tap?: () => void;
 }
 
 /** One parameter gliding back to its saved value (RESET). */
@@ -1323,7 +1325,23 @@ export class App {
       return control ? controlValue(spec, v) : v;
     };
     const put = (pid: string, v: number) => { this.project.buses[k][pid] = v; this.send({ type: 'setBus', bus: k, id: pid, value: v }); };
+    // A delay's RATE: a tap switches it between SYNC (note values) and FREE (ms), keeping the time
+    // (to SYNC: the nearest note value).
+    const rate = /^s(\d)_a$/.exec(id);
+    const tap = rate && canFree(slotType(k, Number(rate[1]), this.project.buses[k]), 'a') ? () => {
+      const n = Number(rate[1]);
+      const b = this.project.buses[k];
+      const free = slotFree(n, b);
+      const ms = rateMs(b[id] ?? stored.defaultValue, free, this.project.bpm);
+      put(`s${n}_free`, free ? 0 : 1);
+      put(id, rateStored(ms, !free, this.project.bpm));
+      const now = busKnob(k, id, b)!.spec;
+      this.flash(`${BUSES[k].name} ${now.name} ${free ? 'SYNC' : 'FREE'} ${formatValue(now, controlValue(now, b[id]))}`);
+      this.save();
+      this.refreshPanel();
+    } : undefined;
     return {
+      tap,
       label: spec.name, spec, channel: this.selected, key: `bus:${k}:${id}`, auto: control ? { key: `b:${k}:${id}`, norm: spec } : { key: `b:${k}:${id}` },
       get: () => shown(this.project.buses[k]),
       base: () => shown(this.savedProject().buses[k]),
@@ -1338,6 +1356,7 @@ export class App {
         if (type && ids(after) !== ids(before)) {
           put(`s${type[1]}_a`, typeNorm(after, 'a'));
           put(`s${type[1]}_b`, typeNorm(after, 'b'));
+          if (slotFree(Number(type[1]), this.project.buses[k])) put(`s${type[1]}_free`, 0);
         }
         // Into GLITCH (an insert) from another family: MIX full, so it is heard at once.
         if (type && FX_BANK[after].family !== FX_BANK[before].family && FX_FAMILIES[FX_BANK[after].family].name === 'GLITCH') put(`s${type[1]}_vol`, 1);
@@ -3570,6 +3589,11 @@ export class App {
    * level kept (set a send up muted, tap it in for a throw). Like MUTE: saved, not undone.
    */
   private onKnobTap(id: string): void {
+    const knob = /^k(\d+)$/.exec(id);
+    if (knob) {
+      this.targets[Number(knob[1]) - 1]?.tap?.();
+      return;
+    }
     const slot = (LEVEL_IDS as readonly string[]).indexOf((this.levelKey(id) ?? '').slice(MIX_PREFIX.length));
     const c = this.channel;
     if (slot < 0 || c.instrument === 'none' || this.menu || this.projMenu) return;
@@ -4062,6 +4086,7 @@ export class App {
     return {
       ...t,
       inner: t,
+      tap: undefined, // SYNC / FREE is the slot's, not a lock
       staged: pr.staged.has(key),
       get: () => {
         const s = pr.staged.get(key);
@@ -4933,7 +4958,7 @@ export class App {
     this.targets.forEach((t, i) => {
       this.panel.configureKnob(
         i,
-        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight, staged: t.staged, colour: this.knobColour(t) } : null,
+        t ? { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), highlight: t.highlight, staged: t.staged, colour: this.knobColour(t), tap: !!t.tap } : null,
       );
     });
     // BAR mode: the track buttons are the selected track's bars, so they take its colour.

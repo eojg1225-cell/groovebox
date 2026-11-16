@@ -72,6 +72,8 @@ struct Slot {
     /// A GLITCH effect: an insert on what the tracks send it (they go through it instead of
     /// straight out, the engine taking that much off their dry path); its VOLUME is MIX.
     insert: bool,
+    /// SYNC / FREE (`s<n>_free`): a delay's RATE in ms (`FREE_RATE`) instead of note values.
+    free: bool,
 }
 
 impl Slot {
@@ -96,6 +98,7 @@ impl Slot {
             a: 0.5,
             b: 0.5,
             insert: false,
+            free: false,
         }
     }
 
@@ -118,7 +121,8 @@ impl Slot {
 
     /// Control 0 / 1 (a knob position) to the loaded unit, in its own scale.
     fn control(&mut self, which: usize) {
-        let spec = &specs::FX_BANK_SPECS[self.type_index.max(0) as usize][which];
+        let free = which == 0 && self.free && !self.insert && self.family == 2;
+        let spec = if free { &specs::FREE_RATE } else { &specs::FX_BANK_SPECS[self.type_index.max(0) as usize][which] };
         let n = if which == 0 { self.a } else { self.b };
         self.units[self.family].set(spec.id, to_value(spec, n.clamp(0.0, 1.0)));
     }
@@ -289,6 +293,10 @@ impl FxBus {
             "b" => {
                 slot.b = v;
                 slot.control(1);
+            }
+            "free" => {
+                slot.free = v >= 0.5;
+                slot.control(0);
             }
             _ => {}
         }

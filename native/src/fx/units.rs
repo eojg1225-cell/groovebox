@@ -670,6 +670,8 @@ pub struct DelayFx {
     mode: usize,
     bpm: f64,
     steps: f64,
+    /// RATE on FREE: the time in ms (0 = synced, `steps`).
+    free_ms: f64,
     fdbk: f64,
     time: Smoother,
     lp_l: f64, lp_r: f64, hp_l: f64, hp_r: f64,
@@ -702,6 +704,7 @@ impl DelayFx {
             mode: 0,
             bpm: 120.0,
             steps: 2.0,
+            free_ms: 0.0,
             fdbk: 0.4,
             time: Smoother::new(0.0, 0.12, sample_rate),
             lp_l: 0.0, lp_r: 0.0, hp_l: 0.0, hp_r: 0.0,
@@ -730,6 +733,11 @@ impl DelayFx {
             "dly_rate" => {
                 let i = js::round(v);
                 self.steps = if i < 0.0 { 2.0 } else { FX_DELAY_STEPS.get(i as usize).copied().unwrap_or(2.0) };
+                self.free_ms = 0.0;
+                self.time.set_target(self.target());
+            }
+            "dly_ms" => {
+                self.free_ms = v.max(0.5);
                 self.time.set_target(self.target());
             }
             "dly_fdbk" => self.fdbk = v,
@@ -781,6 +789,9 @@ impl DelayFx {
     }
 
     fn target(&self) -> f64 {
+        if self.free_ms > 0.0 {
+            return self.free_ms * 0.001 * self.sr;
+        }
         self.steps * 60.0 * self.sr / (self.bpm * 4.0)
     }
 

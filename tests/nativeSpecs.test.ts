@@ -10,7 +10,7 @@ import type { ParamSpec } from '../src/engine/params';
 import { MIX_PARAMS } from '../src/engine/mixParams';
 import { ARP_PARAMS } from '../src/engine/arp';
 import { LFO_PARAMS } from '../src/engine/lfo';
-import { BUS_PARAMS, FX_BANK, typeSpec } from '../src/fx/buses';
+import { BUS_PARAMS, FX_BANK, FREE_RATE, typeSpec } from '../src/fx/buses';
 import { INSTRUMENTS, LIVE_MACROS, SOUND_KINDS, linkedParams } from '../src/instruments/registry';
 
 const FILE = 'native/src/specs.rs';
@@ -34,6 +34,7 @@ function generate(): string {
   BUS_PARAMS.forEach((b, i) => { out += list(`BUS${i}_PARAMS`, b); });
   out += `\n/// The bank a free FX slot's TYPE picks from: (the unit's mode name, its family: 0 DIST, 1 MOD, 2 DELAY, 3 VERB, 4 GLITCH).\npub static FX_BANK: [(&str, usize); ${FX_BANK.length}] = [${FX_BANK.map((t) => `("${t.name}", ${t.family})`).join(', ')}];\n`;
   out += `\n/// Each bank entry's two controls (its own, else its family's: the unit's ids and scales; a slot stores knob positions).\npub static FX_BANK_SPECS: [[Spec; 2]; ${FX_BANK.length}] = [\n${FX_BANK.map((_, t) => `    [${spec(typeSpec(t, 'a'))}, ${spec(typeSpec(t, 'b'))}],`).join('\n')}\n];\n`;
+  out += `\n/// A delay's RATE on FREE (a slot's \`s<n>_free\`): milliseconds.\npub static FREE_RATE: Spec = ${spec(FREE_RATE)};\n`;
   out += list('LFO_PARAMS', Object.values(LFO_PARAMS));
   out += list('ARP_PARAMS', ARP_PARAMS);
   out += `\n/// A live macro's targets: (param id, amount, top).\npub type Macro = (&'static str, &'static [(&'static str, f64, bool)]);\n\n/// LIVE_MACROS per type.\npub fn live_macros(kind: SoundKind) -> &'static [Macro] {\n    match kind {\n`;

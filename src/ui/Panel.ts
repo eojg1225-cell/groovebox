@@ -153,7 +153,8 @@ export class Panel implements ControlSurface {
     // track's channel button sits between its two knobs, MUTE left of it, SOLO right.
     const grid = q('.knob-grid');
     for (let i = 1; i <= KNOB_COUNT; i++) {
-      this.knobs.push(new Knob(`k${i}`, '', 0.5, this.knobEmit, this.encoderEmit, 127, this.touchEmit));
+      this.knobs.push(new Knob(`k${i}`, '', 0.5, this.knobEmit, this.encoderEmit, 127, this.touchEmit, this.tapEmit));
+      this.knobs[i - 1].setTapJob(false);
     }
     for (let m = 0; m < KNOBS_PER_ROW; m++) {
       const module = document.createElement('div');
@@ -242,9 +243,11 @@ export class Panel implements ControlSurface {
   }
 
   /** Configure knob slot i (0-based): label, value and default, or null to disable it. */
-  configureKnob(i: number, slot: { label: string; value: number; defaultValue: number; highlight?: boolean; staged?: boolean; colour?: string } | null): void {
+  configureKnob(i: number, slot: { label: string; value: number; defaultValue: number; highlight?: boolean; staged?: boolean; colour?: string; tap?: boolean } | null): void {
     const k = this.knobs[i];
     if (!k) return;
+    // A tap job (a delay's RATE: SYNC / FREE): a tap is that, not a double tap to the saved value.
+    k.setTapJob(!!slot?.tap);
     if (slot?.colour) k.el.style.setProperty('--accent', slot.colour);
     k.setEnabled(slot !== null);
     k.setLabel(slot?.label ?? '');

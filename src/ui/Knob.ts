@@ -41,6 +41,8 @@ export class Knob {
   /** Tap knobs: when the finger went down and how far it has moved (no turn until past TAP_SLOP). */
   private downAt = 0;
   private travel = 0;
+  /** Has a tap job now (`setTapJob`; a knob built with `onTap` can switch it on and off). */
+  private tapping = false;
 
   /**
    * @param steps resolution: 127 = MIDI-style 0-127 (default).
@@ -57,6 +59,7 @@ export class Knob {
     /** A tap job (no double tap to the default then): a quick touch that hardly moves is a tap, not a turn. */
     private readonly onTap: ((id: string) => void) | null = null,
   ) {
+    this.tapping = onTap !== null;
     this.pos = Math.round(defaultNorm * steps);
     const el = document.createElement('div');
     el.className = 'knob';
@@ -93,6 +96,11 @@ export class Knob {
   set defaultValue(value: number) {
     this.defaultNorm = value;
     this.markChanged();
+  }
+
+  /** Give this knob a tap job (or take it away): a tap is then a tap, not a double tap to the default. */
+  setTapJob(on: boolean): void {
+    this.tapping = on && this.onTap !== null;
   }
 
   setLabel(label: string): void {
@@ -137,7 +145,7 @@ export class Knob {
     e.preventDefault();
     this.onTouch(this.id, true);
     const now = performance.now();
-    if (!this.onTap && now - this.lastTap < DOUBLE_TAP_MS) {
+    if (!this.tapping && now - this.lastTap < DOUBLE_TAP_MS) {
       this.lastTap = -Infinity;
       this.moveTo(this.defaultValue * this.steps);
       this.onTouch(this.id, false);
@@ -161,7 +169,7 @@ export class Knob {
     const y = localY(e);
     let dy = this.lastY - y;
     const dt = Math.max(1, e.timeStamp - this.lastT);
-    if (this.onTap && this.travel < TAP_SLOP) {
+    if (this.tapping && this.travel < TAP_SLOP) {
       // A tap knob turns only once the finger has clearly moved (a tap must not nudge it).
       this.travel += Math.abs(dy);
       if (this.travel < TAP_SLOP) {
@@ -185,7 +193,7 @@ export class Knob {
 
   private onUp(e: PointerEvent): void {
     if (e.pointerId !== this.dragPointer) return;
-    const tapped = this.onTap && e.type === 'pointerup' && this.travel < TAP_SLOP && performance.now() - this.downAt < TAP_MS;
+    const tapped = this.tapping && e.type === 'pointerup' && this.travel < TAP_SLOP && performance.now() - this.downAt < TAP_MS;
     this.release();
     if (tapped) this.onTap!(this.id);
   }
