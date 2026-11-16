@@ -38,6 +38,12 @@ const COMP_PARAMS: readonly ParamSpec[] = [
 
 export const NUM_BUSES = 2;
 
+/** GLITCH's note values, in 16th steps: STUTTER's slice and hold, TAPE STOP's time and how often. */
+const STUTTER_SLICES = [{ name: '1/64', steps: 0.25 }, { name: '1/32', steps: 0.5 }, { name: '1/16', steps: 1 }, { name: '1/8', steps: 2 }, { name: '1/4', steps: 4 }] as const;
+const STUTTER_HOLDS = [{ name: '1/8', steps: 2 }, { name: '1/4', steps: 4 }, { name: '1/2', steps: 8 }, { name: '1 BAR', steps: 16 }] as const;
+const TAPE_STOP_TIMES = [{ name: '1/16', steps: 1 }, { name: '1/8', steps: 2 }, { name: '1/4', steps: 4 }, { name: '1/2', steps: 8 }, { name: '1 BAR', steps: 16 }] as const;
+const TAPE_STOP_EVERY = [{ name: '1/2 BAR', steps: 8 }, { name: '1 BAR', steps: 16 }, { name: '2 BARS', steps: 32 }, { name: '4 BARS', steps: 64 }] as const;
+
 /** Tempo-synced delay times, in 16th steps. */
 export const FX_DELAY_TIMES = [
   { name: '1/32', steps: 0.5 }, { name: '1/16T', steps: 2 / 3 }, { name: '1/16', steps: 1 }, { name: '1/8T', steps: 4 / 3 },
@@ -59,16 +65,33 @@ export const FX_FAMILIES: readonly { name: string; a: ParamSpec; b: ParamSpec }[
   { name: 'MOD', a: exp('mod_rate', 'RATE', 0.05, 10, 0.5, 'HZ', 2), b: linear('mod_depth', 'DEPTH', 0, 1, 0.5) },
   { name: 'DELAY', a: choice('dly_rate', 'RATE', FX_DELAY_TIMES.map((d) => d.name), 4), b: linear('dly_fdbk', 'FDBK', 0, 1.1, 0.4) },
   { name: 'VERB', a: linear('vrb_size', 'SIZE', 0, 1, 0.5), b: linear('vrb_len', 'LENGTH', 0, 1, 0.5) },
+  // GLITCH (v97): STUTTER's controls (TAPE STOP has its own); runs on the slot's delay unit.
+  { name: 'GLITCH', a: choice('gl_slice', 'SLICE', STUTTER_SLICES.map((d) => d.name), 2), b: choice('gl_hold', 'HOLD', STUTTER_HOLDS.map((d) => d.name), 1) },
 ];
-const [DIST, MOD, DELAY, VERB] = [0, 1, 2, 3];
+const [DIST, MOD, DELAY, VERB, GLITCH] = [0, 1, 2, 3, 4];
 
-/** The bank a free slot's TYPE picks from (the engine's mode names), family by family. */
-export const FX_BANK: readonly { name: string; family: number }[] = [
-  ...['TUBE', 'FUZZ', 'BIT'].map((name) => ({ name, family: DIST })),
+/** An effect a free slot can load: the engine's mode name, its family, and its own two controls where they are not the family's. */
+interface FxType { name: string; family: number; a?: ParamSpec; b?: ParamSpec }
+/**
+ * The bank a free slot's TYPE picks from (the engine's mode names), family by family. Stored
+ * by index: a new type in the middle needs a load migration (`typeV97`).
+ */
+export const FX_BANK: readonly FxType[] = [
+  ...['TUBE', 'FUZZ', 'BIT', 'FOLD'].map((name) => ({ name, family: DIST })),
   ...['CHORUS', 'FLANGER', 'PHASER'].map((name) => ({ name, family: MOD })),
+  // RING MOD: the input times a sine carrier at FREQ; SPREAD detunes the right side's carrier (up to +50 %).
+  { name: 'RING', family: MOD, a: exp('rm_freq', 'FREQ', 20, 2000, 220, 'HZ', 0), b: linear('rm_spread', 'SPREAD', 0, 1, 0.2) },
   ...['TAPE', 'SWEEP', 'REVERSE', 'PING-PONG', 'DUB TAPE', 'SLAPBACK'].map((name) => ({ name, family: DELAY })),
   ...['ROOM', 'PLATE', 'SPRING', 'HALL'].map((name) => ({ name, family: VERB })),
+  { name: 'STUTTER', family: GLITCH },
+  { name: 'TAPE STOP', family: GLITCH, a: choice('gl_time', 'TIME', TAPE_STOP_TIMES.map((d) => d.name), 2), b: choice('gl_every', 'EVERY', TAPE_STOP_EVERY.map((d) => d.name), 1) },
 ];
+
+/** A bank entry's two controls: its own, else its family's. */
+export function typeSpec(type: number, which: 'a' | 'b'): ParamSpec {
+  const t = FX_BANK[Math.min(FX_BANK.length - 1, Math.max(0, Math.round(type)))];
+  return t[which] ?? FX_FAMILIES[t.family][which];
+}
 /** A bank entry's index by name. */
 export const fxType = (name: string): number => Math.max(0, FX_BANK.findIndex((t) => t.name === name));
 
@@ -120,6 +143,12 @@ export function controlNorm(family: number, which: 'a' | 'b', value?: number): n
   return toNorm(spec, value ?? spec.defaultValue);
 }
 
+/** The same for a bank entry (its own controls where it has them). */
+export function typeNorm(type: number, which: 'a' | 'b', value?: number): number {
+  const spec = typeSpec(type, which);
+  return toNorm(spec, value ?? spec.defaultValue);
+}
+
 /**
  * A slot's four knobs in panel order: module 1 top, module 1 bottom, module 2 top, module 2
  * bottom (a free slot: VOLUME, TYPE, then its two controls as knob positions).
@@ -136,12 +165,11 @@ function slotSpecs(u: SlotDef): ParamSpec[] {
     ];
     case 'free': {
       const t = fxType(u.type);
-      const family = FX_BANK[t].family;
       return [
         linear(`s${u.n}_vol`, 'FX', 0, 1, u.vol),
         choice(`s${u.n}_type`, 'TYPE', FX_BANK.map((b) => b.name), t),
-        linear(`s${u.n}_a`, 'A', 0, 1, controlNorm(family, 'a', u.a)),
-        linear(`s${u.n}_b`, 'B', 0, 1, controlNorm(family, 'b', u.b)),
+        linear(`s${u.n}_a`, 'A', 0, 1, typeNorm(t, 'a', u.a)),
+        linear(`s${u.n}_b`, 'B', 0, 1, typeNorm(t, 'b', u.b)),
       ];
     }
   }
@@ -181,10 +209,15 @@ function slotKnob(id: string): { n: number; knob: 'vol' | 'type' | 'a' | 'b' } |
   return m ? { n: Number(m[1]), knob: m[2] as 'vol' | 'type' | 'a' | 'b' } : null;
 }
 
-/** The family of the effect a bus's free slot `n` holds now (`values`: the bus's settings). */
-export function slotFamily(bus: number, n: number, values: Readonly<Record<string, number>>): number {
+/** The bank entry a bus's free slot `n` holds now (`values`: the bus's settings). */
+export function slotType(bus: number, n: number, values: Readonly<Record<string, number>>): number {
   const t = Math.round(values[`s${n}_type`] ?? busParam(bus, `s${n}_type`)?.defaultValue ?? 0);
-  return FX_BANK[Math.min(FX_BANK.length - 1, Math.max(0, t))].family;
+  return Math.min(FX_BANK.length - 1, Math.max(0, t));
+}
+
+/** The family of the effect a bus's free slot `n` holds now. */
+export function slotFamily(bus: number, n: number, values: Readonly<Record<string, number>>): number {
+  return FX_BANK[slotType(bus, n, values)].family;
 }
 
 /**
@@ -200,8 +233,8 @@ export function busKnob(bus: number, id: string, values: Readonly<Record<string,
   if (!k || k.knob === 'type') return { spec, control: false };
   const family = FX_FAMILIES[slotFamily(bus, k.n, values)];
   if (k.knob === 'vol') return { spec: { ...spec, name: family.name }, control: false };
-  // The family's own spec under the slot's id, its default where the family's is.
-  return { spec: { ...family[k.knob], id }, control: true };
+  // The loaded effect's own spec (else its family's) under the slot's id.
+  return { spec: { ...typeSpec(slotType(bus, k.n, values), k.knob), id }, control: true };
 }
 /** A free slot's control: its stored knob position as the value the panel shows, and back. */
 export const controlValue = (spec: ParamSpec, stored: number): number => toValue(spec, stored);

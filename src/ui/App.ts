@@ -47,7 +47,7 @@ import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { GLOBAL_PARAMS, LEVEL_IDS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, SLOT_ORDER, busKnob, busParam, controlNorm, controlStored, controlValue, fxLiveName, slotFamily, slotName } from '../fx/buses';
+import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, SLOT_ORDER, busKnob, busParam, controlStored, controlValue, fxLiveName, slotName, slotType, typeNorm, typeSpec } from '../fx/buses';
 import { CHORD_KNOB, CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
@@ -1329,13 +1329,15 @@ export class App {
       base: () => shown(this.savedProject().buses[k]),
       set: (v: number) => {
         const type = /^s(\d)_type$/.exec(id);
-        const before = type ? slotFamily(k, Number(type[1]), this.project.buses[k]) : -1;
+        const ids = (t: number) => `${typeSpec(t, 'a').id}/${typeSpec(t, 'b').id}`;
+        const before = type ? slotType(k, Number(type[1]), this.project.buses[k]) : -1;
         put(id, control ? controlStored(spec, v) : v);
-        // A TYPE of another family: the slot's two controls go to that effect's defaults.
-        const after = type ? slotFamily(k, Number(type[1]), this.project.buses[k]) : -1;
-        if (type && after !== before) {
-          put(`s${type[1]}_a`, controlNorm(after, 'a'));
-          put(`s${type[1]}_b`, controlNorm(after, 'b'));
+        // A TYPE whose controls mean something else (another family, RING, TAPE STOP): the slot's
+        // two controls go to that effect's defaults.
+        const after = type ? slotType(k, Number(type[1]), this.project.buses[k]) : -1;
+        if (type && ids(after) !== ids(before)) {
+          put(`s${type[1]}_a`, typeNorm(after, 'a'));
+          put(`s${type[1]}_b`, typeNorm(after, 'b'));
         }
       },
     };

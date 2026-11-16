@@ -100,16 +100,17 @@ impl Slot {
         let t = t.clamp(0, specs::FX_BANK.len() as i32 - 1);
         let (name, family) = specs::FX_BANK[t as usize];
         self.type_index = t;
-        self.family = family;
-        self.units[family].set_mode(name);
-        self.units[family].reset();
+        // GLITCH (4) runs on the slot's delay unit, borrowing its buffer: no memory of its own.
+        self.family = if family == 4 { 2 } else { family };
+        self.units[self.family].set_mode(name);
+        self.units[self.family].reset();
         self.control(0);
         self.control(1);
     }
 
     /// Control 0 / 1 (a knob position) to the loaded unit, in its own scale.
     fn control(&mut self, which: usize) {
-        let spec = &specs::FX_FAMILY_SPECS[self.family][which];
+        let spec = &specs::FX_BANK_SPECS[self.type_index.max(0) as usize][which];
         let n = if which == 0 { self.a } else { self.b };
         self.units[self.family].set(spec.id, to_value(spec, n.clamp(0.0, 1.0)));
     }
@@ -287,6 +288,15 @@ impl FxBus {
         for s in &mut self.slots {
             for u in &mut s.units {
                 u.set_tempo(bpm);
+            }
+        }
+    }
+
+    /// PLAY / STOP: the GLITCH units count bars from here.
+    pub fn start(&mut self) {
+        for s in &mut self.slots {
+            if let Unit::Delay(d) = &mut s.units[2] {
+                d.start();
             }
         }
     }

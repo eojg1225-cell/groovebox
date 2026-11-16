@@ -40,10 +40,10 @@ fn one_pole(hz: f64, sr: f64) -> f64 {
     1.0 - (-TAU * hz.min(sr * 0.45) / sr).exp()
 }
 
-pub const MOD_MODES: [&str; 4] = ["CHORUS", "ENSEMBLE", "FLANGER", "PHASER"];
+pub const MOD_MODES: [&str; 5] = ["CHORUS", "ENSEMBLE", "FLANGER", "PHASER", "RING"];
 pub const VERB_MODES: [&str; 6] = ["ROOM", "HALL", "PLATE", "EARLY", "SHIMMER", "SPRING"];
-pub const DELAY_MODES: [&str; 7] = ["STEREO", "PING-PONG", "TAPE", "DUB TAPE", "SWEEP", "REVERSE", "SLAPBACK"];
-pub const DRIVE_MODES: [&str; 3] = ["TUBE", "FUZZ", "BIT"];
+pub const DELAY_MODES: [&str; 9] = ["STEREO", "PING-PONG", "TAPE", "DUB TAPE", "SWEEP", "REVERSE", "SLAPBACK", "STUTTER", "TAPE STOP"];
+pub const DRIVE_MODES: [&str; 4] = ["TUBE", "FUZZ", "BIT", "FOLD"];
 /// Tempo-synced delay times, in 16th steps (buses.ts FX_DELAY_TIMES).
 pub const FX_DELAY_STEPS: [f64; 12] = [0.5, 2.0 / 3.0, 1.0, 4.0 / 3.0, 2.0, 3.0, 8.0 / 3.0, 4.0, 6.0, 8.0, 12.0, 16.0];
 const PHASER_STAGES: usize = 6;
@@ -71,6 +71,8 @@ pub struct ModFx {
     a_l: f64,
     a_r: f64,
     counter: i32,
+    /// RING's right carrier (SPREAD detunes it).
+    phase2: f64,
 }
 
 impl ModFx {
@@ -94,6 +96,7 @@ impl ModFx {
             a_l: 0.0,
             a_r: 0.0,
             counter: 0,
+            phase2: 0.0,
         }
     }
 
@@ -103,8 +106,9 @@ impl ModFx {
 
     pub fn set(&mut self, id: &str, v: f64) {
         match id {
-            "mod_rate" => self.rate = v,
-            "mod_depth" => self.depth = v,
+            // RING's FREQ / SPREAD share the LFO's rate / depth fields (one mode at a time).
+            "mod_rate" | "rm_freq" => self.rate = v,
+            "mod_depth" | "rm_spread" => self.depth = v,
             _ => {}
         }
     }
@@ -133,6 +137,16 @@ impl ModFx {
             }
             let p = self.phase;
             let (mut yl, mut yr) = (0.0, 0.0);
+            if self.mode == 4 {
+                // RING MOD: the input times a sine carrier (the right one up to 50 % higher).
+                self.phase2 += inc * (1.0 + 0.5 * d);
+                if self.phase2 >= 1.0 {
+                    self.phase2 -= 1.0;
+                }
+                wet_l[i] = (in_l[i] as f64 * sin_turn(p)) as f32;
+                wet_r[i] = (in_r[i] as f64 * sin_turn(self.phase2)) as f32;
+                continue;
+            }
             match self.mode {
                 0 => {
                     self.buf_l[self.write] = in_l[i];
@@ -634,6 +648,16 @@ impl Unit {
 }
 
 const SMEAR: [f64; 6] = [225.0, 341.0, 441.0, 556.0, 1100.0, 1700.0];
+/// GLITCH's note values in 16th steps (buses.ts STUTTER_SLICES ...), and the fade at its edges.
+const STUTTER_SLICES: [f64; 5] = [0.25, 0.5, 1.0, 2.0, 4.0];
+const STUTTER_HOLDS: [f64; 4] = [2.0, 4.0, 8.0, 16.0];
+const TAPE_STOP_TIMES: [f64; 5] = [1.0, 2.0, 4.0, 8.0, 16.0];
+const TAPE_STOP_EVERY: [f64; 4] = [8.0, 16.0, 32.0, 64.0];
+const GLITCH_FADE: f64 = 0.002;
+/// A choice knob's entry (index `v`, clamped) from a table.
+fn pick(table: &[f64], v: f64) -> f64 {
+    table[(js::round(v).max(0.0) as usize).min(table.len() - 1)]
+}
 /// REVERSE's grain edges: in over 3 ms, out over 1 ms (the swell's peak is at the grain's end).
 const REVERSE_FADE_IN: f64 = 0.003;
 const REVERSE_FADE_OUT: f64 = 0.001;
@@ -657,6 +681,11 @@ pub struct DelayFx {
     wet_l: f64, wet_r: f64,
     sm_l: Vec<Allpass>,
     sm_r: Vec<Allpass>,
+    /// GLITCH (on this unit's buffer): STUTTER's slice / hold and TAPE STOP's time / how often, in 16th steps.
+    gl_slice: f64, gl_hold: f64, gl_time: f64, gl_every: f64,
+    /// Bars since TAPE STOP's period began, and samples since then.
+    bars: u32,
+    tape_cycle: usize,
 }
 
 impl DelayFx {
@@ -684,6 +713,9 @@ impl DelayFx {
             wet_l: 0.0, wet_r: 0.0,
             sm_l: if reverse { SMEAR.iter().map(|d| Allpass::new(js::round(d * scale) as usize)).collect() } else { vec![] },
             sm_r: if reverse { SMEAR.iter().map(|d| Allpass::new(js::round(d * scale * 1.07) as usize)).collect() } else { vec![] },
+            gl_slice: 1.0, gl_hold: 4.0, gl_time: 4.0, gl_every: 16.0,
+            bars: 0,
+            tape_cycle: 0,
         };
         d.time = Smoother::new(d.target(), 0.12, sample_rate);
         d
@@ -701,6 +733,10 @@ impl DelayFx {
                 self.time.set_target(self.target());
             }
             "dly_fdbk" => self.fdbk = v,
+            "gl_slice" => self.gl_slice = pick(&STUTTER_SLICES, v),
+            "gl_hold" => self.gl_hold = pick(&STUTTER_HOLDS, v),
+            "gl_time" => self.gl_time = pick(&TAPE_STOP_TIMES, v),
+            "gl_every" => self.gl_every = pick(&TAPE_STOP_EVERY, v),
             _ => {}
         }
     }
@@ -714,9 +750,20 @@ impl DelayFx {
         self.time.set_immediate(self.target());
     }
 
-    /// A bar line: REVERSE's grains start again here, so they stay on the beat.
+    /// PLAY / STOP: TAPE STOP's bars count from the next bar line (the first one starts its period).
+    pub fn start(&mut self) {
+        self.bars = u32::MAX / 2;
+    }
+
+    /// A bar line: REVERSE's grains and STUTTER's holds start again here, so they stay on the
+    /// beat; TAPE STOP's period starts on every EVERY-th bar.
     pub fn bar(&mut self) {
         self.cycle = 0;
+        self.bars = self.bars.saturating_add(1);
+        if self.bars as f64 * 16.0 >= self.gl_every {
+            self.bars = 0;
+            self.tape_cycle = 0;
+        }
     }
 
     pub fn reset(&mut self) {
@@ -740,6 +787,10 @@ impl DelayFx {
     pub fn render(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
         if self.mode == 5 {
             self.render_reverse(in_l, in_r, wet_l, wet_r, n);
+            return;
+        }
+        if self.mode == 7 || self.mode == 8 {
+            self.render_glitch(in_l, in_r, wet_l, wet_r, n);
             return;
         }
         let sr = self.sr;
@@ -820,6 +871,56 @@ impl DelayFx {
         self.lp_r = flush(self.lp_r);
         self.hp_l = flush(self.hp_l);
         self.hp_r = flush(self.hp_r);
+    }
+
+    /// GLITCH, on this unit's buffer (the input written in as it comes, no feedback). STUTTER:
+    /// on a grid of HOLD from the bar line, the first SLICE of each hold is let through dry
+    /// (silent here: the track plays it), then repeated to the hold's end. TAPE STOP: in the
+    /// last TIME of each EVERY (from a bar line), the sound from then on slows to a stop (its
+    /// pitch falling with it); silent the rest of the time. Short fades at every edge.
+    fn render_glitch(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
+        let size = self.buf_l.len();
+        let step = 60.0 * self.sr / (self.bpm * 4.0);
+        let fade = (GLITCH_FADE * self.sr).max(1.0);
+        let max_delay = (size - 2) as f64;
+        for i in 0..n {
+            self.buf_l[self.write] = in_l[i];
+            self.buf_r[self.write] = in_r[i];
+            let (mut yl, mut yr) = (0.0, 0.0);
+            if self.mode == 7 {
+                let hold = (self.gl_hold * step).max(1.0);
+                let slice = (self.gl_slice * step).clamp(1.0, hold);
+                let pos = self.cycle as f64 % hold;
+                if pos >= slice {
+                    let k = (pos - slice) % slice;
+                    let win = (k / fade).min((slice - k) / fade).min(1.0);
+                    let d = (pos - k).min(max_delay);
+                    yl = tap(&self.buf_l, self.write, d) * win;
+                    yr = tap(&self.buf_r, self.write, d) * win;
+                }
+            } else {
+                let every = (self.gl_every * step).max(1.0);
+                let time = (self.gl_time * step).clamp(1.0, every);
+                let pos = self.tape_cycle as f64 % every;
+                let start = every - time;
+                if pos >= start {
+                    // Read speed falls from 1 to 0 over TIME: the read head lags u^2 / 2T behind.
+                    let u = pos - start;
+                    let d = (u * u / (2.0 * time) + 1.0).min(max_delay);
+                    let win = (u / fade).min((time - u) / fade).min(1.0);
+                    yl = tap(&self.buf_l, self.write, d) * win;
+                    yr = tap(&self.buf_r, self.write, d) * win;
+                }
+            }
+            self.write += 1;
+            if self.write >= size {
+                self.write = 0;
+            }
+            self.cycle += 1;
+            self.tape_cycle += 1;
+            wet_l[i] = yl as f32;
+            wet_r[i] = yr as f32;
+        }
     }
 
     /// REVERSE: grains half a RATE long, on a grid that starts on each bar line (`bar`); each
@@ -927,6 +1028,12 @@ impl DriveFx {
             } else if self.mode == 1 {
                 l = (tanh(l * g) * 1.5).clamp(-1.0, 1.0) * 0.6;
                 r = (tanh(r * g) * 1.5).clamp(-1.0, 1.0) * 0.6;
+            } else if self.mode == 3 {
+                // FOLD: a sine wavefolder after TUBE's gain (1 ... 31x): DRIVE folds the wave back on
+                // itself more and more times, at a send's level too.
+                let f = g * std::f64::consts::FRAC_PI_2;
+                l = sin_rad(l * f) * 0.7;
+                r = sin_rad(r * f) * 0.7;
             } else {
                 if self.hold <= 0 {
                     self.held_l = js::round(l * levels) / levels;

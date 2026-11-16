@@ -760,6 +760,17 @@ function fx1LiveV96(ch: ChannelState): void {
   if (old && ch.instrument !== 'none' && ch.live[0] === old[0] && ch.live[1] === old[1]) ch.live = [...INSTRUMENTS[ch.instrument].live];
 }
 
+/**
+ * v97: the FX bank grew (FOLD, RING, STUTTER, TAPE STOP) and is stored by index, so a v87-v96
+ * save's slot TYPE (values, step locks, SONG lanes) is renumbered by its name.
+ */
+const BANK_V97 = ['TUBE', 'FUZZ', 'BIT', 'CHORUS', 'FLANGER', 'PHASER', 'TAPE', 'SWEEP', 'REVERSE', 'PING-PONG', 'DUB TAPE', 'SLAPBACK', 'ROOM', 'PLATE', 'SPRING', 'HALL'];
+function typeV97(v: number): number {
+  const name = BANK_V97[Math.max(0, Math.min(BANK_V97.length - 1, Math.round(v)))];
+  return fxType(name);
+}
+const isTypeKeyV97 = (key: string) => /^b:\d:s\d_type$/.test(key);
+
 /** v95: PERC's ALT live knobs went from VOL / GRIT to VOL / AIR LVL (its new room); a PERC still on the old pair takes the new one. */
 function percLiveV95(ch: ChannelState): void {
   if (ch.instrument === 'perc' && ch.liveFunc[0] === 'mix:volume' && ch.liveFunc[1] === 'macro:grit') ch.liveFunc = [...INSTRUMENTS.perc.liveFunc];
@@ -820,6 +831,7 @@ function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: 
   if (version < 81) busKeysV81(locks);
   if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
   if (version < 94) bitsV94(locks);
+  if (version >= 87 && version < 97) for (const key in locks) if (isTypeKeyV97(key)) locks[key] = typeV97(locks[key]);
   if (version < 95 && kind === 'hat') hairSizeV95(locks);
   // v96: PERC's AIR is the natural room (AIR SIZE): a v95 PERC's AIR TAIL locks go.
   if (version < 96 && kind === 'perc') delete locks.airsize;
@@ -1385,7 +1397,7 @@ export function fromStored(data: unknown): Project | null {
       for (const id in src) {
         const v = src[id];
         if (typeof v !== 'number' || !Number.isFinite(v)) continue;
-        const to = version < 87 ? busParamV87(k, id, v) : [id, v] as [string, number];
+        const to = version < 87 ? busParamV87(k, id, v) : [id, version < 97 && id.endsWith('_type') ? typeV97(v) : v] as [string, number];
         if (to) stored[to[0]] = to[1];
       }
       for (const spec of BUS_PARAMS[k]) {
@@ -1430,6 +1442,9 @@ export function fromStored(data: unknown): Project | null {
       const t = parseAutoKey(key);
       if (t?.kind === 's' && t.id === 'crush') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, crushV85(v)]);
     }
+  }
+  if (version >= 87 && version < 97 && p.song.auto) {
+    for (const key in p.song.auto) if (isTypeKeyV97(key)) p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, typeV97(v)]);
   }
   if (version < 96 && p.song.auto) {
     for (const key of Object.keys(p.song.auto)) {

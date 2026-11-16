@@ -1147,6 +1147,10 @@ impl Engine {
         }
         self.global_step = 0.0;
         self.count_left = 0.0;
+        // GLITCH's bar counts (TAPE STOP's EVERY) start again with the transport.
+        for b in &mut self.buses {
+            b.start();
+        }
         if self.pending_meter >= 0 {
             self.apply_meter(self.pending_meter as usize);
         }

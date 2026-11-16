@@ -24,7 +24,7 @@ import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound }
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { linkedParams, pageParams, soundGroups, stepsOnStrip } from '../src/instruments/registry';
-import { BUSES, BUS_LAYOUT, FX_BANK, FX_DELAY_TIMES, FX_FAMILIES, busKnob, busParam, controlNorm, defaultBus, fxType } from '../src/fx/buses';
+import { BUSES, BUS_LAYOUT, FX_BANK, FX_DELAY_TIMES, FX_FAMILIES, busKnob, busParam, controlNorm, defaultBus, fxType, typeNorm, typeSpec } from '../src/fx/buses';
 
 const SR = 48000;
 /** A note's frequency (A4 = 440 Hz). */
@@ -3790,7 +3790,7 @@ describe('FX buses (v41)', () => {
     const delays = { ...defaultBus(1), s1_type: fxType('TAPE'), s3_type: fxType('SLAPBACK'), s4_type: fxType('REVERSE') };
     expect(names(1, delays).slice(0, 8)).toEqual(['DELAY', 'RATE', 'DELAY', 'RATE', 'DELAY', 'RATE', 'DELAY', 'RATE']);
     // One TYPE list for the whole bank.
-    expect(FX_BANK.map((t) => t.name)).toEqual(['TUBE', 'FUZZ', 'BIT', 'CHORUS', 'FLANGER', 'PHASER', 'TAPE', 'SWEEP', 'REVERSE', 'PING-PONG', 'DUB TAPE', 'SLAPBACK', 'ROOM', 'PLATE', 'SPRING', 'HALL']);
+    expect(FX_BANK.map((t) => t.name)).toEqual(['TUBE', 'FUZZ', 'BIT', 'FOLD', 'CHORUS', 'FLANGER', 'PHASER', 'RING', 'TAPE', 'SWEEP', 'REVERSE', 'PING-PONG', 'DUB TAPE', 'SLAPBACK', 'ROOM', 'PLATE', 'SPRING', 'HALL', 'STUTTER', 'TAPE STOP']);
     expect(formatValue(busParam(1, 's3_type')!, fxType('SPRING'))).toBe('SPRING');
     // A control is stored as a knob position and shown in the loaded effect's units.
     const tone = busKnob(1, 's1_b', defaultBus(1))!;
@@ -3810,6 +3810,8 @@ describe('FX buses (v41)', () => {
           const on = slot(n, name, 1);
           // Extreme: everything up (a delay at its shortest time, full feedback).
           if (extreme) Object.assign(on, { [`s${n}_a`]: family === 2 ? 0 : 1, [`s${n}_b`]: 1 });
+          // TAPE STOP sounds only in the last TIME of each EVERY: a whole half bar of it here.
+          if (name === 'TAPE STOP') Object.assign(on, { [`s${n}_a`]: typeNorm(fxType(name), 'a', 4), [`s${n}_b`]: typeNorm(fxType(name), 'b', 0) });
           const x = burst(1.5);
           const wet = runBus(k, only(k, on), x);
           const dry = k === 0 ? x : new Float32Array(x.length); // FX 1 passes the drums through
@@ -3951,6 +3953,59 @@ describe('FX buses (v41)', () => {
     p.buses[1].tone_duck = 0.9;
     const back = fromStored(JSON.parse(JSON.stringify(toStored(p))))!;
     expect(back.buses).toEqual(p.buses);
+  });
+
+  it('v97 effects: FOLD folds, RING moves the pitch, STUTTER repeats the slice to the hold\'s end, TAPE STOP slows to a stop', () => {
+    // The KICK on FX 2 into slot 2 only, with the effect there (its controls as given, else its defaults).
+    const wetOf = (type: string, a?: number, b?: number, steps = [0], seconds = 1.0) => {
+      const run = (lvl2: number) => {
+        const p = kickProject(steps, { bpm: 120 });
+        p.channels[0].patterns[0].length = 32;
+        p.channels[0].bus = 1;
+        noFx(p.channels[0]);
+        p.channels[0].lvl2 = lvl2;
+        onlyBus(p, 1, { [`s2_vol`]: 1, [`s2_type`]: fxType(type), [`s2_a`]: typeNorm(fxType(type), 'a', a), [`s2_b`]: typeNorm(fxType(type), 'b', b) });
+        const e = engineWith(p);
+        e.handleMessage({ type: 'transport', playing: true });
+        return render(e, seconds).l;
+      };
+      const dry = run(0), all = run(1);
+      return all.map((v, i) => v - dry[i]);
+    };
+    const level = (l: Float32Array, a: number, b: number) => stats(l.subarray(Math.round(a * SR), Math.round(b * SR))).peak;
+    const crossings = (l: Float32Array) => { let c = 0; for (let i = 1; i < l.length; i++) if ((l[i - 1] < 0) !== (l[i] < 0)) c++; return c; };
+    // FOLD: harder DRIVE folds the kick into many more zero crossings than TUBE's.
+    const fold = wetOf('FOLD', 1, 16000), tube = wetOf('TUBE', 1, 16000);
+    expect(stats(fold).nan).toBe(false);
+    expect(crossings(fold.subarray(0, SR / 4))).toBeGreaterThan(crossings(tube.subarray(0, SR / 4)) * 1.5);
+    // RING: shown as FREQ / SPREAD, and it sounds.
+    expect(typeSpec(fxType('RING'), 'a').name).toBe('FREQ');
+    expect(level(wetOf('RING', 500, 0), 0, 0.1)).toBeGreaterThan(0.01);
+    // STUTTER, SLICE 1/16 (0.125 s), HOLD 1/4 (0.5 s): the first slice is the dry track's (silent
+    // here), then it repeats every 0.125 s to 0.5 s; the next hold grabs silence.
+    const st = wetOf('STUTTER', 2, 1);
+    expect(level(st, 0.0, 0.12)).toBeLessThan(1e-4);
+    expect(level(st, 0.125, 0.14)).toBeGreaterThan(0.05);
+    expect(level(st, 0.375, 0.39)).toBeGreaterThan(0.05);
+    expect(level(st, 0.52, 0.9)).toBeLessThan(1e-3);
+    // TAPE STOP, TIME 1/4, EVERY 1/2 BAR (1 s): silent until the last 0.5 s of the period, then the
+    // kick hit at 0.5 s (steps 0 and 4) comes out slowed.
+    const ts = wetOf('TAPE STOP', 2, 0, [0, 4], 1.0);
+    expect(level(ts, 0.05, 0.45)).toBeLessThan(1e-4);
+    expect(level(ts, 0.5, 0.95)).toBeGreaterThan(0.01);
+  });
+
+  it('v97: a v96 save\'s slot TYPE (values, step locks, SONG lanes) keeps its effect though the bank grew', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 96;
+    // In the v96 bank PLATE was 13 and HALL 15 (now 15 / 17, FOLD and RING before them).
+    stored.buses[1].s3_type = 13;
+    stored.channels[6].patterns[0].steps = [{ i: 0, n: 57, l: { 'b:1:s3_type': 15 } }];
+    stored.song = { rows: [{ b: 4, p: [0, 0, 0, 0, 0, 0, 0, 0] }], a: { 'b:1:s4_type': [[0, 3]] } };
+    const back = fromStored(stored)!;
+    expect(FX_BANK[back.buses[1].s3_type].name).toBe('PLATE');
+    expect(FX_BANK[back.channels[6].patterns[0].steps[0].locks!['b:1:s3_type']].name).toBe('HALL');
+    expect(FX_BANK[back.song.auto!['b:1:s4_type'][0][1]].name).toBe('CHORUS');
   });
 
   it('REVERSE: a hit on the beat swells back with its peak exactly RATE later, then every RATE with feedback', () => {
@@ -4814,8 +4869,10 @@ describe('v93: the PLUCK\'s onboard delay went', () => {
     expect(bus.s4_type).toBe(fxType('TAPE'));
     expect(Math.round(toValue(FX_FAMILIES[2].a, bus.s4_a))).toBe(FX_DELAY_TIMES.findIndex((t) => t.name === '1/4'));
     expect([bus.s4_vol, back.channels[7].lvl4]).toEqual([0.4, 1]);
-    // DLY MIX at 0: nothing changes.
-    expect(v92({ dmix: 0 }).buses[1]).toEqual(createDefaultProject().buses[1]);
+    // DLY MIX at 0: nothing changes (the save is made from today's bank: compare by what the slots hold).
+    const none = v92({ dmix: 0 }), def = createDefaultProject();
+    expect([1, 2, 3, 4].map((k) => none.buses[1][`s${k}_vol`])).toEqual([1, 2, 3, 4].map((k) => def.buses[1][`s${k}_vol`]));
+    expect([1, 2, 3, 4].map((k) => none.channels[7][`lvl${k}` as 'lvl1'])).toEqual([0, 0, 0, 0]);
   });
   it('a delay already at its time is shared', () => {
     const def = createDefaultProject().buses[1];
