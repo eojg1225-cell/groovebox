@@ -14,99 +14,90 @@ import {
   BASS_PARAMS, BASS_PRESETS, LEAD_PARAMS, LEAD_PRESETS, PLUCK_PARAMS, PLUCK_PRESETS, PAD_PARAMS, PAD_PRESETS,
 } from './synthSpecs';
 
-/** Knob slots per page: 2 rows of 8 modules. */
-const PAGE_SLOTS = 16;
-const ROW = PAGE_SLOTS / 2;
 
 /**
- * The SOUND page, the same frame on every track: the sound first, then DRIVE / CRUSH, then
- * the performance pair. Synths follow the sound chain: TIMBRE / INT, the amp envelope, FM
- * (FM ATK / FM DEC, FM LVL / RESO), the filter (FLT ATK / FLT DEC, FLT ENV / CUTOFF), DRIVE /
- * CRUSH, then module 8: BASS SLIDE / SUB, LEAD SLIDE / DETUNE, PAD CHORD / DETUNE, PLUCK its
- * delay (DLY TIME / DLY FDBK). `amp` = module 2 (BASS ATTACK / DECAY, PAD and LEAD ATTACK /
- * RELEASE of both oscillators, PLUCK ATTACK / SUSTAIN).
+ * The SOUND page (2026-11 rework): the main layer is the sound itself, the ALT layer the rest of
+ * each type's design, then its effects. On every type: main 1 TIMBRE / INT, main 8 top SLIDE
+ * (synths) / ROLL RATE (drums); ALT 1 PRESET / ACC/GHOST, ALT 5 / 6 LIVE 1-4 (beside the filter,
+ * which has no ALT knobs), ALT 7 DRIVE / the type's own effect, ALT 8 CRUSH. MID FREQ / MID CUT
+ * are on MIX > ALT. Knob groups (lit grooves, boxes on the screen) come from `soundGroups`.
+ *
+ * Synths: 1 TIMBRE / INT, 2 the amp envelope (`amp`), 3 FM ATK / FM DEC (PAD / PLUCK: CHORD /
+ * NOTES, `three`), 4 FM LVL / FLT RES, 5 FLT ATK / FLT DEC, 6 FLT ENV / CUTOFF, 7 UNISON /
+ * DETUNE, 8 SLIDE / the type's own (`eight`: BASS SUB, LEAD BEND, PAD / PLUCK none).
  */
-export function synthPage(amp: readonly [string, string], perform: readonly [string, string]): string[] {
+function synthPage(amp: readonly [string, string], three: readonly [string, string], eight: readonly [string, string | null]): (string | null)[] {
   return [
-    'timbre', amp[0], 'fmattack', 'fm', 'fattack', 'fenv', 'drive', perform[0],
-    'intensity', amp[1], 'fmdecay', 'reso', 'fdecay', 'cutoff', 'crush', perform[1],
+    'timbre', amp[0], three[0], 'fm', 'fattack', 'fenv', 'unison', eight[0],
+    'intensity', amp[1], three[1], 'reso', 'fdecay', 'cutoff', 'detune', eight[1],
   ];
 }
 
 /**
  * Drums: 1 TIMBRE / INT, 2 element 1 ATTACK / DECAY, 3 element 2 ATTACK / DECAY, 4 the
- * elements' pitch (`pitch`), 5 and 6 their character (`five`, `six`: sweep, click or metal
- * colour; KICK 5 CLK RESO / CLK NOISE, SNARE 5 MTL TONE / MTL NOISE, both 6 AIR LVL / AIR TAIL),
- * 7 DRIVE / CRUSH, 8 ROLL DIV / BALANCE (element 1 <-> 2). Elements: KICK body + click, SNARE
- * body + metal (wires), HAT click + metal, PERC body + click (+ metal halfway between them).
- * No filter per drum (FX 1's FILTER is the kit's).
+ * elements' pitch (`pitch`), 5 their character (`five`), 6 AIR LVL / AIR TAIL (`six`; PERC its
+ * room to come), 7 the rest of the drum's design (`seven`: KICK SWEEP / SWP TIME, SNARE its
+ * STICK, HAT its click, PERC CLK PITCH / CLK NOISE), 8 ROLL RATE / BALANCE (element 1 <-> 2).
+ * Elements: KICK body + click, SNARE body + metal (wires), HAT click + metal, PERC body + click
+ * (+ metal halfway between them). No filter per drum (FX 1's FILTER is the kit's).
  */
-export function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string, string]): string[] {
+function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string | null, string | null], seven: readonly [string, string]): (string | null)[] {
   const [a1, d1, a2, d2] = elements;
   return [
-    'timbre', a1, a2, pitch[0], five[0], six[0], 'drive', 'rolldiv',
-    'intensity', d1, d2, pitch[1], five[1], six[1], 'crush', 'balance',
+    'timbre', a1, a2, pitch[0], five[0], six[0], seven[0], 'rolldiv',
+    'intensity', d1, d2, pitch[1], five[1], six[1], seven[1], 'balance',
   ];
 }
 
-/**
- * The FUNC layer of a SOUND page (FUNC held): top row, then bottom row, 8 each; null = no
- * FUNC parameter on that knob (it does nothing while FUNC is held).
- */
-function funcPage(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
-  return [...top, ...bottom];
-}
 const _ = null;
-/*
- * FUNC layers. Synths: the rest of the amp envelope under module 2, then what each type
- * needs (below). SHAPE is TIMBRE's (FM RATIO too, but a FUNC knob on BASS / LEAD). OCTAVE has no knob: OCT - / + in DESIGN
- * (App.stepOctave). Drums: KICK / SNARE SWEEP / SWP TIME (FUNC 2); HAT FOCUS (FUNC 4 top, over
- * MTL PITCH's module); PERC none yet.
- */
-const NO_FUNC = funcPage([_, _, _, _, _, _, _, _], [_, _, _, _, _, _, _, _]);
-/** HAT FUNC: CLK RESO / CLK NOISE (3, as the SNARE's stick), FOCUS (4 top). */
-const HAT_FUNC = funcPage([_, _, 'c_reso', 'h_focus', _, _, _, _], [_, _, 'c_noise', _, _, _, _, _]);
-/** KICK / SNARE FUNC: SWEEP / SWP TIME under the body's ATTACK / DECAY. */
-const SWEEP_FUNC = funcPage([_, 't_sweep', _, _, _, _, _, _], [_, 't_stime', _, _, _, _, _, _]);
-/** SNARE FUNC: SWEEP / SWP TIME (2), the stick's CLK LEVEL / CLK PITCH (3). */
-const SNARE_FUNC = funcPage([_, 't_sweep', 'c_level', _, _, _, _, _], [_, 't_stime', 'c_tone', _, _, _, _, _]);
-/** BASS FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, DUCK / DUCK REL (sidechain) under DRIVE / CRUSH, DETUNE under 8. */
-// FM RATIO (4 top), UNISON / DETUNE (8): a reese is a SAW with both turned up.
-const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], [_, 'release', _, _, _, _, 'duckrel', 'detune']);
 /**
- * LEAD FUNC: SUSTAIN / RELEASE under ATTACK / DECAY, VIBRATO / VIB RATE (3), FM RATIO (4 top, as
- * the BASS's), BEND / BEND TIME (7), VIB DELAY / UNISON (8).
+ * An ALT (FUNC) layer: each type's own knobs on modules 2-4 (`two`, `three`, `four`: top /
+ * bottom) and ALT 7 bottom (`own`, its effect: BASS none, LEAD BEND TIME, PAD LOW CUT, PLUCK DLY
+ * MIX); the same knobs on every type everywhere else (PRESET / ACC/GHOST, LIVE 1-4, DRIVE, CRUSH).
  */
-const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', 'fmpair', _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
-/**
- * PLUCK FUNC (ALT; v81): DECAY / RELEASE under ATTACK / SUSTAIN (a pluck's own envelope), DRIVE /
- * CRUSH (4, as the PAD's), its SPACE (the onboard delay) on 7 / 8: DLY MIX, DLY TIME / DLY FDBK
- * (v91: its room went; FX 2 is the shared space).
- */
-const PLUCK_FUNC = funcPage([_, 'decay', _, 'drive', _, _, 'dmix', 'dtime'], [_, 'release', _, 'crush', _, _, _, 'dfdbk']);
-/**
- * PAD and PLUCK share one design page (v78): 1 TIMBRE / INT, 2 ATTACK / RELEASE (PLUCK: ATTACK /
- * SUSTAIN), 3 FM ATK / FM DEC,
- * 4 FM LVL / RESO, 5 FLT ATK / FLT DEC, 6 FLT ENV / CUTOFF, 7 DETUNE / UNISON, 8 CHORD / SLIDE;
- * the effects (DRIVE, CRUSH, PLUCK's delay, PAD's LOW CUT) on the FUNC (ALT) layer.
- */
-const CHORD_PAGE = synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'drive' ? 'detune' : id === 'crush' ? 'unison' : id));
+function altPage(two: readonly (string | null)[], three: readonly (string | null)[], four: readonly (string | null)[], own: string | null = null): (string | null)[] {
+  return [
+    'track:preset', two[0], three[0], four[0], 'track:live1', 'track:live3', 'drive', 'crush',
+    'mix:dyn', two[1], three[1], four[1], 'track:live2', 'track:live4', own, null,
+  ];
+}
+const NONE = [_, _] as const;
+/** SNARE ALT: SWEEP / SWP TIME (2). */
+const SNARE_FUNC = altPage(['t_sweep', 't_stime'], NONE, NONE);
+/** HAT ALT: FOCUS (4 top). */
+const HAT_FUNC = altPage(NONE, NONE, ['h_focus', _]);
+const DRUM_FUNC = altPage(NONE, NONE, NONE);
+/** BASS ALT: SUSTAIN / RELEASE (2), DUCK / DUCK REL (3, the sidechain), FM RATIO (4 top). */
+const BASS_FUNC = altPage(['sustain', 'release'], ['duck', 'duckrel'], ['fmpair', _]);
+/** LEAD ALT: SUSTAIN / RELEASE (2), VIBRATO / VIB RATE (3), FM RATIO / VIB DELAY (4), BEND TIME (7 bottom). */
+const LEAD_FUNC = altPage(['sustain', 'release'], ['vibrato', 'vibrate'], ['fmpair', 'vibdelay'], 'bendtime');
+/** PLUCK ALT: DECAY / RELEASE (2), DLY TIME / DLY FDBK (3), FM ATK / FM DEC (4), DLY MIX (7 bottom). */
+const PLUCK_FUNC = altPage(['decay', 'release'], ['dtime', 'dfdbk'], ['fmattack', 'fmdecay'], 'dmix');
+/** PAD ALT: DECAY / SUSTAIN (2, both oscillators), OSC 2's own ATTACK / RELEASE (3), FM ATK / FM DEC (4), LOW CUT (7 bottom). */
+const PAD_FUNC = altPage(['decay', 'sustain'], ['attack2', 'release2'], ['fmattack', 'fmdecay'], 'lowcut');
+/** PAD and PLUCK: CHORD / NOTES on module 3 (their FM envelope on ALT 4), SLIDE on 8. */
+const CHORD_THREE = ['track:chord', 'track:notes'] as const;
 
 /**
- * PAD FUNC layer: DECAY / SUSTAIN (both oscillators) under module 2, OSC 2's own
- * ATTACK / RELEASE on module 3, the rest as given (columns 1, 4, 7, 8).
+ * Knob groups on a SOUND page (main layer / ALT): each a run of whole modules (1-based, first
+ * and last), drawn as lit grooves on the panel and boxes on the screen.
  */
-function heldFunc(top: readonly (string | null)[], bottom: readonly (string | null)[]): (string | null)[] {
-  return funcPage(
-    [top[0], 'decay', 'attack2', top[1], _, _, top[2], top[3]],
-    [bottom[0], 'sustain', 'release2', bottom[1], _, _, bottom[2], bottom[3]],
-  );
-}
+export interface KnobGroup { from: number; to: number }
+const SYNTH_GROUPS: readonly KnobGroup[] = [{ from: 1, to: 1 }, { from: 2, to: 3 }, { from: 4, to: 6 }, { from: 7, to: 8 }];
+const CHORD_GROUPS: readonly KnobGroup[] = [{ from: 1, to: 1 }, { from: 2, to: 2 }, { from: 3, to: 3 }, { from: 4, to: 6 }, { from: 7, to: 8 }];
+const DRUM_GROUPS: readonly KnobGroup[] = [{ from: 1, to: 1 }, { from: 2, to: 5 }, { from: 6, to: 6 }, { from: 7, to: 8 }];
+const ALT_GROUPS: readonly KnobGroup[] = [{ from: 1, to: 1 }, { from: 2, to: 4 }, { from: 5, to: 6 }, { from: 7, to: 8 }];
 /**
- * PAD FUNC (v81): DRIVE / CRUSH (4), LOW CUT (7, off by default). Its VERB went in v91, its MOD /
- * MOD TYPE in v92 (FX 2 is the shared space).
+ * A SOUND page's knob groups. Synths: TIMBRE / INT | the envelopes (amp + FM; PAD / PLUCK: the
+ * amp envelope | CHORD / NOTES) | the filter (FM LVL / FLT RES with it) | UNISON / DETUNE + SLIDE.
+ * Drums: TIMBRE / INT | the elements | AIR | the rest + ROLL. ALT: PRESET / ACC | the type's own
+ * | LIVE 1-4 | the effects.
  */
-const PAD_FUNC = heldFunc([_, 'drive', 'lowcut', _], [_, 'crush', _, _]);
+export function soundGroups(kind: SoundKind, alt: boolean): readonly KnobGroup[] {
+  if (alt) return ALT_GROUPS;
+  if (INSTRUMENTS[kind].drum) return DRUM_GROUPS;
+  return kind === 'pad' || kind === 'pluck' ? CHORD_GROUPS : SYNTH_GROUPS;
+}
 
 /**
  * PAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;
@@ -121,23 +112,6 @@ const LINKED: Partial<Record<SoundKind, Readonly<Record<string, readonly string[
 /** Parameters a SOUND page knob on `id` sets along with it (none = just itself). */
 export function linkedParams(kind: InstrumentKind, id: string): readonly string[] {
   return kind === 'none' ? [] : LINKED[kind]?.[id] ?? [];
-}
-
-/**
- * Every track's FUNC layer also holds the track's setup (the same slots on every type):
- * PRESET / MID FREQ (module 1: MID FREQ = the MID CUT's centre), LIVE 1 / 2 (5) and
- * LIVE 3 / 4 (6) - what the live knobs control.
- */
-const TRACK_FUNC: Readonly<Record<number, string>> = {
-  0: 'track:preset', [ROW]: 'midfreq', 4: 'track:live1', [ROW + 4]: 'track:live2', 5: 'track:live3', [ROW + 5]: 'track:live4',
-};
-function trackFunc(func: readonly (string | null)[]): (string | null)[] {
-  const out = [...func];
-  for (const [slot, id] of Object.entries(TRACK_FUNC)) {
-    if (out[Number(slot)] !== null) throw new Error(`FUNC slot ${slot} is taken by ${out[Number(slot)]}`);
-    out[Number(slot)] = id;
-  }
-  return out;
 }
 
 /**
@@ -271,9 +245,9 @@ interface InstrumentEntry {
   name: string;
   /** All of the type's parameters (stored, set by presets, lockable). */
   params: readonly ParamSpec[];
-  /** The SOUND page: 16 knob slots (2 rows of 8): the type's params ("track:chord" = the chord). */
+  /** The SOUND page: 16 knob slots (2 rows of 8): the type's params ("track:chord" / "track:notes" = the chord; null = no knob). */
   layout: readonly (string | null)[];
-  /** The SOUND page's FUNC layer (16 slots, see funcPage). */
+  /** The SOUND page's FUNC (ALT) layer (16 slots, see altPage). */
   funcLayout: readonly (string | null)[];
   /**
    * Default live knobs in RECORD / PLAY: two controls (synths: CUTOFF first; KICK / SNARE /
@@ -300,49 +274,48 @@ interface InstrumentEntry {
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
     name: 'KICK', gain: 0.565, live: ['intensity', 'macro:decay'], liveFunc: ['mix:volume', 'air'], params: KICK_PARAMS,
-    // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2): the click's
-    // character on 5, AIR on 6 beside DRIVE / CRUSH.
-    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),
-    funcLayout: trackFunc(SWEEP_FUNC),
+    // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on 7): the click's character on 5.
+    layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize'], ['t_sweep', 't_stime']),
+    funcLayout: DRUM_FUNC,
     presets: KICK_PRESETS, drum: true, baseNote: DRUM_ROOT },
   snare: {
     name: 'SNARE', gain: 0.467, live: ['fx1:s2_vol', 'intensity'], liveFunc: ['mix:volume', 'air'], params: SNARE_PARAMS,
-    // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
-    layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
-    funcLayout: trackFunc(SNARE_FUNC),
+    // The wires' character on 5, its STICK (CLK LEVEL / CLK PITCH) on 7, SWEEP / SWP TIME on ALT 2.
+    layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize'], ['c_level', 'c_tone']),
+    funcLayout: SNARE_FUNC,
     presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT },
   hat: {
     name: 'HAT', gain: 1.783, live: ['fx1:s3_vol', 'macro:attack'], liveFunc: ['mix:volume', 'air'], params: HAT_PARAMS,
-    // The metal's character on 5, AIR (its natural room, v81) on 6; the click's on FUNC 3.
-    layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'hairsize']),
-    funcLayout: trackFunc(HAT_FUNC),
+    // The metal's character on 5, AIR (its natural room, v81) on 6, the click's on 7.
+    layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'hairsize'], ['c_reso', 'c_noise']),
+    funcLayout: HAT_FUNC,
     presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT },
   perc: {
     name: 'PERC', gain: 0.537, live: ['fx1:flt', 'intensity'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
-    layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['c_tone', 'c_noise']),
-    funcLayout: trackFunc(NO_FUNC),
+    // 6 waits for its AIR.
+    layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], [_, _], ['c_tone', 'c_noise']),
+    funcLayout: DRUM_FUNC,
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: DRUM_ROOT },
   bass: {
     name: 'BASS', gain: 0.557, live: ['fx2:s1_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:env'], params: BASS_PARAMS,
-    layout: synthPage(['attack', 'decay'], ['glide', 'sub']),
-    funcLayout: trackFunc(BASS_FUNC),
+    layout: synthPage(['attack', 'decay'], ['fmattack', 'fmdecay'], ['glide', 'sub']),
+    funcLayout: BASS_FUNC,
     presets: BASS_PRESETS, drum: false, baseNote: 33 },
   pad: {
     name: 'PAD', gain: 0.413, live: ['fx2:s2_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:length'], params: PAD_PARAMS,
-    // CHORD_PAGE; DRIVE / CRUSH and the effects on FUNC (ALT).
-    layout: CHORD_PAGE,
-    funcLayout: trackFunc(PAD_FUNC),
+    layout: synthPage(['attack', 'release'], CHORD_THREE, ['glide', _]),
+    funcLayout: PAD_FUNC,
     presets: PAD_PRESETS, drum: false, baseNote: 45 },
   lead: {
     name: 'LEAD', gain: 0.948, live: ['fx2:s3_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:grit'], params: LEAD_PARAMS,
-    layout: synthPage(['attack', 'decay'], ['glide', 'detune']),
-    funcLayout: trackFunc(LEAD_FUNC),
+    layout: synthPage(['attack', 'decay'], ['fmattack', 'fmdecay'], ['glide', 'bend']),
+    funcLayout: LEAD_FUNC,
     presets: LEAD_PRESETS, drum: false, baseNote: 45 },
   pluck: {
     name: 'PLUCK', gain: 1.105, live: ['fx2:s4_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:sustain'], params: PLUCK_PARAMS,
-    // CHORD_PAGE, but module 2 ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
-    layout: CHORD_PAGE.map((id) => (id === 'release' ? 'sustain' : id)),
-    funcLayout: trackFunc(PLUCK_FUNC),
+    // Module 2 ATTACK / SUSTAIN (a pluck's own envelope; DECAY / RELEASE on ALT).
+    layout: synthPage(['attack', 'sustain'], CHORD_THREE, ['glide', _]),
+    funcLayout: PLUCK_FUNC,
     presets: PLUCK_PRESETS, drum: false, baseNote: 45 },
 };
 
@@ -351,7 +324,8 @@ export const SOUND_KINDS = Object.keys(INSTRUMENTS) as SoundKind[];
 /** The parameters with a knob on a type's SOUND page (main or FUNC layer), and those a knob sets along with it. */
 export function pageParams(kind: SoundKind): ReadonlySet<string> {
   const e = INSTRUMENTS[kind];
-  const ids = [...e.layout, ...e.funcLayout].filter((id): id is string => !!id);
+  // MID FREQ (MIX > ALT) is part of the sound too.
+  const ids = [...e.layout, ...e.funcLayout, 'midfreq'].filter((id): id is string => !!id);
   // A knob's followers (PAD FM LVL2, OSC 2 DECAY / SUSTAIN) keep their edits too: without them a
   // reload put them back to TIMBRE's while their knob kept its own.
   return new Set([...ids, ...ids.flatMap((id) => linkedParams(kind, id))]);

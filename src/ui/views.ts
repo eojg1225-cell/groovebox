@@ -84,6 +84,8 @@ export interface DesignView extends HeaderView, FooterView {
   pages: string[];
   page: number;
   slots: (KnobSlotView | null)[];
+  /** Knob groups (whole modules, 1-based), each boxed as the panel's lit grooves mark them. */
+  groups?: readonly { from: number; to: number }[];
   touchedSlot: number;
   liveLabel: string;
   chordLabel: string;
@@ -247,6 +249,11 @@ export function drawDesignView(s: PixelScreen, v: DesignView): void {
     s.text(tx + 3, 12, name, i === v.page ? INK.bg : v.ink.mid);
     tx += w + 3;
   });
+
+  // The knob groups, boxed (the lit grooves on the panel).
+  for (const g of v.groups ?? []) {
+    s.frame(2 + (g.from - 1) * SLOT_W - 2, 20, (g.to - g.from + 1) * SLOT_W, 97, v.ink.dim);
+  }
 
   // 16 knobs, laid out like the panel (2 rows of 8).
   for (let i = 0; i < SLOTS; i++) {

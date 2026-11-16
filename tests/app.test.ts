@@ -1253,11 +1253,11 @@ describe('CHORD knob', () => {
   it('runs in groups, KEY last in each: MIN7, then DOM7, then KEY7', () => {
     const { app, tap, emit } = makeApp();
     tap('mode:design');
-    tap('ch6'); // PAD: CHORD on module 8's top knob
+    tap('ch6'); // PAD: CHORD on module 3's top knob
     const at = (name: string) => CHORD_KNOB.indexOf(CHORD_NAMES.indexOf(name)) / (CHORD_KNOB.length - 1);
-    emit({ type: 'knob', id: 'k8', value: at('KEY7') });
+    emit({ type: 'knob', id: 'k3', value: at('KEY7') });
     expect(CHORD_NAMES[app.project.channels[5].chord]).toBe('KEY7');
-    emit({ type: 'knob', id: 'k8', value: at('DOM7') });
+    emit({ type: 'knob', id: 'k3', value: at('DOM7') });
     expect(CHORD_NAMES[app.project.channels[5].chord]).toBe('DOM7');
   });
 });

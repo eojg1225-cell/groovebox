@@ -59,7 +59,7 @@ import {
 import { applyPreset, createDefaultProject, trackDefaults } from '../engine/defaultProject';
 import { toStored } from '../engine/projectFile';
 import type { MainToWorklet, WorkletToMain } from '../engine/protocol';
-import { INSTRUMENTS, macroAnchor, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, stepsOnStrip } from '../instruments/registry';
+import { INSTRUMENTS, macroAnchor, LIVE_MACROS, SOUND_KINDS, isDrum, linkedParams, liveTargets, paramSpec, playsChords, soundGroups, stepsOnStrip, type KnobGroup } from '../instruments/registry';
 import { mirrorToCloud } from '../storage/cloud';
 import { NAME_LENGTH, PROJECT_BANKS, SLOTS_PER_BANK, forgetSession, lastSession, projectStore, saveWorkSoon } from '../storage/projects';
 import { syncSlots } from '../storage/slotSync';
@@ -992,7 +992,8 @@ export class App {
       for (const m of LIVE_MACROS[c.instrument]) list.push({ id: m.id, spec: { ...OFFSET_SPEC, name: m.name } });
       if (!isDrum(c.instrument)) list.push({ id: 'track:notes', spec: choice('notes', 'NOTES', NOTES_NAMES) });
       const entry = INSTRUMENTS[c.instrument];
-      for (const id of [...entry.layout, ...entry.funcLayout]) {
+      // MID FREQ (on MIX > ALT) too.
+      for (const id of [...entry.layout, ...entry.funcLayout, 'midfreq']) {
         const spec = id ? entry.params.find((p) => p.id === id) : undefined;
         if (id === 'track:chord' && !list.some((x) => x.id === id)) list.push({ id, spec: CHORD_SPEC });
         if (spec && !list.some((x) => x.id === spec.id)) list.push({ id: spec.id, spec });
@@ -1529,6 +1530,27 @@ export class App {
     }
     if (this.playPaged) return step(this.pagedTargets());
     return step(this.liveGrid());
+  }
+
+  /** An FX bus's knob groups: its four units, two modules each. */
+  private static readonly BUS_UNITS: readonly KnobGroup[] = [{ from: 1, to: 2 }, { from: 3, to: 4 }, { from: 5, to: 6 }, { from: 7, to: 8 }];
+
+  /**
+   * The knob groups showing (whole modules, 1-based): a SOUND page's (TIMBRE / INT, the
+   * envelopes, the filter, LIVE 1-4, the effects ... `soundGroups`) and an FX bus's units (two
+   * modules each). Lit grooves on the panel and boxes on the screen; none elsewhere.
+   */
+  private knobGroups(): readonly KnobGroup[] {
+    if (this.projMenu || this.menu || this.songGrid || this.arpOpen) return [];
+    if (this.fxView > 0) return this.fxView <= NUM_BUSES && !this.func ? App.BUS_UNITS : [];
+    const kind = this.channel.instrument;
+    if (kind === 'none') return [];
+    if (this.stepEdit && this.mode !== 'design') return this.func ? soundGroups(kind, false) : [];
+    if (this.mode === 'design' || this.songRecord) {
+      const pages = this.designPages();
+      return pages[Math.min(this.designPage, pages.length - 1)].name === 'SOUND' ? soundGroups(kind, this.func) : [];
+    }
+    return [];
   }
 
   // ---------------------------------------------------------------- controls
@@ -4935,8 +4957,8 @@ export class App {
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
       this.panel.setButtonLit(`fx${n}`, n === 3 ? this.arpOpen : this.fxView === n);
     }
-    // An FX view's units are two knob modules each: the grooves between them lit.
-    this.panel.setLitGrooves(this.sendOpen && this.fxView <= NUM_BUSES ? [2, 4, 6] : []);
+    // The knob groups showing (an FX view's units, a SOUND page's sections): the grooves between them lit.
+    this.panel.setLitGrooves(this.knobGroups().filter((g) => g.from > 1).map((g) => g.from - 1));
     // DESIGN: SOUND / MIX / PROJECT. RECORD / PLAY: SOUND (the live knobs) / MIX / PROJECT.
     const names = this.pageNames();
     const current = this.usesPlayPage ? this.playPage : this.designPage;
@@ -5486,6 +5508,7 @@ export class App {
       pages: ['FX 1', 'FX 2', 'ARP', 'LFO'],
       page: n - 1,
       slots: this.slots(),
+      groups: this.knobGroups(),
       touchedSlot: this.touchedKnob,
       liveLabel: members.length ? `TRACKS ${members.join(' ')}` : 'NO TRACKS',
       chordLabel: this.fxView === 4 ? 'ALT+TRACK = ON/OFF' : 'ALT+TRACK = MOVE HERE',
@@ -5531,6 +5554,7 @@ export class App {
       pages: pages.map((p, i) => (this.func && i === current ? `${p.name} ALT` : p.name)),
       page: current,
       slots: this.slots(),
+      groups: this.knobGroups(),
       touchedSlot: this.touchedKnob,
       liveLabel: this.func
         ? `ALT LIVE ${liveName(c.liveFunc[0])} + ${liveName(c.liveFunc[1])}`
