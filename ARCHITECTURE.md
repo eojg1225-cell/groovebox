@@ -25,7 +25,7 @@ src/storage      projects.ts (64 slots, ProjectStore), kv.ts (where they are kep
                  cloud.ts (working project mirror), saved.ts (reads old USER patches)
 native           Rust (groovebox-native): the engine (engine/: sequencer, sound, mixer, master; instruments/:
                  drum.rs, synth.rs, air_room.rs, click.rs; fx/: bus.rs, units.rs, compressor.rs, delay.rs,
-                 reverb.rs, limiter.rs, track_cut.rs), its host (host.rs), both builds: the Android app on
+                 limiter.rs, track_cut.rs), its host (host.rs), both builds: the Android app on
                  AAudio + JNI (audio.rs, jni.rs), the web build as WebAssembly (wasm.rs; parts.rs for the tests)
 tests            Vitest: the engine offline in Node (rustEngine.ts / rustParts.ts: the WebAssembly engine and its
                  parts), project storage / sync, the App via button events
@@ -236,7 +236,7 @@ switch (never glide, never on a relative live knob).
   it, FM COMP its level). `algo` 1 (no type now): a sine modulator with DX7-style feedback
   phase-modulating three carriers (1 / RATIO 2 / RATIO 3; `dx7Index` level curve). `algo` 2 (PAD): two
   stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3, mixed in by CARRIERS; INTENSITY sets CARRIERS and FM LVL; no CRUSH), DC blocker at 8 Hz.
-  PLUCK runs an onboard delay + room (`Instrument.post`); BASS ducks from KICK hits
+  PLUCK runs an onboard delay, the PAD LOW CUT / MOD (`Instrument.post`); BASS ducks from KICK hits
   (`Instrument.duck`). The engine's ARP (`arp` / `arprate` / `arpoct`) is still there, but no type
   lists those params now.
 

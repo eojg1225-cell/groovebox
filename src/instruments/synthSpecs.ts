@@ -98,14 +98,13 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   // SIDECHAIN (BASS): each KICK hit ducks the sound by DUCK, recovering over DUCK REL.
   { id: 'duck', name: 'DUCK', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'duckrel', name: 'DUCK REL', min: 0.02, max: 1, defaultValue: 0.2, unit: 'S', curve: 'exp', decimals: 3 },
-  // Onboard FX (PLUCK): a tempo-synced delay, then a short room (both dry until turned up).
+  // Onboard FX (PLUCK): a tempo-synced delay (dry until turned up; its room went in v91).
   midFreq(1000),
   choice('dtime', 'DLY TIME', DELAY_DIVISIONS, 2),
   { id: 'dfdbk', name: 'DLY FDBK', min: 0, max: 0.95, defaultValue: 0.35, unit: '', curve: 'linear' },
   { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  { id: 'verb', name: 'VERB', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // PAD's own effects (v81, ALT; all off by default): LOW CUT (a high-pass, off at 20 Hz), then
-  // MOD (CHORUS / FLANGER / PHASER, FX 2's old units, at its old RATE / DEPTH), then VERB (a hall).
+  // MOD (CHORUS / FLANGER / PHASER, FX 2's old units, at its old RATE / DEPTH). Its VERB went in v91.
   { id: 'lowcut', name: 'LOW CUT', min: 20, max: 1000, defaultValue: 20, unit: 'HZ', curve: 'exp', decimals: 0 },
   { id: 'modmix', name: 'MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   choice('modtype', 'MOD TYPE', PAD_MOD_TYPES),
@@ -135,14 +134,14 @@ export const BASS_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmrati
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 // PAD DETUNE: half the other synths' range (any more is unusable on chords).
-export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq', 'lowcut', 'verb', 'modmix', 'modtype'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq', 'lowcut', 'modmix', 'modtype'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
 /**
  * LEAD: the BASS / PLUCK engine (SHAPE's waves into an FM pair, OSC 2 detuned, one envelope),
  * mono with slides, plus what makes a lead: delayed VIBRATO and a pitch envelope (BEND).
  */
 export const LEAD_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmratio'), 'fmpair', 'ogain', 'fmcomp', 'octave', 'glide', ...SHARED_ENVELOPE, 'vibrato', 'vibrate', 'vibdelay', 'bend', 'bendtime', 'midfreq'], { midfreq: 1000, octave: OCTAVE_ZERO + 1, attack: 0.004, decay: 0.6, sustain: 0.75, release: 0.2, level: 0.55, detune: 0.08 }, SHARED_NAMES, { shape: 4 });
 /** PLUCK: a polyphonic pluck (the ARP is a track setting now: engine/arp.ts). */
-export const PLUCK_PARAMS = synthParams([...MORPHED, 'cfeedback', 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'verb', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
+export const PLUCK_PARAMS = synthParams([...MORPHED, 'cfeedback', 'ogain', 'octave', 'glide', ...SHARED_ENVELOPE, 'dtime', 'dfdbk', 'dmix', 'midfreq'], { midfreq: 800, attack: 0.001, decay: 0.35, sustain: 0, release: 0.08, level: 0.55, detune: 0.15 }, SHARED_NAMES);
 
 /** Presets = the named TIMBRE points (intensity in the middle). */
 function anchorPresets(kind: 'bass' | 'pad' | 'lead' | 'pluck'): Preset[] {

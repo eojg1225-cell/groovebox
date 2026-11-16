@@ -30,7 +30,7 @@ const TRACKS: Record<SoundKind, TrackSetup> = {
   bass: { anchor: 'FM 2:3', intensity: 0.9, extra: { drive: 3 }, hits: [[0, 0, 2], [2, 0], [3, 12, 1, false, true], [4, 0], [7, 3], [10, 0, 2], [14, 7]] },
   pad: { anchor: 'ETHEREAL', intensity: 0.7, extra: { feedback: 0.9, unison: 1, shape: 0 }, hits: [[0, 0, 16]] },
   lead: { anchor: 'ODD 2:3', intensity: 0.8, extra: { feedback: 0.8, cfeedback: 0.6, drive: 3 }, hits: [[0, 12, 2], [3, 15, 1], [6, 19, 2], [10, 17, 1], [12, 15, 4]] },
-  pluck: { anchor: 'RAGE DONK', intensity: 0.7, extra: { dmix: 0.5, verb: 0.5, dfdbk: 0.7 }, hits: [[2, 0], [6, 3], [10, 0, 1, true], [13, 7]] },
+  pluck: { anchor: 'RAGE DONK', intensity: 0.7, extra: { dmix: 0.5, dfdbk: 0.7 }, hits: [[2, 0], [6, 3], [10, 0, 1, true], [13, 7]] },
 };
 
 /** The stress project, and the per-track settings that stay on top of TIMBRE / INT. */

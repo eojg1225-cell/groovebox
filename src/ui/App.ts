@@ -3777,7 +3777,7 @@ export class App {
     }
     if (page === 'audioTest') return this.audioTest.lines().map((label) => ({ label }));
     if (page === 'globalRouting') {
-      // What DEFAULT means for each type: FX = DRIVE / CRUSH, FLT = the filter, SPACE = the onboard room / delay (drums: AIR).
+      // What DEFAULT means for each type: FX = DRIVE / CRUSH, FLT = the filter, SPACE = the onboard effects (PAD LOW CUT / MOD, PLUCK delay; drums: AIR).
       return CHAIN_KINDS.map((k) => device(INSTRUMENTS[k].name, CHAIN_SETTING[k], chainOrders(k)));
     }
     if (page === 'touch') {

@@ -220,16 +220,16 @@ describe('instruments', () => {
       expect([l[2], l[10], l[3], l[11], l[4], l[12], l[5], l[13]], k).toEqual(['fmattack', 'fmdecay', 'fm', 'reso', 'fattack', 'fdecay', 'fenv', 'cutoff']);
     }
     // v78: PAD and PLUCK share the design page (DETUNE / UNISON 7, CHORD / SLIDE 8); their effects
-    // are on FUNC (ALT; v81): DRIVE / CRUSH on 4 on both; PAD LOW CUT / VERB (7), MOD / MOD TYPE (8);
-    // PLUCK DLY MIX / VERB (7), DLY TIME / DLY FDBK (8). The PAD's FM LVL has the full range again.
+    // are on FUNC (ALT; v81): DRIVE / CRUSH on 4 on both; PAD LOW CUT (7), MOD / MOD TYPE (8);
+    // PLUCK DLY MIX (7), DLY TIME / DLY FDBK (8); v91: no VERB on either (7 bottom free). The PAD's FM LVL has the full range again.
     // PLUCK: the same page, but its amp envelope ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
     expect(INSTRUMENTS.pluck.layout.map((id, i) => (i === 9 ? 'release' : id))).toEqual(INSTRUMENTS.pad.layout);
     expect([INSTRUMENTS.pad.layout[6], INSTRUMENTS.pad.layout[14], INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['detune', 'unison', 'track:chord', 'glide']);
     const af = INSTRUMENTS.pad.funcLayout;
-    expect([af[3], af[11], af[6], af[14], af[7], af[15]]).toEqual(['drive', 'crush', 'lowcut', 'verb', 'modmix', 'modtype']);
+    expect([af[3], af[11], af[6], af[14], af[7], af[15]]).toEqual(['drive', 'crush', 'lowcut', null, 'modmix', 'modtype']);
     const pf = INSTRUMENTS.pluck.funcLayout;
-    expect([pf[3], pf[11], pf[6], pf[14], pf[7], pf[15]]).toEqual(['drive', 'crush', 'dmix', 'verb', 'dtime', 'dfdbk']);
-    for (const k of ['pad', 'pluck'] as const) for (const id of ['drive', 'crush', 'dtime', 'dfdbk', 'dmix', 'verb']) expect(INSTRUMENTS[k].layout, `${k} ${id}`).not.toContain(id);
+    expect([pf[3], pf[11], pf[6], pf[14], pf[7], pf[15]]).toEqual(['drive', 'crush', 'dmix', null, 'dtime', 'dfdbk']);
+    for (const k of ['pad', 'pluck'] as const) for (const id of ['drive', 'crush', 'dtime', 'dfdbk', 'dmix']) expect(INSTRUMENTS[k].layout, `${k} ${id}`).not.toContain(id);
     expect(paramSpec('pad', 'fm')!.max).toBe(1);
     for (const id of ['fm2', 'feedback']) expect([...INSTRUMENTS.pad.layout, ...INSTRUMENTS.pad.funcLayout], id).not.toContain(id);
     expect(paramSpec('pad', 'detune')!.max).toBe(2); // half the others' range (chords)
@@ -259,7 +259,7 @@ describe('instruments', () => {
     expect(linkedParams('bass', 'attack')).toEqual([]);
     expect([INSTRUMENTS.pad.layout[7], INSTRUMENTS.pad.layout[15]]).toEqual(['track:chord', 'glide']);
     expect([INSTRUMENTS.pad.layout[3], INSTRUMENTS.pad.layout[11]]).toEqual(['fm', 'reso']); // v78: FM LVL back (DRIVE on FUNC)
-    expect(INSTRUMENTS.pad.funcLayout.filter((id) => id !== null).length).toBe(16); // PRESET / MID FREQ, DECAY / SUSTAIN, OSC 2 ATTACK / RELEASE, DRIVE / CRUSH, LIVE 1-4, LOW CUT / VERB, MOD / MOD TYPE
+    expect(INSTRUMENTS.pad.funcLayout.filter((id) => id !== null).length).toBe(15); // PRESET / MID FREQ, DECAY / SUSTAIN, OSC 2 ATTACK / RELEASE, DRIVE / CRUSH, LIVE 1-4, LOW CUT, MOD / MOD TYPE (v91: no VERB)
     // Drums: only the track setup (PRESET, LIVE, MID FREQ) on FUNC, plus KICK / SNARE SWEEP / SWP TIME, HAT FOCUS.
     for (const k of ['kick', 'snare', 'hat', 'perc'] as const) {
       expect(INSTRUMENTS[k].funcLayout.every((id) => id === null || id === 'midfreq' || id.startsWith('track:') || ((k === 'kick' || k === 'snare') && id.startsWith('t_s')) || (k === 'snare' && (id === 'c_level' || id === 'c_tone')) || (k === 'hat' && (id === 'h_focus' || id === 'c_reso' || id === 'c_noise'))), k).toBe(true);
@@ -1864,11 +1864,11 @@ describe('PERC track', () => {
   it('a new project has 8 tracks: track 4 PERC, track 8 PLUCK', () => {
     const p = createDefaultProject();
     expect(p.channels.map((c) => c.instrument)).toEqual(['kick', 'snare', 'hat', 'perc', 'bass', 'pad', 'lead', 'pluck']);
-    // Drums on FX 1, LEAD on FX 2; no LFO; PLUCK's delay / room dry.
+    // Drums on FX 1, LEAD on FX 2; no LFO; PLUCK's delay dry (v91: no room).
     expect(p.channels.map((c) => c.bus)).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
     expect(p.channels.every((c) => !c.lfoOn)).toBe(true);
     expect(p.channels[7].sounds.pluck!.dmix).toBe(0);
-    expect(p.channels[7].sounds.pluck!.verb).toBe(0);
+    expect(p.channels[7].sounds.pluck!.verb).toBeUndefined();
   });
 });
 
@@ -2233,7 +2233,7 @@ describe('layers: TIMBRE > INTENSITY (hidden) < SOUND page trims < live', () => 
   it('PLUCK INT (v78): CZ rounds the wave below the middle, the plain wave from INT 50; CAR FB above', () => {
     const play = (x: number, cz = true, fm?: number) => {
       const s = new Synth(SR, INSTRUMENTS.pluck.params, { ...PLUCK_FIXED, cz: cz ? 2 : 0 });
-      const sound: Record<string, number> = { ...presetSound('pluck', 2), ...macroSound('pluck', 0.5, x, INSTRUMENTS.pluck.params), intensity: x, dmix: 0, verb: 0, ...(fm === undefined ? {} : { fm }) };
+      const sound: Record<string, number> = { ...presetSound('pluck', 2), ...macroSound('pluck', 0.5, x, INSTRUMENTS.pluck.params), intensity: x, dmix: 0, ...(fm === undefined ? {} : { fm }) };
       for (const id in sound) s.setParam(id, sound[id]);
       s.noteOn(45, 0.8, 45, false);
       const l = new Float32Array(SR / 4);
@@ -2492,11 +2492,11 @@ describe('FX ROUTING and the CRUSH taper (v85)', () => {
     expect(play(4, 'bass', set, 2)).toEqual(after); // clamped to FX > FLT
   });
 
-  it('PAD / PLUCK: FX > SPACE > FLT filters the room / delay too', () => {
-    const set = { cutoff: 400, reso: 0, fenv: 0, dmix: 0.8, dfdbk: 0.6, verb: 0.6 };
+  it('PAD / PLUCK: FX > SPACE > FLT filters the delay too', () => {
+    const set = { cutoff: 400, reso: 0, fenv: 0, dmix: 0.8, dfdbk: 0.6 };
     const mid = play(7, 'pluck', set, 1, 1.5), last = play(7, 'pluck', set, 2, 1.5);
     expect(stats(last).nan).toBe(false);
-    // The tail (after the note): the echoes of an unfiltered room vs. through the filter.
+    // The tail (after the note): unfiltered echoes vs. through the filter.
     expect(highs(last.subarray(48000))).toBeLessThan(highs(mid.subarray(48000)));
   });
 
@@ -3119,14 +3119,14 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     }
   }, 60_000);
 
-  it('PLUCK echoes through its onboard delay; SPACE fully left dries it up', () => {
+  it('PLUCK echoes through its onboard delay; DLY MIX fully left dries it up', () => {
     const tail = (values: Record<string, number>) => {
       const l = play(synth('pluck', { decay: 0.05, release: 0.02, dtime: 2, dfdbk: 0.3, ...values }), 0.6, 0.02);
       return rms(l, Math.floor(0.375 * SR), Math.floor(0.42 * SR)); // 3/16 at 120 BPM
     };
-    expect(tail({ dmix: 0.5, verb: 0 })).toBeGreaterThan(0.002);
-    expect(tail({ dmix: 0, verb: 0 })).toBeLessThan(1e-4);
-    expect(LIVE_MACROS.pluck.find((m) => m.id === 'macro:space')!.targets.map((t) => t.id)).toEqual(['dmix', 'verb']);
+    expect(tail({ dmix: 0.5 })).toBeGreaterThan(0.002);
+    expect(tail({ dmix: 0 })).toBeLessThan(1e-4);
+    expect(LIVE_MACROS.pluck.find((m) => m.id === 'macro:space')).toBeUndefined(); // v91: the room went with VERB
     expect(INSTRUMENTS.pluck.live).toEqual(['fx2:s4_vol', 'cutoff']); // LIVE 2
   });
 
@@ -3136,8 +3136,8 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(INSTRUMENTS.pluck.liveFunc).toEqual(['mix:volume', 'macro:sustain']);
     expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
     expect([INSTRUMENTS.pluck.funcLayout[1], INSTRUMENTS.pluck.funcLayout[9]]).toEqual(['decay', 'release']);
-    const held = play(synth('pluck', { sustain: 0.6, dmix: 0, verb: 0 }), 0.8, 0.8);
-    const plucked = play(synth('pluck', { sustain: 0, dmix: 0, verb: 0 }), 0.8, 0.8);
+    const held = play(synth('pluck', { sustain: 0.6, dmix: 0 }), 0.8, 0.8);
+    const plucked = play(synth('pluck', { sustain: 0, dmix: 0 }), 0.8, 0.8);
     expect(rms(held, SR * 0.6, SR * 0.7)).toBeGreaterThan(rms(plucked, SR * 0.6, SR * 0.7) * 10 + 1e-3);
   });
 
@@ -3985,7 +3985,7 @@ describe('FX buses (v41)', () => {
     for (const k of ['kick', 'snare', 'hat', 'perc']) expect(levels(k), k).toEqual([0, 1, 1, 1, 1]);
     expect(levels('lead')).toEqual([1, 0.5, 0.5, 0.5, 0]);
     for (const k of ['bass', 'pad', 'pluck']) expect(levels(k), k).toEqual([1, 0, 0, 0, 0]);
-    expect([by('pad').sounds.pad!.verb, by('pad').sounds.pad!.modmix, by('pad').sounds.pad!.lowcut]).toEqual([0, 0, 20]);
+    expect([by('pad').sounds.pad!.modmix, by('pad').sounds.pad!.lowcut]).toEqual([0, 20]);
   });
 
   it('bus settings are saved', () => {
@@ -4242,9 +4242,9 @@ describe('v41: the FM envelope', () => {
     expect(applyTrim(spec, hiddenSound('pluck', b.sounds.pluck!, specs).fmdecay, b.trims.pluck!.fmdecay)).toBeCloseTo(0.7, 6);
     expect(b.patterns[0].steps[0].locks).toEqual({ fdecay: 0.4, fmdecay: 0.4 });
     // v41 swapped them (PAD on the pad bus, LEAD on its own); v81: the PAD's bus went (its own
-    // VERB / MOD stand in), the LEAD's is FX 2.
+    // MOD stands in; its VERB went in v91), the LEAD's is FX 2.
     expect([back.channels[5].lvl2, back.channels[6].bus, back.channels[6].lvl2]).toEqual([0, 1, 0.5]);
-    expect(back.channels[5].sounds.pad!.verb).toBeCloseTo(0.45 * 0.5, 9);
+    expect(back.channels[5].sounds.pad!.verb).toBeUndefined();
     expect(back.buses).toEqual(createDefaultProject().buses);
   });
 });
@@ -4732,6 +4732,29 @@ describe('v47: KICK VINTAGE, TECHNO, PSY DOOF redone', () => {
   });
 });
 
+describe('v91: the PAD / PLUCK onboard VERB went', () => {
+  it('drops VERB values, trims, step locks and SONG lanes; a PLUCK live knob on SPACE becomes DLY MIX', () => {
+    const p = createDefaultProject();
+    const stored = JSON.parse(JSON.stringify(toStored(p)));
+    stored.version = 90;
+    const pad = stored.channels[5];
+    const pluck = stored.channels[7];
+    pad.sounds.pad.verb = 0.6;
+    pluck.sounds.pluck.verb = 0.4;
+    pluck.liveFunc = ['mix:volume', 'macro:space'];
+    pluck.liveOffset = { 'macro:space': 0.3 };
+    pluck.patterns[0].steps = [{ i: 0, n: 60, l: { verb: 0.5, 'o:macro:space': 0.2, cutoff: 900 } }];
+    stored.song = { ...(stored.song ?? {}), a: { 's:5:verb': [[0, 0.5]], 'o:7:macro:space': [[0, 0.1]], 's:7:cutoff': [[0, 800]] } };
+    const back = fromStored(stored)!;
+    expect(back.channels[5].sounds.pad!.verb).toBeUndefined();
+    expect(back.channels[7].sounds.pluck!.verb).toBeUndefined();
+    expect(back.channels[7].liveFunc).toEqual(['mix:volume', 'dmix']);
+    expect(back.channels[7].liveOffset['macro:space']).toBeUndefined();
+    expect(back.channels[7].patterns[0].steps[0].locks).toEqual({ cutoff: 900 });
+    expect(Object.keys(back.song.auto ?? {})).toEqual(['s:7:cutoff']);
+  });
+});
+
 describe('v51: live knobs back to the type defaults', () => {
   it('a save before v51 loads every track with its type\'s live knobs as they are now; a v51 save keeps its own', () => {
     const p = createDefaultProject();
@@ -4950,7 +4973,7 @@ describe('RING on synths', () => {
   it('a RING note\'s amp, FM and filter decays run twice as long (a pluck rings on)', () => {
     const play = (ring: boolean) => {
       const s = new Synth(SR, INSTRUMENTS.pluck.params, PLUCK_FIXED);
-      const sound: Record<string, number> = { ...presetSound('pluck', 2), dmix: 0, verb: 0, sustain: 0 };
+      const sound: Record<string, number> = { ...presetSound('pluck', 2), dmix: 0, sustain: 0 };
       for (const id in sound) s.setParam(id, sound[id]);
       s.noteOn(57, 0.8, 57, ring);
       const l = new Float32Array(SR);
@@ -4969,7 +4992,7 @@ describe('FM pair phase on a sine', () => {
   it('a sine needs no shift: aligning the pair changes nothing, even on a fractional FM ratio', () => {
     const play = (align: number) => {
       const s = new Synth(SR, INSTRUMENTS.pluck.params, { ...PLUCK_FIXED, align });
-      const sound: Record<string, number> = { ...presetSound('pluck', 0), dmix: 0, verb: 0, fmratio: 2.5, fm: 0.7 };
+      const sound: Record<string, number> = { ...presetSound('pluck', 0), dmix: 0, fmratio: 2.5, fm: 0.7 };
       for (const id in sound) s.setParam(id, sound[id]);
       s.noteOn(57, 0.8, 57, false);
       const l = new Float32Array(SR / 4);
@@ -5000,10 +5023,10 @@ describe('v81: PAD effects, HAT AIR, one send', () => {
   };
   const energy = (l: Float32Array, a: number, b: number) => l.subarray(a, b).reduce((e, v) => e + v * v, 0);
 
-  it('the PAD\'s LOW CUT / MOD / VERB start off: its sound is untouched', () => {
+  it('the PAD\'s LOW CUT / MOD start off: its sound is untouched', () => {
     const off = padOut({});
     const sound = presetSound('pad', 0);
-    expect([sound.lowcut, sound.modmix, sound.verb]).toEqual([20, 0, 0]);
+    expect([sound.lowcut, sound.modmix, sound.verb]).toEqual([20, 0, undefined]);
     const plain = (() => {
       const s = new Synth(SR, PAD_PARAMS, PAD_FIXED);
       for (const id in sound) s.setParam(id, sound[id]);
@@ -5018,11 +5041,9 @@ describe('v81: PAD effects, HAT AIR, one send', () => {
     expect(off).toEqual(plain);
   });
 
-  it('VERB rings on after the note, LOW CUT takes the lows, MOD changes the sound', () => {
+  it('LOW CUT takes the lows, MOD changes the sound; VERB (gone in v91) does nothing', () => {
     const dry = padOut({});
-    const wet = padOut({ verb: 0.8 });
-    const tail = (l: Float32Array) => energy(l, Math.round(SR * 1.1), Math.round(SR * 1.4));
-    expect(tail(wet)).toBeGreaterThan(tail(dry) * 50 + 1e-6);
+    expect(padOut({ verb: 0.8 })).toEqual(dry);
     const lows = (l: Float32Array) => { let y = 0, e = 0; for (let i = 0; i < SR / 2; i++) { y += (l[i] - y) * 0.01; e += y * y; } return e; };
     expect(lows(padOut({ lowcut: 800 }))).toBeLessThan(lows(dry) * 0.3);
     for (const t of [0, 1, 2]) {
@@ -5052,7 +5073,7 @@ describe('v81: PAD effects, HAT AIR, one send', () => {
     expect(late(hit({ air: 1, hairsize: 1 }), 0.3)).toBeGreaterThan(late(hit({ air: 1 }), 0.3) * 10 + 1e-12);
   });
 
-  it('a v80 save: FX 3 is FX 2 (routing, settings, locks, SONG lanes, live knobs); a PAD on the old FX 2 keeps its MOD / VERB', () => {
+  it('a v80 save: FX 3 is FX 2 (routing, settings, locks, SONG lanes, live knobs); a PAD on the old FX 2 keeps its MOD (its VERB went in v91)', () => {
     const p = createDefaultProject();
     const stored = JSON.parse(JSON.stringify(toStored(p)));
     stored.version = 80;
@@ -5068,8 +5089,8 @@ describe('v81: PAD effects, HAT AIR, one send', () => {
     expect(back.buses.length).toBe(2);
     expect(back.buses[1].s2_vol).toBe(0.77);
     const pad = back.channels[5].sounds.pad!;
-    expect([pad.verb, pad.modmix, pad.modtype]).toEqual([0.3, 0.2, 2]);
-    expect(back.channels[5].patterns.every((pat) => !pat.patch || pat.patch.sound.verb === 0.3)).toBe(true);
+    expect([pad.verb, pad.modmix, pad.modtype]).toEqual([undefined, 0.2, 2]);
+    expect(back.channels[5].patterns.every((pat) => !pat.patch || pat.patch.sound.modmix === 0.2)).toBe(true);
     expect(back.channels[6].liveFunc).toEqual(INSTRUMENTS.lead.liveFunc); // an old FX 2 knob: the defaults
     expect(back.channels[6].patterns[0].steps[0].locks).toEqual({ 'b:1:s2_vol': 0.3 });
     expect(back.song.auto).toEqual({ 'b:1:s3_a': [[0, 0.2]] });

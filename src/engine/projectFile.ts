@@ -777,6 +777,7 @@ export function padFmV79(kind: SoundKind, sound: Record<string, number>): void {
 
 /** v70 / v71 / v75 / v76 / v78 / v81 step locks: FX 3's become FX 2's (busKeysV81); a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
+  if (version < 91 && VERB_KINDS_V91.includes(kind)) for (const id of VERB_GONE_V91) delete locks[id];
   if (version < 81) busKeysV81(locks);
   if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
   if (version < 82 && kind === 'pad' && locks.modtype !== undefined) locks.modtype = modTypeV82(locks.modtype);
@@ -967,13 +968,13 @@ function fxV87(p: Project): void {
 }
 
 /** The old FX 2's settings a PAD's own effects stand in for (its defaults, for saves without them). */
-const FX2_V81 = { mod_vol: 0.3, mod_type: 1, vrb_vol: 0.45 };
+const FX2_V81 = { mod_vol: 0.3, mod_type: 1 };
 
 /**
  * v81: the old FX 2 (the PAD's send) went, FX 3 is FX 2: send 3 -> 2, send 2 -> none. A PAD
- * that was on FX 2 gets its own MOD / VERB at what it sent there (send level x the return's
- * VOLUME, MOD TYPE as FX 2's), so it keeps its chorus and hall (FX 2's DELAY and TONE are
- * gone). In place.
+ * that was on FX 2 gets its own MOD at what it sent there (send level x the return's VOLUME,
+ * MOD TYPE as FX 2's), so it keeps its chorus (its hall, its own VERB until v91, FX 2's DELAY
+ * and TONE are gone). In place.
  */
 function sendsV81(p: Project, oldFx2: unknown): void {
   const fx = { ...FX2_V81, ...(isObj(oldFx2) ? numbers(oldFx2) : {}) };
@@ -982,12 +983,28 @@ function sendsV81(p: Project, oldFx2: unknown): void {
     const old = OLD_ROUTING.get(c);
     if (!old) continue;
     if (old.fxSend === 2 && c.instrument === 'pad') {
-      const own = { verb: clamp(fx.vrb_vol * old.sendLevel), modmix: clamp(fx.mod_vol * old.sendLevel), modtype: modTypeV82(Math.max(0, Math.min(2, Math.round(fx.mod_type)))) };
+      const own = { modmix: clamp(fx.mod_vol * old.sendLevel), modtype: modTypeV82(Math.max(0, Math.min(2, Math.round(fx.mod_type)))) };
       const sounds = [c.sounds.pad, ...c.patterns.flatMap((pat) => [pat.patch?.sound, pat.savedPatch?.sound])];
       for (const sound of sounds) if (sound) Object.assign(sound, own);
     }
     old.fxSend = old.fxSend === 3 ? 2 : 0;
   }
+}
+
+/**
+ * v91: the PAD's and PLUCK's onboard VERB went (FX 2 is the shared space; too many reverbs
+ * muddied the mix), and with it PLUCK's SPACE macro (DLY MIX + VERB): its values and trims
+ * drop out with the parameter, its step locks and SONG lanes go here, a live knob on SPACE
+ * becomes DLY MIX (verbLiveV91); one on VERB sends the track back to its type's live knobs.
+ */
+const VERB_KINDS_V91: readonly InstrumentKind[] = ['pad', 'pluck'];
+const VERB_GONE_V91: readonly string[] = ['verb', 'o:macro:space'];
+function verbLiveV91(ch: ChannelState): void {
+  if (ch.instrument !== 'pluck') return;
+  const id = (x: string) => (x === 'macro:space' ? 'dmix' : x);
+  ch.live = [id(ch.live[0]), id(ch.live[1])];
+  ch.liveFunc = [id(ch.liveFunc[0]), id(ch.liveFunc[1])];
+  delete ch.liveOffset['macro:space'];
 }
 
 /** v57: ROLL RATE became a note value (1/4 ... 1/64); every older save's drums roll at 1/16. */
@@ -1062,6 +1079,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     const offsets = numbers(src.liveOffset);
     for (const id in offsets) if (offsets[id] !== 0) ch.liveOffset[id] = Math.max(-1, Math.min(1, version < 66 ? macroOffsetV66(offsets[id]) : offsets[id]));
   }
+  if (version < 91) verbLiveV91(ch);
   // Live knobs on parameters the type does not have: back to the type's defaults.
   if (![...ch.live, ...ch.liveFunc].every((id) => liveIdValid(ch.instrument, version < 87 ? liveIdV87(id) : id))) liveDefaults(ch);
   if (version < 51) liveV51(ch);
@@ -1310,6 +1328,14 @@ export function fromStored(data: unknown): Project | null {
       const t = parseAutoKey(key);
       if (t?.kind === 's' && t.id === 'crush') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, crushV85(v)]);
     }
+  }
+  if (version < 91 && p.song.auto) {
+    for (const key in p.song.auto) {
+      const t = parseAutoKey(key);
+      const kind = t ? p.channels[t.index]?.instrument : undefined;
+      if (t && kind !== undefined && VERB_KINDS_V91.includes(kind) && ((t.kind === 's' && t.id === 'verb') || (t.kind === 'o' && t.id === 'macro:space'))) delete p.song.auto[key];
+    }
+    if (Object.keys(p.song.auto).length === 0) delete p.song.auto;
   }
   if (version < 81) sendsV81(p, version >= 41 && Array.isArray(data.buses) ? data.buses[1] : undefined);
   if (version < 49) typeGainV49(p);

@@ -80,14 +80,15 @@ const BASS_FUNC = funcPage([_, 'sustain', _, 'fmpair', _, _, 'duck', 'unison'], 
 const LEAD_FUNC = funcPage([_, 'sustain', 'vibrato', 'fmpair', _, _, 'bend', 'vibdelay'], [_, 'release', 'vibrate', _, _, _, 'bendtime', 'unison']);
 /**
  * PLUCK FUNC (ALT; v81): DECAY / RELEASE under ATTACK / SUSTAIN (a pluck's own envelope), DRIVE /
- * CRUSH (4, as the PAD's), its SPACE effects on 7 / 8: DLY MIX / VERB, DLY TIME / DLY FDBK.
+ * CRUSH (4, as the PAD's), its SPACE (the onboard delay) on 7 / 8: DLY MIX, DLY TIME / DLY FDBK
+ * (v91: its room went; FX 2 is the shared space).
  */
-const PLUCK_FUNC = funcPage([_, 'decay', _, 'drive', _, _, 'dmix', 'dtime'], [_, 'release', _, 'crush', _, _, 'verb', 'dfdbk']);
+const PLUCK_FUNC = funcPage([_, 'decay', _, 'drive', _, _, 'dmix', 'dtime'], [_, 'release', _, 'crush', _, _, _, 'dfdbk']);
 /**
  * PAD and PLUCK share one design page (v78): 1 TIMBRE / INT, 2 ATTACK / RELEASE (PLUCK: ATTACK /
  * SUSTAIN), 3 FM ATK / FM DEC,
  * 4 FM LVL / RESO, 5 FLT ATK / FLT DEC, 6 FLT ENV / CUTOFF, 7 DETUNE / UNISON, 8 CHORD / SLIDE;
- * the effects (DRIVE, CRUSH, PLUCK's delay and room) on the FUNC (ALT) layer.
+ * the effects (DRIVE, CRUSH, PLUCK's delay, PAD's LOW CUT / MOD) on the FUNC (ALT) layer.
  */
 const CHORD_PAGE = synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'drive' ? 'detune' : id === 'crush' ? 'unison' : id));
 
@@ -102,10 +103,10 @@ function heldFunc(top: readonly (string | null)[], bottom: readonly (string | nu
   );
 }
 /**
- * PAD FUNC (v81): DRIVE / CRUSH (4), its own effects (all off by default): LOW CUT / VERB (7),
- * MOD / MOD TYPE (8: CHORUS, ENSEMBLE, PHASER, as FX 2's were).
+ * PAD FUNC (v81): DRIVE / CRUSH (4), its own effects (all off by default): LOW CUT (7), MOD /
+ * MOD TYPE (8: CHORUS, FLANGER, PHASER). Its VERB went in v91 (FX 2 is the shared space).
  */
-const PAD_FUNC = heldFunc([_, 'drive', 'lowcut', 'modmix'], [_, 'crush', 'verb', 'modtype']);
+const PAD_FUNC = heldFunc([_, 'drive', 'lowcut', 'modmix'], [_, 'crush', _, 'modtype']);
 
 /**
  * PAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;
@@ -219,8 +220,6 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
   pluck: [
     macro('LENGTH', [['decay', 1], ['release', 1], ['fdecay', 1]]),
     macro('BITE', [['fenv', 1], ['drive', 1], ['fm', 1]]),
-    // The onboard delay + room: left dries it up, right drowns it.
-    macro('SPACE', [['dmix', 1], ['verb', 1]]),
     // Right: each note fades in, rings on and holds (up to a pad; the filter stays open with
     // it); left: tighter. RELEASE stays as set, so notes never smear into each other.
     macro('SUSTAIN', [['attack', 1], ['decay', 1], ['sustain', 1], ['fdecay', 1]]),

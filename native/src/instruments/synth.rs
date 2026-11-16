@@ -1,7 +1,7 @@
 //! The synth voice engine: BASS, PAD, LEAD, PLUCK. Six voices; per voice OSC 1 / OSC 2 (SHAPE's
 //! waves, CZ, the FM pair or the PAD's two stacks), UNISON, envelopes, the filter (FX ROUTING:
 //! before or after DRIVE / CRUSH, or after SPACE), then DC block, CRUSH, OUT GAIN x FM COMP,
-//! DUCK; post: PLUCK's delay + room or the PAD's LOW CUT / MOD / VERB. (Ported line for line
+//! DUCK; post: PLUCK's delay or the PAD's LOW CUT / MOD. (Ported line for line
 //! from the TypeScript engine, retired in November 2026; its knob tables stay in
 //! src/instruments/synthSpecs.ts.)
 //!
@@ -15,8 +15,7 @@
 use crate::drive_comp::{drive_comp_gain, drive_rise};
 use crate::dsp::{crush_levels, crush_step, decay_mul, dynamic_of, midi_to_hz, poly_blep, IdleGate, Svf};
 use crate::fx::delay::Delay;
-use crate::fx::reverb::Reverb;
-use crate::fx::units::{ModFx, VerbFx, FX_BLOCK};
+use crate::fx::units::{ModFx, FX_BLOCK};
 use crate::js;
 use crate::kind::SoundKind;
 use crate::math::{cos_turn, exp2, sin_rad, sin_turn, tanh};
@@ -54,12 +53,11 @@ const LOW_CUT_OFF: f64 = 20.5;
 const LOW_CUT_RESO: f64 = 0.3;
 const DUCK_ATTACK: f64 = 0.003;
 const ONBOARD_DELAY_SECONDS: f64 = 2.5;
-const ONBOARD_VERB_GAIN: f64 = 0.7;
 const ONBOARD_DLY_TONE: f64 = 3500.0;
 const LEGACY_WAVE_TO_SHAPE: [f64; 4] = [2.0, 3.0, 1.0, 0.0];
 
 /// Every synth parameter with its default, in synthSpecs.ts SYNTH_PARAMS' order.
-const ALL: [(&str, f64); 55] = [
+const ALL: [(&str, f64); 54] = [
     ("timbre", 0.33), ("intensity", 0.5), ("shape", 2.0), ("fm", 0.0), ("fm2", 0.0), ("fmratio", 2.0), ("cratio", 1.0),
     ("detune", 0.0), ("sub", 0.0), ("unison", 0.0), ("ratio2", 1.0), ("ratio3", 1.0), ("feedback", 0.0), ("cfeedback", 0.0),
     ("carriers", 0.35), ("octave", 4.0), ("voice", 0.0), ("glide", SLIDE_SECONDS), ("cutoff", 1200.0), ("reso", 0.3),
@@ -67,7 +65,7 @@ const ALL: [(&str, f64); 55] = [
     ("vibrate", 5.5), ("vibdelay", 0.3), ("bend", 0.0), ("bendtime", 0.08), ("drive", 1.0), ("crush", 0.0), ("level", 0.7),
     ("ogain", 1.0), ("fmcomp", 0.0), ("fmpair", 0.0), ("attack", 0.003), ("decay", 0.4), ("attack2", 0.003), ("decay2", 0.4),
     ("sustain", 0.5), ("release", 0.15), ("sustain2", 0.5), ("release2", 0.15), ("dratio", 1.0), ("duck", 0.0),
-    ("duckrel", 0.2), ("midfreq", 1000.0), ("dtime", 2.0), ("dfdbk", 0.35), ("dmix", 0.0), ("verb", 0.0), ("lowcut", 20.0),
+    ("duckrel", 0.2), ("midfreq", 1000.0), ("dtime", 2.0), ("dfdbk", 0.35), ("dmix", 0.0), ("lowcut", 20.0),
     ("modmix", 0.0), ("modtype", 0.0),
 ];
 
@@ -94,7 +92,7 @@ pub fn type_params(kind: SoundKind) -> Vec<(&'static str, f64)> {
             &[("attack", 0.002), ("decay", 0.6), ("sustain", 0.6), ("release", 0.06), ("level", 0.75), ("midfreq", 350.0)],
         ),
         SoundKind::Pad => (
-            [&MORPHED[..], &["fm2", "ogain", "octave", "glide", "attack", "decay", "attack2", "decay2", "sustain", "release", "crush", "level", "sustain2", "release2", "ratio2", "ratio3", "feedback", "carriers", "cfeedback", "midfreq", "lowcut", "verb", "modmix", "modtype"]].concat(),
+            [&MORPHED[..], &["fm2", "ogain", "octave", "glide", "attack", "decay", "attack2", "decay2", "sustain", "release", "crush", "level", "sustain2", "release2", "ratio2", "ratio3", "feedback", "carriers", "cfeedback", "midfreq", "lowcut", "modmix", "modtype"]].concat(),
             &[("attack", 0.03), ("attack2", 0.03), ("decay", 0.6), ("decay2", 0.6), ("sustain", 0.85), ("sustain2", 0.85), ("release", 0.2), ("release2", 0.2), ("level", 0.5), ("detune", 0.25), ("midfreq", 500.0)],
         ),
         SoundKind::Lead => (
@@ -102,7 +100,7 @@ pub fn type_params(kind: SoundKind) -> Vec<(&'static str, f64)> {
             &[("midfreq", 1000.0), ("octave", OCTAVE_ZERO + 1.0), ("attack", 0.004), ("decay", 0.6), ("sustain", 0.75), ("release", 0.2), ("level", 0.55), ("detune", 0.08)],
         ),
         SoundKind::Pluck => (
-            [&MORPHED[..], &["cfeedback", "ogain", "octave", "glide"], &shared, &["dtime", "dfdbk", "dmix", "verb", "midfreq"]].concat(),
+            [&MORPHED[..], &["cfeedback", "ogain", "octave", "glide"], &shared, &["dtime", "dfdbk", "dmix", "midfreq"]].concat(),
             &[("midfreq", 800.0), ("attack", 0.001), ("decay", 0.35), ("sustain", 0.0), ("release", 0.08), ("level", 0.55), ("detune", 0.15)],
         ),
         _ => panic!("not a synth"),
@@ -306,12 +304,11 @@ impl Voice {
     }
 }
 
-/// PAD's LOW CUT / MOD / VERB.
+/// PAD's LOW CUT / MOD.
 struct PadFx {
     hp_l: Svf,
     hp_r: Svf,
     m: ModFx,
-    verb: VerbFx,
     wet_l: [f32; FX_BLOCK],
     wet_r: [f32; FX_BLOCK],
 }
@@ -386,9 +383,8 @@ pub struct Synth {
     duck_depth: f64, duck_rel_inc: f64, duck_stage: i32, duck_x: f64, duck_from: f64, duck_shape: f64,
     duck_attack_inc: f64,
     delay: Option<Box<Delay>>,
-    room: Option<Box<Reverb>>,
     pad: Option<Box<PadFx>>,
-    low_cut: f64, mod_mix: f64, verb_mix: f64,
+    low_cut: f64, mod_mix: f64,
     post_idle: IdleGate,
 }
 
@@ -402,22 +398,11 @@ impl Synth {
             d.set_param("dly_tone", ONBOARD_DLY_TONE);
             Box::new(d)
         });
-        let room = has("onboard").then(|| {
-            let mut r = Reverb::new(sr);
-            for (id, v) in [("rev_size", 0.35), ("rev_damp", 0.55), ("rev_predelay", 8.0), ("rev_width", 1.0)] {
-                r.set_param(id, v);
-            }
-            Box::new(r)
-        });
         let pad = has("padfx").then(|| {
             let mut m = ModFx::new(sr);
             m.set("mod_rate", 0.5);
             m.set("mod_depth", 0.5);
-            let mut verb = VerbFx::new(sr);
-            verb.set_mode("HALL");
-            verb.set("vrb_size", 0.7);
-            verb.set("vrb_len", 0.6);
-            Box::new(PadFx { hp_l: Svf::default(), hp_r: Svf::default(), m, verb, wet_l: [0.0; FX_BLOCK], wet_r: [0.0; FX_BLOCK] })
+            Box::new(PadFx { hp_l: Svf::default(), hp_r: Svf::default(), m, wet_l: [0.0; FX_BLOCK], wet_r: [0.0; FX_BLOCK] })
         });
         let z = [0.0; BLOCK];
         let mut s = Synth {
@@ -471,9 +456,8 @@ impl Synth {
             duck_depth: 0.0, duck_rel_inc: 0.0, duck_stage: 0, duck_x: 0.0, duck_from: 0.0, duck_shape: 0.0,
             duck_attack_inc: 1.0 / (DUCK_ATTACK * sr),
             delay,
-            room,
             pad,
-            low_cut: 20.0, mod_mix: 0.0, verb_mix: 0.0,
+            low_cut: 20.0, mod_mix: 0.0,
             post_idle: IdleGate::new(ONBOARD_DELAY_SECONDS * 2.0, sr),
         };
         for (id, v) in ALL {
@@ -723,17 +707,6 @@ impl Synth {
             "dtime" => if let Some(d) = &mut self.delay { d.set_param("dly_time", value); },
             "dfdbk" => if let Some(d) = &mut self.delay { d.set_param("dly_fdbk", value); },
             "dmix" => if let Some(d) = &mut self.delay { d.set_param("dly_return", value); },
-            "verb" => {
-                if let Some(r) = &mut self.room {
-                    r.set_param("rev_return", value * ONBOARD_VERB_GAIN);
-                }
-                if let Some(p) = &mut self.pad {
-                    if self.verb_mix <= 0.0 && value > 0.0 {
-                        p.verb.reset();
-                    }
-                }
-                self.verb_mix = value;
-            }
             "lowcut" => {
                 self.low_cut = value;
                 if let Some(p) = &mut self.pad {
@@ -787,12 +760,11 @@ impl Synth {
             self.pad_post(l, r);
             return;
         }
-        let (Some(delay), Some(room)) = (&mut self.delay, &mut self.room) else { return };
+        let Some(delay) = &mut self.delay else { return };
         if self.post_idle.skip(l, r) {
             return;
         }
         delay.process(l, r);
-        room.process(l, r);
         self.post_idle.done(l, r);
     }
 
@@ -817,7 +789,7 @@ impl Synth {
 
     fn pad_post(&mut self, l: &mut [f32], r: &mut [f32]) {
         let cut = self.low_cut > LOW_CUT_OFF;
-        if !cut && self.mod_mix <= 0.0 && self.verb_mix <= 0.0 {
+        if !cut && self.mod_mix <= 0.0 {
             return;
         }
         if self.post_idle.skip(l, r) {
@@ -838,13 +810,6 @@ impl Synth {
             for i in 0..n {
                 js::add_f32(&mut l[i], fx.wet_l[i] as f64 * self.mod_mix);
                 js::add_f32(&mut r[i], fx.wet_r[i] as f64 * self.mod_mix);
-            }
-        }
-        if self.verb_mix > 0.0 {
-            fx.verb.render(l, r, &mut fx.wet_l, &mut fx.wet_r, n);
-            for i in 0..n {
-                js::add_f32(&mut l[i], fx.wet_l[i] as f64 * self.verb_mix);
-                js::add_f32(&mut r[i], fx.wet_r[i] as f64 * self.verb_mix);
             }
         }
         self.post_idle.done(l, r);

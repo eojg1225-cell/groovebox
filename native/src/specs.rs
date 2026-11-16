@@ -167,7 +167,7 @@ pub static BASS_PARAMS: [Spec; 30] = [
     Spec { id: "duckrel", min: 0.02, max: 1.0, default: 0.2, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 350.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static PAD_PARAMS: [Spec; 39] = [
+pub static PAD_PARAMS: [Spec; 38] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 3.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -204,7 +204,6 @@ pub static PAD_PARAMS: [Spec; 39] = [
     Spec { id: "cfeedback", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 500.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "lowcut", min: 20.0, max: 1000.0, default: 20.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
-    Spec { id: "verb", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "modmix", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "modtype", min: 0.0, max: 2.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 3, coarse: true },
 ];
@@ -242,7 +241,7 @@ pub static LEAD_PARAMS: [Spec; 32] = [
     Spec { id: "bendtime", min: 0.005, max: 2.0, default: 0.08, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 1000.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static PLUCK_PARAMS: [Spec; 31] = [
+pub static PLUCK_PARAMS: [Spec; 30] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 3.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -272,7 +271,6 @@ pub static PLUCK_PARAMS: [Spec; 31] = [
     Spec { id: "dtime", min: 0.0, max: 7.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 8, coarse: true },
     Spec { id: "dfdbk", min: 0.0, max: 0.95, default: 0.35, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "dmix", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "verb", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 800.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
 
@@ -402,7 +400,7 @@ pub fn live_macros(kind: SoundKind) -> &'static [Macro] {
         SoundKind::Bass => &[("macro:env", &[("fenv", 1.0, false), ("fdecay", 0.5, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true)])],
         SoundKind::Pad => &[("macro:length", &[("decay", 1.0, false), ("decay2", 1.0, false), ("release", 1.0, false), ("release2", 1.0, false)]), ("macro:swell", &[("attack", 1.0, false), ("attack2", 1.0, false), ("release", 1.0, false), ("release2", 1.0, false)]), ("macro:width", &[("detune", 1.0, false), ("unison", 1.0, false)])],
         SoundKind::Lead => &[("macro:grit", &[("drive", 1.0, false), ("fm", 1.0, false), ("crush", 1.0, true)]), ("macro:length", &[("decay", 1.0, false), ("release", 1.0, false), ("fdecay", 1.0, false)])],
-        SoundKind::Pluck => &[("macro:length", &[("decay", 1.0, false), ("release", 1.0, false), ("fdecay", 1.0, false)]), ("macro:bite", &[("fenv", 1.0, false), ("drive", 1.0, false), ("fm", 1.0, false)]), ("macro:space", &[("dmix", 1.0, false), ("verb", 1.0, false)]), ("macro:sustain", &[("attack", 1.0, false), ("decay", 1.0, false), ("sustain", 1.0, false), ("fdecay", 1.0, false)])],
+        SoundKind::Pluck => &[("macro:length", &[("decay", 1.0, false), ("release", 1.0, false), ("fdecay", 1.0, false)]), ("macro:bite", &[("fenv", 1.0, false), ("drive", 1.0, false), ("fm", 1.0, false)]), ("macro:sustain", &[("attack", 1.0, false), ("decay", 1.0, false), ("sustain", 1.0, false), ("fdecay", 1.0, false)])],
     }
 }
 
