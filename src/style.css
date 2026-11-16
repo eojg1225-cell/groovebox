@@ -337,6 +337,9 @@ html, body {
 /* MASTER / TEMPO and the track's knobs: modules of 144 px, as the knob panel's. */
 .master-knobs > .knob-module { padding: 0; }
 
-/* A TRACK FX send muted (a tap on its knob): its arc in the mute colour, the name struck through. */
-.knob.muted .knob-arc, .knob.muted.changed .knob-arc { stroke: var(--mute); }
+/* A TRACK FX send muted (a tap on its knob): blacked out like a step that does not play, the
+   dial left white so its position still shows; the name struck through. */
+.knob.muted .knob-arc, .knob.muted.changed .knob-arc, .knob.muted .knob-track { stroke: #0b0e10; }
+.knob.muted .knob-cap { background: #050607; box-shadow: inset 0 0 0 1px #20262c; }
+.knob.muted .knob-indicator { background: #f4f7fa; }
 .knob.muted .knob-label { text-decoration: line-through; }
