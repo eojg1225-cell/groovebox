@@ -1277,11 +1277,11 @@ describe('project', () => {
     const p = createStartProject();
     expect(p.channels[4].patterns[0].length).toBe(64);
     expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
-    expect(p.channels[4].live).toEqual(['cutoff', 'macro:env']);
+    expect(p.channels[4].live).toEqual(INSTRUMENTS.bass.live); // an older save: the type's live knobs as they are now (v88)
     // PLUCK: SUSTAIN / SPACE with FUNC (its VOLUME is on the MIX page).
     expect(p.channels.every((c) => c.liveFunc[0] === (c.instrument === 'pluck' ? 'macro:sustain' : 'mix:volume'))).toBe(true);
-    // Every synth's first live knob is its CUTOFF.
-    expect(p.channels.filter((c) => !isDrum(c.instrument)).every((c) => c.live[0] === 'cutoff')).toBe(true);
+    // Every synth's bottom live knob is its CUTOFF (v88; the top row rides the FX buses).
+    expect(p.channels.filter((c) => !isDrum(c.instrument)).every((c) => c.live[1] === 'cutoff')).toBe(true);
   });
 
   it('rejects data with no channels', () => {
@@ -1523,7 +1523,7 @@ describe('slides and rolls', () => {
     expect(fromStored(toStored(p))!.channels[0].patterns[0].steps[0].note).toBe(36); // a v62 save as stored
   });
 
-  it('v65 load: every drum track takes its type\'s live knobs (chosen ones too); synths keep theirs', () => {
+  it('v65 / v88 load: every track takes its type\'s live knobs (chosen ones too)', () => {
     const p = createDefaultProject();
     p.channels[1].live = ['fx1:dly_vol', 'macro:decay'];
     p.channels[2].live = ['m_tone', 'macro:decay'];
@@ -1533,14 +1533,17 @@ describe('slides and rolls', () => {
     stored.version = 64;
     const back = fromStored(stored)!;
     expect(back.channels[1].live).toEqual(['fx1:s2_vol', 'intensity']);
-    expect(back.channels[1].liveFunc).toEqual(['mix:volume', 'macro:air']);
+    expect(back.channels[1].liveFunc).toEqual(['mix:volume', 'air']);
     expect(back.channels[2].live).toEqual(['fx1:s3_vol', 'macro:attack']);
-    expect(back.channels[2].liveFunc).toEqual(['mix:volume', 'macro:grit']);
-    expect(back.channels[4].live).toEqual(['fm', 'macro:env']);
+    expect(back.channels[2].liveFunc).toEqual(['mix:volume', 'air']);
+    expect(back.channels[4].live).toEqual(INSTRUMENTS.bass.live); // v88: synths take theirs too
   });
 
   it('v66 load: older macro offsets (tapered knob positions) become the distance they moved', () => {
     const p = createDefaultProject();
+    // As a v65 save had them (BASS: CUTOFF / ENV, VOL / GRIT).
+    p.channels[4].live = ['cutoff', 'macro:env'];
+    p.channels[4].liveFunc = ['mix:volume', 'macro:grit'];
     p.channels[4].liveOffset = { 'macro:env': 0.5 };
     p.channels[4].patterns[0].steps[0] = { ...p.channels[4].patterns[0].steps[0], active: true, note: 45, locks: { 'o:4:macro:env': -1 } };
     p.song.auto = { 'o:4:macro:env': [[0, 1]] };
@@ -3113,7 +3116,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     expect(tail({ dmix: 0.5, verb: 0 })).toBeGreaterThan(0.002);
     expect(tail({ dmix: 0, verb: 0 })).toBeLessThan(1e-4);
     expect(LIVE_MACROS.pluck.find((m) => m.id === 'macro:space')!.targets.map((t) => t.id)).toEqual(['dmix', 'verb']);
-    expect(INSTRUMENTS.pluck.live).toEqual(['cutoff', 'macro:space']); // LIVE 2
+    expect(INSTRUMENTS.pluck.live).toEqual(['fx2:s4_vol', 'cutoff']); // LIVE 2
   });
 
   it('PLUCK SUSTAIN (live) rings each note on without touching RELEASE; SUSTAIN on the page holds', () => {
@@ -4133,8 +4136,8 @@ describe('FX buses (v41)', () => {
     expect([fx2.s2_vol, FX_BANK[fx2.s2_type].name]).toEqual([0.6, 'DUB TAPE']);
     expect([fx2.s3_vol, FX_BANK[fx2.s3_type].name, fx2.s3_a, fx2.s3_b]).toEqual([0.5, 'SPRING', 0.2, 0.9]);
     expect([fx2.s4_vol, fx2.tone_low, fx2.tone_duck, fx2.tone_high]).toEqual([0, 300, 0.8, 16000]);
-    expect(back.channels[6].liveFunc).toEqual(['fx2:s2_vol', 'mix:lvl2']);
-    expect(back.channels[1].live).toEqual(['fx1:s2_vol', 'mix:lvl1']);
+    expect(back.channels[6].liveFunc).toEqual(INSTRUMENTS.lead.liveFunc); // v88: the type's live knobs
+    expect(back.channels[1].live).toEqual(INSTRUMENTS.snare.live);
     const locks = back.channels[6].patterns[0].steps[0].locks!;
     expect(locks['b:1:s2_b']).toBeCloseTo(0.5, 9);
     expect([locks['m:6:lvl1'], locks['m:6:lvl2'], locks['m:6:lvl3'], locks['m:6:lvl4']]).toEqual([0.2, 0.2, 0.2, undefined]);
@@ -4700,8 +4703,8 @@ describe('v51: live knobs back to the type defaults', () => {
     p.channels[0].live = ['mix:pan', 'mix:volume'];
     const stored = toStored(p);
     const old = fromStored({ ...stored, version: 50 })!;
-    expect(old.channels[7].live).toEqual(['cutoff', 'macro:space']);
-    expect(old.channels[7].liveFunc).toEqual(['macro:sustain', 'track:notes']);
+    expect(old.channels[7].live).toEqual(INSTRUMENTS.pluck.live);
+    expect(old.channels[7].liveFunc).toEqual(INSTRUMENTS.pluck.liveFunc);
     expect(old.channels[7].liveOffset).toEqual({});
     expect(old.channels[0].live).toEqual(INSTRUMENTS.kick.live);
     expect(fromStored(stored)!.channels[0].live).toEqual(['mix:pan', 'mix:volume']);

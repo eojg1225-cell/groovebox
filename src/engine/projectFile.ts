@@ -602,7 +602,7 @@ function drumLiveV64(ch: ChannelState): void {
   if (ch.liveFunc.join(',') === 'mix:volume,macro:grit') ch.liveFunc = [...entry.liveFunc];
 }
 
-/** v65: every drum track takes its type's live knobs as they are now (asked for once; offsets centred). */
+/** v65: every drum track takes its type's live knobs as they are now (asked for once; a macro still on a knob keeps its push). */
 function drumLiveV65(ch: ChannelState): void {
   if (ch.instrument !== 'none' && INSTRUMENTS[ch.instrument].drum) liveDefaults(ch);
 }
@@ -1065,6 +1065,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (version < 63) kickLiveV63(ch);
   if (version < 64) drumLiveV64(ch);
   if (version < 65) drumLiveV65(ch);
+  if (version < 88) liveV88(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;
@@ -1184,6 +1185,19 @@ function readAuto(x: unknown, version: number): Record<string, [number, number][
  */
 function liveV51(ch: ChannelState): void {
   liveDefaults(ch);
+}
+
+/**
+ * v88: the live knobs' top row became the FX buses' master levels (modules 2-4 FX 1's MOD /
+ * DELAY / FILTER, 5-8 FX 2's four slots; KICK keeps its own two), CUTOFF the synths' bottom
+ * knob, AIR LVL every drum with a room's ALT bottom: every track takes its type's live knobs
+ * as they are now (asked for once; a macro still on a knob keeps its push).
+ */
+function liveV88(ch: ChannelState): void {
+  // A macro's push that is still on a knob stays (KICK's DECAY ...).
+  const pushed = ch.liveOffset;
+  liveDefaults(ch);
+  for (const id of [...ch.live, ...ch.liveFunc]) if (pushed[id] !== undefined) ch.liveOffset[id] = pushed[id];
 }
 
 /**

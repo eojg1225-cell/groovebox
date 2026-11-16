@@ -300,20 +300,20 @@ interface InstrumentEntry {
 
 export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
   kick: {
-    name: 'KICK', gain: 0.565, live: ['intensity', 'macro:decay'], liveFunc: ['mix:volume', 'macro:air'], params: KICK_PARAMS,
+    name: 'KICK', gain: 0.565, live: ['intensity', 'macro:decay'], liveFunc: ['mix:volume', 'air'], params: KICK_PARAMS,
     // TIMBRE / INT set the sweep (SWEEP / SWP TIME fine-tune it on FUNC 2): the click's
     // character on 5, AIR on 6 beside DRIVE / CRUSH.
     layout: drumPage(KICK_ELEMENTS, ['t_pitch', 'c_tone'], ['c_reso', 'c_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SWEEP_FUNC),
     presets: KICK_PRESETS, drum: true, baseNote: DRUM_ROOT },
   snare: {
-    name: 'SNARE', gain: 0.467, live: ['fx1:s2_vol', 'intensity'], liveFunc: ['mix:volume', 'macro:air'], params: SNARE_PARAMS,
+    name: 'SNARE', gain: 0.467, live: ['fx1:s2_vol', 'intensity'], liveFunc: ['mix:volume', 'air'], params: SNARE_PARAMS,
     // As the KICK: the wires' character on 5, AIR on 6, SWEEP / SWP TIME on FUNC 2.
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize']),
     funcLayout: trackFunc(SNARE_FUNC),
     presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT },
   hat: {
-    name: 'HAT', gain: 1.783, live: ['fx1:s3_vol', 'macro:attack'], liveFunc: ['mix:volume', 'macro:grit'], params: HAT_PARAMS,
+    name: 'HAT', gain: 1.783, live: ['fx1:s3_vol', 'macro:attack'], liveFunc: ['mix:volume', 'air'], params: HAT_PARAMS,
     // The metal's character on 5, AIR (its natural room, v81) on 6; the click's on FUNC 3.
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'hairsize']),
     funcLayout: trackFunc(HAT_FUNC),
@@ -324,23 +324,23 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: trackFunc(NO_FUNC),
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: DRUM_ROOT },
   bass: {
-    name: 'BASS', gain: 0.557, live: ['cutoff', 'macro:env'], liveFunc: ['mix:volume', 'macro:grit'], params: BASS_PARAMS,
+    name: 'BASS', gain: 0.557, live: ['fx2:s1_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:env'], params: BASS_PARAMS,
     layout: synthPage(['attack', 'decay'], ['glide', 'sub']),
     funcLayout: trackFunc(BASS_FUNC),
     presets: BASS_PRESETS, drum: false, baseNote: 33 },
   pad: {
-    name: 'PAD', gain: 0.413, live: ['cutoff', 'macro:length'], liveFunc: ['mix:volume', 'macro:width'], params: PAD_PARAMS,
+    name: 'PAD', gain: 0.413, live: ['fx2:s2_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:length'], params: PAD_PARAMS,
     // CHORD_PAGE; DRIVE / CRUSH and the effects on FUNC (ALT).
     layout: CHORD_PAGE,
     funcLayout: trackFunc(PAD_FUNC),
     presets: PAD_PRESETS, drum: false, baseNote: 45 },
   lead: {
-    name: 'LEAD', gain: 0.948, live: ['cutoff', 'macro:grit'], liveFunc: ['mix:volume', 'macro:length'], params: LEAD_PARAMS,
+    name: 'LEAD', gain: 0.948, live: ['fx2:s3_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:grit'], params: LEAD_PARAMS,
     layout: synthPage(['attack', 'decay'], ['glide', 'detune']),
     funcLayout: trackFunc(LEAD_FUNC),
     presets: LEAD_PRESETS, drum: false, baseNote: 45 },
   pluck: {
-    name: 'PLUCK', gain: 1.105, live: ['cutoff', 'macro:space'], liveFunc: ['macro:sustain', 'track:notes'], params: PLUCK_PARAMS,
+    name: 'PLUCK', gain: 1.105, live: ['fx2:s4_vol', 'cutoff'], liveFunc: ['macro:sustain', 'track:notes'], params: PLUCK_PARAMS,
     // CHORD_PAGE, but module 2 ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
     layout: CHORD_PAGE.map((id) => (id === 'release' ? 'sustain' : id)),
     funcLayout: trackFunc(PLUCK_FUNC),

@@ -553,10 +553,16 @@ describe('live knobs', () => {
     expect(app.project.buses[0].s3_vol).toBe(0.5);
     expect(app.project.buses[0].flt).toBe(0);
     const live = (ch: number) => [...app.project.channels[ch].live, ...app.project.channels[ch].liveFunc];
-    expect(live(0)).toEqual(['intensity', 'macro:decay', 'mix:volume', 'macro:air']);
-    expect(live(1)).toEqual(['fx1:s2_vol', 'intensity', 'mix:volume', 'macro:air']);
-    expect(live(2)).toEqual(['fx1:s3_vol', 'macro:attack', 'mix:volume', 'macro:grit']);
+    expect(live(0)).toEqual(['intensity', 'macro:decay', 'mix:volume', 'air']);
+    expect(live(1)).toEqual(['fx1:s2_vol', 'intensity', 'mix:volume', 'air']);
+    expect(live(2)).toEqual(['fx1:s3_vol', 'macro:attack', 'mix:volume', 'air']);
     expect(live(3)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'macro:grit']);
+    // The synths' top knobs ride FX 2's four slots; CUTOFF is their bottom knob.
+    expect([4, 5, 6, 7].map((ch) => app.project.channels[ch].live)).toEqual([
+      ['fx2:s1_vol', 'cutoff'], ['fx2:s2_vol', 'cutoff'], ['fx2:s3_vol', 'cutoff'], ['fx2:s4_vol', 'cutoff'],
+    ]);
+    emit({ type: 'knob', id: 'k5', value: 0.75 });
+    expect(app.project.buses[1].s1_vol).toBeCloseTo(0.75, 2);
     expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
   });
 
@@ -1997,15 +2003,15 @@ describe('STEP EDIT', () => {
     expect(priv(app).primed?.cell).toBe(2);
     app.updateFrame(0);
     expect(flags.get('step3')?.has('cursor')).toBe(true);
-    emit({ type: 'touch', id: 'k5' }); // BASS LIVE 1
-    emit({ type: 'knob', id: 'k5', value: 0.9 });
+    emit({ type: 'touch', id: 'k13' }); // BASS LIVE 2 (CUTOFF)
+    emit({ type: 'knob', id: 'k13', value: 0.9 });
     expect(texts.get('undo')).toBe('UNDO');
     tap('step5'); // refused while a knob waits
     expect(priv(app).primed?.cell).toBe(2);
     expect(priv(app).message).toBe('LOCK OR CANCEL FIRST');
     tap('step3'); // lock
     const step = app.project.channels[4].patterns[0].steps[2];
-    expect(Object.keys(step.locks ?? {})).toEqual(['cutoff']); // BASS LIVE 1 = CUTOFF, stored by its bare id
+    expect(Object.keys(step.locks ?? {})).toEqual(['cutoff']); // BASS's CUTOFF knob, stored by its bare id
     expect(priv(app).primed?.cell).toBe(2); // still primed there
     app.updateFrame(0);
     expect(texts.get('step3')).toBe('3<small>L</small>'); // locks marked L
@@ -2030,13 +2036,13 @@ describe('STEP EDIT', () => {
     expect(leds[3]).toBe('on'); // the playhead
     press('steppage'); tap('cur+'); release('steppage'); // BAR: the next bar, playing or not
     expect(priv(app).primed?.cell).toBe(16);
-    emit({ type: 'touch', id: 'k5' });
-    emit({ type: 'knob', id: 'k5', value: 0.9 });
+    emit({ type: 'touch', id: 'k13' });
+    emit({ type: 'knob', id: 'k13', value: 0.9 });
     tap('step1'); // lock step 17
     const first = app.project.channels[4].patterns[0].steps[16].locks!.cutoff;
     expect(sent.some((m) => m.type === 'setStep' && m.channel === 4 && m.index === 16)).toBe(true);
-    emit({ type: 'touch', id: 'k5' });
-    emit({ type: 'knob', id: 'k5', value: 0.2 });
+    emit({ type: 'touch', id: 'k13' });
+    emit({ type: 'knob', id: 'k13', value: 0.2 });
     tap('step2'); // prime step 18 ... (knob waits on 17: refused)
     tap('step1'); // lock again on 17
     expect(app.project.channels[4].patterns[0].steps[16].locks!.cutoff).not.toBe(first);
