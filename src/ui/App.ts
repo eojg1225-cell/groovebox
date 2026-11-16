@@ -1012,7 +1012,7 @@ export class App {
   /**
    * A live knob (RECORD / PLAY): relative for macros and sound parameters (centred = the
    * sound as set; -100..+100 % = half the parameters' range down / up), absolute for
-   * CUTOFF, RESO, the mixer and the LFO.
+   * CUTOFF, FLT RES, the mixer and the LFO.
    */
   private liveKnob(ch: number, id: string, highlight: boolean): KnobTarget | null {
     const c = this.project.channels[ch];

@@ -123,7 +123,7 @@ function slotSpecs(u: SlotDef): ParamSpec[] {
       { ...COMP.cmp_attack, name: 'ATTACK' }, { ...COMP.cmp_release, name: 'RELEASE' },
     ];
     case 'filter': return [
-      { ...linear('flt', 'FILTER', 0, 1, 0.5), display: 'dj' }, linear('flt_reso', 'RESO', 0, 1, 0),
+      { ...linear('flt', 'FILTER', 0, 1, 0.5), display: 'dj' }, linear('flt_reso', 'FLT RES', 0, 1, 0),
       linear('flt_env', 'ENV', -1, 1, 0), exp('flt_rel', 'ENV REL', 0.005, 2, 0.15, 'S', 3),
     ];
     case 'free': {

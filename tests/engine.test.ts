@@ -3810,7 +3810,7 @@ describe('FX buses (v41)', () => {
     // Top row then bottom row; slot u on modules 2u + 1, 2u + 2.
     expect(names(0)).toEqual([
       'RATIO', 'ATTACK', 'MOD', 'RATE', 'DELAY', 'RATE', 'FILTER', 'ENV',
-      'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'RESO', 'ENV REL',
+      'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'FLT RES', 'ENV REL',
     ]);
     expect(names(1)).toEqual([
       'DIST', 'DRIVE', 'DELAY', 'RATE', 'VERB', 'SIZE', 'MOD', 'RATE',

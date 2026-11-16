@@ -55,7 +55,7 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   // fully left = an instant jump. Only slides glide; other notes start on pitch.
   { id: 'glide', name: 'SLIDE', min: 0, max: 3, defaultValue: SLIDE_SECONDS, unit: 'S', curve: 'square', decimals: 3 },
   { id: 'cutoff', name: 'CUTOFF', min: 20, max: 20000, defaultValue: 1200, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'reso', name: 'RESO', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
+  { id: 'reso', name: 'FLT RES', min: 0, max: 1, defaultValue: 0.3, unit: '', curve: 'linear' },
   { id: 'fenv', name: 'FLT ENV', min: 0, max: 2, defaultValue: 0.4, unit: '', curve: 'linear' },
   { id: 'fattack', name: 'FLT ATK', min: 0.0005, max: 10, defaultValue: 0.0005, unit: 'S', curve: 'exp', decimals: 4 },
   { id: 'fdecay', name: 'FLT DEC', min: 0.002, max: 10, defaultValue: 0.3, unit: 'S', curve: 'power', power: FDECAY_POWER },
