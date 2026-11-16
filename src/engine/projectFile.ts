@@ -1066,6 +1066,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (version < 64) drumLiveV64(ch);
   if (version < 65) drumLiveV65(ch);
   if (version < 88) liveV88(ch);
+  if (version < 89) pluckLiveV89(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;
@@ -1193,6 +1194,11 @@ function liveV51(ch: ChannelState): void {
  * knob, AIR LVL every drum with a room's ALT bottom: every track takes its type's live knobs
  * as they are now (asked for once; a macro still on a knob keeps its push).
  */
+/** v89: PLUCK's ALT live knobs went from SUSTAIN / NOTES to VOL / SUSTAIN (NOTES to be a design knob); a v88 PLUCK still on the old pair takes the new one. */
+function pluckLiveV89(ch: ChannelState): void {
+  if (ch.instrument === 'pluck' && ch.liveFunc[0] === 'macro:sustain' && ch.liveFunc[1] === 'track:notes') ch.liveFunc = [...INSTRUMENTS.pluck.liveFunc];
+}
+
 function liveV88(ch: ChannelState): void {
   // A macro's push that is still on a knob stays (KICK's DECAY ...).
   const pushed = ch.liveOffset;

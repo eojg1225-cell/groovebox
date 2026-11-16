@@ -1278,8 +1278,8 @@ describe('project', () => {
     expect(p.channels[4].patterns[0].length).toBe(64);
     expect(p.channels.some((c) => c.patterns.some((pat) => pat.steps.some((st) => st.active)))).toBe(true);
     expect(p.channels[4].live).toEqual(INSTRUMENTS.bass.live); // an older save: the type's live knobs as they are now (v88)
-    // PLUCK: SUSTAIN / SPACE with FUNC (its VOLUME is on the MIX page).
-    expect(p.channels.every((c) => c.liveFunc[0] === (c.instrument === 'pluck' ? 'macro:sustain' : 'mix:volume'))).toBe(true);
+    // Every track's ALT top live knob is its VOLUME.
+    expect(p.channels.every((c) => c.liveFunc[0] === 'mix:volume')).toBe(true);
     // Every synth's bottom live knob is its CUTOFF (v88; the top row rides the FX buses).
     expect(p.channels.filter((c) => !isDrum(c.instrument)).every((c) => c.live[1] === 'cutoff')).toBe(true);
   });
@@ -1521,6 +1521,17 @@ describe('slides and rolls', () => {
     expect(back.channels[3].patterns[0].steps[0].note).toBe(40);
     expect(back.channels[4].patterns[0].steps[0].note).toBe(45);
     expect(fromStored(toStored(p))!.channels[0].patterns[0].steps[0].note).toBe(36); // a v62 save as stored
+  });
+
+  it('v89 load: a PLUCK still on SUSTAIN / NOTES takes VOL / SUSTAIN; one of its own keeps it', () => {
+    const p = createDefaultProject();
+    p.channels[7].liveFunc = ['macro:sustain', 'track:notes'];
+    p.channels[5].liveFunc = ['macro:length', 'track:notes'];
+    const stored = toStored(p) as { version: number };
+    stored.version = 88;
+    const back = fromStored(stored)!;
+    expect(back.channels[7].liveFunc).toEqual(['mix:volume', 'macro:sustain']);
+    expect(back.channels[5].liveFunc).toEqual(['macro:length', 'track:notes']); // the PAD's own choice
   });
 
   it('v65 / v88 load: every track takes its type\'s live knobs (chosen ones too)', () => {
@@ -3122,7 +3133,7 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
   it('PLUCK SUSTAIN (live) rings each note on without touching RELEASE; SUSTAIN on the page holds', () => {
     const m = LIVE_MACROS.pluck.find((x) => x.id === 'macro:sustain')!;
     expect(m.targets.map((t) => t.id)).toEqual(['attack', 'decay', 'sustain', 'fdecay']);
-    expect(INSTRUMENTS.pluck.liveFunc).toEqual(['macro:sustain', 'track:notes']);
+    expect(INSTRUMENTS.pluck.liveFunc).toEqual(['mix:volume', 'macro:sustain']);
     expect([INSTRUMENTS.pluck.layout[1], INSTRUMENTS.pluck.layout[9]]).toEqual(['attack', 'sustain']);
     expect([INSTRUMENTS.pluck.funcLayout[1], INSTRUMENTS.pluck.funcLayout[9]]).toEqual(['decay', 'release']);
     const held = play(synth('pluck', { sustain: 0.6, dmix: 0, verb: 0 }), 0.8, 0.8);

@@ -216,3 +216,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - Top right tidied (2026-11-15): a divider between the MASTER and TRACK FX rows, shorter keys and box labels, the column beside the screen starting over knob module 5 (the screen's bezel 16 px wider), the keys' left edge on the TRACK FX box's.
 - FLT RES (2026-11-16): the synths' RESO and FX 1 FILTER's RESO are labelled FLT RES, so they read as filter controls.
 - Live knobs (2026-11-16, v88): the top row rides the FX buses' master levels (SNARE / HAT / PERC FX 1's MOD / DELAY / FILTER, the synths FX 2's four slots; KICK keeps INT / DECAY), every synth's CUTOFF on the bottom knob, AIR LVL on the drums' ALT bottom; older projects take these defaults (pushes on knobs that went are dropped). golden.json re-recorded.
+- PLUCK live knobs (2026-11-16, v89): its ALT pair is VOL / SUSTAIN (NOTES to become a design knob); a v88 PLUCK still on SUSTAIN / NOTES takes it.

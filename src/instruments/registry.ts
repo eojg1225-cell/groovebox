@@ -340,7 +340,7 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: trackFunc(LEAD_FUNC),
     presets: LEAD_PRESETS, drum: false, baseNote: 45 },
   pluck: {
-    name: 'PLUCK', gain: 1.105, live: ['fx2:s4_vol', 'cutoff'], liveFunc: ['macro:sustain', 'track:notes'], params: PLUCK_PARAMS,
+    name: 'PLUCK', gain: 1.105, live: ['fx2:s4_vol', 'cutoff'], liveFunc: ['mix:volume', 'macro:sustain'], params: PLUCK_PARAMS,
     // CHORD_PAGE, but module 2 ATTACK / SUSTAIN (DECAY / RELEASE on ALT).
     layout: CHORD_PAGE.map((id) => (id === 'release' ? 'sustain' : id)),
     funcLayout: trackFunc(PLUCK_FUNC),
