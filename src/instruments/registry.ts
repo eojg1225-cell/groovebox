@@ -88,7 +88,7 @@ const PLUCK_FUNC = funcPage([_, 'decay', _, 'drive', _, _, 'dmix', 'dtime'], [_,
  * PAD and PLUCK share one design page (v78): 1 TIMBRE / INT, 2 ATTACK / RELEASE (PLUCK: ATTACK /
  * SUSTAIN), 3 FM ATK / FM DEC,
  * 4 FM LVL / RESO, 5 FLT ATK / FLT DEC, 6 FLT ENV / CUTOFF, 7 DETUNE / UNISON, 8 CHORD / SLIDE;
- * the effects (DRIVE, CRUSH, PLUCK's delay, PAD's LOW CUT / MOD) on the FUNC (ALT) layer.
+ * the effects (DRIVE, CRUSH, PLUCK's delay, PAD's LOW CUT) on the FUNC (ALT) layer.
  */
 const CHORD_PAGE = synthPage(['attack', 'release'], ['track:chord', 'glide']).map((id) => (id === 'drive' ? 'detune' : id === 'crush' ? 'unison' : id));
 
@@ -103,10 +103,10 @@ function heldFunc(top: readonly (string | null)[], bottom: readonly (string | nu
   );
 }
 /**
- * PAD FUNC (v81): DRIVE / CRUSH (4), its own effects (all off by default): LOW CUT (7), MOD /
- * MOD TYPE (8: CHORUS, FLANGER, PHASER). Its VERB went in v91 (FX 2 is the shared space).
+ * PAD FUNC (v81): DRIVE / CRUSH (4), LOW CUT (7, off by default). Its VERB went in v91, its MOD /
+ * MOD TYPE in v92 (FX 2 is the shared space).
  */
-const PAD_FUNC = heldFunc([_, 'drive', 'lowcut', 'modmix'], [_, 'crush', _, 'modtype']);
+const PAD_FUNC = heldFunc([_, 'drive', 'lowcut', _], [_, 'crush', _, _]);
 
 /**
  * PAD: module 2's ATTACK / RELEASE (and FUNC DECAY / SUSTAIN) move both oscillators;

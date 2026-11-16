@@ -15,8 +15,6 @@ const SLIDE_SECONDS = 0.06;
 const FM_PAIR_NAMES = ['1:1', '1:2', '1:3', '3:2', '3:4', '1:4', '1:5', '1:7'];
 /** PLUCK's DLY TIME: tempo-synced divisions. */
 const DELAY_DIVISIONS = ['1/16', '1/8', '3/16', '1/4', '3/8', '1/2', '3/4', '1 BAR'];
-/** PAD MOD TYPE (v82: FLANGER in ENSEMBLE's place). */
-const PAD_MOD_TYPES = ['CHORUS', 'FLANGER', 'PHASER'];
 
 /**
  * PAD (2 STACKS) modulation index from FM LVL (0..1), v79: a square law up to 13, so the
@@ -103,11 +101,9 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   choice('dtime', 'DLY TIME', DELAY_DIVISIONS, 2),
   { id: 'dfdbk', name: 'DLY FDBK', min: 0, max: 0.95, defaultValue: 0.35, unit: '', curve: 'linear' },
   { id: 'dmix', name: 'DLY MIX', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  // PAD's own effects (v81, ALT; all off by default): LOW CUT (a high-pass, off at 20 Hz), then
-  // MOD (CHORUS / FLANGER / PHASER, FX 2's old units, at its old RATE / DEPTH). Its VERB went in v91.
+  // PAD's own effect (ALT, off by default): LOW CUT (a high-pass, off at 20 Hz). Its VERB went in
+  // v91, its MOD in v92 (FX 2 is the shared space).
   { id: 'lowcut', name: 'LOW CUT', min: 20, max: 1000, defaultValue: 20, unit: 'HZ', curve: 'exp', decimals: 0 },
-  { id: 'modmix', name: 'MOD', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
-  choice('modtype', 'MOD TYPE', PAD_MOD_TYPES),
 ];
 
 const BY_ID: Record<string, ParamSpec> = Object.fromEntries(SYNTH_PARAMS.map((p) => [p.id, p]));
@@ -134,7 +130,7 @@ export const BASS_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmrati
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };
 // PAD DETUNE: half the other synths' range (any more is unusable on chords).
-export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq', 'lowcut', 'modmix', 'modtype'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
+export const PAD_PARAMS = synthParams([...MORPHED, 'fm2', 'ogain', 'octave', 'glide', ...ENVELOPE, 'ratio2', 'ratio3', 'feedback', 'carriers', 'cfeedback', 'midfreq', 'lowcut'], { ...PAD_DEFAULT_ENVELOPE, level: 0.5, detune: 0.25, midfreq: 500 }, SHARED_NAMES, { detune: 2 });
 /**
  * LEAD: the BASS / PLUCK engine (SHAPE's waves into an FM pair, OSC 2 detuned, one envelope),
  * mono with slides, plus what makes a lead: delayed VIBRATO and a pitch envelope (BEND).

@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 91;
+export const PROJECT_VERSION = 92;
 /** The FX buses (buses.ts): FX 1 = the drum processor, FX 2 = the synths' multi FX; a track is on one. */
 export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 8;
@@ -76,7 +76,7 @@ export type SoundKind = Exclude<InstrumentKind, 'none'>;
 
 /**
  * FX ROUTING (v85): the order of a track's own effects, by type. FX = DRIVE / CRUSH, FLT = the
- * synth's filter, SPACE = its onboard room / delay (PAD LOW CUT / MOD, PLUCK DLY;
+ * synth's filter, SPACE = its onboard room / delay (PAD LOW CUT, PLUCK DLY;
  * drums AIR). Synths: the index is where FLT sits (0 = first); BASS / LEAD have no SPACE.
  * Drums: 0 = SPACE > FX, 1 = FX > SPACE. PERC (no AIR) has none.
  */

@@ -167,7 +167,7 @@ pub static BASS_PARAMS: [Spec; 30] = [
     Spec { id: "duckrel", min: 0.02, max: 1.0, default: 0.2, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 350.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static PAD_PARAMS: [Spec; 38] = [
+pub static PAD_PARAMS: [Spec; 36] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 3.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -204,8 +204,6 @@ pub static PAD_PARAMS: [Spec; 38] = [
     Spec { id: "cfeedback", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 500.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "lowcut", min: 20.0, max: 1000.0, default: 20.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
-    Spec { id: "modmix", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "modtype", min: 0.0, max: 2.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 3, coarse: true },
 ];
 pub static LEAD_PARAMS: [Spec; 32] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },

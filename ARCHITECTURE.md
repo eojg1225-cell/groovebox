@@ -236,7 +236,7 @@ switch (never glide, never on a relative live knob).
   it, FM COMP its level). `algo` 1 (no type now): a sine modulator with DX7-style feedback
   phase-modulating three carriers (1 / RATIO 2 / RATIO 3; `dx7Index` level curve). `algo` 2 (PAD): two
   stacks (carrier 1 under FM RATIO + FEEDBACK; a carrier at RATIO 2 under RATIO 3, mixed in by CARRIERS; INTENSITY sets CARRIERS and FM LVL; no CRUSH), DC blocker at 8 Hz.
-  PLUCK runs an onboard delay, the PAD LOW CUT / MOD (`Instrument.post`); BASS ducks from KICK hits
+  PLUCK runs an onboard delay, the PAD LOW CUT (`Instrument.post`); BASS ducks from KICK hits
   (`Instrument.duck`). The engine's ARP (`arp` / `arprate` / `arpoct`) is still there, but no type
   lists those params now.
 

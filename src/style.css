@@ -142,6 +142,8 @@ html, body {
 .btn.pat small { font-size: 10px; letter-spacing: 0.04em; margin: 0 0 4px; opacity: 0.8; white-space: nowrap; }
 .btn.side { font-size: 14px; line-height: 1; letter-spacing: 0.04em; }
 .btn.side small { font-size: 10px; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; white-space: nowrap; }
+/* FX 1 / FX 2: what the bus is for (DRUM / SYNTH) under the name, as large. */
+.btn.side .sub { display: block; font-size: inherit; margin-top: 4px; }
 .btn.side.down { background: var(--hot); color: var(--accent-ink); border-color: var(--hot); }
 .btn.side.fxsend.down { background: var(--key-down); color: var(--ink); border-color: var(--key-edge); }
 .btn.play small { font-size: 10px; letter-spacing: 0.06em; margin-top: 6px; opacity: 0.8; white-space: nowrap; }

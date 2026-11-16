@@ -19,7 +19,7 @@ import { macroIds, macroSoundOf, type MacroDef } from '../instruments/macros';
 import { DEFAULT_ROLL_RATE } from '../instruments/drumSpecs';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { BUS_PARAMS, FX_BANK, FX_LIVE, NUM_BUSES, busParam, controlNorm, fxType } from '../fx/buses';
+import { BUS_PARAMS, FX_BANK, FX_FAMILIES, FX_LIVE, NUM_BUSES, busParam, controlNorm, fxType, slotFamily } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN, LEVEL_IDS, RING_MAX, RING_MIN } from './mixParams';
 import { METERS, chainBefore85, chainOrders, type InstrumentKind, type PatternSpeed } from './project';
@@ -778,9 +778,9 @@ export function padFmV79(kind: SoundKind, sound: Record<string, number>): void {
 /** v70 / v71 / v75 / v76 / v78 / v81 step locks: FX 3's become FX 2's (busKeysV81); a BASS's / LEAD's TIMBRE follows its wave; a PAD's on FM LVL, FM LVL2, FEEDBACK go; AIR LEN -> AIR SIZE; a BASS's / LEAD's INT go. */
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
   if (version < 91 && VERB_KINDS_V91.includes(kind)) for (const id of VERB_GONE_V91) delete locks[id];
+  if (version < 92 && kind === 'pad') for (const id of MOD_GONE_V92) delete locks[id];
   if (version < 81) busKeysV81(locks);
   if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
-  if (version < 82 && kind === 'pad' && locks.modtype !== undefined) locks.modtype = modTypeV82(locks.modtype);
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
   if (version < 78 && kind === 'pluck') delete locks.intensity;
   if (version < 79 && kind === 'pad') for (const id of FM_IDS_V79) if (locks[id] !== undefined) locks[id] = fmLevelV79(locks[id]);
@@ -808,7 +808,6 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   if (version < 76) czV76(kind, sound);
   // v81: the PAD has CRUSH now; a value left in an older save played nothing.
   if (version < 81 && kind === 'pad') sound.crush = 0;
-  if (version < 82 && kind === 'pad' && typeof sound.modtype === 'number') sound.modtype = modTypeV82(sound.modtype);
   if (version < 85 && typeof values.crush === 'number') sound.crush = crushV85(sound.crush);
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
@@ -832,14 +831,6 @@ function scaleV80(p: Project, chromatic: boolean): void {
     if (p.root !== undefined) c.root = p.root;
     if (chromatic) c.chromatic = true;
   }
-}
-
-/**
- * v82: the PAD's MOD TYPE list became CHORUS / FLANGER / PHASER (was CHORUS / ENSEMBLE / PHASER, as
- * FX 2's): an ENSEMBLE (1) takes the CHORUS (0), its nearest; PHASER stays 2. Also FX 2's old index.
- */
-function modTypeV82(v: number): number {
-  return Math.round(v) === 1 ? 0 : v;
 }
 
 /** v81: an automation key on FX 3 (b:2:) is FX 2's (b:1:); the old FX 2's (b:1:) go (null). */
@@ -967,27 +958,14 @@ function fxV87(p: Project): void {
   }
 }
 
-/** The old FX 2's settings a PAD's own effects stand in for (its defaults, for saves without them). */
-const FX2_V81 = { mod_vol: 0.3, mod_type: 1 };
-
 /**
- * v81: the old FX 2 (the PAD's send) went, FX 3 is FX 2: send 3 -> 2, send 2 -> none. A PAD
- * that was on FX 2 gets its own MOD at what it sent there (send level x the return's VOLUME,
- * MOD TYPE as FX 2's), so it keeps its chorus (its hall, its own VERB until v91, FX 2's DELAY
- * and TONE are gone). In place.
+ * v81: the old FX 2 (the PAD's send) went, FX 3 is FX 2: send 3 -> 2, send 2 -> none (a PAD on
+ * the old FX 2 got its own MOD / VERB at what it sent until v91 / v92 took those out). In place.
  */
-function sendsV81(p: Project, oldFx2: unknown): void {
-  const fx = { ...FX2_V81, ...(isObj(oldFx2) ? numbers(oldFx2) : {}) };
-  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+function sendsV81(p: Project): void {
   for (const c of p.channels) {
     const old = OLD_ROUTING.get(c);
-    if (!old) continue;
-    if (old.fxSend === 2 && c.instrument === 'pad') {
-      const own = { modmix: clamp(fx.mod_vol * old.sendLevel), modtype: modTypeV82(Math.max(0, Math.min(2, Math.round(fx.mod_type)))) };
-      const sounds = [c.sounds.pad, ...c.patterns.flatMap((pat) => [pat.patch?.sound, pat.savedPatch?.sound])];
-      for (const sound of sounds) if (sound) Object.assign(sound, own);
-    }
-    old.fxSend = old.fxSend === 3 ? 2 : 0;
+    if (old) old.fxSend = old.fxSend === 3 ? 2 : 0;
   }
 }
 
@@ -999,6 +977,40 @@ function sendsV81(p: Project, oldFx2: unknown): void {
  */
 const VERB_KINDS_V91: readonly InstrumentKind[] = ['pad', 'pluck'];
 const VERB_GONE_V91: readonly string[] = ['verb', 'o:macro:space'];
+/**
+ * v92: the PAD's MOD / MOD TYPE went too (FX 2's MOD slots do it): its values and trims drop out
+ * with the parameters, its step locks and SONG lanes go; a PAD with MOD up plays drier.
+ */
+const MOD_GONE_V92: readonly string[] = ['modmix', 'modtype'];
+/** The old FX 2's MOD return (its default, for saves without one): a v80 PAD on it had this chorus. */
+const OLD_MOD_VOL_V81 = 0.3;
+/**
+ * v92: a PAD whose own MOD was up (a v81-v91 save's `modmix`, or a pre-v81 PAD on the old FX 2:
+ * its send x that bus's MOD return) keeps a chorus through FX 2's first MOD slot instead: the
+ * track's level into it (where it sends nothing there yet) is set so the slot returns about as
+ * much (MOD / the slot's VOLUME; a slot at VOLUME 0 is turned up to the MOD). Only a PAD on FX 2.
+ */
+function modV92(p: Project, data: Obj, version: number): void {
+  const channels = Array.isArray(data.channels) ? data.channels : [];
+  const oldFx2 = version >= 41 && version < 81 && Array.isArray(data.buses) && isObj(data.buses[1]) ? numbers(data.buses[1]) : {};
+  p.channels.forEach((c, i) => {
+    const src = channels[i];
+    if (c.instrument !== 'pad' || c.bus !== 1 || !isObj(src)) return;
+    const pad = isObj(src.sounds) && isObj(src.sounds.pad) ? numbers(src.sounds.pad) : {};
+    const wet = version < 81
+      ? (src.fxSend === 2 ? num(src.sendLevel, 0, 0, 1) * (oldFx2.mod_vol ?? OLD_MOD_VOL_V81) : 0)
+      : num(pad.modmix, 0, 0, 1);
+    if (wet <= 0) return;
+    const bus = p.buses[1];
+    const n = [1, 2, 3, 4].find((k) => FX_FAMILIES[slotFamily(1, k, bus)].name === 'MOD');
+    if (n === undefined) return;
+    const lvl = `lvl${n}` as 'lvl1';
+    if (c[lvl] > 0) return;
+    const vol = bus[`s${n}_vol`] ?? 0;
+    if (vol <= 0) bus[`s${n}_vol`] = wet;
+    c[lvl] = Math.min(1, wet / Math.max(vol, wet));
+  });
+}
 function verbLiveV91(ch: ChannelState): void {
   if (ch.instrument !== 'pluck') return;
   const id = (x: string) => (x === 'macro:space' ? 'dmix' : x);
@@ -1308,12 +1320,6 @@ export function fromStored(data: unknown): Project | null {
     if (isObj(src)) readChannel(src, p.channels[i], version);
   }
   if (version < 80) scaleV80(p, data.chromatic === true);
-  if (version < 82 && p.song.auto) {
-    for (const key in p.song.auto) {
-      const t = parseAutoKey(key);
-      if (t?.kind === 's' && t.id === 'modtype' && p.channels[t.index]?.instrument === 'pad') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, modTypeV82(v)]);
-    }
-  }
   if (Array.isArray(data.ch)) {
     const own = Array.from({ length: NUM_CHANNELS }, (_, i) => {
       const v = (data.ch as unknown[])[i];
@@ -1337,9 +1343,17 @@ export function fromStored(data: unknown): Project | null {
     }
     if (Object.keys(p.song.auto).length === 0) delete p.song.auto;
   }
-  if (version < 81) sendsV81(p, version >= 41 && Array.isArray(data.buses) ? data.buses[1] : undefined);
+  if (version < 92 && p.song.auto) {
+    for (const key in p.song.auto) {
+      const t = parseAutoKey(key);
+      if (t?.kind === 's' && MOD_GONE_V92.includes(t.id) && p.channels[t.index]?.instrument === 'pad') delete p.song.auto[key];
+    }
+    if (Object.keys(p.song.auto).length === 0) delete p.song.auto;
+  }
+  if (version < 81) sendsV81(p);
   if (version < 49) typeGainV49(p);
   if (version < 87) fxV87(p);
+  if (version < 92) modV92(p, data, version);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.
   if (version < 79 && p.song.auto) {

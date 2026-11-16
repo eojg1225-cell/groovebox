@@ -71,7 +71,7 @@ import { DEFAULT_ROLL_RATE, ROLL_DIVS } from '../instruments/drumSpecs';
 import { macroIds, timbreName } from '../instruments/macros';
 import { applyTrim, hiddenSound, trimFor } from '../instruments/trims';
 import { readUserPatch, userPatches } from '../storage/saved';
-import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, KNOB_COUNT, KNOBS_PER_ROW, MODES, PAUSE_ICON, PLAY_ICON, SAVE_ICON, STEP_BUTTONS, STOP_ICON, type Panel } from './Panel';
+import { DESIGN_PAGE_BUTTONS, FX_SEND_BUTTONS, fxKeyName, KNOB_COUNT, KNOBS_PER_ROW, MODES, PAUSE_ICON, PLAY_ICON, SAVE_ICON, STEP_BUTTONS, STOP_ICON, type Panel } from './Panel';
 import type { CopyView, DesignView, FunctionView, LaneCell, LiveView, MenuView, ProjectView, SongStripView } from './views';
 import { STRIP_MAX_BARS, clipAt, clipRows, patternBars, placeClip, rowOfBar, songBars, songClips, type Clip } from './songClips';
 import { CELLS_PER_BAR, parseAutoKey, valueAt } from '../engine/automation';
@@ -3777,7 +3777,7 @@ export class App {
     }
     if (page === 'audioTest') return this.audioTest.lines().map((label) => ({ label }));
     if (page === 'globalRouting') {
-      // What DEFAULT means for each type: FX = DRIVE / CRUSH, FLT = the filter, SPACE = the onboard effects (PAD LOW CUT / MOD, PLUCK delay; drums: AIR).
+      // What DEFAULT means for each type: FX = DRIVE / CRUSH, FLT = the filter, SPACE = the onboard effects (PAD LOW CUT, PLUCK delay; drums: AIR).
       return CHAIN_KINDS.map((k) => device(INSTRUMENTS[k].name, CHAIN_SETTING[k], chainOrders(k)));
     }
     if (page === 'touch') {
@@ -4926,7 +4926,7 @@ export class App {
     const quick = this.func && !this.songGrid && !this.menu && !this.projMenu;
     for (const name of PATTERN_NAMES) this.panel.setButtonText(`pat${name}`, `<small>${quick ? 'QUICK' : 'PATTERN'}</small>${name}`);
     for (let n = 1; n <= FX_SEND_BUTTONS; n++) {
-      const name = n === 4 ? 'LFO' : n === 3 ? 'ARP' : `FX ${n}`;
+      const name = fxKeyName(n);
       // With ALT: FX 1 / FX 2 = the selected track onto that bus; ARP / LFO = on / off.
       this.panel.setButtonText(`fx${n}`, this.func && !this.songGrid && !this.menu ? `${name}<small>${n <= NUM_BUSES ? 'PUT ON' : 'ON/OFF'}</small>` : name);
     }

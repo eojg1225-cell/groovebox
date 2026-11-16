@@ -2494,7 +2494,7 @@ describe('keys doing another job: the screen and the panel say so', () => {
     app.updateFrame(0);
     expect(texts.get('play')).toBe(`${PLAY_ICON}<small>FROM TOP</small>`);
     expect(texts.get('patA')).toBe('<small>QUICK</small>A');
-    expect(texts.get('fx1')).toBe('FX 1<small>PUT ON</small>');
+    expect(texts.get('fx1')).toBe('FX 1<span class="sub">DRUM</span><small>PUT ON</small>');
     expect(texts.get('fx4')).toBe('LFO<small>ON/OFF</small>');
     expect(flags.get('func')?.has('latched')).toBe(false);
     release('func'); // a tap: latched

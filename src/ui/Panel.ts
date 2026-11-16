@@ -36,6 +36,10 @@ export const STEP_BUTTONS = 16;
 export const DESIGN_PAGE_BUTTONS = 3;
 /** FX 1, FX 2, ARP (fx3: the selected track's ARP view) and the LFO (fx4). */
 export const FX_SEND_BUTTONS = 4;
+/** An FX row key's name: FX 1 / FX 2 with what each bus is for (DRUM / SYNTH) under it as large, ARP, LFO. */
+export function fxKeyName(n: number): string {
+  return n === 4 ? 'LFO' : n === 3 ? 'ARP' : `FX ${n}<span class="sub">${n === 1 ? 'DRUM' : 'SYNTH'}</span>`;
+}
 /** The project's knobs (beside the page keys) and the selected track's (over modules 5-8). */
 const PROJECT_KNOBS = ['mmaster', 'mtempo'] as const;
 const TRACK_KNOBS = ['mlvl1', 'mlvl2', 'mlvl3', 'mlvl4'] as const;
@@ -143,7 +147,7 @@ export class Panel implements ControlSurface {
     right.appendChild(this.makeButton('undo', 'UNDO', 'btn side'));
     right.appendChild(this.makeButton('clear', 'CLEAR<small>HOLD</small>', 'btn side'));
     right.appendChild(this.makeButton('copy', 'COPY<small>HOLD</small>', 'btn side'));
-    for (const i of [3, 4, 2, 1]) right.appendChild(this.makeButton(`fx${i}`, i === 4 ? 'LFO' : i === 3 ? 'ARP' : `FX ${i}`, 'btn side fxsend'));
+    for (const i of [3, 4, 2, 1]) right.appendChild(this.makeButton(`fx${i}`, fxKeyName(i), 'btn side fxsend'));
 
     // Knob modules, one per track, separated by grooves like a hardware front panel; the
     // track's channel button sits between its two knobs, MUTE left of it, SOLO right.
