@@ -68,7 +68,9 @@ const SYNTH_PARAMS: readonly ParamSpec[] = [
   { id: 'bend', name: 'BEND', min: -24, max: 24, defaultValue: 0, unit: 'ST', curve: 'linear', decimals: 1 },
   { id: 'bendtime', name: 'BEND TIME', min: 0.005, max: 2, defaultValue: 0.08, unit: 'S', curve: 'exp', decimals: 3 },
   { id: 'drive', name: 'DRIVE', min: 1, max: 100, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
-  { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // CRUSH (v94: two knobs): SAMPLES (`crush`, the sample-rate hold) and BITS (`bits`).
+  { id: 'crush', name: 'SAMPLES', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'bits', name: 'BITS', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   { id: 'level', name: 'LEVEL', min: 0, max: 1.5, defaultValue: 0.7, unit: '', curve: 'linear' },
   // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): every sound equally loud by
   // default, without changing how hard it drives.
@@ -117,9 +119,9 @@ const SHARED_NAMES = { attack: 'ATTACK', decay: 'DECAY', sustain: 'SUSTAIN', rel
  */
 const MORPHED = ['timbre', 'intensity', 'shape', 'fm', 'fmratio', 'fmattack', 'fmdecay', 'detune', 'unison', 'cutoff', 'reso', 'fattack', 'fenv', 'fdecay', 'drive'];
 
-const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'level', 'sustain2', 'release2'];
+const ENVELOPE = ['attack', 'decay', 'attack2', 'decay2', 'sustain', 'release', 'crush', 'bits', 'level', 'sustain2', 'release2'];
 /** One envelope for both oscillators (envlink). */
-const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'level'];
+const SHARED_ENVELOPE = ['attack', 'decay', 'sustain', 'release', 'dratio', 'crush', 'bits', 'level'];
 export const BASS_PARAMS = synthParams([...MORPHED.filter((id) => id !== 'fmratio'), 'fmpair', 'ogain', 'fmcomp', 'sub', 'octave', 'glide', ...SHARED_ENVELOPE, 'duck', 'duckrel', 'midfreq'], { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.06, level: 0.75, midfreq: 350 }, SHARED_NAMES, { shape: 4 });
 /** PAD: held chords that fade in and out quickly (PLUCK is the stab engine). */
 const PAD_DEFAULT_ENVELOPE = { attack: 0.03, attack2: 0.03, decay: 0.6, decay2: 0.6, sustain: 0.85, sustain2: 0.85, release: 0.2, release2: 0.2 };

@@ -738,6 +738,15 @@ function chainV85(p: Project): void {
  * before, 1 the same), so a stored CRUSH becomes its square root and plays as saved (values,
  * step locks, SONG lanes, USER patches).
  */
+/**
+ * v94: CRUSH became two knobs, SAMPLES (`crush`, the sample-rate hold, as stored) and BITS
+ * (`bits`): a save's BITS takes its CRUSH (values, trims, step locks, SONG lanes; USER patches
+ * too), so it plays as saved. In place.
+ */
+export function bitsV94(values: Record<string, number>): void {
+  if (typeof values.crush === 'number' && typeof values.bits !== 'number') values.bits = values.crush;
+}
+
 export function crushV85(v: number): number {
   return v > 0 ? Math.sqrt(v) : 0;
 }
@@ -783,6 +792,7 @@ function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: 
   if (version < 93 && kind === 'pluck') for (const id of DELAY_GONE_V93) delete locks[id];
   if (version < 81) busKeysV81(locks);
   if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
+  if (version < 94) bitsV94(locks);
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
   if (version < 78 && kind === 'pluck') delete locks.intensity;
   if (version < 79 && kind === 'pad') for (const id of FM_IDS_V79) if (locks[id] !== undefined) locks[id] = fmLevelV79(locks[id]);
@@ -811,6 +821,8 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   // v81: the PAD has CRUSH now; a value left in an older save played nothing.
   if (version < 81 && kind === 'pad') sound.crush = 0;
   if (version < 85 && typeof values.crush === 'number') sound.crush = crushV85(sound.crush);
+  // v94: BITS takes CRUSH (stored as if it had been saved, so TIMBRE's value below leaves it).
+  if (version < 94 && typeof values.crush === 'number' && typeof values.bits !== 'number') values.bits = sound.bits = sound.crush;
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   if (version < 77) fmCompV77(kind, sound);
@@ -1094,6 +1106,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if (version < 74) snareV74(kind, sound, trims);
   if ((version < 78 && CARRIER_KINDS_V78.includes(kind)) || (version < 79 && kind === 'pad')) trims = deriveTrims(kind, sound, specs);
   if (version < 85) crushTrimV85(kind, sound, trims);
+  if (version < 94) bitsV94(trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
@@ -1382,6 +1395,14 @@ export function fromStored(data: unknown): Project | null {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind === 's' && t.id === 'crush') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, crushV85(v)]);
+    }
+  }
+  if (version < 94 && p.song.auto) {
+    // A CRUSH lane moves BITS with SAMPLES, as the one knob did.
+    for (const key of Object.keys(p.song.auto)) {
+      const t = parseAutoKey(key);
+      const bits = `s:${t?.index}:bits`;
+      if (t?.kind === 's' && t.id === 'crush' && !p.song.auto[bits]) p.song.auto[bits] = p.song.auto[key].map(([at, v]) => [at, v]);
     }
   }
   if (version < 91 && p.song.auto) {

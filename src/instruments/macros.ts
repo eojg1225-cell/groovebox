@@ -87,7 +87,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       {
         // Dub / jungle: a tuned 808 boom - pure sine, slow drop, no click (RING makes it sing).
         name: '808 BOOM',
-        values: { ogain: 1.141, t_level: 1, t_pitch: 41, t_decay: 0.5, t_sweep: 12, t_stime: 0.06, c_level: 0, c_tone: 1500, c_reso: 0.1, c_len: 0.004, c_noise: 0.2, drive: 1.1, crush: 0 },
+        values: { ogain: 1.141, t_level: 1, t_pitch: 41, t_decay: 0.5, t_sweep: 12, t_stime: 0.06, c_level: 0, c_tone: 1500, c_reso: 0.1, c_len: 0.004, c_noise: 0.2, drive: 1.1, crush: 0, bits: 0 },
         soft: { ogain: 1.196, t_sweep: 4, t_stime: 0.09, drive: 1 },
         // A long, saturated sub drop.
         hard: { ogain: 0.947, t_sweep: 24, t_stime: 0.1, c_level: 0.12, c_tone: 1800, drive: 3 },
@@ -95,20 +95,20 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       {
         // Project 1 (MTHED)'s kick: a long noisy click (the beater and skin of a real kick).
         name: 'VINTAGE',
-        values: { ogain: 0.963, t_level: 0.95, t_pitch: 46, t_decay: 0.5, t_sweep: 30, t_stime: 0.044, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.146, c_noise: 0.72, drive: 1.3, crush: 0 },
+        values: { ogain: 0.963, t_level: 0.95, t_pitch: 46, t_decay: 0.5, t_sweep: 30, t_stime: 0.044, c_level: 0.08, c_tone: 1800, c_reso: 0.2, c_len: 0.146, c_noise: 0.72, drive: 1.3, crush: 0, bits: 0 },
         soft: { ogain: 0.96, t_sweep: 22, t_stime: 0.05, c_level: 0.02, drive: 1 },
         // A pushed tape-machine kick: more drop, more knock.
         hard: { ogain: 0.974, t_sweep: 44, t_stime: 0.038, c_level: 0.3, c_tone: 2600, c_reso: 0.35, drive: 3.5 },
       },
       {
         name: 'PUNCH',
-        values: { ogain: 0.942, t_level: 0.95, t_pitch: 52, t_decay: 0.5, t_sweep: 30, t_stime: 0.03, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0 },
+        values: { ogain: 0.942, t_level: 0.95, t_pitch: 52, t_decay: 0.5, t_sweep: 30, t_stime: 0.03, c_level: 0.35, c_tone: 3800, c_reso: 0.3, c_len: 0.004, c_noise: 0.5, drive: 2, crush: 0, bits: 0 },
         soft: { ogain: 1.025, t_sweep: 10, t_stime: 0.05, c_level: 0.08, c_tone: 2200, drive: 1.2 },
         hard: { ogain: 0.963, t_sweep: 44, t_stime: 0.03, c_level: 0.75, c_tone: 5500, c_reso: 0.5, c_noise: 0.6, drive: 6 },
       },
       {
         name: 'TECHNO',
-        values: { ogain: 0.996, t_level: 0.95, t_pitch: 49, t_decay: 0.5, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0 },
+        values: { ogain: 0.996, t_level: 0.95, t_pitch: 49, t_decay: 0.5, t_sweep: 36, t_stime: 0.022, c_level: 0.5, c_tone: 5000, c_reso: 0.4, c_len: 0.003, c_noise: 0.4, drive: 4.5, crush: 0, bits: 0 },
         soft: { ogain: 1.076, t_sweep: 12, t_stime: 0.04, c_level: 0.08, c_tone: 2500, c_reso: 0.15, drive: 1.3 },
         // Hard house: a tall drop you hear fall (longer than PUNCH's, shorter than PSY DOOF's),
         // a punchy tail, only lightly clipped.
@@ -117,7 +117,7 @@ export const MACROS: Record<SoundKind, MacroDef> = {
       {
         // A laser zap down into a doof; the click fades out as INT rises (psy kicks have none).
         name: 'PSY DOOF',
-        values: { ogain: 0.932, t_level: 1, t_pitch: 58, t_decay: 0.5, t_sweep: 80, t_stime: 0.028, c_level: 0.12, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 16, crush: 0 },
+        values: { ogain: 0.932, t_level: 1, t_pitch: 58, t_decay: 0.5, t_sweep: 80, t_stime: 0.028, c_level: 0.12, c_tone: 9500, c_reso: 0.9, c_len: 0.0015, c_noise: 0.1, drive: 16, crush: 0, bits: 0 },
         soft: { ogain: 0.891, t_sweep: 10, t_stime: 0.06, c_level: 0.2, c_tone: 3000, c_reso: 0.3, drive: 2 },
         // Goa laser: a 7-octave zap from about 7 kHz, slow enough to hear it fall; no click,
         // little drive.
@@ -133,12 +133,12 @@ export const MACROS: Record<SoundKind, MacroDef> = {
     // 2-3 ms (MTL ATK), so stick and body lead. Bodies 170-240 Hz, RIMSHOT / PICCOLO higher.
     anchors: [
       // Jazz rimshot: a woody, high knock with a little wire and a light decay; the rim's crack.
-      { name: 'RIMSHOT', values: { ogain: 0.927, t_level: 0.85, t_pitch: 420, t_sweep: 4, t_stime: 0.012, t_shell: 0.3, c_level: 0.8, c_tone: 2800, c_reso: 0.6, c_len: 0.008, c_noise: 0.3, m_level: 0.45, m_attack: 0.002, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0 }, soft: { ogain: 0.956 } , hard: { ogain: 0.905 } },
+      { name: 'RIMSHOT', values: { ogain: 0.927, t_level: 0.85, t_pitch: 420, t_sweep: 4, t_stime: 0.012, t_shell: 0.3, c_level: 0.8, c_tone: 2800, c_reso: 0.6, c_len: 0.008, c_noise: 0.3, m_level: 0.45, m_attack: 0.002, m_noise: 0.6, m_pitch: 900, m_tone: 3200, m_spread: 0.5, m_mode: 0, m_fm: 0.3, drive: 1.6, crush: 0, bits: 0 }, soft: { ogain: 0.956 } , hard: { ogain: 0.905 } },
       // Dub piccolo: high, tight and ringing.
-      { name: 'PICCOLO', values: { ogain: 1.072, t_level: 0.7, t_pitch: 330, t_sweep: 4, t_stime: 0.012, t_shell: 0.35, c_level: 0.7, c_tone: 3200, c_reso: 0.4, c_len: 0.009, c_noise: 0.4, m_level: 0.7, m_attack: 0.002, m_noise: 0.7, m_pitch: 600, m_tone: 4500, m_spread: 0.8, m_mode: 0, m_fm: 0.3, drive: 1.4, crush: 0 }, soft: { ogain: 1.095 } , hard: { ogain: 1.017 } },
-      { name: 'TIGHT', values: { ogain: 1.153, t_level: 0.6, t_pitch: 220, t_sweep: 5, t_stime: 0.012, t_shell: 0.45, c_level: 0.75, c_tone: 2200, c_reso: 0.45, c_len: 0.01, c_noise: 0.45, m_level: 0.8, m_attack: 0.003, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0 }, soft: { ogain: 1.218 } , hard: { ogain: 1.067 } },
-      { name: 'BREAK', values: { ogain: 1.127, t_level: 0.6, t_pitch: 190, t_sweep: 6, t_stime: 0.012, t_shell: 0.5, c_level: 0.7, c_tone: 1600, c_reso: 0.4, c_len: 0.012, c_noise: 0.5, m_level: 0.9, m_attack: 0.003, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0 }, soft: { ogain: 1.25 } , hard: { ogain: 0.995 } },
-      { name: 'INDUSTRIAL', values: { ogain: 0.906, t_level: 0.7, t_pitch: 170, t_sweep: 9, t_stime: 0.012, t_shell: 0.4, c_level: 0.8, c_tone: 1200, c_reso: 0.5, c_len: 0.01, c_noise: 0.6, m_level: 0.9, m_attack: 0.002, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.5916 }, hard: { ogain: 0.959 }, soft: { ogain: 1.245 } },
+      { name: 'PICCOLO', values: { ogain: 1.072, t_level: 0.7, t_pitch: 330, t_sweep: 4, t_stime: 0.012, t_shell: 0.35, c_level: 0.7, c_tone: 3200, c_reso: 0.4, c_len: 0.009, c_noise: 0.4, m_level: 0.7, m_attack: 0.002, m_noise: 0.7, m_pitch: 600, m_tone: 4500, m_spread: 0.8, m_mode: 0, m_fm: 0.3, drive: 1.4, crush: 0, bits: 0 }, soft: { ogain: 1.095 } , hard: { ogain: 1.017 } },
+      { name: 'TIGHT', values: { ogain: 1.153, t_level: 0.6, t_pitch: 220, t_sweep: 5, t_stime: 0.012, t_shell: 0.45, c_level: 0.75, c_tone: 2200, c_reso: 0.45, c_len: 0.01, c_noise: 0.45, m_level: 0.8, m_attack: 0.003, m_noise: 0.85, m_pitch: 400, m_tone: 3500, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 1.5, crush: 0, bits: 0 }, soft: { ogain: 1.218 } , hard: { ogain: 1.067 } },
+      { name: 'BREAK', values: { ogain: 1.127, t_level: 0.6, t_pitch: 190, t_sweep: 6, t_stime: 0.012, t_shell: 0.5, c_level: 0.7, c_tone: 1600, c_reso: 0.4, c_len: 0.012, c_noise: 0.5, m_level: 0.9, m_attack: 0.003, m_noise: 0.9, m_pitch: 330, m_tone: 1800, m_spread: 1, m_mode: 0, m_fm: 0.3, drive: 2.2, crush: 0, bits: 0 }, soft: { ogain: 1.25 } , hard: { ogain: 0.995 } },
+      { name: 'INDUSTRIAL', values: { ogain: 0.906, t_level: 0.7, t_pitch: 170, t_sweep: 9, t_stime: 0.012, t_shell: 0.4, c_level: 0.8, c_tone: 1200, c_reso: 0.5, c_len: 0.01, c_noise: 0.6, m_level: 0.9, m_attack: 0.002, m_noise: 0.45, m_pitch: 180, m_tone: 600, m_spread: 1, m_mode: 2, m_fm: 0.8, drive: 7, crush: 0.5916, bits: 0.5916 }, hard: { ogain: 0.959 }, soft: { ogain: 1.245 } },
     ],
     excite: [
       { id: 'drive', floor: 1, high: 2 }, { id: 'm_tone', floor: 900, high: 1.5 },
@@ -157,14 +157,14 @@ export const MACROS: Record<SoundKind, MacroDef> = {
         name: 'RIDE',
         values: { m_pref: 1470, h_focus: 0.3,
           ogain: 0.723, m_level: 0.508, m_pitch: 1470, m_spread: 0.72, m_noise: 0.44, m_tone: 3850, m_mode: 0.82, m_fm: 0.396, m_bell: 0.288, h_rattle: 0.36,
-          h_time: 0.0456, h_pitch: 1470, h_tone: 2940, h_noise: 0.212, h_mode: 0.82, h_spread: 0.72, c_level: 0.26, c_tone: 7000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.06, crush: 0,
+          h_time: 0.0456, h_pitch: 1470, h_tone: 2940, h_noise: 0.212, h_mode: 0.82, h_spread: 0.72, c_level: 0.26, c_tone: 7000, c_reso: 0.5, c_len: 0.003, c_noise: 0.3, drive: 1.06, crush: 0, bits: 0,
         }, soft: { ogain: 0.781 },
       },
-      { name: 'HAT', values: { m_pref: 420, h_focus: 0, ogain: 1.515, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.402 }, soft: { ogain: 1.679 } },
+      { name: 'HAT', values: { m_pref: 420, h_focus: 0, ogain: 1.515, m_level: 0.6, m_pitch: 420, m_spread: 1, m_noise: 0.3, m_tone: 8500, m_mode: 0, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.2, c_tone: 9000, c_reso: 0.3, c_len: 0.002, c_noise: 0.6, drive: 1, crush: 0, bits: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.402 }, soft: { ogain: 1.679 } },
       // Splash: a small, bright cymbal - higher and hissier than the crash.
-      { name: 'SPLASH', values: { m_pref: 620, h_focus: 0, ogain: 1.387, m_level: 0.7, m_pitch: 620, m_spread: 1, m_noise: 0.55, m_tone: 7000, m_mode: 0.3, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.25, c_tone: 7000, c_reso: 0.3, c_len: 0.003, c_noise: 0.7, drive: 1.2, crush: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.276 }, soft: { ogain: 1.54 } },
-      { name: 'CRASH', values: { m_pref: 480, h_focus: 0, ogain: 1.306, m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.7, m_tone: 4500, m_mode: 0.5, m_fm: 0.5, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.148 }, soft: { ogain: 1.494 } },
-      { name: 'CHINA', values: { m_pref: 320, h_focus: 0, ogain: 1.119, m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.2236, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.06 }, soft: { ogain: 1.395 } },
+      { name: 'SPLASH', values: { m_pref: 620, h_focus: 0, ogain: 1.387, m_level: 0.7, m_pitch: 620, m_spread: 1, m_noise: 0.55, m_tone: 7000, m_mode: 0.3, m_fm: 0.5, h_time: 0.03, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.25, c_tone: 7000, c_reso: 0.3, c_len: 0.003, c_noise: 0.7, drive: 1.2, crush: 0, bits: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.276 }, soft: { ogain: 1.54 } },
+      { name: 'CRASH', values: { m_pref: 480, h_focus: 0, ogain: 1.306, m_level: 0.7, m_pitch: 480, m_spread: 1, m_noise: 0.7, m_tone: 4500, m_mode: 0.5, m_fm: 0.5, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.3, c_tone: 5000, c_reso: 0.3, c_len: 0.004, c_noise: 0.8, drive: 1.5, crush: 0, bits: 0, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.148 }, soft: { ogain: 1.494 } },
+      { name: 'CHINA', values: { m_pref: 320, h_focus: 0, ogain: 1.119, m_level: 0.75, m_pitch: 320, m_spread: 0.8, m_noise: 0.4, m_tone: 1500, m_mode: 1, m_fm: 0.6, h_time: 0.04, h_pitch: 420, h_tone: 8500, h_noise: 0.3, h_mode: 0, h_spread: 1, c_level: 0.4, c_tone: 3000, c_reso: 0.4, c_len: 0.003, c_noise: 0.5, drive: 4, crush: 0.2236, bits: 0.2236, m_bell: 0, h_rattle: 0 }, hard: { ogain: 1.06 }, soft: { ogain: 1.395 } },
     ],
     excite: [
       { id: 'm_tone', floor: 3500, high: 1.5 }, { id: 'drive', floor: 1, high: 2.5 },

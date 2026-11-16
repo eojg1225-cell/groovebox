@@ -3,7 +3,7 @@
 use crate::kind::SoundKind;
 use crate::params::{Curve, Spec};
 
-pub static KICK_PARAMS: [Spec; 24] = [
+pub static KICK_PARAMS: [Spec; 25] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "t_level", min: 0.0, max: 1.0, default: 0.95, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -22,6 +22,7 @@ pub static KICK_PARAMS: [Spec; 24] = [
     Spec { id: "balance", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "drive", min: 1.0, max: 200.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "ogain", min: 0.05, max: 16.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "rolldiv", min: 0.0, max: 6.0, default: 3.0, curve: Curve::Linear, power: 2.0, options: 7, coarse: true },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 350.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
@@ -29,7 +30,7 @@ pub static KICK_PARAMS: [Spec; 24] = [
     Spec { id: "air", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "airsize", min: 0.0, max: 1.0, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
 ];
-pub static SNARE_PARAMS: [Spec; 34] = [
+pub static SNARE_PARAMS: [Spec; 35] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "t_level", min: 0.0, max: 1.0, default: 0.55, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -58,6 +59,7 @@ pub static SNARE_PARAMS: [Spec; 34] = [
     Spec { id: "balance", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "drive", min: 1.0, max: 200.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "ogain", min: 0.05, max: 16.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "rolldiv", min: 0.0, max: 6.0, default: 3.0, curve: Curve::Linear, power: 2.0, options: 7, coarse: true },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 500.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
@@ -65,7 +67,7 @@ pub static SNARE_PARAMS: [Spec; 34] = [
     Spec { id: "air", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "airsize", min: 0.0, max: 1.0, default: 0.4, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
 ];
-pub static HAT_PARAMS: [Spec; 36] = [
+pub static HAT_PARAMS: [Spec; 37] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "c_level", min: 0.0, max: 1.0, default: 0.2, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -96,6 +98,7 @@ pub static HAT_PARAMS: [Spec; 36] = [
     Spec { id: "balance", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "drive", min: 1.0, max: 200.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "ogain", min: 0.05, max: 16.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "rolldiv", min: 0.0, max: 6.0, default: 3.0, curve: Curve::Linear, power: 2.0, options: 7, coarse: true },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 2000.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
@@ -103,7 +106,7 @@ pub static HAT_PARAMS: [Spec; 36] = [
     Spec { id: "air", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "hairsize", min: 0.0, max: 1.0, default: 0.6, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
 ];
-pub static PERC_PARAMS: [Spec; 30] = [
+pub static PERC_PARAMS: [Spec; 31] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "t_level", min: 0.0, max: 1.0, default: 0.95, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -130,12 +133,13 @@ pub static PERC_PARAMS: [Spec; 30] = [
     Spec { id: "balance", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "drive", min: 1.0, max: 200.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "ogain", min: 0.05, max: 16.0, default: 1.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "rolldiv", min: 0.0, max: 6.0, default: 3.0, curve: Curve::Linear, power: 2.0, options: 7, coarse: true },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 450.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "octave", min: 0.0, max: 8.0, default: 4.0, curve: Curve::Linear, power: 2.0, options: 9, coarse: true },
 ];
-pub static BASS_PARAMS: [Spec; 30] = [
+pub static BASS_PARAMS: [Spec; 31] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 4.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -162,12 +166,13 @@ pub static BASS_PARAMS: [Spec; 30] = [
     Spec { id: "release", min: 0.005, max: 20.0, default: 0.06, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "dratio", min: 0.25, max: 2.0, default: 1.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "level", min: 0.0, max: 1.5, default: 0.75, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "duck", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "duckrel", min: 0.02, max: 1.0, default: 0.2, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 350.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static PAD_PARAMS: [Spec; 36] = [
+pub static PAD_PARAMS: [Spec; 37] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 3.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -194,6 +199,7 @@ pub static PAD_PARAMS: [Spec; 36] = [
     Spec { id: "sustain", min: 0.0, max: 1.0, default: 0.85, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "release", min: 0.005, max: 20.0, default: 0.2, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "level", min: 0.0, max: 1.5, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "sustain2", min: 0.0, max: 1.0, default: 0.85, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "release2", min: 0.005, max: 20.0, default: 0.2, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
@@ -205,7 +211,7 @@ pub static PAD_PARAMS: [Spec; 36] = [
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 500.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "lowcut", min: 20.0, max: 1000.0, default: 20.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static LEAD_PARAMS: [Spec; 32] = [
+pub static LEAD_PARAMS: [Spec; 33] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 4.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -231,6 +237,7 @@ pub static LEAD_PARAMS: [Spec; 32] = [
     Spec { id: "release", min: 0.005, max: 20.0, default: 0.2, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "dratio", min: 0.25, max: 2.0, default: 1.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "level", min: 0.0, max: 1.5, default: 0.55, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "vibrato", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "vibrate", min: 1.0, max: 12.0, default: 5.5, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
@@ -239,7 +246,7 @@ pub static LEAD_PARAMS: [Spec; 32] = [
     Spec { id: "bendtime", min: 0.005, max: 2.0, default: 0.08, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 1000.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static PLUCK_PARAMS: [Spec; 27] = [
+pub static PLUCK_PARAMS: [Spec; 28] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 3.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -265,6 +272,7 @@ pub static PLUCK_PARAMS: [Spec; 27] = [
     Spec { id: "release", min: 0.005, max: 20.0, default: 0.08, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "dratio", min: 0.25, max: 2.0, default: 1.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
+    Spec { id: "bits", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "level", min: 0.0, max: 1.5, default: 0.55, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 800.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
@@ -388,13 +396,13 @@ pub type Macro = (&'static str, &'static [(&'static str, f64, bool)]);
 /// LIVE_MACROS per type.
 pub fn live_macros(kind: SoundKind) -> &'static [Macro] {
     match kind {
-        SoundKind::Kick => &[("macro:attack", &[("t_attack", 1.0, false), ("c_attack", 1.0, false)]), ("macro:decay", &[("t_decay", 1.0, false), ("c_len", 0.5, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true)]), ("macro:air", &[("air", 1.0, false), ("airsize", 1.0, false)]), ("macro:punch", &[("t_sweep", 1.0, false), ("balance", 1.0, false), ("drive", 1.0, false)]), ("macro:tune", &[("t_pitch", 1.0, false)])],
-        SoundKind::Snare => &[("macro:snap", &[("balance", 1.0, false), ("m_tone", 1.0, false)]), ("macro:decay", &[("t_decay", 1.0, false), ("m_decay", 1.0, false)]), ("macro:attack", &[("t_attack", 1.0, false), ("m_attack", 1.0, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true)]), ("macro:air", &[("air", 1.0, false), ("airsize", 1.0, false)]), ("macro:tune", &[("t_pitch", 1.0, false), ("m_pitch", 1.0, false)])],
-        SoundKind::Hat => &[("macro:bright", &[("m_tone", 1.0, false), ("c_tone", 1.0, false), ("m_noise", 1.0, false)]), ("macro:decay", &[("m_decay", 1.0, false), ("c_len", 0.5, false)]), ("macro:attack", &[("c_attack", 1.0, false), ("m_attack", 1.0, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true)])],
-        SoundKind::Perc => &[("macro:knock", &[("balance", 1.0, false), ("c_noise", 1.0, false)]), ("macro:decay", &[("t_decay", 1.0, false), ("c_len", 0.5, false)]), ("macro:attack", &[("t_attack", 1.0, false), ("c_attack", 1.0, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true)])],
-        SoundKind::Bass => &[("macro:env", &[("fenv", 1.0, false), ("fdecay", 0.5, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true)])],
+        SoundKind::Kick => &[("macro:attack", &[("t_attack", 1.0, false), ("c_attack", 1.0, false)]), ("macro:decay", &[("t_decay", 1.0, false), ("c_len", 0.5, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true), ("bits", 1.0, true)]), ("macro:air", &[("air", 1.0, false), ("airsize", 1.0, false)]), ("macro:punch", &[("t_sweep", 1.0, false), ("balance", 1.0, false), ("drive", 1.0, false)]), ("macro:tune", &[("t_pitch", 1.0, false)])],
+        SoundKind::Snare => &[("macro:snap", &[("balance", 1.0, false), ("m_tone", 1.0, false)]), ("macro:decay", &[("t_decay", 1.0, false), ("m_decay", 1.0, false)]), ("macro:attack", &[("t_attack", 1.0, false), ("m_attack", 1.0, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true), ("bits", 1.0, true)]), ("macro:air", &[("air", 1.0, false), ("airsize", 1.0, false)]), ("macro:tune", &[("t_pitch", 1.0, false), ("m_pitch", 1.0, false)])],
+        SoundKind::Hat => &[("macro:bright", &[("m_tone", 1.0, false), ("c_tone", 1.0, false), ("m_noise", 1.0, false)]), ("macro:decay", &[("m_decay", 1.0, false), ("c_len", 0.5, false)]), ("macro:attack", &[("c_attack", 1.0, false), ("m_attack", 1.0, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true), ("bits", 1.0, true)])],
+        SoundKind::Perc => &[("macro:knock", &[("balance", 1.0, false), ("c_noise", 1.0, false)]), ("macro:decay", &[("t_decay", 1.0, false), ("c_len", 0.5, false)]), ("macro:attack", &[("t_attack", 1.0, false), ("c_attack", 1.0, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true), ("bits", 1.0, true)])],
+        SoundKind::Bass => &[("macro:env", &[("fenv", 1.0, false), ("fdecay", 0.5, false)]), ("macro:grit", &[("drive", 1.0, false), ("crush", 1.0, true), ("bits", 1.0, true)])],
         SoundKind::Pad => &[("macro:length", &[("decay", 1.0, false), ("decay2", 1.0, false), ("release", 1.0, false), ("release2", 1.0, false)]), ("macro:swell", &[("attack", 1.0, false), ("attack2", 1.0, false), ("release", 1.0, false), ("release2", 1.0, false)]), ("macro:width", &[("detune", 1.0, false), ("unison", 1.0, false)])],
-        SoundKind::Lead => &[("macro:grit", &[("drive", 1.0, false), ("fm", 1.0, false), ("crush", 1.0, true)]), ("macro:length", &[("decay", 1.0, false), ("release", 1.0, false), ("fdecay", 1.0, false)])],
+        SoundKind::Lead => &[("macro:grit", &[("drive", 1.0, false), ("fm", 1.0, false), ("crush", 1.0, true), ("bits", 1.0, true)]), ("macro:length", &[("decay", 1.0, false), ("release", 1.0, false), ("fdecay", 1.0, false)])],
         SoundKind::Pluck => &[("macro:length", &[("decay", 1.0, false), ("release", 1.0, false), ("fdecay", 1.0, false)]), ("macro:bite", &[("fenv", 1.0, false), ("drive", 1.0, false), ("fm", 1.0, false)]), ("macro:sustain", &[("attack", 1.0, false), ("decay", 1.0, false), ("sustain", 1.0, false), ("fdecay", 1.0, false)])],
     }
 }

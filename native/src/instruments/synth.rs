@@ -54,12 +54,12 @@ const POST_IDLE_SECONDS: f64 = 5.0;
 const LEGACY_WAVE_TO_SHAPE: [f64; 4] = [2.0, 3.0, 1.0, 0.0];
 
 /// Every synth parameter with its default, in synthSpecs.ts SYNTH_PARAMS' order.
-const ALL: [(&str, f64); 49] = [
+const ALL: [(&str, f64); 50] = [
     ("timbre", 0.33), ("intensity", 0.5), ("shape", 2.0), ("fm", 0.0), ("fm2", 0.0), ("fmratio", 2.0), ("cratio", 1.0),
     ("detune", 0.0), ("sub", 0.0), ("unison", 0.0), ("ratio2", 1.0), ("ratio3", 1.0), ("feedback", 0.0), ("cfeedback", 0.0),
     ("carriers", 0.35), ("octave", 4.0), ("voice", 0.0), ("glide", SLIDE_SECONDS), ("cutoff", 1200.0), ("reso", 0.3),
     ("fenv", 0.4), ("fattack", 0.0005), ("fdecay", 0.3), ("fmattack", 0.0005), ("fmdecay", 0.3), ("vibrato", 0.0),
-    ("vibrate", 5.5), ("vibdelay", 0.3), ("bend", 0.0), ("bendtime", 0.08), ("drive", 1.0), ("crush", 0.0), ("level", 0.7),
+    ("vibrate", 5.5), ("vibdelay", 0.3), ("bend", 0.0), ("bendtime", 0.08), ("drive", 1.0), ("crush", 0.0), ("bits", 0.0), ("level", 0.7),
     ("ogain", 1.0), ("fmcomp", 0.0), ("fmpair", 0.0), ("attack", 0.003), ("decay", 0.4), ("attack2", 0.003), ("decay2", 0.4),
     ("sustain", 0.5), ("release", 0.15), ("sustain2", 0.5), ("release2", 0.15), ("dratio", 1.0), ("duck", 0.0),
     ("duckrel", 0.2), ("midfreq", 1000.0), ("lowcut", 20.0),
@@ -81,14 +81,14 @@ fn fixed(kind: SoundKind) -> &'static [(&'static str, f64)] {
 /// Each type's parameters (knob order) and their own defaults (synthSpecs.ts BASS_PARAMS ...).
 pub fn type_params(kind: SoundKind) -> Vec<(&'static str, f64)> {
     let no_ratio: Vec<&str> = MORPHED.iter().copied().filter(|id| *id != "fmratio").collect();
-    let shared = ["attack", "decay", "sustain", "release", "dratio", "crush", "level"];
+    let shared = ["attack", "decay", "sustain", "release", "dratio", "crush", "bits", "level"];
     let (ids, own): (Vec<&'static str>, &[(&str, f64)]) = match kind {
         SoundKind::Bass => (
             [&no_ratio[..], &["fmpair", "ogain", "fmcomp", "sub", "octave", "glide"], &shared, &["duck", "duckrel", "midfreq"]].concat(),
             &[("attack", 0.002), ("decay", 0.6), ("sustain", 0.6), ("release", 0.06), ("level", 0.75), ("midfreq", 350.0)],
         ),
         SoundKind::Pad => (
-            [&MORPHED[..], &["fm2", "ogain", "octave", "glide", "attack", "decay", "attack2", "decay2", "sustain", "release", "crush", "level", "sustain2", "release2", "ratio2", "ratio3", "feedback", "carriers", "cfeedback", "midfreq", "lowcut"]].concat(),
+            [&MORPHED[..], &["fm2", "ogain", "octave", "glide", "attack", "decay", "attack2", "decay2", "sustain", "release", "crush", "bits", "level", "sustain2", "release2", "ratio2", "ratio3", "feedback", "carriers", "cfeedback", "midfreq", "lowcut"]].concat(),
             &[("attack", 0.03), ("attack2", 0.03), ("decay", 0.6), ("decay2", 0.6), ("sustain", 0.85), ("sustain2", 0.85), ("release", 0.2), ("release2", 0.2), ("level", 0.5), ("detune", 0.25), ("midfreq", 500.0)],
         ),
         SoundKind::Lead => (
@@ -356,7 +356,8 @@ pub struct Synth {
     fm_decay_mul: f64, fm_attack_inc: f64,
     fm_decay_ring_mul: f64, fdecay_ring_mul: f64,
     filter_mod: f64,
-    drive: f64, crush: f64, level: f64, drive_comp: f64,
+    /// CRUSH: SAMPLES (`crush`, the hold's rate) and BITS (`bits`, v94).
+    drive: f64, crush: f64, bits: f64, level: f64, drive_comp: f64,
     crush_phase: f64, held: f64,
     filter_pos: i32,
     last_voice: Option<usize>,
@@ -422,7 +423,7 @@ impl Synth {
             fm_decay_mul: 0.0, fm_attack_inc: 0.0,
             fm_decay_ring_mul: 0.0, fdecay_ring_mul: 0.0,
             filter_mod: 0.0,
-            drive: 1.0, crush: 0.0, level: 0.7, drive_comp: 1.0,
+            drive: 1.0, crush: 0.0, bits: 0.0, level: 0.7, drive_comp: 1.0,
             crush_phase: 1.0, held: 0.0,
             filter_pos: 0,
             last_voice: None,
@@ -645,6 +646,7 @@ impl Synth {
             "fmattack" => self.fm_attack_inc = if value <= 0.0006 { 0.0 } else { 1.0 / (value * sr) },
             "drive" => { self.drive = value; self.drive_comp = drive_comp_gain(self.rise, value); }
             "crush" => self.crush = value,
+            "bits" => self.bits = value,
             "level" => self.level = value,
             "ogain" => self.o_gain = value,
             "fmpair" => {
@@ -832,12 +834,17 @@ impl Synth {
         self.dc_yr = if yr.abs() < 1e-15 { 0.0 } else { yr };
     }
 
+    /// CRUSH on: SAMPLES or BITS turned up.
+    fn crushing(&self) -> bool {
+        self.crush > 0.0 || self.bits > 0.0
+    }
+
     fn render_crush(&mut self, out_l: &mut [f32], out_r: &mut [f32], start: usize, end: usize) {
-        if self.crush <= 0.0 {
+        if !self.crushing() {
             return;
         }
         let step = crush_step(self.crush);
-        let levels = crush_levels(self.crush);
+        let levels = crush_levels(self.bits);
         for i in start..end {
             self.crush_phase += step;
             if self.crush_phase >= 1.0 {
@@ -1193,9 +1200,9 @@ impl Synth {
         let (sr, vel_k, level, drive, drive_comp) = (self.sr, self.vel_k, self.level, self.drive, self.drive_comp);
         let fx_first = self.filter_pos > 0;
         let filtered = self.filter_pos < 2;
-        let crush = fx_first && self.crush > 0.0;
+        let crush = fx_first && self.crushing();
         let c_step = if crush { crush_step(self.crush) } else { 0.0 };
-        let c_levels = if crush { crush_levels(self.crush) } else { 1.0 };
+        let c_levels = if crush { crush_levels(self.bits) } else { 1.0 };
         let b = &*self.b;
         for (j, i) in (from..to).enumerate() {
             let o1 = b.o1[j] + b.sub[j];

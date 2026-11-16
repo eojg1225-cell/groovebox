@@ -77,7 +77,9 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   // Whole drum: these sit on top of TIMBRE / INTENSITY (the macros never move BALANCE).
   { id: 'balance', name: 'BALANCE', min: 0, max: 1, defaultValue: 0.5, unit: '', curve: 'linear' },
   { id: 'drive', name: 'DRIVE', min: 1, max: 200, defaultValue: 1, unit: 'X', curve: 'exp', decimals: 1 },
-  { id: 'crush', name: 'CRUSH', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  // CRUSH (v94: two knobs): SAMPLES (`crush`, the sample-rate hold) and BITS (`bits`).
+  { id: 'crush', name: 'SAMPLES', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
+  { id: 'bits', name: 'BITS', min: 0, max: 1, defaultValue: 0, unit: '', curve: 'linear' },
   // Output gain after DRIVE / CRUSH (set by TIMBRE, no knob): every sound equally loud by default.
   { id: 'ogain', name: 'OUT GAIN', min: 0.05, max: 16, defaultValue: 1, unit: '', curve: 'exp', decimals: 2 },
   // ROLL DIV: how fast a ROLL step repeats (read by the engine; the voice ignores it).
@@ -105,7 +107,7 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 }
 
 /** Controls every drum has (after its layer parameters). */
-const WHOLE = ['balance', 'drive', 'crush', 'ogain', 'rolldiv', 'midfreq', 'octave'];
+const WHOLE = ['balance', 'drive', 'crush', 'bits', 'ogain', 'rolldiv', 'midfreq', 'octave'];
 /** AIR: KICK and SNARE (DrumVoice.air sets each one's EQ); HAT its natural room (AIR SIZE). */
 const AIR = ['air', 'airsize'];
 const HAT_AIR = ['air', 'hairsize'];

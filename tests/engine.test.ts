@@ -212,15 +212,15 @@ describe('instruments', () => {
       ['intensity', 'release', 'track:notes', 'reso', 'fdecay', 'cutoff', 'detune', '-'],
     ]);
     expect(main('pluck')[1][1]).toBe('sustain');
-    // ALT on every type: PRESET / ACC/GHOST, LIVE 1-4 on 5 / 6, DRIVE (7) and CRUSH (8) on top.
+    // ALT on every type: PRESET / ACC/GHOST, LIVE 1-4 on 5 / 6, DRIVE (7 top), CRUSH's BITS / SAMPLES (8).
     for (const k of SOUND_KINDS) {
       const [t, b] = alt(k);
-      expect([t[0], b[0], t[4], b[4], t[5], b[5], t[6], t[7]], k).toEqual(['track:preset', 'mix:dyn', 'track:live1', 'track:live2', 'track:live3', 'track:live4', 'drive', 'crush']);
+      expect([t[0], b[0], t[4], b[4], t[5], b[5], t[6], t[7], b[7]], k).toEqual(['track:preset', 'mix:dyn', 'track:live1', 'track:live2', 'track:live3', 'track:live4', 'drive', 'bits', 'crush']);
       expect([...INSTRUMENTS[k].layout, ...INSTRUMENTS[k].funcLayout], k).not.toContain('midfreq'); // on MIX > ALT
     }
     expect(alt('bass')).toEqual([
-      ['track:preset', 'sustain', 'duck', 'fmpair', 'track:live1', 'track:live3', 'drive', 'crush'],
-      ['mix:dyn', 'release', 'duckrel', '-', 'track:live2', 'track:live4', '-', '-'],
+      ['track:preset', 'sustain', 'duck', 'fmpair', 'track:live1', 'track:live3', 'drive', 'bits'],
+      ['mix:dyn', 'release', 'duckrel', '-', 'track:live2', 'track:live4', '-', 'crush'],
     ]);
     expect(alt('lead')[1].slice(1, 7)).toEqual(['release', 'vibrate', 'vibdelay', 'track:live2', 'track:live4', 'bendtime']);
     expect(alt('pad')[0].slice(1, 4)).toEqual(['decay', 'attack2', 'fmattack']);
@@ -4684,6 +4684,43 @@ describe('v47: KICK VINTAGE, TECHNO, PSY DOOF redone', () => {
     // The new VINTAGE is that kick, so its click trims all but vanish.
     expect(Math.abs(back.trims.kick!.c_len ?? 0)).toBeLessThan(0.01);
     expect(Math.abs(back.trims.kick!.c_noise ?? 0)).toBeLessThan(0.01);
+  });
+});
+
+describe('v94: CRUSH = BITS + SAMPLES', () => {
+  it('a save\'s BITS takes its CRUSH (values, trims, locks, SONG lanes): it plays as saved', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 93;
+    stored.channels[4].sounds.bass.crush = 0.6;
+    delete stored.channels[4].sounds.bass.bits; // a v93 save has no BITS
+    stored.channels[4].trims = { bass: { crush: 0.6 } };
+    stored.channels[4].patterns[0].steps = [{ i: 0, n: 45, l: { crush: 0.3 } }];
+    stored.song = { rows: [{ b: 4, p: [0, 0, 0, 0, 0, 0, 0, 0] }], a: { 's:4:crush': [[0, 0.2], [16, 0.8]] } };
+    const back = fromStored(stored)!;
+    expect([back.channels[4].sounds.bass!.crush, back.channels[4].sounds.bass!.bits]).toEqual([0.6, 0.6]);
+    expect(back.channels[4].patterns[0].steps[0].locks).toEqual({ crush: 0.3, bits: 0.3 });
+    expect(back.song.auto!['s:4:bits']).toEqual([[0, 0.2], [16, 0.8]]);
+    expect(paramSpec('bass', 'crush')!.name).toBe('SAMPLES');
+    expect(paramSpec('kick', 'bits')!.name).toBe('BITS');
+  });
+  it('BITS alone quantises without holding, SAMPLES alone holds at full depth, both = the old CRUSH', () => {
+    const hit = (values: Record<string, number>) => {
+      const d = new Drum(SR, KICK_PARAMS);
+      const sound: Record<string, number> = { ...presetSound('kick', 0), ...values };
+      for (const id in sound) d.setParam(id, sound[id]);
+      d.noteOn(36, 1);
+      const l = new Float32Array(SR / 4);
+      d.render(l, new Float32Array(SR / 4), 0, l.length);
+      return l;
+    };
+    const dry = hit({ crush: 0, bits: 0 });
+    const bits = hit({ crush: 0, bits: 1 });
+    const samples = hit({ crush: 1, bits: 0 });
+    // BITS: every sample on a 4-bit grid; SAMPLES: steps of 25 samples, near the dry level.
+    expect(new Set(Array.from(bits.subarray(100, 2000)).map((v) => Math.round(v * 16 * 64))).size).toBeLessThan(40);
+    let runs = 0; for (let i = 101; i < 2000; i++) if (samples[i] !== samples[i - 1]) runs++;
+    expect(runs).toBeLessThan(100);
+    expect(bits).not.toEqual(dry);
   });
 });
 

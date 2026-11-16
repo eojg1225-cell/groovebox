@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 93;
+export const PROJECT_VERSION = 94;
 /** The FX buses (buses.ts): FX 1 = the drum processor, FX 2 = the synths' multi FX; a track is on one. */
 export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 8;

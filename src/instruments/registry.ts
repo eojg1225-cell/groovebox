@@ -19,7 +19,7 @@ import {
  * The SOUND page (2026-11 rework): the main layer is the sound itself, the ALT layer the rest of
  * each type's design, then its effects. On every type: main 1 TIMBRE / INT, main 8 top SLIDE
  * (synths) / ROLL RATE (drums); ALT 1 PRESET / ACC/GHOST, ALT 5 / 6 LIVE 1-4 (beside the filter,
- * which has no ALT knobs), ALT 7 DRIVE / the type's own effect, ALT 8 CRUSH. MID FREQ / MID CUT
+ * which has no ALT knobs), ALT 7 DRIVE / the type's own effect, ALT 8 CRUSH: BITS / SAMPLES. MID FREQ / MID CUT
  * are on MIX > ALT. Knob groups (lit grooves, boxes on the screen) come from `soundGroups`.
  *
  * Synths: 1 TIMBRE / INT, 2 the amp envelope (`amp`), 3 FM ATK / FM DEC (PAD / PLUCK: CHORD /
@@ -53,12 +53,12 @@ const _ = null;
 /**
  * An ALT (FUNC) layer: each type's own knobs on modules 2-4 (`two`, `three`, `four`: top /
  * bottom) and ALT 7 bottom (`own`, its effect: LEAD BEND TIME, PAD LOW CUT; BASS / PLUCK
- * none); the same knobs on every type everywhere else (PRESET / ACC/GHOST, LIVE 1-4, DRIVE, CRUSH).
+ * none); the same knobs on every type everywhere else (PRESET / ACC/GHOST, LIVE 1-4, DRIVE, CRUSH as BITS / SAMPLES).
  */
 function altPage(two: readonly (string | null)[], three: readonly (string | null)[], four: readonly (string | null)[], own: string | null = null): (string | null)[] {
   return [
-    'track:preset', two[0], three[0], four[0], 'track:live1', 'track:live3', 'drive', 'crush',
-    'mix:dyn', two[1], three[1], four[1], 'track:live2', 'track:live4', own, null,
+    'track:preset', two[0], three[0], four[0], 'track:live1', 'track:live3', 'drive', 'bits',
+    'mix:dyn', two[1], three[1], four[1], 'track:live2', 'track:live4', own, 'crush',
   ];
 }
 const NONE = [_, _] as const;
@@ -144,7 +144,7 @@ const LENGTH_SYNTH: [string, number][] = [['decay', 1], ['decay2', 1], ['release
 
 /** Drum ATTACK / GRIT: every drum has them (its two elements' attacks; DRIVE, CRUSH on top). */
 const drumAttack = (a1: string, a2: string) => macro('ATTACK', [[a1, 1], [a2, 1]]);
-const GRIT = macro('GRIT', [['drive', 1], ['crush', 1, true]]);
+const GRIT = macro('GRIT', [['drive', 1], ['crush', 1, true], ['bits', 1, true]]);
 /** KICK / SNARE: the room, louder and bigger together. */
 const AIR = macro('AIR', [['air', 1], ['airsize', 1]]);
 
@@ -188,7 +188,7 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('WIDTH', [['detune', 1], ['unison', 1]]),
   ],
   lead: [
-    macro('GRIT', [['drive', 1], ['fm', 1], ['crush', 1, true]]),
+    macro('GRIT', [['drive', 1], ['fm', 1], ['crush', 1, true], ['bits', 1, true]]),
     macro('LENGTH', [['decay', 1], ['release', 1], ['fdecay', 1]]),
   ],
   pluck: [

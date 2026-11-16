@@ -105,18 +105,18 @@ fn voice(kind: SoundKind) -> Voice {
 
 /// Every drum parameter with its default, in drumSpecs.ts ALL's order (the constructor sets them
 /// all, in this order, before the type's own).
-const ALL: [(&str, f64); 47] = [
+const ALL: [(&str, f64); 48] = [
     ("timbre", 0.33), ("intensity", 0.5), ("t_level", 0.0), ("t_pitch", 50.0), ("t_sweep", 24.0), ("t_stime", 0.04),
     ("t_attack", 0.0005), ("t_decay", 0.45), ("t_wave", 0.0), ("c_level", 0.0), ("c_tone", 4000.0), ("c_attack", 0.0005),
     ("c_len", 0.004), ("c_reso", 0.3), ("c_noise", 0.6), ("m_level", 0.0), ("m_pitch", 400.0), ("m_spread", 1.0),
     ("m_noise", 0.3), ("m_tone", 6000.0), ("m_attack", 0.0005), ("m_decay", 0.2), ("m_mode", 0.0), ("m_fm", 0.5),
     ("m_bell", 0.0), ("h_rattle", 0.0), ("h_time", 0.0), ("h_pitch", 420.0), ("t_shell", 0.0), ("m_pref", 420.0),
     ("h_focus", 0.0), ("h_tone", 8500.0), ("h_noise", 0.3), ("h_mode", 0.0), ("h_spread", 1.0), ("m_interval", 12.0),
-    ("detune", 0.0), ("balance", 0.5), ("drive", 1.0), ("crush", 0.0), ("ogain", 1.0), ("rolldiv", 3.0), ("air", 0.0),
+    ("detune", 0.0), ("balance", 0.5), ("drive", 1.0), ("crush", 0.0), ("bits", 0.0), ("ogain", 1.0), ("rolldiv", 3.0), ("air", 0.0),
     ("airsize", 0.4), ("hairsize", 0.6), ("midfreq", 1000.0), ("octave", 4.0),
 ];
 
-const WHOLE: [&str; 7] = ["balance", "drive", "crush", "ogain", "rolldiv", "midfreq", "octave"];
+const WHOLE: [&str; 8] = ["balance", "drive", "crush", "bits", "ogain", "rolldiv", "midfreq", "octave"];
 
 /// Each type's parameters (knob order) and their own defaults (drumSpecs.ts KICK_PARAMS ...).
 pub fn type_params(kind: SoundKind) -> Vec<(&'static str, f64)> {
@@ -179,7 +179,8 @@ pub struct Drum {
     filter: Svf,
     t_level: f64, t_pitch: f64, t_sweep: f64, t_wave: i32,
     c_level: f64, c_tone: f64, c_reso: f64, c_noise: f64,
-    drive: f64, crush: f64, drive_comp: f64,
+    /// CRUSH: SAMPLES (`crush`, the hold's rate) and BITS (`bits`, v94).
+    drive: f64, crush: f64, bits: f64, drive_comp: f64,
     m_level: f64, m_pitch: f64, m_spread: f64, m_noise: f64, m_mode: f64, m_fm: f64,
     fm_c: f64, fm_m: f64,
     m_bell: f64, m_pref: f64, focus: f64, bell_eff: f64, tone_at: f64,
@@ -247,7 +248,7 @@ impl Drum {
             filter: Svf::default(),
             t_level: 0.0, t_pitch: 50.0, t_sweep: 24.0, t_wave: 0,
             c_level: 0.0, c_tone: 4000.0, c_reso: 0.3, c_noise: 0.6,
-            drive: 1.0, crush: 0.0, drive_comp: 1.0,
+            drive: 1.0, crush: 0.0, bits: 0.0, drive_comp: 1.0,
             m_level: 0.0, m_pitch: 400.0, m_spread: 1.0, m_noise: 0.3, m_mode: 0.0, m_fm: 0.5,
             fm_c: 0.0, fm_m: 0.0,
             m_bell: 0.0, m_pref: 0.0, focus: 0.0, bell_eff: 0.0, tone_at: 1.0,
@@ -458,6 +459,7 @@ impl Drum {
             }
             "drive" => { self.drive = v; self.drive_comp = self.voice.rise.map_or(1.0, |r| drive_comp_gain(r, v)); }
             "crush" => self.crush = v,
+            "bits" => self.bits = v,
             "ogain" => self.o_gain = v,
             "air" => self.air_target = v * v * AIR_GAIN * self.voice.air.map_or(0.0, |a| a.2),
             "airsize" | "hairsize" => if let Some(room) = &mut self.room { room.set_tail(v); },
@@ -526,7 +528,7 @@ impl Drum {
     /// SPACE > FX: DRIVE then CRUSH on the chunk (OUT GAIN taken out and put back), added in.
     fn fx_into(&mut self, m: usize, out_l: &mut [f32], out_r: &mut [f32], off: usize) {
         let og = self.o_gain;
-        let (drive, crush) = (self.drive > 1.0, self.crush > 0.0);
+        let (drive, crush) = (self.drive > 1.0, self.crush > 0.0 || self.bits > 0.0);
         if og <= 0.0 || (!drive && !crush) {
             for i in 0..m {
                 js::add_f32(&mut out_l[off + i], self.dry[i] as f64);
@@ -540,7 +542,7 @@ impl Drum {
         }
         let drive_norm = if drive { 1.0 / self.drive.min(3.0).tanh() } else { 1.0 };
         let k = 0.8 * self.drive_comp * drive_norm;
-        let (step, levels) = (crush_step(self.crush), crush_levels(self.crush));
+        let (step, levels) = (crush_step(self.crush), crush_levels(self.bits));
         let inv = 1.0 / og;
         for i in 0..m {
             let mut x = self.dry[i] as f64 * inv;
@@ -665,7 +667,8 @@ impl Drum {
         }
         let dt_base = 1.0 / self.sr;
         let step = crush_step(self.crush);
-        let levels = crush_levels(self.crush);
+        let levels = crush_levels(self.bits);
+        let crushing = self.crush > 0.0 || self.bits > 0.0;
         let drive_norm = if self.drive > 1.0 { 1.0 / self.drive.min(3.0).tanh() } else { 1.0 };
         let t_pitch = self.t_pitch * self.tune * self.pitch_mod;
         let tune = self.tune * self.pitch_mod;
@@ -891,7 +894,7 @@ impl Drum {
             if fx && self.drive > 1.0 {
                 out = tanh(out * self.drive) * drive_norm * 0.8 * self.drive_comp;
             }
-            if fx && self.crush > 0.0 {
+            if fx && crushing {
                 self.crush_phase += step;
                 if self.crush_phase >= 1.0 {
                     self.crush_phase -= 1.0;
