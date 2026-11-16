@@ -18,6 +18,9 @@ const ACCEL_MAX = 6;
 /** Smoothing of the measured speed (ms), so one jumpy event doesn't fling the knob. */
 const SPEED_SMOOTH_MS = 40;
 const DOUBLE_TAP_MS = 300;
+/** A tap (tap knobs): let go within this long, having moved less than TAP_SLOP design px. */
+const TAP_MS = 300;
+const TAP_SLOP = 6;
 const SWEEP_DEG = 270;
 
 export class Knob {
@@ -35,6 +38,9 @@ export class Knob {
   /** Position while dragging, unrounded (so slow movement still adds up). */
   private dragPos = 0;
   private lastTap = -Infinity;
+  /** Tap knobs: when the finger went down and how far it has moved (no turn until past TAP_SLOP). */
+  private downAt = 0;
+  private travel = 0;
 
   /**
    * @param steps resolution: 127 = MIDI-style 0-127 (default).
@@ -48,6 +54,8 @@ export class Knob {
     private readonly onTurn: (id: string, delta: number) => void,
     readonly steps = 127,
     private readonly onTouch: (id: string, down: boolean) => void = () => {},
+    /** A tap job (no double tap to the default then): a quick touch that hardly moves is a tap, not a turn. */
+    private readonly onTap: ((id: string) => void) | null = null,
   ) {
     this.pos = Math.round(defaultNorm * steps);
     const el = document.createElement('div');
@@ -129,13 +137,15 @@ export class Knob {
     e.preventDefault();
     this.onTouch(this.id, true);
     const now = performance.now();
-    if (now - this.lastTap < DOUBLE_TAP_MS) {
+    if (!this.onTap && now - this.lastTap < DOUBLE_TAP_MS) {
       this.lastTap = -Infinity;
       this.moveTo(this.defaultValue * this.steps);
       this.onTouch(this.id, false);
       return;
     }
     this.lastTap = now;
+    this.downAt = now;
+    this.travel = 0;
     this.dragPointer = e.pointerId;
     this.lastY = localY(e);
     this.lastT = e.timeStamp;
@@ -149,8 +159,18 @@ export class Knob {
     if (e.pointerId !== this.dragPointer) return;
     e.preventDefault();
     const y = localY(e);
-    const dy = this.lastY - y;
+    let dy = this.lastY - y;
     const dt = Math.max(1, e.timeStamp - this.lastT);
+    if (this.onTap && this.travel < TAP_SLOP) {
+      // A tap knob turns only once the finger has clearly moved (a tap must not nudge it).
+      this.travel += Math.abs(dy);
+      if (this.travel < TAP_SLOP) {
+        this.lastY = y;
+        this.lastT = e.timeStamp;
+        return;
+      }
+      dy = Math.sign(dy) * (this.travel - TAP_SLOP);
+    }
     this.lastY = y;
     this.lastT = e.timeStamp;
     const k = Math.min(1, dt / SPEED_SMOOTH_MS);
@@ -165,7 +185,9 @@ export class Knob {
 
   private onUp(e: PointerEvent): void {
     if (e.pointerId !== this.dragPointer) return;
+    const tapped = this.onTap && e.type === 'pointerup' && this.travel < TAP_SLOP && performance.now() - this.downAt < TAP_MS;
     this.release();
+    if (tapped) this.onTap!(this.id);
   }
 
   /** Let go of the knob (finger up, or the panel letting go of everything). */

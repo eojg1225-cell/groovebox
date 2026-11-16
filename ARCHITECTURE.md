@@ -71,7 +71,7 @@ Main -> worklet:
 | `release` | `channel`, `note` | Release a live note (the played root); ends a live-recorded note's length |
 | `setSound` | `channel`, `id`, `value`, `pattern?` | Instrument parameter (real units) in that pattern's patch |
 | `setOffset` | `channel`, `id`, `value` | A relative live knob (macro or sound param, -1..1, 0 = centred); the engine sums each knob's push per param (`liveTargets` / `liveContribution` in the registry) on top of the base or locked value |
-| `setMix` | `channel`, `id` (`volume` `pan` `mute` `dyn` `gate` `cut` `ring` `lvl1`-`lvl4`), `value` | Track mixer (`lvl1`-`lvl4` = the track's level into each slot of its bus: on FX 1 COMP MIX, two sends, FILTER MIX; on FX 2 four sends; `gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
+| `setMix` | `channel`, `id` (`volume` `pan` `mute` `dyn` `gate` `cut` `ring` `lvl1`-`lvl4` `fxmute`), `value` | Track mixer (`lvl1`-`lvl4` = the track's level into each slot of its bus: on FX 1 COMP MIX, two sends, FILTER MIX; on FX 2 four sends; `fxmute` = which of them are muted, bit k = slot k + 1, their levels kept; `gate` = TRIM, `ring` = RING (drums: RING steps ring x this), `cut` = MID CUT, `dyn` = ACC/GHOST; `mute` = no new sequenced notes, sounding ones play out) |
 | `setGlobal` | `id` (`bpm` `swing` `master` `meter`), `value` | Project-wide settings; `meter` changes at the next bar line |
 | `setListenLatency` | `ms` | How late the player hears the engine: live recording lands where heard |
 | `setRouting` | `channel`, `bus` | The bus the track is on (0 = FX 1, 1 = FX 2) |

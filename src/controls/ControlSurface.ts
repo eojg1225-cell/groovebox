@@ -15,6 +15,8 @@ export type ControlEvent =
   | { type: 'touch'; id: string }
   /** A touched knob let go (after `touch`; a held knob keeps its job until then). */
   | { type: 'release'; id: string }
+  /** A knob tapped (touched and let go quickly without turning): knobs with a tap job only (the TRACK FX levels: mute). */
+  | { type: 'tap'; id: string }
   | { type: 'button'; id: string; pressed: boolean }
   | { type: 'joystick'; id: string; x: number; y: number }; // -1..1
 

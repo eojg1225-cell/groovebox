@@ -328,6 +328,24 @@ describe('the knobs above the knob panel: MASTER / TEMPO and the track\'s four F
     expect(lead.lvl3).toBe(was);
   });
 
+  it('a tap on a TRACK FX knob mutes / unmutes that send, its level kept; not undone', () => {
+    const { app, emit, tap, sent } = makeApp();
+    tap('ch7'); // LEAD: sends 0.5 into FX 2's first three
+    const lead = app.project.channels[6];
+    emit({ type: 'tap', id: 'mlvl2' });
+    expect(lead.fxMute).toBe(2);
+    expect(lead.lvl2).toBe(0.5); // the level stays
+    expect(sent).toContainEqual({ type: 'setMix', channel: 6, id: 'fxmute', value: 2 });
+    emit({ type: 'tap', id: 'mlvl4' });
+    expect(lead.fxMute).toBe(10);
+    tap('undo'); // not a step back
+    expect(lead.fxMute).toBe(10);
+    emit({ type: 'tap', id: 'mlvl2' });
+    expect(lead.fxMute).toBe(8);
+    emit({ type: 'tap', id: 'mmaster' }); // MASTER / TEMPO have no tap job
+    expect(lead.fxMute).toBe(8);
+  });
+
   it('a free slot\'s TYPE picks from the whole bank; its controls are the loaded effect\'s and go to its defaults with a new family', () => {
     const { app, emit, tap, sent } = makeApp();
     tap('mode:play');

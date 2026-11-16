@@ -284,6 +284,7 @@ impl Engine {
                             "pan" => self.pan[i].set_immediate(v),
                             id => {
                                 if let Some(k) = level_slot(id) {
+                                    let v = self.heard_level(i, k);
                                     self.fx_level[i][k].set_immediate(v);
                                 }
                             }
@@ -1230,7 +1231,18 @@ impl Engine {
         match id {
             "lvl1" | "lvl2" | "lvl3" | "lvl4" => {
                 if let Some(k) = level_slot(id) {
-                    self.fx_level[ch][k].set_target(value.clamp(0.0, 1.0));
+                    self.fx_lvl[ch][k] = value.clamp(0.0, 1.0);
+                    let v = self.heard_level(ch, k);
+                    self.fx_level[ch][k].set_target(v);
+                }
+                return;
+            }
+            "fxmute" => {
+                // A tap on a TRACK FX knob: those sends muted, their levels kept (fades as a turn would).
+                self.fx_mute[ch] = (value.max(0.0) as u8) & 15;
+                for k in 0..SLOTS {
+                    let v = self.heard_level(ch, k);
+                    self.fx_level[ch][k].set_target(v);
                 }
                 return;
             }
@@ -1258,6 +1270,13 @@ impl Engine {
         }
         let v = self.volume_value[ch] as f64;
         self.volume[ch].set_target(v);
+    }
+}
+
+impl Engine {
+    /// Track ch's level into slot k as heard: 0 while that send is muted.
+    pub(super) fn heard_level(&self, ch: usize, k: usize) -> f64 {
+        if self.fx_mute[ch] & (1 << k) != 0 { 0.0 } else { self.fx_lvl[ch][k] }
     }
 }
 

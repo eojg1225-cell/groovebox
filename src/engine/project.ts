@@ -2,7 +2,7 @@
  * Project data model (plain JSON). Shared by UI, worklet and persistence.
  * Keep it stable and documented: the hardware rewrite will read the same format.
  */
-export const PROJECT_VERSION = 89;
+export const PROJECT_VERSION = 90;
 /** The FX buses (buses.ts): FX 1 = the drum processor, FX 2 = the synths' multi FX; a track is on one. */
 export const NUM_CHANNELS = 8;
 export const NUM_PATTERNS = 8;
@@ -326,6 +326,8 @@ export interface ChannelState {
   lvl2: number;
   lvl3: number;
   lvl4: number;
+  /** Which of those sends are muted (bit k = slot k + 1): a tap on its TRACK FX knob; the level stays as set (v90). */
+  fxMute: number;
   /** ACC/GHOST: how far accents and ghosts sit from normal hits, % (100 = as designed). */
   dynamics: number;
   /** TRIM (mix id 'gate'): how long each sequenced note's last step is held, in steps (1/8 .. 2; 1 = as entered). */
@@ -416,6 +418,7 @@ export function emptyChannel(): ChannelState {
     lvl2: 0,
     lvl3: 0,
     lvl4: 0,
+    fxMute: 0,
     dynamics: 100,
     gateLength: 1,
     ringLength: 1,

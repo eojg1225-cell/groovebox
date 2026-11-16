@@ -1540,6 +1540,7 @@ export class App {
       if (!e.id.startsWith('m') && !this.menu && !this.projMenu && !this.songGrid) this.heldKnobs.set(slot, this.rawTargets[slot] ?? null);
       return this.onTouch(slot);
     }
+    if (e.type === 'tap') return this.onKnobTap(e.id);
     if (e.type === 'release') {
       // Let go: the knob takes the job the panel now gives it.
       this.keyFollowers = null;
@@ -3490,6 +3491,22 @@ export class App {
   }
 
   /** A knob above the knob panel: straight onto the project / the selected track (no priming, no audition). */
+  /**
+   * A tap on a TRACK FX knob: the selected track's send into that slot muted / unmuted, its
+   * level kept (set a send up muted, tap it in for a throw). Like MUTE: saved, not undone.
+   */
+  private onKnobTap(id: string): void {
+    const slot = (LEVEL_IDS as readonly string[]).indexOf((TRACK_KNOBS[id] ?? '').slice(MIX_PREFIX.length));
+    const c = this.channel;
+    if (slot < 0 || c.instrument === 'none' || this.menu || this.projMenu) return;
+    c.fxMute ^= 1 << slot;
+    this.send({ type: 'setMix', channel: this.selected, id: 'fxmute', value: c.fxMute });
+    const on = (c.fxMute & (1 << slot)) === 0;
+    this.flash(`${this.kindName(c)} ${slotName(c.bus, slot, this.project.buses[c.bus])} ${on ? 'ON' : 'MUTED'}`);
+    this.save();
+    this.refreshPanel();
+  }
+
   private onTrackKnob(id: string, value: number): void {
     const t = this.trackKnob(id);
     if (!t) return;
@@ -4869,7 +4886,9 @@ export class App {
     }
     for (const id of Object.keys(TRACK_KNOBS)) {
       const t = this.trackKnob(id);
-      this.panel.configureMaster(id, t && { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), colour: this.knobColour(t) });
+      const slot = (LEVEL_IDS as readonly string[]).indexOf(TRACK_KNOBS[id].slice(MIX_PREFIX.length));
+      const muted = slot >= 0 && (this.channel.fxMute & (1 << slot)) !== 0;
+      this.panel.configureMaster(id, t && { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), colour: this.knobColour(t), muted });
     }
     // Under the track's four level knobs: whose they are and the bus they feed.
     this.panel.setTrackBoxLabel(this.channel.instrument === 'none' ? 'TRACK FX' : `${this.kindName(this.channel)}: FX ${this.channel.bus + 1} LEVELS`);

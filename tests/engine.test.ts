@@ -4098,6 +4098,33 @@ describe('FX buses (v41)', () => {
     expect(highs(true)).toBeGreaterThan(highs(false) * 3);
   });
 
+  it('a muted send (a tap on its TRACK FX knob) feeds its effect nothing; its level kept, unmuted it feeds again', () => {
+    const echo = (fxMute: number, live?: number) => {
+      const p = kickProject([0], { bpm: 120 });
+      p.channels[0].bus = 1;
+      noFx(p.channels[0]);
+      p.channels[0].lvl2 = 1;
+      p.channels[0].fxMute = fxMute;
+      onlyBus(p, 1, slot(2, 'PING-PONG', 1, TIME('1/4'), 0));
+      const e = engineWith(p);
+      if (live !== undefined) {
+        e.handleMessage({ type: 'setMix', channel: 0, id: 'fxmute', value: live });
+        render(e, 0.5); // the fade (a 20 ms one-pole) all but done
+      }
+      e.handleMessage({ type: 'transport', playing: true });
+      return stats(render(e, 0.6).l.subarray(24000, 26000)).peak;
+    };
+    expect(echo(0)).toBeGreaterThan(0.01);
+    expect(echo(2)).toBeLessThan(1e-4); // muted as saved
+    expect(echo(0, 2)).toBeLessThan(1e-4); // muted live
+    expect(echo(2, 0)).toBeGreaterThan(0.01); // unmuted: the level as it was
+    expect(echo(1)).toBeGreaterThan(0.01); // another slot's mute: no effect on this one
+    // Saved and read back.
+    const p = createDefaultProject();
+    p.channels[3].fxMute = 5;
+    expect(fromStored(JSON.parse(JSON.stringify(toStored(p))))!.channels[3].fxMute).toBe(5);
+  });
+
   it('a track is on one bus: moved to the other, its levels feed that bus\'s slots', () => {
     const p = kickProject([0], { bpm: 120 });
     noFx(p.channels[0]);

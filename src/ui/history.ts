@@ -49,11 +49,11 @@ interface SnapChannel {
   patterns: { length: number; speed?: PatternSpeed; steps: (Step | number)[]; patch?: Patch }[];
 }
 
-const OWN = new Set(['sounds', 'trims', 'presets', 'patterns', 'mute', 'activePattern']);
+const OWN = new Set(['sounds', 'trims', 'presets', 'patterns', 'mute', 'fxMute', 'activePattern']);
 
 /**
  * The project as a snapshot: the notes, sounds, mix, FX, LFO and song; not which pattern is
- * being edited, MUTE, the project's settings or the saved copies.
+ * being edited, MUTE (tracks' and sends'), the project's settings or the saved copies.
  */
 export function snapshot(project: Project): string {
   const channels: SnapChannel[] = project.channels.map((c) => {
@@ -95,7 +95,7 @@ export function restore(snap: string, now: Project): Project {
   const p: Project = { ...now, bpm: s.bpm, swing: s.swing, master: s.master, meter: s.meter, buses: s.buses, lfo: s.lfo as unknown as Project['lfo'], song: s.song, channels: [] };
   p.channels = s.channels.map((sc, ch) => {
     const cur = now.channels[ch];
-    const c = { ...sc.fields, sounds: sc.sounds, trims: sc.trims, presets: sc.presets, mute: cur.mute, activePattern: cur.activePattern } as ChannelState;
+    const c = { ...sc.fields, sounds: sc.sounds, trims: sc.trims, presets: sc.presets, mute: cur.mute, fxMute: cur.fxMute, activePattern: cur.activePattern } as ChannelState;
     c.patterns = sc.patterns.map((sp, i) => {
       const pat: Pattern = { length: sp.length, steps: sp.steps.map((st) => (typeof st === 'number' ? emptyStep(st) : st)) };
       if (sp.speed) pat.speed = sp.speed;

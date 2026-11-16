@@ -82,6 +82,7 @@ export class Panel implements ControlSurface {
   private readonly knobEmit = (id: string, value: number) => this.emitter.emit({ type: 'knob', id, value });
   private readonly encoderEmit = (id: string, delta: number) => this.emitter.emit({ type: 'encoder', id, delta });
   private readonly touchEmit = (id: string, down: boolean) => this.emitter.emit({ type: down ? 'touch' : 'release', id });
+  private readonly tapEmit = (id: string) => this.emitter.emit({ type: 'tap', id });
 
   private stripSlide = false;
   private zoom = 0;
@@ -206,8 +207,9 @@ export class Panel implements ControlSurface {
     // The MASTER box (VOLUME / TEMPO) beside the page keys and the TRACK FX box (the selected
     // track's four FX levels) over knob modules 5-8: each knob in a module of its own (the
     // name up its left side), the box's name under its knobs.
-    const sideKnob = (id: string, box: HTMLElement) => {
-      const knob = new Knob(id, '', 0.5, this.knobEmit, this.encoderEmit, 127);
+    // The TRACK FX knobs have a tap job (that send muted / unmuted), so no double tap.
+    const sideKnob = (id: string, box: HTMLElement, tap = false) => {
+      const knob = new Knob(id, '', 0.5, this.knobEmit, this.encoderEmit, 127, undefined, tap ? this.tapEmit : null);
       this.masterKnobs.set(id, knob);
       const module = document.createElement('div');
       module.className = 'knob-module';
@@ -215,7 +217,7 @@ export class Panel implements ControlSurface {
       box.insertBefore(module, box.querySelector('.box-label'));
     };
     for (const id of PROJECT_KNOBS) sideKnob(id, q('.project-knobs'));
-    for (const id of TRACK_KNOBS) sideKnob(id, q('.track-knobs'));
+    for (const id of TRACK_KNOBS) sideKnob(id, q('.track-knobs'), true);
 
     this.installKeyboard();
     // Nothing stays held when the app loses focus or goes to the background (the lift that
@@ -271,10 +273,11 @@ export class Panel implements ControlSurface {
   }
 
   /** A knob of the project's or the selected track's (above the knob panel), or null: off. */
-  configureMaster(id: string, slot: { label: string; value: number; defaultValue: number; colour: string } | null): void {
+  configureMaster(id: string, slot: { label: string; value: number; defaultValue: number; colour: string; muted?: boolean } | null): void {
     const k = this.masterKnobs.get(id);
     if (!k) return;
     k.setEnabled(slot !== null);
+    if (k.el.classList.contains('muted') !== !!slot?.muted) k.el.classList.toggle('muted', !!slot?.muted);
     if (!slot) return;
     k.el.style.setProperty('--accent', slot.colour);
     k.setLabel(slot.label);

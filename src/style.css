@@ -336,3 +336,7 @@ html, body {
 }
 /* MASTER / TEMPO and the track's knobs: modules of 144 px, as the knob panel's. */
 .master-knobs > .knob-module { padding: 0; }
+
+/* A TRACK FX send muted (a tap on its knob): its arc in the mute colour, the name struck through. */
+.knob.muted .knob-arc, .knob.muted.changed .knob-arc { stroke: var(--mute); }
+.knob.muted .knob-label { text-decoration: line-through; }

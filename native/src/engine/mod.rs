@@ -442,6 +442,10 @@ pub struct Engine {
     /// four slots (FX 1: COMP MIX, two sends, FILTER MIX; FX 2: four sends).
     bus_of: [u8; NC],
     fx_level: Vec<[Smoother; SLOTS]>,
+    /// Each level as set, and which of the track's sends are muted (bit k = slot k): the
+    /// smoothers above head for the level, or 0 while muted (`heard_level`).
+    fx_lvl: [[f64; SLOTS]; NC],
+    fx_mute: [u8; NC],
     /// The track at its VOLUME / PAN.
     mix_l: [f64; CHUNK],
     mix_r: [f64; CHUNK],
@@ -694,6 +698,8 @@ impl Engine {
             buses: (0..NUM_BUSES).map(|k| FxBus::new(sr, k)).collect(),
             bus_of: [0; NC],
             fx_level: (0..NC).map(|_| std::array::from_fn(|_| Smoother::new(0.0, 0.02, sr))).collect(),
+            fx_lvl: [[0.0; SLOTS]; NC],
+            fx_mute: [0; NC],
             mix_l: [0.0; CHUNK],
             mix_r: [0.0; CHUNK],
             kit_on: [false; NC],
@@ -1115,9 +1121,12 @@ impl Engine {
             self.set_mix(ch, "ring", num_or(c, "ringLength", 1.0));
             self.set_mix(ch, "cut", num_or(c, "midCut", 0.0));
             self.bus_of[ch] = (num_or(c, "bus", 0.0) >= 1.0) as u8;
+            self.fx_mute[ch] = (num_or(c, "fxMute", 0.0).max(0.0) as u8) & 15;
             for (k, id) in ["lvl1", "lvl2", "lvl3", "lvl4"].into_iter().enumerate() {
                 let v = num_or(c, id, 0.0).clamp(0.0, 1.0);
-                self.fx_level[ch][k].set_immediate(v);
+                self.fx_lvl[ch][k] = v;
+                let heard = self.heard_level(ch, k);
+                self.fx_level[ch][k].set_immediate(heard);
                 self.set_base(format_args!("m:{ch}:{id}"), v);
             }
             self.volume[ch].set_immediate(volume);

@@ -217,3 +217,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - FLT RES (2026-11-16): the synths' RESO and FX 1 FILTER's RESO are labelled FLT RES, so they read as filter controls.
 - Live knobs (2026-11-16, v88): the top row rides the FX buses' master levels (SNARE / HAT / PERC FX 1's MOD / DELAY / FILTER, the synths FX 2's four slots; KICK keeps INT / DECAY), every synth's CUTOFF on the bottom knob, AIR LVL on the drums' ALT bottom; older projects take these defaults (pushes on knobs that went are dropped). golden.json re-recorded.
 - PLUCK live knobs (2026-11-16, v89): its ALT pair is VOL / SUSTAIN (NOTES to become a design knob); a v88 PLUCK still on SUSTAIN / NOTES takes it.
+- TRACK FX tap-to-mute (2026-11-16, v90): a tap on a TRACK FX knob mutes / unmutes that send with its level kept (for throws), saved, not undone; those knobs only turn once the finger clearly moves and have no double tap.

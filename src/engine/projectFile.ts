@@ -147,6 +147,8 @@ interface StoredChannel {
   /** v87: the FX bus the track is on (0 / 1) and its four levels into that bus's slots. */
   bus?: number;
   lvl?: number[];
+  /** v90: its muted sends (bit k = slot k + 1; missing = none). */
+  fxMute?: number;
   /** Before v87: FX 1 SEND (0-1; before v86 on / off), the send it fed (2 = FX 2) and its level. */
   fx1?: number | boolean;
   fxSend?: number;
@@ -251,6 +253,7 @@ export function toStored(p: Project): StoredProject {
       pan: c.pan,
       bus: c.bus,
       lvl: [c.lvl1, c.lvl2, c.lvl3, c.lvl4],
+      ...(c.fxMute ? { fxMute: c.fxMute } : {}),
       dynamics: c.dynamics,
       gateLength: c.gateLength,
       ringLength: c.ringLength,
@@ -1094,6 +1097,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
     ch.bus = num(src.bus, ch.bus, 0, 1) >= 1 ? 1 : 0;
     const lvl = Array.isArray(src.lvl) ? src.lvl : [];
     LEVEL_IDS.forEach((id, k) => { ch[id] = num(lvl[k], 0, 0, 1); });
+    ch.fxMute = Math.round(num(src.fxMute, 0, 0, 15));
   } else {
     // Before v87 a track was on FX 1 by an amount (v86; before, on / off: on = all of it)
     // and / or fed a send: kept aside for the older migrations, then fxV87 (fromStored).
