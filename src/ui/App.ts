@@ -354,12 +354,17 @@ export class App {
   /** PLAY's page: 0 = SOUND (the live knobs), 1 = MIX (as in DESIGN). PROJECT is DESIGN only. */
   playPage = 0;
   /**
-   * Any mode: RING / SLIDE / ACCENT / GHOST tapped on = placing that flag: the strip shows the steps and a tap
-   * puts it on / takes it off a note (drum lanes: new hits get it too); tapped again = back.
+   * Any mode: placing a flag (ACCENT / GHOST tapped on; RING / SLIDE with AUTO, or with ALT alone):
+   * the strip shows the steps and a tap puts it on / takes it off a note (drum lanes: new hits
+   * get it too); tapped again = back.
    */
   ring = false;
   slideArm = false;
-  /** ALT + RING / SLIDE per track (any mode) = every note plays as a RING / SLIDE (ROLL) note. */
+  /**
+   * RING / SLIDE AUTO per track (any mode; a tap on the key): every note plays as a RING / SLIDE
+   * (ROLL) note, and notes entered meanwhile (step entry, painting, live recording) are written
+   * with the flag, so they keep it once AUTO is off.
+   */
   private readonly forceRing: boolean[] = new Array(NUM_CHANNELS).fill(false);
   private readonly forceSlide: boolean[] = new Array(NUM_CHANNELS).fill(false);
   /** ALT + ACCENT / GHOST per track = every note at that dynamic ('normal' = its own). */
@@ -744,7 +749,9 @@ export class App {
       step.velocity = m.velocity;
       step.accent = m.accent;
       step.gate = m.gate;
-      step.slide = m.slide;
+      // RING / SLIDE AUTO on: recorded notes keep the flag.
+      step.slide = m.slide || this.forceSlide[m.channel];
+      if (this.forceRing[m.channel]) step.ring = true;
     } else {
       step.locks = { ...step.locks, [m.id]: m.value };
     }
@@ -1763,9 +1770,11 @@ export class App {
       return;
     }
     // SONG: the keys that edit a pattern (STEPS, TIME, REST, flag placing, the sound's OCTAVE)
-    // do nothing to it.
+    // do nothing to it (RING / SLIDE AUTO and ALT + ACCENT / GHOST still play every note that way).
     const flag = id === 'ring' || id === 'slide' || id === 'dyn:accent' || id === 'dyn:ghost';
-    if (this.song && (id === 'len' || id === 'speed' || id === 'rest' || (flag && (!this.func || this.songGrid)) || ((id === 'oct-' || id === 'oct+') && this.func))) {
+    const auto = id === 'ring' || id === 'slide';
+    const placingKey = flag && (auto ? this.func : !this.func);
+    if (this.song && (id === 'len' || id === 'speed' || id === 'rest' || (flag && this.songGrid) || placingKey || ((id === 'oct-' || id === 'oct+') && this.func))) {
       if (this.funcHeld) this.funcUsed = true;
       this.flash(SONG_KEEPS);
       this.refreshPanel();
@@ -1837,20 +1846,24 @@ export class App {
       // SAVE PROJECT = name + slot; FUNC + SAVE PROJECT = load another (stopped only).
       if (this.funcHeld) this.funcUsed = true;
       this.openProjectMenu(this.func ? 'load' : 'save');
-    } else if (id === 'slide' && this.func && isDrum(this.channel.instrument)) {
-      // ALT + ROLL on a drum (any mode): held = the track repeats at ROLL RATE (while playing);
-      // a tap (on release) = every note rolls, on / off.
-      if (this.funcHeld) this.funcUsed = true; // not a latching tap
+    } else if (id === 'slide' && !this.func && isDrum(this.channel.instrument)) {
+      // ROLL on a drum (any mode): held = the track repeats at ROLL RATE (while playing);
+      // a tap (on release) = ROLL AUTO on / off (every note rolls, placing ROLL with it).
       const c = this.channel;
       this.rollHeldAt = performance.now();
       this.rollHeldCh = this.selected;
       this.send({ type: 'holdRoll', channel: this.selected, on: true, note: c.instrument === 'none' ? 36 : INSTRUMENTS[c.instrument].baseNote });
-    } else if (flag && this.func) {
-      // ALT + RING / SLIDE / ACCENT / GHOST (any mode): every note on the track plays that way.
+    } else if ((id === 'ring' || id === 'slide') && !this.func) {
+      // RING / SLIDE (any mode): AUTO on / off: every note plays that way, placing it with it.
+      this.toggleAuto(id);
+    } else if (flag && this.func && id !== 'ring' && id !== 'slide') {
+      // ALT + ACCENT / GHOST (any mode): every note on the track plays that way.
       if (this.funcHeld) this.funcUsed = true; // not a latching tap
       this.toggleForce(id);
     } else if (flag) {
-      // Any mode: tap = place this flag on the strip (one at a time), tap again = back.
+      // Any mode: tap = place this flag on the strip (one at a time), tap again = back (ACCENT /
+      // GHOST; ALT + RING / SLIDE: placing only, no AUTO).
+      if (this.funcHeld) this.funcUsed = true; // not a latching tap
       const d: Dynamic = id === 'dyn:accent' ? 'accent' : id === 'dyn:ghost' ? 'ghost' : 'normal';
       const on = id === 'ring' ? !this.ring : id === 'slide' ? !this.slideArm : this.dynamic !== d;
       // Placing opens on the bar step entry is in (the cursor's).
@@ -1994,13 +2007,40 @@ export class App {
     this.flash(`${name} ALL NOTES ${on ? 'ON' : 'OFF'}`);
   }
 
-  /** ROLL let go: the repeats stop; a short press was a tap (every note rolls, on / off). */
+  /** ROLL let go: the repeats stop; a short press was a tap (ROLL AUTO on / off). */
   private releaseRoll(): void {
     const ch = this.rollHeldCh;
     this.rollHeldCh = -1;
     this.send({ type: 'holdRoll', channel: ch, on: false, note: 36 });
-    if (performance.now() - this.rollHeldAt < HOLD_TIMES[deviceSettings.holdTime].ms && ch === this.selected) this.toggleForce('slide');
+    if (performance.now() - this.rollHeldAt < HOLD_TIMES[deviceSettings.holdTime].ms && ch === this.selected) this.toggleAuto('slide');
     this.refreshPanel();
+  }
+
+  /**
+   * RING / SLIDE (ROLL) AUTO on the selected track: every note plays that way, and placing that
+   * flag opens with it (off: placing it ends too). Notes entered while it is on take the flag.
+   */
+  private toggleAuto(id: 'ring' | 'slide'): void {
+    const ch = this.selected;
+    const on = !(id === 'ring' ? this.forceRing[ch] : this.forceSlide[ch]);
+    this.setForce(ch, id === 'ring' ? on : this.forceRing[ch], id === 'slide' ? on : this.forceSlide[ch], this.forceDyn[ch]);
+    if (on && !this.song) {
+      if (!this.placing && this.flagPaintable && this.mode === 'record' && !this.recording) this.viewPage[ch] = Math.floor(this.cursor[ch] / 16);
+      this.ring = id === 'ring';
+      this.slideArm = id === 'slide';
+      this.dynamic = 'normal';
+    } else if (id === 'ring') this.ring = false;
+    else this.slideArm = false;
+    const name = id === 'ring' ? 'RING' : this.slideName;
+    this.flash(`${name} AUTO ${on ? 'ON' : 'OFF'}`);
+  }
+
+  /** New notes on track ch take RING / SLIDE: placing it, or its AUTO on. */
+  private ringNew(ch: number): boolean {
+    return this.ring || this.forceRing[ch];
+  }
+  private slideNew(ch: number): boolean {
+    return this.slideArm || this.forceSlide[ch];
   }
 
   /**
@@ -2560,9 +2600,9 @@ export class App {
         step.active = true;
         step.note = note;
         step.gate = 1;
-        step.ring = this.ring;
+        step.ring = this.ringNew(ch);
         step.rest = false;
-        step.slide = this.slideArm; // ROLL on PERC
+        step.slide = this.slideNew(ch); // ROLL on PERC
         delete step.extra;
         delete step.extraGate;
         setStepDynamic(step, this.dynamic);
@@ -2674,13 +2714,13 @@ export class App {
         step.active = true;
         step.rest = false;
         if (added) {
-          step.ring = this.ring;
-          step.slide = this.slideArm;
+          step.ring = this.ringNew(this.selected);
+          step.slide = this.slideNew(this.selected);
           setStepDynamic(step, this.dynamic);
         } else {
           // Already a hit: the stroke adds the armed flags to it.
-          if (this.ring) step.ring = true;
-          if (this.slideArm) step.slide = true;
+          if (this.ringNew(this.selected)) step.ring = true;
+          if (this.slideNew(this.selected)) step.slide = true;
           if (this.dynamic !== 'normal') setStepDynamic(step, this.dynamic);
         }
         return added;
@@ -4941,8 +4981,8 @@ export class App {
     const kb = this.keyboard;
     this.panel.setButtonLit('func', this.func);
     this.panel.setButtonFlag('func', 'latched', this.funcLatched && !this.funcHeld);
-    // Lit = placing that flag; with ALT = its all-notes effect on the selected track (ALL on
-    // the key = that effect is on).
+    // RING / SLIDE: lit = AUTO on (AUTO on the key), with ALT = placing (PLACE); ACCENT / GHOST:
+    // lit = placing, with ALT = the all-notes effect (ALL on the key = that effect is on).
     const alt = this.func;
     const fch = this.selected;
     const forced: Record<string, boolean> = {
@@ -4952,8 +4992,13 @@ export class App {
     // Synths: SLIDE; drums: ROLL (same button, same step flag).
     const flagNames: Record<string, string> = { ring: 'RING', slide: this.slideName, 'dyn:accent': 'ACCENT', 'dyn:ghost': 'GHOST' };
     for (const id of FLAG_IDS) {
-      this.panel.setButtonLit(id, alt ? forced[id] : armed[id]);
-      this.panel.setButtonText(id, forced[id] || alt ? `${flagNames[id]}<small>ALL</small>` : flagNames[id]);
+      if (id === 'ring' || id === 'slide') {
+        this.panel.setButtonLit(id, alt ? armed[id] : forced[id] || armed[id]);
+        this.panel.setButtonText(id, alt ? `${flagNames[id]}<small>PLACE</small>` : forced[id] ? `${flagNames[id]}<small>AUTO</small>` : flagNames[id]);
+      } else {
+        this.panel.setButtonLit(id, alt ? forced[id] : armed[id]);
+        this.panel.setButtonText(id, forced[id] || alt ? `${flagNames[id]}<small>ALL</small>` : flagNames[id]);
+      }
       this.panel.setButtonEnabled(id, true);
     }
     this.panel.setButtonText('len', `${this.pattern.length}<small>STEPS</small>`);

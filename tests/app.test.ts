@@ -427,24 +427,46 @@ describe('RECORD strip: the same as PLAY', () => {
   });
 });
 
-describe('ALT + flag = every note plays that way, in every mode', () => {
+describe('RING / SLIDE AUTO and ALT + ACCENT / GHOST = every note plays that way, in every mode', () => {
   const lastForce = (sent: MainToWorklet[], ch: number) => [...sent].reverse().find((m) => m.type === 'setForce' && m.channel === ch);
   const alt = (press: (id: string) => void, release: (id: string) => void, id: string) => { press('func'); press(id); release(id); release('func'); };
 
-  it('ALT + SLIDE all notes stays on through the modes and can be turned off anywhere', () => {
-    const { sent, tap, press, release } = makeApp();
+  it('SLIDE AUTO (a plain tap) stays on through the modes and can be turned off anywhere', () => {
+    const { sent, tap, texts } = makeApp();
     tap('mode:play');
     tap('ch7');
-    alt(press, release, 'slide');
+    tap('slide');
     expect(lastForce(sent, 6)).toMatchObject({ slide: true });
+    expect(texts.get('slide')).toBe('SLIDE<small>AUTO</small>');
     const before = sent.length;
     tap('mode:design');
     tap('mode:record');
     expect(sent.slice(before).some((m) => m.type === 'setForce')).toBe(false); // still on
-    alt(press, release, 'slide');
+    tap('slide');
     expect(lastForce(sent, 6)).toMatchObject({ slide: false });
-    alt(press, release, 'ring');
+    tap('ring');
     expect(lastForce(sent, 6)).toMatchObject({ ring: true });
+  });
+
+  it('RING AUTO places RING with it: notes entered while on keep it once AUTO is off; ALT + RING places only', () => {
+    const { app, sent, tap, press, release } = makeApp();
+    tap('mode:record');
+    tap('ch5'); // BASS: step entry on the keys
+    const steps = () => app.project.channels[4].patterns[app.project.channels[4].activePattern].steps;
+    tap('ring'); // AUTO on + placing
+    expect(lastForce(sent, 4)).toMatchObject({ ring: true });
+    tap('ring'); // AUTO off: placing ends, the keys are back
+    tap('slide'); // SLIDE AUTO on ...
+    tap('mode:play');
+    tap('mode:record'); // ... placing ends with the mode, AUTO stays
+    tap('step1'); // a note entered: it takes SLIDE
+    expect(steps()[0]).toMatchObject({ active: true, slide: true });
+    tap('slide'); // AUTO off
+    expect(lastForce(sent, 4)).toMatchObject({ slide: false });
+    expect(steps()[0].slide).toBe(true); // kept
+    const before = sent.length;
+    alt(press, release, 'ring'); // placing only
+    expect(sent.slice(before).some((m) => m.type === 'setForce')).toBe(false);
   });
 
   it('a plain flag tap places the flag in PLAY and DESIGN too (no all-notes effect)', () => {
@@ -2212,15 +2234,13 @@ describe('ARP key', () => {
 });
 
 describe('ROLL held, BAR, STEPS, the TIME SIG ×', () => {
-  it('ALT + ROLL on a drum: held repeats (holdRoll on / off); a quick tap still sets every note rolling', () => {
+  it('ROLL on a drum: held repeats (holdRoll on / off); a quick tap = ROLL AUTO (every note rolls)', () => {
     const { app, press, release, tap, sent } = makeApp();
     tap('mode:play');
     tap('ch1');
-    press('func');
     press('slide');
     expect(sent.some((m) => m.type === 'holdRoll' && m.on)).toBe(true);
     release('slide'); // quick: a tap
-    release('func');
     expect(sent.some((m) => m.type === 'holdRoll' && !m.on)).toBe(true);
     expect((app as unknown as { forceSlide: boolean[] }).forceSlide[0]).toBe(true);
   });
