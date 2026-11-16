@@ -166,11 +166,6 @@ impl Inst {
             Inst::Synth(s) => s.set_chain(o),
         }
     }
-    fn set_tempo(&mut self, bpm: f64) {
-        if let Inst::Synth(s) = self {
-            s.set_tempo(bpm)
-        }
-    }
     fn duck(&mut self) {
         if let Inst::Synth(s) = self {
             s.duck()
@@ -880,7 +875,6 @@ impl Engine {
                         for b in &mut self.buses {
                             b.set_tempo(v);
                         }
-                        self.instrument_tempo();
                     }
                     Some("swing") => self.swing = (v - 50.0) / 50.0,
                     Some("master") => self.master.set_target(v),
@@ -1009,15 +1003,6 @@ impl Engine {
         self.key_buf = k;
     }
 
-    /// Tempo-synced onboard effects (PLUCK's delay) follow the tempo.
-    fn instrument_tempo(&mut self) {
-        let bpm = self.bpm;
-        for set in &mut self.insts {
-            for i in set.iter_mut() {
-                i.set_tempo(bpm);
-            }
-        }
-    }
 
     fn kick_hit(&mut self, ch: usize) {
         if self.current[ch] != Some(SoundKind::Kick) {
@@ -1040,7 +1025,6 @@ impl Engine {
         self.rate_pending = false;
         self.auto_base.clear();
         self.bpm = num_or(p, "bpm", 128.0);
-        self.instrument_tempo();
         let buses = arr(p.get("buses"));
         for k in 0..NUM_BUSES {
             let bpm = self.bpm;

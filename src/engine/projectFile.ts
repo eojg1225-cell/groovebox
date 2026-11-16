@@ -19,9 +19,10 @@ import { macroIds, macroSoundOf, type MacroDef } from '../instruments/macros';
 import { DEFAULT_ROLL_RATE } from '../instruments/drumSpecs';
 import { INSTRUMENTS, LIVE_MACROS, isDrum, SOUND_KINDS, linkedParams, pageParams, presetSound } from '../instruments/registry';
 import { applyTrim, deriveTrims, hiddenSound, pruneTrims, trimFor } from '../instruments/trims';
-import { BUS_PARAMS, FX_BANK, FX_FAMILIES, FX_LIVE, NUM_BUSES, busParam, controlNorm, fxType, slotFamily } from '../fx/buses';
+import { BUS_PARAMS, FX_BANK, FX_DELAY_TIMES, FX_FAMILIES, FX_LIVE, NUM_BUSES, busParam, controlNorm, fxType, slotFamily } from '../fx/buses';
 import { CHORD_NAMES, MAX_CHORD_NOTES } from './chords';
 import { BPM_MAX, BPM_MIN, GATE_MAX, GATE_MIN, LEVEL_IDS, RING_MAX, RING_MIN } from './mixParams';
+import { toValue } from './params';
 import { METERS, chainBefore85, chainOrders, type InstrumentKind, type PatternSpeed } from './project';
 import { LFO_RATES, LFO_RETRIG, LFO_SHAPES, type LfoState } from './lfo';
 
@@ -779,6 +780,7 @@ export function padFmV79(kind: SoundKind, sound: Record<string, number>): void {
 function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: number): void {
   if (version < 91 && VERB_KINDS_V91.includes(kind)) for (const id of VERB_GONE_V91) delete locks[id];
   if (version < 92 && kind === 'pad') for (const id of MOD_GONE_V92) delete locks[id];
+  if (version < 93 && kind === 'pluck') for (const id of DELAY_GONE_V93) delete locks[id];
   if (version < 81) busKeysV81(locks);
   if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
@@ -1011,12 +1013,59 @@ function modV92(p: Project, data: Obj, version: number): void {
     c[lvl] = Math.min(1, wet / Math.max(vol, wet));
   });
 }
+/** v91 / v93: a PLUCK's SPACE (its delay + room) and the delay itself went: its push goes (the knob: the type's live knobs). */
 function verbLiveV91(ch: ChannelState): void {
-  if (ch.instrument !== 'pluck') return;
-  const id = (x: string) => (x === 'macro:space' ? 'dmix' : x);
-  ch.live = [id(ch.live[0]), id(ch.live[1])];
-  ch.liveFunc = [id(ch.liveFunc[0]), id(ch.liveFunc[1])];
-  delete ch.liveOffset['macro:space'];
+  if (ch.instrument === 'pluck') delete ch.liveOffset['macro:space'];
+}
+
+/**
+ * v93: the PLUCK's onboard delay went (FX 2's delays do it): DLY MIX / TIME / FDBK values and
+ * trims drop out with the parameters, their step locks and SONG lanes go. A PLUCK on FX 2 whose
+ * delay was up (`dmix`) gets an FX 2 delay instead (delayV93).
+ */
+const DELAY_GONE_V93: readonly string[] = ['dmix', 'dtime', 'dfdbk'];
+/** The PLUCK's old DLY TIME divisions (index = the stored value). */
+const DLY_TIMES_V93 = ['1/16', '1/8', '3/16', '1/4', '3/8', '1/2', '3/4', '1 BAR'];
+/**
+ * v93: a PLUCK on FX 2 whose own delay was up keeps an echo through an FX 2 delay: one already
+ * at its time; else a slot no FX 2 track sends into, loaded as a TAPE delay at its time and
+ * feedback; else the delay nearest its time. Its level into the slot (where it sends nothing
+ * there yet) is set so the slot returns about as much (DLY MIX / the slot's VOLUME; a slot at
+ * VOLUME 0 is turned up to the DLY MIX).
+ */
+function delayV93(p: Project, data: Obj): void {
+  const channels = Array.isArray(data.channels) ? data.channels : [];
+  const DELAY = FX_FAMILIES.findIndex((f) => f.name === 'DELAY');
+  const rateSpec = FX_FAMILIES[DELAY].a;
+  p.channels.forEach((c, i) => {
+    const src = channels[i];
+    if (c.instrument !== 'pluck' || c.bus !== 1 || !isObj(src)) return;
+    const pluck = isObj(src.sounds) && isObj(src.sounds.pluck) ? numbers(src.sounds.pluck) : {};
+    const wet = num(pluck.dmix, 0, 0, 1);
+    if (wet <= 0) return;
+    const rate = FX_DELAY_TIMES.findIndex((t) => t.name === DLY_TIMES_V93[Math.round(num(pluck.dtime, 2, 0, DLY_TIMES_V93.length - 1))]);
+    const bus = p.buses[1];
+    const slots = [1, 2, 3, 4];
+    const delays = slots.filter((k) => slotFamily(1, k, bus) === DELAY);
+    const rateOf = (k: number) => Math.round(toValue(rateSpec, bus[`s${k}_a`] ?? controlNorm(DELAY, 'a')));
+    const lvlOf = (k: number) => `lvl${k}` as 'lvl1';
+    let n = delays.find((k) => rateOf(k) === rate);
+    if (n === undefined) {
+      n = slots.find((k) => !p.channels.some((o) => o.bus === 1 && o[lvlOf(k)] > 0));
+      if (n !== undefined) {
+        bus[`s${n}_type`] = fxType('TAPE');
+        bus[`s${n}_a`] = controlNorm(DELAY, 'a', rate);
+        bus[`s${n}_b`] = controlNorm(DELAY, 'b', num(pluck.dfdbk, 0.35, 0, 0.95));
+        bus[`s${n}_vol`] = 0;
+      }
+    }
+    const steps = (k: number) => Math.abs(FX_DELAY_TIMES[rateOf(k)].steps - FX_DELAY_TIMES[rate].steps);
+    n ??= [...delays].sort((a, b) => steps(a) - steps(b))[0];
+    if (n === undefined || c[lvlOf(n)] > 0) return;
+    const vol = bus[`s${n}_vol`] ?? 0;
+    if (vol <= 0) bus[`s${n}_vol`] = wet;
+    c[lvlOf(n)] = Math.min(1, wet / Math.max(vol, wet));
+  });
 }
 
 /** v57: ROLL RATE became a note value (1/4 ... 1/64); every older save's drums roll at 1/16. */
@@ -1343,10 +1392,11 @@ export function fromStored(data: unknown): Project | null {
     }
     if (Object.keys(p.song.auto).length === 0) delete p.song.auto;
   }
-  if (version < 92 && p.song.auto) {
+  if (version < 93 && p.song.auto) {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
-      if (t?.kind === 's' && MOD_GONE_V92.includes(t.id) && p.channels[t.index]?.instrument === 'pad') delete p.song.auto[key];
+      const kind = t ? p.channels[t.index]?.instrument : undefined;
+      if (t?.kind === 's' && ((version < 92 && kind === 'pad' && MOD_GONE_V92.includes(t.id)) || (kind === 'pluck' && DELAY_GONE_V93.includes(t.id)))) delete p.song.auto[key];
     }
     if (Object.keys(p.song.auto).length === 0) delete p.song.auto;
   }
@@ -1354,6 +1404,7 @@ export function fromStored(data: unknown): Project | null {
   if (version < 49) typeGainV49(p);
   if (version < 87) fxV87(p);
   if (version < 92) modV92(p, data, version);
+  if (version < 93) delayV93(p, data);
   // v70 / v71: SONG lanes as step locks: a BASS's / LEAD's TIMBRE follows its wave, a PAD's FM
   // LVL, FM LVL2 and FEEDBACK lanes go.
   if (version < 79 && p.song.auto) {

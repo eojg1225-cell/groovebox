@@ -624,7 +624,7 @@ describe('live knobs', () => {
     expect(ids(0).some((id) => id.startsWith('fx3:'))).toBe(false);
     expect(ids(0)).not.toContain('fx1:cmp_ratio');
     expect(ids(5)).toContain('track:chord');
-    expect(ids(7)).toEqual(expect.arrayContaining(['dtime', 'track:chord']));
+    expect(ids(7)).toEqual(expect.arrayContaining(['fmattack', 'track:chord', 'midfreq']));
   });
 });
 

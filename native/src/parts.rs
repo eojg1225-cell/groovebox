@@ -152,7 +152,6 @@ pub extern "C" fn part_do(h: usize, what: u32) {
 #[no_mangle]
 pub extern "C" fn part_set(h: usize, what: u32, v: f64) {
     with(h, |part, _| match (part, what) {
-        (Part::Synth(s), 0) => s.set_tempo(v),
         (Part::Bus(b), 0) => b.set_tempo(v),
         (Part::Drum(d), 1) => d.set_ring_length(v),
         (Part::Drum(d), 2) => d.set_pitch_mod(v),

@@ -239,7 +239,7 @@ pub static LEAD_PARAMS: [Spec; 32] = [
     Spec { id: "bendtime", min: 0.005, max: 2.0, default: 0.08, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 1000.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
-pub static PLUCK_PARAMS: [Spec; 30] = [
+pub static PLUCK_PARAMS: [Spec; 27] = [
     Spec { id: "timbre", min: 0.0, max: 1.0, default: 0.33, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "intensity", min: 0.0, max: 1.0, default: 0.5, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "shape", min: 0.0, max: 3.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
@@ -266,9 +266,6 @@ pub static PLUCK_PARAMS: [Spec; 30] = [
     Spec { id: "dratio", min: 0.25, max: 2.0, default: 1.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "crush", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "level", min: 0.0, max: 1.5, default: 0.55, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "dtime", min: 0.0, max: 7.0, default: 2.0, curve: Curve::Linear, power: 2.0, options: 8, coarse: true },
-    Spec { id: "dfdbk", min: 0.0, max: 0.95, default: 0.35, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
-    Spec { id: "dmix", min: 0.0, max: 1.0, default: 0.0, curve: Curve::Linear, power: 2.0, options: 0, coarse: false },
     Spec { id: "midfreq", min: 150.0, max: 6000.0, default: 800.0, curve: Curve::Exp, power: 2.0, options: 0, coarse: false },
 ];
 

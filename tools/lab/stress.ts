@@ -8,7 +8,7 @@
  *  BASS  FM 2:3, INT 90: the FM pair (sines), DRIVE.
  *  PAD   ETHEREAL: sine waves, UNISON, high FEEDBACK (FM feedback: small differences grow).
  *  LEAD  ODD 2:3: FEEDBACK and CAR FB, DRIVE, on the LFO (its cosine: pitch and filter).
- *  PLUCK RAGE DONK: DRIVE 12, its onboard delay (tanh in the feedback).
+ *  PLUCK RAGE DONK: DRIVE 12.
  *  FX 1  COMP, PHASER (sine-swept, 2^x), TAPE delay (tanh, wow).
  *  FX 2  CHORUS, TAPE delay, SHIMMER verb (sine-windowed).
  *  FX 3  FUZZ (tanh), DUB TAPE at FDBK 0.95, SPRING verb (tanh).
@@ -30,7 +30,7 @@ const TRACKS: Record<SoundKind, TrackSetup> = {
   bass: { anchor: 'FM 2:3', intensity: 0.9, extra: { drive: 3 }, hits: [[0, 0, 2], [2, 0], [3, 12, 1, false, true], [4, 0], [7, 3], [10, 0, 2], [14, 7]] },
   pad: { anchor: 'ETHEREAL', intensity: 0.7, extra: { feedback: 0.9, unison: 1, shape: 0 }, hits: [[0, 0, 16]] },
   lead: { anchor: 'ODD 2:3', intensity: 0.8, extra: { feedback: 0.8, cfeedback: 0.6, drive: 3 }, hits: [[0, 12, 2], [3, 15, 1], [6, 19, 2], [10, 17, 1], [12, 15, 4]] },
-  pluck: { anchor: 'RAGE DONK', intensity: 0.7, extra: { dmix: 0.5, dfdbk: 0.7 }, hits: [[2, 0], [6, 3], [10, 0, 1, true], [13, 7]] },
+  pluck: { anchor: 'RAGE DONK', intensity: 0.7, extra: {}, hits: [[2, 0], [6, 3], [10, 0, 1, true], [13, 7]] },
 };
 
 /** The stress project, and the per-track settings that stay on top of TIMBRE / INT. */

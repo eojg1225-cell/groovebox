@@ -31,7 +31,7 @@ const x = new WebAssembly.Instance(new WebAssembly.Module(fromBase64(ENGINE_WASM
 export const BASS_FIXED = { voice: 1, envlink: 1, squelch: 1, body: 1, cz: 1 };
 export const PAD_FIXED = { voice: 0, sub: 0, algo: 2, cz: 2, sawrise: 1, padfx: 1 };
 export const LEAD_FIXED = { voice: 1, sub: 0, envlink: 1, squelch: 1, body: 1, cz: 1 };
-export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, onboard: 1, cz: 2, align: 0 };
+export const PLUCK_FIXED = { voice: 0, sub: 0, envlink: 1, spaced: 1, cz: 2, align: 0 };
 const FIXED: Partial<Record<SoundKind, Record<string, number>>> = { bass: BASS_FIXED, pad: PAD_FIXED, lead: LEAD_FIXED, pluck: PLUCK_FIXED };
 
 function view(k: number, n: number): Float32Array {

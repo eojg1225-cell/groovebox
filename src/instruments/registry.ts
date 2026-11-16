@@ -52,8 +52,8 @@ function drumPage(elements: readonly string[], pitch: readonly [string, string],
 const _ = null;
 /**
  * An ALT (FUNC) layer: each type's own knobs on modules 2-4 (`two`, `three`, `four`: top /
- * bottom) and ALT 7 bottom (`own`, its effect: BASS none, LEAD BEND TIME, PAD LOW CUT, PLUCK DLY
- * MIX); the same knobs on every type everywhere else (PRESET / ACC/GHOST, LIVE 1-4, DRIVE, CRUSH).
+ * bottom) and ALT 7 bottom (`own`, its effect: LEAD BEND TIME, PAD LOW CUT; BASS / PLUCK
+ * none); the same knobs on every type everywhere else (PRESET / ACC/GHOST, LIVE 1-4, DRIVE, CRUSH).
  */
 function altPage(two: readonly (string | null)[], three: readonly (string | null)[], four: readonly (string | null)[], own: string | null = null): (string | null)[] {
   return [
@@ -71,8 +71,8 @@ const DRUM_FUNC = altPage(NONE, NONE, NONE);
 const BASS_FUNC = altPage(['sustain', 'release'], ['duck', 'duckrel'], ['fmpair', _]);
 /** LEAD ALT: SUSTAIN / RELEASE (2), VIBRATO / VIB RATE (3), FM RATIO / VIB DELAY (4), BEND TIME (7 bottom). */
 const LEAD_FUNC = altPage(['sustain', 'release'], ['vibrato', 'vibrate'], ['fmpair', 'vibdelay'], 'bendtime');
-/** PLUCK ALT: DECAY / RELEASE (2), DLY TIME / DLY FDBK (3), FM ATK / FM DEC (4), DLY MIX (7 bottom). */
-const PLUCK_FUNC = altPage(['decay', 'release'], ['dtime', 'dfdbk'], ['fmattack', 'fmdecay'], 'dmix');
+/** PLUCK ALT: DECAY / RELEASE (2), FM ATK / FM DEC (4); no effect of its own (its delay went in v93: FX 2's). */
+const PLUCK_FUNC = altPage(['decay', 'release'], NONE, ['fmattack', 'fmdecay']);
 /** PAD ALT: DECAY / SUSTAIN (2, both oscillators), OSC 2's own ATTACK / RELEASE (3), FM ATK / FM DEC (4), LOW CUT (7 bottom). */
 const PAD_FUNC = altPage(['decay', 'sustain'], ['attack2', 'release2'], ['fmattack', 'fmdecay'], 'lowcut');
 /** PAD and PLUCK: CHORD / NOTES on module 3 (their FM envelope on ALT 4), SLIDE on 8. */

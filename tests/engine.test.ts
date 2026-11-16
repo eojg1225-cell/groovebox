@@ -24,7 +24,7 @@ import { HALF_STEPS, MACROS, RATIO_STEPS, anchorPosition, macroIds, macroSound }
 import { applyTrim, deriveTrims, hiddenSound, trimFor } from '../src/instruments/trims';
 import { paramSpec } from '../src/instruments/registry';
 import { linkedParams, pageParams, soundGroups, stepsOnStrip } from '../src/instruments/registry';
-import { BUSES, BUS_LAYOUT, FX_BANK, FX_DELAY_TIMES, busKnob, busParam, controlNorm, defaultBus, fxType } from '../src/fx/buses';
+import { BUSES, BUS_LAYOUT, FX_BANK, FX_DELAY_TIMES, FX_FAMILIES, busKnob, busParam, controlNorm, defaultBus, fxType } from '../src/fx/buses';
 
 const SR = 48000;
 /** A note's frequency (A4 = 440 Hz). */
@@ -225,7 +225,7 @@ describe('instruments', () => {
     expect(alt('lead')[1].slice(1, 7)).toEqual(['release', 'vibrate', 'vibdelay', 'track:live2', 'track:live4', 'bendtime']);
     expect(alt('pad')[0].slice(1, 4)).toEqual(['decay', 'attack2', 'fmattack']);
     expect(alt('pad')[1][6]).toBe('lowcut');
-    expect(alt('pluck')[1][6]).toBe('dmix');
+    expect(alt('pluck')[1][6]).toBe('-'); // its delay went (v93)
     expect(alt('snare')[0][1]).toBe('t_sweep');
     expect(alt('hat')[0][3]).toBe('h_focus');
     // Every parameter a knob had before has one still (MID FREQ on MIX > ALT).
@@ -1824,7 +1824,7 @@ describe('PERC track', () => {
     // Drums on FX 1, LEAD on FX 2; no LFO; PLUCK's delay dry (v91: no room).
     expect(p.channels.map((c) => c.bus)).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
     expect(p.channels.every((c) => !c.lfoOn)).toBe(true);
-    expect(p.channels[7].sounds.pluck!.dmix).toBe(0);
+    expect(p.channels[7].sounds.pluck!.dmix).toBeUndefined(); // no onboard delay (v93)
     expect(p.channels[7].sounds.pluck!.verb).toBeUndefined();
   });
 });
@@ -2449,12 +2449,11 @@ describe('FX ROUTING and the CRUSH taper (v85)', () => {
     expect(play(4, 'bass', set, 2)).toEqual(after); // clamped to FX > FLT
   });
 
-  it('PAD / PLUCK: FX > SPACE > FLT filters the delay too', () => {
-    const set = { cutoff: 400, reso: 0, fenv: 0, dmix: 0.8, dfdbk: 0.6 };
+  it('PLUCK: FX > SPACE > FLT (one filter after the voices) plays, and differently', () => {
+    const set = { cutoff: 400, reso: 0, fenv: 0.5, drive: 4 };
     const mid = play(7, 'pluck', set, 1, 1.5), last = play(7, 'pluck', set, 2, 1.5);
     expect(stats(last).nan).toBe(false);
-    // The tail (after the note): unfiltered echoes vs. through the filter.
-    expect(highs(last.subarray(48000))).toBeLessThan(highs(mid.subarray(48000)));
+    expect(last).not.toEqual(mid);
   });
 
   it('a v84 save: CRUSH values, locks and lanes on the new taper; tracks whose order is heard keep the old one', () => {
@@ -3076,13 +3075,12 @@ describe('BASS / PLUCK: one envelope, envelope filter, sidechain, onboard FX', (
     }
   }, 60_000);
 
-  it('PLUCK echoes through its onboard delay; DLY MIX fully left dries it up', () => {
+  it('PLUCK has no onboard delay (v93): an old DLY MIX does nothing', () => {
     const tail = (values: Record<string, number>) => {
       const l = play(synth('pluck', { decay: 0.05, release: 0.02, dtime: 2, dfdbk: 0.3, ...values }), 0.6, 0.02);
       return rms(l, Math.floor(0.375 * SR), Math.floor(0.42 * SR)); // 3/16 at 120 BPM
     };
-    expect(tail({ dmix: 0.5 })).toBeGreaterThan(0.002);
-    expect(tail({ dmix: 0 })).toBeLessThan(1e-4);
+    expect(tail({ dmix: 0.5 })).toBeLessThan(1e-4);
     expect(LIVE_MACROS.pluck.find((m) => m.id === 'macro:space')).toBeUndefined(); // v91: the room went with VERB
     expect(INSTRUMENTS.pluck.live).toEqual(['fx2:s4_vol', 'cutoff']); // LIVE 2
   });
@@ -4689,8 +4687,40 @@ describe('v47: KICK VINTAGE, TECHNO, PSY DOOF redone', () => {
   });
 });
 
+describe('v93: the PLUCK\'s onboard delay went', () => {
+  const v92 = (pluck: Record<string, number>) => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 92;
+    Object.assign(stored.channels[7].sounds.pluck, pluck);
+    stored.channels[7].patterns[0].steps = [{ i: 0, n: 60, l: { dmix: 0.5, dtime: 3, cutoff: 900 } }];
+    stored.song = { rows: [{ b: 4, p: [0, 0, 0, 0, 0, 0, 0, 0] }], a: { 's:7:dmix': [[0, 1]], 's:7:cutoff': [[0, 800]] } };
+    return fromStored(stored)!;
+  };
+  it('its values, locks and lanes go; a PLUCK whose delay was up gets an FX 2 delay at its time', () => {
+    const back = v92({ dmix: 0.4, dtime: 3, dfdbk: 0.5 }); // 1/4
+    expect(back.channels[7].sounds.pluck!.dmix).toBeUndefined();
+    expect(back.channels[7].patterns[0].steps[0].locks).toEqual({ cutoff: 900 });
+    expect(Object.keys(back.song.auto ?? {})).toEqual(['s:7:cutoff']);
+    // FX 2: TUBE, PING-PONG (1/8T... its own rate), PLATE, CHORUS; the LEAD sends into 1-3, so
+    // slot 4 (nobody sends there) becomes a TAPE delay at 1/4, turned up to the DLY MIX.
+    const bus = back.buses[1];
+    expect(bus.s4_type).toBe(fxType('TAPE'));
+    expect(Math.round(toValue(FX_FAMILIES[2].a, bus.s4_a))).toBe(FX_DELAY_TIMES.findIndex((t) => t.name === '1/4'));
+    expect([bus.s4_vol, back.channels[7].lvl4]).toEqual([0.4, 1]);
+    // DLY MIX at 0: nothing changes.
+    expect(v92({ dmix: 0 }).buses[1]).toEqual(createDefaultProject().buses[1]);
+  });
+  it('a delay already at its time is shared', () => {
+    const def = createDefaultProject().buses[1];
+    const rate = FX_DELAY_TIMES[Math.round(toValue(FX_FAMILIES[2].a, def.s2_a))].name;
+    const back = v92({ dmix: 0.2, dtime: ['1/16', '1/8', '3/16', '1/4', '3/8', '1/2', '3/4', '1 BAR'].indexOf(rate) });
+    expect(back.buses[1].s2_vol).toBe(def.s2_vol);
+    expect(back.channels[7].lvl2).toBeCloseTo(0.2 / def.s2_vol, 9);
+  });
+});
+
 describe('v91: the PAD / PLUCK onboard VERB went', () => {
-  it('drops VERB values, trims, step locks and SONG lanes; a PLUCK live knob on SPACE becomes DLY MIX', () => {
+  it('drops VERB values, trims, step locks and SONG lanes; a PLUCK live knob on SPACE goes back to the defaults (its delay went in v93)', () => {
     const p = createDefaultProject();
     const stored = JSON.parse(JSON.stringify(toStored(p)));
     stored.version = 90;
@@ -4705,7 +4735,7 @@ describe('v91: the PAD / PLUCK onboard VERB went', () => {
     const back = fromStored(stored)!;
     expect(back.channels[5].sounds.pad!.verb).toBeUndefined();
     expect(back.channels[7].sounds.pluck!.verb).toBeUndefined();
-    expect(back.channels[7].liveFunc).toEqual(['mix:volume', 'dmix']);
+    expect(back.channels[7].liveFunc).toEqual(INSTRUMENTS.pluck.liveFunc);
     expect(back.channels[7].liveOffset['macro:space']).toBeUndefined();
     expect(back.channels[7].patterns[0].steps[0].locks).toEqual({ cutoff: 900 });
     expect(Object.keys(back.song.auto ?? {})).toEqual(['s:7:cutoff']);
@@ -4777,19 +4807,7 @@ describe('v49: track type gains from the gated loudness measure', () => {
 describe('skipping silent work', () => {
 
 
-  it('PLUCK echoes still come after a long silence', () => {
-    const e = new Engine(SR);
-    const p = createDefaultProject();
-    e.handleMessage({ type: 'loadProject', project: p });
-    const pluck = p.channels.findIndex((c) => c.instrument === 'pluck');
-    render(e, 12); // long silence: its delay + room go idle
-    e.handleMessage({ type: 'setSound', channel: pluck, id: 'dmix', value: 1 });
-    e.handleMessage({ type: 'trigger', channel: pluck, note: 60, velocity: 1 });
-    render(e, 0.05);
-    e.handleMessage({ type: 'release', channel: pluck, note: 60 });
-    const { l } = render(e, 1.5);
-    expect(stats(l.subarray(Math.round(SR * 0.9), Math.round(SR * 1.5))).peak).toBeGreaterThan(1e-4);
-  });
+
 });
 
 describe('BASS / LEAD INT = the wave (v76, CZ)', () => {
