@@ -47,7 +47,7 @@ import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { GLOBAL_PARAMS, LEVEL_IDS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, SLOT_ORDER, busKnob, busParam, controlStored, controlValue, fxLiveName, slotName, slotType, typeNorm, typeSpec } from '../fx/buses';
+import { BUS_LAYOUT, FX_BANK, FX_FAMILIES, FX_LIVE, NUM_BUSES, SLOT_ORDER, busKnob, busParam, controlStored, controlValue, fxLiveName, slotName, slotType, typeNorm, typeSpec } from '../fx/buses';
 import { CHORD_KNOB, CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
@@ -1339,6 +1339,8 @@ export class App {
           put(`s${type[1]}_a`, typeNorm(after, 'a'));
           put(`s${type[1]}_b`, typeNorm(after, 'b'));
         }
+        // Into GLITCH (an insert) from another family: MIX full, so it is heard at once.
+        if (type && FX_BANK[after].family !== FX_BANK[before].family && FX_FAMILIES[FX_BANK[after].family].name === 'GLITCH') put(`s${type[1]}_vol`, 1);
       },
     };
   }

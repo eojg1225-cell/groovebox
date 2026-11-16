@@ -232,7 +232,8 @@ export function busKnob(bus: number, id: string, values: Readonly<Record<string,
   const k = slotKnob(id);
   if (!k || k.knob === 'type') return { spec, control: false };
   const family = FX_FAMILIES[slotFamily(bus, k.n, values)];
-  if (k.knob === 'vol') return { spec: { ...spec, name: family.name }, control: false };
+  // A GLITCH slot is an insert: its VOLUME is MIX (dry / effected, for what the tracks put through it).
+  if (k.knob === 'vol') return { spec: { ...spec, name: family.name === 'GLITCH' ? 'MIX' : family.name }, control: false };
   // The loaded effect's own spec (else its family's) under the slot's id.
   return { spec: { ...typeSpec(slotType(bus, k.n, values), k.knob), id }, control: true };
 }

@@ -3811,6 +3811,7 @@ describe('FX buses (v41)', () => {
           // Extreme: everything up (a delay at its shortest time, full feedback).
           if (extreme) Object.assign(on, { [`s${n}_a`]: family === 2 ? 0 : 1, [`s${n}_b`]: 1 });
           // TAPE STOP sounds only in the last TIME of each EVERY: a whole half bar of it here.
+          if (FX_BANK[fxType(name)].family === 4) continue; // GLITCH: an insert, tested on its own
           if (name === 'TAPE STOP') Object.assign(on, { [`s${n}_a`]: typeNorm(fxType(name), 'a', 4), [`s${n}_b`]: typeNorm(fxType(name), 'b', 0) });
           const x = burst(1.5);
           const wet = runBus(k, only(k, on), x);
@@ -3981,18 +3982,40 @@ describe('FX buses (v41)', () => {
     // RING: shown as FREQ / SPREAD, and it sounds.
     expect(typeSpec(fxType('RING'), 'a').name).toBe('FREQ');
     expect(level(wetOf('RING', 500, 0), 0, 0.1)).toBeGreaterThan(0.01);
-    // STUTTER, SLICE 1/16 (0.125 s), HOLD 1/4 (0.5 s): the first slice is the dry track's (silent
-    // here), then it repeats every 0.125 s to 0.5 s; the next hold grabs silence.
-    const st = wetOf('STUTTER', 2, 1);
-    expect(level(st, 0.0, 0.12)).toBeLessThan(1e-4);
+    // STUTTER / TAPE STOP are inserts: the KICK through them (level 1) instead of straight out.
+    const through = (type: string, a: number, b: number, mix: number, steps = [0], seconds = 1.0, lvl2 = 1, decay = 0.05) => {
+      const p = kickProject(steps, { bpm: 120 });
+      p.channels[0].sounds.kick!.t_decay = decay;
+      p.channels[0].patterns[0].length = 32;
+      p.channels[0].bus = 1;
+      noFx(p.channels[0]);
+      p.channels[0].lvl2 = lvl2;
+      onlyBus(p, 1, { s2_vol: mix, s2_type: fxType(type), s2_a: typeNorm(fxType(type), 'a', a), s2_b: typeNorm(fxType(type), 'b', b) });
+      const e = engineWith(p);
+      e.handleMessage({ type: 'transport', playing: true });
+      return render(e, seconds).l;
+    };
+    const plain = through('STUTTER', 2, 1, 1, [0], 1.0, 0); // nothing through it: the kick as it is
+    // MIX 0: the slot passes it untouched.
+    const passed = through('STUTTER', 2, 1, 0);
+    let worst = 0; for (let i = 0; i < plain.length; i++) worst = Math.max(worst, Math.abs(passed[i] - plain[i]));
+    expect(worst).toBeLessThan(1e-4);
+    // STUTTER, SLICE 1/16 (0.125 s), HOLD 1/4 (0.5 s): the first slice passes, then repeats
+    // every 0.125 s to 0.5 s (the kick, long gone by then, heard again); the next hold is silence.
+    const st = through('STUTTER', 2, 1, 1);
+    expect(level(plain, 0.125, 0.14)).toBeLessThan(1e-3);
     expect(level(st, 0.125, 0.14)).toBeGreaterThan(0.05);
     expect(level(st, 0.375, 0.39)).toBeGreaterThan(0.05);
     expect(level(st, 0.52, 0.9)).toBeLessThan(1e-3);
-    // TAPE STOP, TIME 1/4, EVERY 1/2 BAR (1 s): silent until the last 0.5 s of the period, then the
-    // kick hit at 0.5 s (steps 0 and 4) comes out slowed.
-    const ts = wetOf('TAPE STOP', 2, 0, [0, 4], 1.0);
-    expect(level(ts, 0.05, 0.45)).toBeLessThan(1e-4);
-    expect(level(ts, 0.5, 0.95)).toBeGreaterThan(0.01);
+    // TAPE STOP, TIME 1/4, EVERY 1/2 BAR (1 s): as it is until the last 0.5 s, then a long kick
+    // hit at 0.5 s slows down (a tape stop starts near full speed): it no longer matches the plain one.
+    const plain2 = through('TAPE STOP', 2, 0, 1, [0, 4], 1.0, 0, 0.6);
+    const ts = through('TAPE STOP', 2, 0, 1, [0, 4], 1.0, 1, 0.6);
+    let early = 0, late = 0;
+    for (let i = Math.round(0.02 * SR); i < Math.round(0.45 * SR); i++) early = Math.max(early, Math.abs(ts[i] - plain2[i]));
+    for (let i = Math.round(0.5 * SR); i < Math.round(0.95 * SR); i++) late = Math.max(late, Math.abs(ts[i] - plain2[i]));
+    expect(early).toBeLessThan(1e-4);
+    expect(late).toBeGreaterThan(0.05);
   });
 
   it('v97: a v96 save\'s slot TYPE (values, step locks, SONG lanes) keeps its effect though the bank grew', () => {

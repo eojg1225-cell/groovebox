@@ -873,11 +873,11 @@ impl DelayFx {
         self.hp_r = flush(self.hp_r);
     }
 
-    /// GLITCH, on this unit's buffer (the input written in as it comes, no feedback). STUTTER:
-    /// on a grid of HOLD from the bar line, the first SLICE of each hold is let through dry
-    /// (silent here: the track plays it), then repeated to the hold's end. TAPE STOP: in the
-    /// last TIME of each EVERY (from a bar line), the sound from then on slows to a stop (its
-    /// pitch falling with it); silent the rest of the time. Short fades at every edge.
+    /// GLITCH, an insert on this unit's buffer (the input written in as it comes, no feedback):
+    /// the input passes through, but STUTTER: on a grid of HOLD from the bar line, the first
+    /// SLICE of each hold passes, then repeats to the hold's end; TAPE STOP: in the last TIME
+    /// of each EVERY (from a bar line), the sound from then on slows to a stop (its pitch
+    /// falling with it). Short crossfades with the input at every edge.
     fn render_glitch(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
         let size = self.buf_l.len();
         let step = 60.0 * self.sr / (self.bpm * 4.0);
@@ -886,7 +886,8 @@ impl DelayFx {
         for i in 0..n {
             self.buf_l[self.write] = in_l[i];
             self.buf_r[self.write] = in_r[i];
-            let (mut yl, mut yr) = (0.0, 0.0);
+            let (live_l, live_r) = (in_l[i] as f64, in_r[i] as f64);
+            let (mut yl, mut yr) = (live_l, live_r);
             if self.mode == 7 {
                 let hold = (self.gl_hold * step).max(1.0);
                 let slice = (self.gl_slice * step).clamp(1.0, hold);
@@ -895,8 +896,8 @@ impl DelayFx {
                     let k = (pos - slice) % slice;
                     let win = (k / fade).min((slice - k) / fade).min(1.0);
                     let d = (pos - k).min(max_delay);
-                    yl = tap(&self.buf_l, self.write, d) * win;
-                    yr = tap(&self.buf_r, self.write, d) * win;
+                    yl = live_l + (tap(&self.buf_l, self.write, d) - live_l) * win;
+                    yr = live_r + (tap(&self.buf_r, self.write, d) - live_r) * win;
                 }
             } else {
                 let every = (self.gl_every * step).max(1.0);
@@ -908,8 +909,8 @@ impl DelayFx {
                     let u = pos - start;
                     let d = (u * u / (2.0 * time) + 1.0).min(max_delay);
                     let win = (u / fade).min((time - u) / fade).min(1.0);
-                    yl = tap(&self.buf_l, self.write, d) * win;
-                    yr = tap(&self.buf_r, self.write, d) * win;
+                    yl = live_l + (tap(&self.buf_l, self.write, d) - live_l) * win;
+                    yr = live_r + (tap(&self.buf_r, self.write, d) - live_r) * win;
                 }
             }
             self.write += 1;

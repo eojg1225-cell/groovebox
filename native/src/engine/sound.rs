@@ -598,6 +598,7 @@ impl Engine {
                 // FX 2: the track straight out, and into each effect at its level (SEND MOD
                 // moves the levels that are up); the side chain hears it at its highest.
                 let lfo_buf = &self.lfo_buf;
+                let inserts = self.buses[1].inserts();
                 let mut g = [levels[0].value(), levels[1].value(), levels[2].value(), levels[3].value()];
                 for i in 0..n {
                     if !settled {
@@ -606,8 +607,16 @@ impl Engine {
                         }
                     }
                     let (l, r) = (ml[i], mr[i]);
-                    js::add_f32(&mut out_l[off + i], l);
-                    js::add_f32(&mut out_r[off + i], r);
+                    // Straight out, less what goes through an insert (GLITCH) instead.
+                    let mut through = 0.0;
+                    for k in 0..SLOTS {
+                        if inserts[k] {
+                            through += g[k];
+                        }
+                    }
+                    let dry = 1.0 - through.min(1.0);
+                    js::add_f32(&mut out_l[off + i], l * dry);
+                    js::add_f32(&mut out_r[off + i], r * dry);
                     let mut top = 0.0;
                     for k in 0..SLOTS {
                         let mut x = g[k];
@@ -651,6 +660,7 @@ impl Engine {
             if filtering {
                 self.buses[0].filter_track(ch, &mut self.kit_l[ch][..n], &mut self.kit_r[ch][..n], &self.kit_mix[ch][..n]);
             }
+            let inserts = self.buses[0].inserts();
             let levels = &mut self.fx_level[ch];
             let settled = levels[..3].iter().all(|s| s.settled());
             let (c0, m0, d0) = (levels[0].value(), levels[1].value(), levels[2].value());
@@ -660,6 +670,13 @@ impl Engine {
                 let (c, m, d) = if settled { (c0, m0, d0) } else { (levels[0].next(), levels[1].next(), levels[2].next()) };
                 let (l, r) = (self.kit_l[ch][i], self.kit_r[ch][i]);
                 split_mix(c, l, r, &mut bus_l[0][i], &mut bus_r[0][i], &mut out_l[off + i], &mut out_r[off + i]);
+                // What goes through an insert (GLITCH, slots 2-3) instead of straight out, within
+                // what COMP MIX left straight.
+                let through = ((if inserts[1] { m } else { 0.0 }) + (if inserts[2] { d } else { 0.0 })).min(1.0 - c);
+                if through > 0.0 {
+                    js::add_f32(&mut out_l[off + i], -l * through);
+                    js::add_f32(&mut out_r[off + i], -r * through);
+                }
                 if m > 0.0 {
                     js::add_f32(&mut bus_l[1][i], l * m);
                     js::add_f32(&mut bus_r[1][i], r * m);

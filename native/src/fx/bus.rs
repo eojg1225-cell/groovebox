@@ -69,6 +69,9 @@ struct Slot {
     /// The two controls, as knob positions.
     a: f64,
     b: f64,
+    /// A GLITCH effect: an insert on what the tracks send it (they go through it instead of
+    /// straight out, the engine taking that much off their dry path); its VOLUME is MIX.
+    insert: bool,
 }
 
 impl Slot {
@@ -92,6 +95,7 @@ impl Slot {
             type_index: -1,
             a: 0.5,
             b: 0.5,
+            insert: false,
         }
     }
 
@@ -100,8 +104,12 @@ impl Slot {
         let t = t.clamp(0, specs::FX_BANK.len() as i32 - 1);
         let (name, family) = specs::FX_BANK[t as usize];
         self.type_index = t;
-        // GLITCH (4) runs on the slot's delay unit, borrowing its buffer: no memory of its own.
-        self.family = if family == 4 { 2 } else { family };
+        // GLITCH (4) runs on the slot's delay unit, borrowing its buffer: no memory of its own;
+        // an insert, it passes its input through even at MIX 0.
+        self.insert = family == 4;
+        self.family = if self.insert { 2 } else { family };
+        self.running = self.insert || self.vol_target > 0.0;
+        self.fade_left = 0.0;
         self.units[self.family].set_mode(name);
         self.units[self.family].reset();
         self.control(0);
@@ -250,7 +258,9 @@ impl FxBus {
             "vol" => {
                 slot.vol_target = v;
                 slot.vol.set_target(v);
-                if v > 0.0 {
+                if slot.insert {
+                    // MIX: the insert runs at every MIX (at 0 its input passes through).
+                } else if v > 0.0 {
                     if !slot.running {
                         slot.units[slot.family].reset();
                     }
@@ -290,6 +300,15 @@ impl FxBus {
                 u.set_tempo(bpm);
             }
         }
+    }
+
+    /// Which of the bus's inputs feed an insert (a GLITCH slot): those tracks' dry paths give way.
+    pub fn inserts(&self) -> [bool; BUS_INPUTS] {
+        let mut out = [false; BUS_INPUTS];
+        for s in &self.slots {
+            out[s.input] = s.insert;
+        }
+        out
     }
 
     /// PLAY / STOP: the GLITCH units count bars from here.
@@ -480,6 +499,11 @@ impl FxBus {
                 let g = s.vol.next() * s.switch_gain;
                 js::add_f32(&mut self.ret_l[i], self.wet_l[i] as f64 * g);
                 js::add_f32(&mut self.ret_r[i], self.wet_r[i] as f64 * g);
+                if s.insert {
+                    // An insert: its input passes at 1 - MIX (the engine took it off the dry path).
+                    js::add_f32(&mut self.ret_l[i], in_l[s.input][i] as f64 * (1.0 - g));
+                    js::add_f32(&mut self.ret_r[i], in_r[s.input][i] as f64 * (1.0 - g));
+                }
             }
             if s.fade_left > 0.0 {
                 s.fade_left -= n as f64;
