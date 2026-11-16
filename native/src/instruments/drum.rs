@@ -98,8 +98,9 @@ fn voice(kind: SoundKind) -> Voice {
         SoundKind::Kick => Voice { air: Some((300.0, 1400.0, 3.45, false)), ..base },
         SoundKind::Snare => Voice { balance: ("t", "m"), snare: true, air: Some((600.0, 5000.0, 2.0, false)), ..base },
         SoundKind::Hat => Voice { balance: ("c", "m"), hat: true, air: Some((3000.0, 14000.0, 1.0, true)), ..base },
-        // PERC (v95): the KICK / SNARE room on toms, congas, metal and wood: 250 Hz x2 / 6 kHz.
-        SoundKind::Perc => Voice { balance: ("t", "cm"), relative: true, air: Some((250.0, 6000.0, 2.5, false)), ..base },
+        // PERC (v96): the HAT's natural room (no envelope, AIR SIZE = its RT60), voiced for toms,
+        // congas, metal and wood: 200 Hz x2 / 8 kHz, so the body rings in it as well as the top.
+        SoundKind::Perc => Voice { balance: ("t", "cm"), relative: true, air: Some((200.0, 8000.0, 1.5, true)), ..base },
         _ => panic!("not a drum"),
     }
 }
@@ -135,7 +136,7 @@ pub fn type_params(kind: SoundKind) -> Vec<(&'static str, f64)> {
             &[("c_level", 0.2), ("c_tone", 9000.0), ("c_len", 0.002), ("m_level", 0.6), ("m_pitch", 420.0), ("m_spread", 1.0), ("m_noise", 0.3), ("m_tone", 8500.0), ("m_decay", 0.1), ("h_time", 0.03), ("midfreq", 2000.0)],
         ),
         SoundKind::Perc => (
-            [&["timbre", "intensity", "t_level", "t_pitch", "t_sweep", "t_stime", "t_attack", "t_decay", "t_wave", "c_level", "c_tone", "c_attack", "c_len", "c_reso", "c_noise", "m_level", "m_interval", "detune", "m_spread", "m_noise", "m_tone", "m_mode", "m_fm"][..], &WHOLE, &["air", "airsize"]].concat(),
+            [&["timbre", "intensity", "t_level", "t_pitch", "t_sweep", "t_stime", "t_attack", "t_decay", "t_wave", "c_level", "c_tone", "c_attack", "c_len", "c_reso", "c_noise", "m_level", "m_interval", "detune", "m_spread", "m_noise", "m_tone", "m_mode", "m_fm"][..], &WHOLE, &["air", "hairsize"]].concat(),
             &[("t_level", 0.95), ("t_pitch", 95.0), ("t_sweep", 9.0), ("t_stime", 0.08), ("t_decay", 0.3), ("c_level", 0.3), ("c_tone", 2200.0), ("c_len", 0.004), ("midfreq", 450.0)],
         ),
         _ => panic!("not a drum"),

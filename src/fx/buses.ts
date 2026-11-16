@@ -104,6 +104,14 @@ export const BUSES: readonly BusDef[] = [
   },
 ];
 
+/**
+ * The order a bus's slots are shown in (stored slot indices, 0-based): FX 1 in its routing
+ * order, FILTER (each track's own, first), COMP, then the two free slots (MOD, DELAY to start);
+ * FX 2 as stored. Storage keeps COMP as slot 1 and FILTER as slot 4 (`lvl1` = COMP MIX, `lvl4` =
+ * FLT MIX), so saves and the engine are untouched; only the panel, screen and live knobs follow this.
+ */
+export const SLOT_ORDER: readonly (readonly number[])[] = [[3, 0, 1, 2], [0, 1, 2, 3]];
+
 const COMP = Object.fromEntries(COMP_PARAMS.map((p) => [p.id, p]));
 
 /** A control's default knob position for a family (`which`: 'a' / 'b'), or of a real value. */
@@ -152,10 +160,10 @@ export const BUS_PARAMS: readonly (readonly ParamSpec[])[] = BUSES.map((b) => [
 ]);
 
 /** Each bus's 16 knobs (top row, then bottom row): slot u on modules 2u + 1 and 2u + 2. */
-export const BUS_LAYOUT: readonly (readonly string[])[] = BUSES.map((b) => {
+export const BUS_LAYOUT: readonly (readonly string[])[] = BUSES.map((b, k) => {
   const top: string[] = [];
   const bottom: string[] = [];
-  for (const u of b.slots) {
+  for (const u of SLOT_ORDER[k].map((i) => b.slots[i])) {
     const [m1t, m1b, m2t, m2b] = slotSpecs(u).map((s) => s.id);
     top.push(m1t, m2t);
     bottom.push(m1b, m2b);
@@ -205,10 +213,13 @@ export const controlStored = (spec: ParamSpec, value: number): number => toNorm(
  * (DELAY 1, DELAY 2).
  */
 export function slotName(bus: number, slot: number, values: Readonly<Record<string, number>>): string {
-  const names = BUSES[bus].slots.map((u) => (u.kind === 'free' ? FX_FAMILIES[slotFamily(bus, u.n, values)].name : u.kind === 'comp' ? 'COMP MIX' : 'FLT MIX'));
-  const name = names[slot] ?? '';
+  // Named in the order the slots are shown (two of a family numbered left to right).
+  const order = SLOT_ORDER[bus];
+  const names = order.map((i) => BUSES[bus].slots[i]).map((u) => (u.kind === 'free' ? FX_FAMILIES[slotFamily(bus, u.n, values)].name : u.kind === 'comp' ? 'COMP MIX' : 'FLT MIX'));
+  const at = order.indexOf(slot);
+  const name = names[at] ?? '';
   if (names.filter((x) => x === name).length < 2) return name;
-  return `${name} ${names.slice(0, slot + 1).filter((x) => x === name).length}`;
+  return `${name} ${names.slice(0, at + 1).filter((x) => x === name).length}`;
 }
 
 /**
@@ -216,7 +227,7 @@ export function slotName(bus: number, slot: number, values: Readonly<Record<stri
  * "fx<n>:<param>"; `fxLiveName` names it with what the slot holds ("FX1:DELAY").
  */
 export const FX_LIVE: readonly { id: string; bus: number; param: string }[] = BUSES.flatMap((b, k) =>
-  b.slots.filter((u) => u.kind !== 'comp').map((u) => {
+  SLOT_ORDER[k].map((i) => b.slots[i]).filter((u) => u.kind !== 'comp').map((u) => {
     const param = u.kind === 'free' ? `s${u.n}_vol` : 'flt';
     return { id: `fx${k + 1}:${param}`, bus: k, param };
   }));

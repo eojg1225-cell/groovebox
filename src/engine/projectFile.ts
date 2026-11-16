@@ -747,6 +747,19 @@ function hairSizeV95(values: Record<string, number>): void {
   if (typeof values.hairsize === 'number') values.hairsize *= HAIR_V95;
 }
 
+/**
+ * v96: FX 1 is shown in its routing order (FILTER, COMP, MOD, DELAY), and the drums' top live
+ * knobs follow it: SNARE FILTER, HAT MOD, PERC DELAY (were MOD, DELAY, FILTER). A drum still
+ * on its old default pair takes the new one.
+ */
+const FX1_LIVE_V96: Readonly<Record<string, readonly [string, string]>> = {
+  snare: ['fx1:s2_vol', 'intensity'], hat: ['fx1:s3_vol', 'macro:attack'], perc: ['fx1:flt', 'intensity'],
+};
+function fx1LiveV96(ch: ChannelState): void {
+  const old = ch.instrument === 'none' ? undefined : FX1_LIVE_V96[ch.instrument];
+  if (old && ch.instrument !== 'none' && ch.live[0] === old[0] && ch.live[1] === old[1]) ch.live = [...INSTRUMENTS[ch.instrument].live];
+}
+
 /** v95: PERC's ALT live knobs went from VOL / GRIT to VOL / AIR LVL (its new room); a PERC still on the old pair takes the new one. */
 function percLiveV95(ch: ChannelState): void {
   if (ch.instrument === 'perc' && ch.liveFunc[0] === 'mix:volume' && ch.liveFunc[1] === 'macro:grit') ch.liveFunc = [...INSTRUMENTS.perc.liveFunc];
@@ -808,6 +821,8 @@ function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: 
   if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
   if (version < 94) bitsV94(locks);
   if (version < 95 && kind === 'hat') hairSizeV95(locks);
+  // v96: PERC's AIR is the natural room (AIR SIZE): a v95 PERC's AIR TAIL locks go.
+  if (version < 96 && kind === 'perc') delete locks.airsize;
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
   if (version < 78 && kind === 'pluck') delete locks.intensity;
   if (version < 79 && kind === 'pad') for (const id of FM_IDS_V79) if (locks[id] !== undefined) locks[id] = fmLevelV79(locks[id]);
@@ -1180,6 +1195,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (version < 88) liveV88(ch);
   if (version < 89) pluckLiveV89(ch);
   if (version < 95) percLiveV95(ch);
+  if (version < 96) fx1LiveV96(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;
@@ -1413,6 +1429,12 @@ export function fromStored(data: unknown): Project | null {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind === 's' && t.id === 'crush') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, crushV85(v)]);
+    }
+  }
+  if (version < 96 && p.song.auto) {
+    for (const key of Object.keys(p.song.auto)) {
+      const t = parseAutoKey(key);
+      if (t?.kind === 's' && t.id === 'airsize' && p.channels[t.index]?.instrument === 'perc') delete p.song.auto[key];
     }
   }
   if (version < 95 && p.song.auto) {

@@ -179,7 +179,8 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('DECAY', [['t_decay', 1], ['c_len', 0.5]]),
     drumAttack('t_attack', 'c_attack'),
     GRIT,
-    AIR,
+    // The natural room, louder and bigger together.
+    macro('AIR', [['air', 1], ['hairsize', 1]]),
   ],
   // ENV opens the filter envelope further and lengthens its decay.
   bass: [macro('ENV', [['fenv', 1], ['fdecay', 0.5]]), GRIT],
@@ -280,21 +281,21 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: DRUM_FUNC,
     presets: KICK_PRESETS, drum: true, baseNote: DRUM_ROOT },
   snare: {
-    name: 'SNARE', gain: 0.467, live: ['fx1:s2_vol', 'intensity'], liveFunc: ['mix:volume', 'air'], params: SNARE_PARAMS,
+    name: 'SNARE', gain: 0.467, live: ['fx1:flt', 'intensity'], liveFunc: ['mix:volume', 'air'], params: SNARE_PARAMS,
     // The wires' character on 5, its STICK (CLK LEVEL / CLK PITCH) on 7, SWEEP / SWP TIME on ALT 2.
     layout: drumPage(SNARE_ELEMENTS, ['t_pitch', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'airsize'], ['c_level', 'c_tone']),
     funcLayout: SNARE_FUNC,
     presets: SNARE_PRESETS, drum: true, baseNote: DRUM_ROOT },
   hat: {
-    name: 'HAT', gain: 1.783, live: ['fx1:s3_vol', 'macro:attack'], liveFunc: ['mix:volume', 'air'], params: HAT_PARAMS,
+    name: 'HAT', gain: 1.783, live: ['fx1:s2_vol', 'macro:attack'], liveFunc: ['mix:volume', 'air'], params: HAT_PARAMS,
     // The metal's character on 5, AIR (its natural room, v81) on 6, the click's on 7.
     layout: drumPage(HAT_ELEMENTS, ['c_tone', 'm_pitch'], ['m_tone', 'm_noise'], ['air', 'hairsize'], ['c_reso', 'c_noise']),
     funcLayout: HAT_FUNC,
     presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT },
   perc: {
-    name: 'PERC', gain: 0.537, live: ['fx1:flt', 'intensity'], liveFunc: ['mix:volume', 'air'], params: PERC_PARAMS,
-    // AIR (v95) on 6, as the other drums.
-    layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['air', 'airsize'], ['c_tone', 'c_noise']),
+    name: 'PERC', gain: 0.537, live: ['fx1:s3_vol', 'intensity'], liveFunc: ['mix:volume', 'air'], params: PERC_PARAMS,
+    // AIR on 6, as the other drums: the HAT's natural room (v96), AIR LVL / AIR SIZE.
+    layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['air', 'hairsize'], ['c_tone', 'c_noise']),
     funcLayout: DRUM_FUNC,
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: DRUM_ROOT },
   bass: {

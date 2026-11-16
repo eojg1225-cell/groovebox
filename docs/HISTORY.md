@@ -225,3 +225,4 @@ M2 (mixer + FX) mostly done. Done: sequencer (gates, ties incl. across the loop 
 - PLUCK onboard delay removed (2026-11-16, v93): FX 2's delays do it; a PLUCK whose delay was up loads with an FX 2 delay at its time (shared if one matches, else a free slot as TAPE, else the nearest); `fx/delay.rs` went.
 - CRUSH split (2026-11-16, v94): BITS (`bits`) and SAMPLES (`crush`) on ALT 8; older saves' BITS take their CRUSH and play as saved.
 - PERC AIR and a longer HAT tail (2026-11-16, v95): PERC gets the KICK / SNARE room (pre-EQ 250 Hz / 6 kHz) on main 6 and AIR LVL on its ALT live knob; the HAT's AIR SIZE reaches a 3 s RT60 (was 1.2 s), saves rescaled to keep their time.
+- FX 1 in routing order and PERC's natural room (2026-11-16, v96): FX 1's view, TRACK FX knobs and the drums' top live knobs read FILTER, COMP, MOD, DELAY (`SLOT_ORDER`; storage unchanged); PERC's AIR is the HAT's natural room (AIR SIZE, pre-EQ 200 Hz / 8 kHz).

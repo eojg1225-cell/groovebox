@@ -47,7 +47,7 @@ import type { ControlEvent } from '../controls/ControlSurface';
 import { choice, formatValue, toNorm, toValue, type ParamSpec } from '../engine/params';
 import { GLOBAL_PARAMS, LEVEL_IDS, MIX_FIELD, MIX_PARAMS, type MixId } from '../engine/mixParams';
 import { LFO_LAYOUT, LFO_PARAMS, type LfoId } from '../engine/lfo';
-import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, busKnob, busParam, controlNorm, controlStored, controlValue, fxLiveName, slotFamily, slotName } from '../fx/buses';
+import { BUS_LAYOUT, FX_LIVE, NUM_BUSES, SLOT_ORDER, busKnob, busParam, controlNorm, controlStored, controlValue, fxLiveName, slotFamily, slotName } from '../fx/buses';
 import { CHORD_KNOB, CHORD_NAMES, NOTES_NAMES } from '../engine/chords';
 import {
   DYNAMIC_VELOCITY, emptyStep, MAX_STEPS, meterPlays, NUM_CHANNELS, NUM_PATTERNS, PATTERN_NAMES, PATTERN_SPEEDS, STEP_NOTES, setStepNotes, stepNotes, stepPlays,
@@ -307,7 +307,8 @@ const DSP_ALERT = 0.8;
 type GlobalId = 'bpm' | 'swing' | 'master';
 /**
  * The knobs above the knob panel: the project's MASTER / TEMPO (`global:`) and the selected
- * track's four FX levels (`mix:lvl1-4`: into each slot of the bus it is on).
+ * track's four FX levels (`mix:lvl1-4`: into each slot of the bus it is on, in the bus's shown
+ * order, `SLOT_ORDER`: on FX 1 FLT MIX, COMP MIX, then the free slots; `App.levelKey`).
  */
 const TRACK_KNOBS: Readonly<Record<string, string>> = {
   mmaster: 'global:master', mtempo: 'global:bpm', mlvl1: 'mix:lvl1', mlvl2: 'mix:lvl2', mlvl3: 'mix:lvl3', mlvl4: 'mix:lvl4',
@@ -3533,8 +3534,15 @@ export class App {
    * A knob above the knob panel (TRACK_KNOBS): the project's MASTER / TEMPO, or the selected
    * track's four FX levels (named by what each slot of its bus holds).
    */
+  /** A TRACK FX knob's level id (`mix:lvlN`) on the selected track's bus, in the bus's shown order; else TRACK_KNOBS'. */
+  private levelKey(id: string): string | undefined {
+    const m = /^mlvl([1-4])$/.exec(id);
+    if (!m) return TRACK_KNOBS[id];
+    return `${MIX_PREFIX}lvl${SLOT_ORDER[this.channel.bus][Number(m[1]) - 1] + 1}`;
+  }
+
   private trackKnob(id: string): KnobTarget | null {
-    const key = TRACK_KNOBS[id];
+    const key = this.levelKey(id);
     // (MASTER reads VOLUME there: its box is named MASTER.)
     if (key?.startsWith('global:')) return { ...this.globalTarget(key.slice(7) as GlobalId), ...(key === 'global:master' ? { label: 'VOLUME' } : {}) };
     if (!key || this.channel.instrument === 'none') return null;
@@ -3558,7 +3566,7 @@ export class App {
    * level kept (set a send up muted, tap it in for a throw). Like MUTE: saved, not undone.
    */
   private onKnobTap(id: string): void {
-    const slot = (LEVEL_IDS as readonly string[]).indexOf((TRACK_KNOBS[id] ?? '').slice(MIX_PREFIX.length));
+    const slot = (LEVEL_IDS as readonly string[]).indexOf((this.levelKey(id) ?? '').slice(MIX_PREFIX.length));
     const c = this.channel;
     if (slot < 0 || c.instrument === 'none' || this.menu || this.projMenu) return;
     c.fxMute ^= 1 << slot;
@@ -4948,7 +4956,7 @@ export class App {
     }
     for (const id of Object.keys(TRACK_KNOBS)) {
       const t = this.trackKnob(id);
-      const slot = (LEVEL_IDS as readonly string[]).indexOf(TRACK_KNOBS[id].slice(MIX_PREFIX.length));
+      const slot = (LEVEL_IDS as readonly string[]).indexOf((this.levelKey(id) ?? '').slice(MIX_PREFIX.length));
       const muted = slot >= 0 && (this.channel.fxMute & (1 << slot)) !== 0;
       this.panel.configureMaster(id, t && { label: t.label, value: toNorm(t.spec, t.get()), defaultValue: toNorm(t.spec, t.base?.() ?? t.spec.defaultValue), colour: this.knobColour(t), muted });
     }

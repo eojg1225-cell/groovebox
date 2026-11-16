@@ -201,7 +201,7 @@ describe('instruments', () => {
     ]);
     expect(main('snare')[0].slice(5, 8)).toEqual(['air', 'c_level', 'rolldiv']);
     expect(main('hat')[0].slice(5, 7)).toEqual(['air', 'c_reso']);
-    expect(main('perc')[1].slice(4, 7)).toEqual(['t_stime', 'airsize', 'c_noise']); // AIR (v95)
+    expect(main('perc')[1].slice(4, 7)).toEqual(['t_stime', 'hairsize', 'c_noise']); // AIR (v95; natural room v96)
     expect(main('bass')).toEqual([
       ['timbre', 'attack', 'fmattack', 'fm', 'fattack', 'fenv', 'unison', 'glide'],
       ['intensity', 'decay', 'fmdecay', 'reso', 'fdecay', 'cutoff', 'detune', 'sub'],
@@ -1500,9 +1500,9 @@ describe('slides and rolls', () => {
     const stored = toStored(p) as { version: number };
     stored.version = 64;
     const back = fromStored(stored)!;
-    expect(back.channels[1].live).toEqual(['fx1:s2_vol', 'intensity']);
+    expect(back.channels[1].live).toEqual(['fx1:flt', 'intensity']); // v96: FX 1 in its routing order
     expect(back.channels[1].liveFunc).toEqual(['mix:volume', 'air']);
-    expect(back.channels[2].live).toEqual(['fx1:s3_vol', 'macro:attack']);
+    expect(back.channels[2].live).toEqual(['fx1:s2_vol', 'macro:attack']);
     expect(back.channels[2].liveFunc).toEqual(['mix:volume', 'air']);
     expect(back.channels[4].live).toEqual(INSTRUMENTS.bass.live); // v88: synths take theirs too
   });
@@ -3776,10 +3776,11 @@ describe('FX buses (v41)', () => {
 
   it('each bus: four slots of two modules; a free slot = VOLUME / TYPE, then the loaded effect\'s two controls', () => {
     const names = (k: number, values = defaultBus(k)) => BUS_LAYOUT[k].map((id) => busKnob(k, id, values)!.spec.name);
-    // Top row then bottom row; slot u on modules 2u + 1, 2u + 2.
+    // Top row then bottom row; slot u on modules 2u + 1, 2u + 2. FX 1 in its routing order
+    // (v96, SLOT_ORDER): FILTER, COMP, MOD, DELAY (stored as slots 4, 1, 2, 3).
     expect(names(0)).toEqual([
-      'RATIO', 'ATTACK', 'MOD', 'RATE', 'DELAY', 'RATE', 'FILTER', 'ENV',
-      'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK', 'FLT RES', 'ENV REL',
+      'FILTER', 'ENV', 'RATIO', 'ATTACK', 'MOD', 'RATE', 'DELAY', 'RATE',
+      'FLT RES', 'ENV REL', 'THRESH', 'RELEASE', 'TYPE', 'DEPTH', 'TYPE', 'FDBK',
     ]);
     expect(names(1)).toEqual([
       'DIST', 'DRIVE', 'DELAY', 'RATE', 'VERB', 'SIZE', 'MOD', 'RATE',
@@ -4383,10 +4384,10 @@ describe('AIR (KICK, SNARE)', () => {
   it('every drum has AIR on module 6 (PERC since v95; the HAT its natural room, AIR SIZE)', () => {
     for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(INSTRUMENTS[k].drum);
     expect([INSTRUMENTS.hat.layout[5], INSTRUMENTS.hat.layout[13]]).toEqual(['air', 'hairsize']);
-    expect([INSTRUMENTS.perc.layout[5], INSTRUMENTS.perc.layout[13]]).toEqual(['air', 'airsize']);
+    expect([INSTRUMENTS.perc.layout[5], INSTRUMENTS.perc.layout[13]]).toEqual(['air', 'hairsize']); // v96: the HAT's natural room
   });
 
-  it('PERC AIR rings on past the hit; off (0) it is untouched', () => {
+  it('PERC AIR (the natural room) rings on past the hit, longer with AIR SIZE; a v95 AIR TAIL lock goes', () => {
     const hit = (extra: Record<string, number>) => {
       const d = new Drum(SR, PERC_PARAMS);
       for (const [id, v] of Object.entries({ ...presetSound('perc', 0), ...extra })) d.setParam(id, v);
@@ -4401,6 +4402,12 @@ describe('AIR (KICK, SNARE)', () => {
     };
     const tail = (l: Float32Array) => stats(l.subarray(Math.round(SR * 0.2), Math.round(SR * 0.35))).peak; // within its 0.5 s envelope
     expect(tail(hit({ air: 1, t_decay: 0.1, c_len: 0.002 }))).toBeGreaterThan(tail(hit({ air: 0, t_decay: 0.1, c_len: 0.002 })) * 10 + 1e-6);
+    const late = (l: Float32Array) => stats(l.subarray(Math.round(SR * 0.7), Math.round(SR * 0.9))).peak;
+    expect(late(hit({ air: 1, hairsize: 1, t_decay: 0.1, c_len: 0.002 }))).toBeGreaterThan(late(hit({ air: 1, hairsize: 0.3, t_decay: 0.1, c_len: 0.002 })) * 10 + 1e-7);
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 95;
+    stored.channels[3].patterns[0].steps = [{ i: 0, n: 45, l: { airsize: 0.8, air: 0.5 } }];
+    expect(fromStored(stored)!.channels[3].patterns[0].steps[0].locks).toEqual({ air: 0.5 });
   });
 
   it('v95: the HAT\'s AIR SIZE reaches 3 s; a saved AIR SIZE keeps its time; a PERC on VOL / GRIT takes VOL / AIR LVL', () => {

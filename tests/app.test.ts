@@ -312,8 +312,9 @@ describe('the knobs above the knob panel: MASTER / TEMPO and the track\'s four F
   it('the level knobs are named by what each slot of the track\'s bus holds; UNDO takes a turn back', () => {
     const { app, emit, tap } = makeApp();
     const names = () => ['mlvl1', 'mlvl2', 'mlvl3', 'mlvl4'].map((id) => (app as unknown as { trackKnob(id: string): { label: string } }).trackKnob(id).label);
-    tap('ch1'); // KICK: FX 1
-    expect(names()).toEqual(['COMP MIX', 'MOD', 'DELAY', 'FLT MIX']);
+    tap('ch1'); // KICK: FX 1, in its routing order (v96)
+    expect(names()).toEqual(['FLT MIX', 'COMP MIX', 'MOD', 'DELAY']);
+    expect((app as unknown as { levelKey(id: string): string }).levelKey('mlvl1')).toBe('mix:lvl4'); // stored as before
     tap('ch7'); // LEAD: FX 2
     expect(names()).toEqual(['DIST', 'DELAY', 'VERB', 'MOD']);
     // Slot 4 loaded with a delay: two DELAYs, numbered.
@@ -576,7 +577,7 @@ describe('CLEAR + A-D and the TIME key', () => {
 });
 
 describe('live knobs', () => {
-  it('KICK top live knob = INT (the SOUND page\'s own value); SNARE / HAT / PERC top knobs ride FX 1: MOD, DELAY, FILTER', () => {
+  it('KICK top live knob = INT (the SOUND page\'s own value); SNARE / HAT / PERC top knobs ride FX 1: FILTER, MOD, DELAY (its routing order)', () => {
     const { app, sent, tap, emit } = makeApp();
     tap('mode:play');
     tap('ch1');
@@ -589,21 +590,21 @@ describe('live knobs', () => {
     emit({ type: 'knob', id: 'k2', value: 1 });
     emit({ type: 'knob', id: 'k3', value: 0.5 });
     emit({ type: 'knob', id: 'k4', value: 0 });
-    expect(app.project.buses[0].s2_vol).toBe(1);
-    expect(app.project.buses[0].s3_vol).toBe(0.5);
-    expect(app.project.buses[0].flt).toBe(0);
+    expect(app.project.buses[0].flt).toBe(1);
+    expect(app.project.buses[0].s2_vol).toBe(0.5);
+    expect(app.project.buses[0].s3_vol).toBe(0);
     const live = (ch: number) => [...app.project.channels[ch].live, ...app.project.channels[ch].liveFunc];
     expect(live(0)).toEqual(['intensity', 'macro:decay', 'mix:volume', 'air']);
-    expect(live(1)).toEqual(['fx1:s2_vol', 'intensity', 'mix:volume', 'air']);
-    expect(live(2)).toEqual(['fx1:s3_vol', 'macro:attack', 'mix:volume', 'air']);
-    expect(live(3)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'air']); // v95: PERC's AIR
+    expect(live(1)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'air']);
+    expect(live(2)).toEqual(['fx1:s2_vol', 'macro:attack', 'mix:volume', 'air']);
+    expect(live(3)).toEqual(['fx1:s3_vol', 'intensity', 'mix:volume', 'air']); // v95: PERC's AIR
     // The synths' top knobs ride FX 2's four slots; CUTOFF is their bottom knob.
     expect([4, 5, 6, 7].map((ch) => app.project.channels[ch].live)).toEqual([
       ['fx2:s1_vol', 'cutoff'], ['fx2:s2_vol', 'cutoff'], ['fx2:s3_vol', 'cutoff'], ['fx2:s4_vol', 'cutoff'],
     ]);
     emit({ type: 'knob', id: 'k5', value: 0.75 });
     expect(app.project.buses[1].s1_vol).toBeCloseTo(0.75, 2);
-    expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: 0 });
+    expect(sent).toContainEqual({ type: 'setBus', bus: 0, id: 'flt', value: app.project.buses[0].flt });
   });
 
   it('a macro knob sits where its parameters sit: HAT ATTACK starts fully left and a full turn adds the whole range', () => {
@@ -1043,21 +1044,21 @@ describe('changed knobs', () => {
 describe('RESET with buttons held', () => {
   const glide = (app: App) => (app as unknown as { stepGlides(n: number): void }).stepGlides(performance.now() + 10);
 
-  it('a held track keeps its own settings and the FX knobs its live knobs move (PLAY: HAT LIVE 1 = FX1:DELAY)', () => {
+  it('a held track keeps its own settings and the FX knobs its live knobs move (PLAY: HAT LIVE 1 = FX1:MOD)', () => {
     const { app, tap, press, release, emit } = makeApp();
     tap('mode:play');
     tap('ch1');
-    emit({ type: 'knob', id: 'k3', value: 0.9 }); // HAT FX1:DELAY
+    emit({ type: 'knob', id: 'k3', value: 0.9 }); // HAT FX1:MOD
     emit({ type: 'knob', id: 'k11', value: 0.9 }); // HAT ATTACK
-    emit({ type: 'knob', id: 'k2', value: 0.1 }); // SNARE LIVE 1 = FX1:MOD
-    const dly = app.project.buses[0].s3_vol;
+    emit({ type: 'knob', id: 'k4', value: 0.1 }); // PERC LIVE 1 = FX1:DELAY
+    const mod = app.project.buses[0].s2_vol;
     press('ch3');
     tap('reset');
     release('ch3');
     glide(app);
-    expect(app.project.buses[0].s3_vol).toBe(dly);
+    expect(app.project.buses[0].s2_vol).toBe(mod);
     expect(app.project.channels[2].liveOffset['macro:attack']).toBeGreaterThan(0);
-    expect(app.project.buses[0].s2_vol).toBe(createDefaultProject().buses[0].s2_vol); // SNARE's: reset
+    expect(app.project.buses[0].s3_vol).toBe(createDefaultProject().buses[0].s3_vol); // PERC's: reset
     expect(app.selected).toBe(0);
   });
 

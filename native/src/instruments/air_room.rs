@@ -1,6 +1,6 @@
 //! AIR's room (ported from the TypeScript engine's airRoom.ts): the drum through a fixed pre-EQ,
 //! early reflections and a dense damped-comb tail under a per-hit envelope (KICK, SNARE),
-//! or the HAT's natural room (no envelope, SIZE = its RT60). Mono, allocation-free once built.
+//! or the natural room of the HAT and PERC (no envelope, SIZE = its RT60). Mono, allocation-free once built.
 
 use crate::dsp::Svf;
 use crate::js;
