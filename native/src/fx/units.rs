@@ -634,6 +634,9 @@ impl Unit {
 }
 
 const SMEAR: [f64; 6] = [225.0, 341.0, 441.0, 556.0, 1100.0, 1700.0];
+/// REVERSE's grain edges: in over 3 ms, out over 1 ms (the swell's peak is at the grain's end).
+const REVERSE_FADE_IN: f64 = 0.003;
+const REVERSE_FADE_OUT: f64 = 0.001;
 
 pub struct DelayFx {
     sr: f64,
@@ -709,6 +712,11 @@ impl DelayFx {
 
     pub fn settle(&mut self) {
         self.time.set_immediate(self.target());
+    }
+
+    /// A bar line: REVERSE's grains start again here, so they stay on the beat.
+    pub fn bar(&mut self) {
+        self.cycle = 0;
     }
 
     pub fn reset(&mut self) {
@@ -814,9 +822,15 @@ impl DelayFx {
         self.hp_r = flush(self.hp_r);
     }
 
+    /// REVERSE: grains half a RATE long, on a grid that starts on each bar line (`bar`); each
+    /// plays the grain before it backwards. A hit on the grid comes back as a swell whose peak
+    /// lands exactly RATE after it; with feedback the echoes swell in again every RATE (each
+    /// pass turns the last one round). A short fade in / out at the grain's edges, no click.
     fn render_reverse(&mut self, in_l: &[f32], in_r: &[f32], wet_l: &mut [f32], wet_r: &mut [f32], n: usize) {
         let size = self.buf_l.len();
-        let len = (js::round(self.time.value()).min((size / 2) as f64 - 2.0)).max(256.0) as usize;
+        let len = (js::round(self.time.value() * 0.5).min((size / 2) as f64 - 2.0)).max(128.0) as usize;
+        let fade_in = (REVERSE_FADE_IN * self.sr).max(1.0);
+        let fade_out = (REVERSE_FADE_OUT * self.sr).max(1.0);
         let g = 0.57;
         for i in 0..n {
             self.time.next();
@@ -824,20 +838,13 @@ impl DelayFx {
             self.buf_l[self.write] = (in_l[i] as f64 + if fb > 0.0 { tanh(self.wet_l * fb) } else { 0.0 }) as f32;
             self.buf_r[self.write] = (in_r[i] as f64 + if fb > 0.0 { tanh(self.wet_r * fb) } else { 0.0 }) as f32;
             if self.cycle >= len {
-                self.cycle -= len;
+                self.cycle %= len;
             }
-            let (mut yl, mut yr) = (0.0, 0.0);
-            for k in 0..2 {
-                let mut ph = self.cycle as f64 / len as f64 + k as f64 * 0.5;
-                if ph >= 1.0 {
-                    ph -= 1.0;
-                }
-                let w = sin_rad(std::f64::consts::PI * ph);
-                let win = w * w;
-                let d = 2.0 * len as f64 * ph + 1.0;
-                yl += tap(&self.buf_l, self.write, d) * win;
-                yr += tap(&self.buf_r, self.write, d) * win;
-            }
+            let c = self.cycle as f64;
+            let win = (c / fade_in).min((len as f64 - c) / fade_out).min(1.0);
+            let d = 2.0 * c + 1.0;
+            let mut yl = tap(&self.buf_l, self.write, d) * win;
+            let mut yr = tap(&self.buf_r, self.write, d) * win;
             let (mut dl, mut dr) = (yl, yr);
             for a in 0..self.sm_l.len() {
                 dl = self.sm_l[a].process(dl, g);

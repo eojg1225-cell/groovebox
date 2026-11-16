@@ -3953,6 +3953,40 @@ describe('FX buses (v41)', () => {
     expect(back.buses).toEqual(p.buses);
   });
 
+  it('REVERSE: a hit on the beat swells back with its peak exactly RATE later, then every RATE with feedback', () => {
+    // The KICK once at the bar's start, on FX 2 into slot 2 only: REVERSE at 1/4 (0.5 s at 120 BPM).
+    const wet = (rate: string, fdbk = 0.5) => {
+      const run = (lvl2: number) => {
+        const p = kickProject([0], { bpm: 120 });
+        p.channels[0].patterns[0].length = 32; // one hit in two bars
+        p.channels[0].bus = 1;
+        noFx(p.channels[0]);
+        p.channels[0].lvl2 = lvl2;
+        onlyBus(p, 1, slot(2, 'REVERSE', 1, TIME(rate), fdbk));
+        const e = engineWith(p);
+        render(e, 0.137); // stopped a while first: the grain grid must follow the bar, not the engine's start
+        e.handleMessage({ type: 'transport', playing: true });
+        return render(e, 1.8).l;
+      };
+      const dry = run(0), all = run(1);
+      return all.map((v, i) => v - dry[i]);
+    };
+    const peakAt = (l: Float32Array, from: number, to: number) => {
+      let at = 0, m = 0;
+      for (let i = Math.round(from * SR); i < Math.round(to * SR); i++) if (Math.abs(l[i]) > m) { m = Math.abs(l[i]); at = i; }
+      return at / SR;
+    };
+    const q = wet('1/4');
+    expect(peakAt(q, 0.25, 0.75)).toBeCloseTo(0.5, 1.7); // within ~10 ms of one RATE
+    expect(peakAt(q, 0.75, 1.25)).toBeCloseTo(1.0, 1.7); // the next echo, one RATE on
+    const e8 = wet('1/8');
+    expect(peakAt(e8, 0.15, 0.35)).toBeCloseTo(0.25, 1.7);
+    // No feedback: one echo only (no second copy a RATE later).
+    const once = wet('1/4', 0);
+    const level = (l: Float32Array, a: number, b: number) => stats(l.subarray(Math.round(a * SR), Math.round(b * SR))).peak;
+    expect(level(once, 0.8, 1.1)).toBeLessThan(level(once, 0.35, 0.55) * 0.05);
+  });
+
   it('a track\'s level into one slot feeds that effect only', () => {
     // A kick on FX 2 with a delay in slot 2 and a reverb in slot 3, both up.
     const tail = (lvl2: number, lvl3: number) => {

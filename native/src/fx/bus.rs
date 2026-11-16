@@ -291,6 +291,15 @@ impl FxBus {
         }
     }
 
+    /// A bar line (the sequencer's): the REVERSE delays' grains line up on it.
+    pub fn bar(&mut self) {
+        for s in &mut self.slots {
+            if let Unit::Delay(d) = &mut s.units[2] {
+                d.bar();
+            }
+        }
+    }
+
     /// Jump to the current settings (project load).
     pub fn settle(&mut self) {
         self.flt_pos.set_immediate(self.flt_target);

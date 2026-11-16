@@ -299,6 +299,12 @@ impl Engine {
         }
         let pos = self.bar_pos(g);
         let step_len = self.step_frames(g);
+        if at_bar {
+            // REVERSE delays: their grains start on the bar, so the echoes land on RATE.
+            for b in &mut self.buses {
+                b.bar();
+            }
+        }
         if self.click_on && self.beat_at[pos as usize] != 0 {
             self.click.trigger(pos == 0.0);
         }
