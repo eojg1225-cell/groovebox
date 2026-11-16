@@ -596,7 +596,7 @@ describe('live knobs', () => {
     expect(live(0)).toEqual(['intensity', 'macro:decay', 'mix:volume', 'air']);
     expect(live(1)).toEqual(['fx1:s2_vol', 'intensity', 'mix:volume', 'air']);
     expect(live(2)).toEqual(['fx1:s3_vol', 'macro:attack', 'mix:volume', 'air']);
-    expect(live(3)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'macro:grit']);
+    expect(live(3)).toEqual(['fx1:flt', 'intensity', 'mix:volume', 'air']); // v95: PERC's AIR
     // The synths' top knobs ride FX 2's four slots; CUTOFF is their bottom knob.
     expect([4, 5, 6, 7].map((ch) => app.project.channels[ch].live)).toEqual([
       ['fx2:s1_vol', 'cutoff'], ['fx2:s2_vol', 'cutoff'], ['fx2:s3_vol', 'cutoff'], ['fx2:s4_vol', 'cutoff'],

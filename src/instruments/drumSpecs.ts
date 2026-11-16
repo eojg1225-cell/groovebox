@@ -89,7 +89,8 @@ const ALL: Record<string, ParamSpec> = Object.fromEntries(([
   // AIR TAIL (id airsize, was AIR SIZE): the shape of the room's fixed-length envelope (airRoom.ts).
   { id: 'airsize', name: 'AIR TAIL', min: 0, max: 1, defaultValue: 0.4, unit: '', curve: 'linear' },
   // HAT's AIR SIZE (v81): its natural room's RT60 (airRoom.ts NATURAL).
-  { id: 'hairsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.6, unit: '', curve: 'linear' },
+  // HAT: the natural room's RT60, 30 ms ... 3 s (v95; 1.2 s before, saves rescaled: `hairSizeV95`).
+  { id: 'hairsize', name: 'AIR SIZE', min: 0, max: 1, defaultValue: 0.48, unit: '', curve: 'linear' },
   midFreq(1000),
   // OCTAVE (FUNC + OCT): the pitched layers an octave at a time, on top of the note.
   OCTAVE,
@@ -108,7 +109,7 @@ function drumParams(ids: string[], defaults: Record<string, number>): ParamSpec[
 
 /** Controls every drum has (after its layer parameters). */
 const WHOLE = ['balance', 'drive', 'crush', 'bits', 'ogain', 'rolldiv', 'midfreq', 'octave'];
-/** AIR: KICK and SNARE (DrumVoice.air sets each one's EQ); HAT its natural room (AIR SIZE). */
+/** AIR: KICK, SNARE and PERC (v95; DrumVoice.air sets each one's EQ); HAT its natural room (AIR SIZE). */
 const AIR = ['air', 'airsize'];
 const HAT_AIR = ['air', 'hairsize'];
 
@@ -145,7 +146,7 @@ export const PERC_PARAMS = drumParams(
   [
     'timbre', 'intensity', 't_level', 't_pitch', 't_sweep', 't_stime', 't_attack', 't_decay', 't_wave',
     'c_level', 'c_tone', 'c_attack', 'c_len', 'c_reso', 'c_noise',
-    'm_level', 'm_interval', 'detune', 'm_spread', 'm_noise', 'm_tone', 'm_mode', 'm_fm', ...WHOLE,
+    'm_level', 'm_interval', 'detune', 'm_spread', 'm_noise', 'm_tone', 'm_mode', 'm_fm', ...WHOLE, ...AIR,
   ],
   { t_level: 0.95, t_pitch: 95, t_sweep: 9, t_stime: 0.08, t_decay: 0.3, c_level: 0.3, c_tone: 2200, c_len: 0.004, midfreq: 450 },
 );

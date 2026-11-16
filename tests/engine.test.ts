@@ -201,7 +201,7 @@ describe('instruments', () => {
     ]);
     expect(main('snare')[0].slice(5, 8)).toEqual(['air', 'c_level', 'rolldiv']);
     expect(main('hat')[0].slice(5, 7)).toEqual(['air', 'c_reso']);
-    expect(main('perc')[1].slice(4, 7)).toEqual(['t_stime', '-', 'c_noise']);
+    expect(main('perc')[1].slice(4, 7)).toEqual(['t_stime', 'airsize', 'c_noise']); // AIR (v95)
     expect(main('bass')).toEqual([
       ['timbre', 'attack', 'fmattack', 'fm', 'fattack', 'fenv', 'unison', 'glide'],
       ['intensity', 'decay', 'fmdecay', 'reso', 'fdecay', 'cutoff', 'detune', 'sub'],
@@ -4380,9 +4380,38 @@ describe('AIR (KICK, SNARE)', () => {
     expect(fromStored(older)!.channels[0].sounds.kick!.airsize).toBe(0.7);
   });
 
-  it('only KICK, SNARE and HAT have AIR (the HAT its natural room, AIR SIZE)', () => {
-    for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(k === 'kick' || k === 'snare' || k === 'hat');
+  it('every drum has AIR on module 6 (PERC since v95; the HAT its natural room, AIR SIZE)', () => {
+    for (const k of SOUND_KINDS) expect(INSTRUMENTS[k].params.some((p) => p.id === 'air'), k).toBe(INSTRUMENTS[k].drum);
     expect([INSTRUMENTS.hat.layout[5], INSTRUMENTS.hat.layout[13]]).toEqual(['air', 'hairsize']);
+    expect([INSTRUMENTS.perc.layout[5], INSTRUMENTS.perc.layout[13]]).toEqual(['air', 'airsize']);
+  });
+
+  it('PERC AIR rings on past the hit; off (0) it is untouched', () => {
+    const hit = (extra: Record<string, number>) => {
+      const d = new Drum(SR, PERC_PARAMS);
+      for (const [id, v] of Object.entries({ ...presetSound('perc', 0), ...extra })) d.setParam(id, v);
+      d.noteOn(45, 0.8, 45, false);
+      const n = SR, l = new Float32Array(n), r = new Float32Array(n);
+      for (let at = 0; at < n; at += 128) {
+        const bl = l.subarray(at, at + 128), br = r.subarray(at, at + 128);
+        d.render(bl, br, 0, 128);
+        d.post(bl, br, 128);
+      }
+      return l;
+    };
+    const tail = (l: Float32Array) => stats(l.subarray(Math.round(SR * 0.2), Math.round(SR * 0.35))).peak; // within its 0.5 s envelope
+    expect(tail(hit({ air: 1, t_decay: 0.1, c_len: 0.002 }))).toBeGreaterThan(tail(hit({ air: 0, t_decay: 0.1, c_len: 0.002 })) * 10 + 1e-6);
+  });
+
+  it('v95: the HAT\'s AIR SIZE reaches 3 s; a saved AIR SIZE keeps its time; a PERC on VOL / GRIT takes VOL / AIR LVL', () => {
+    const stored = JSON.parse(JSON.stringify(toStored(createDefaultProject())));
+    stored.version = 94;
+    stored.channels[2].sounds.hat.hairsize = 1;
+    stored.channels[3].liveFunc = ['mix:volume', 'macro:grit'];
+    const back = fromStored(stored)!;
+    const rt = (x: number, max: number) => 0.03 * Math.pow(max / 0.03, x);
+    expect(rt(back.channels[2].sounds.hat!.hairsize, 3)).toBeCloseTo(1.2, 6);
+    expect(back.channels[3].liveFunc).toEqual(['mix:volume', 'air']);
   });
 });
 
@@ -5076,7 +5105,7 @@ describe('v81: PAD effects, HAT AIR, one send', () => {
     };
     const late = (l: Float32Array, a: number) => energy(l, Math.round(SR * a), Math.round(SR * (a + 0.1)));
     const dry = hit({});
-    expect(late(hit({ air: 1 }), 0.1)).toBeGreaterThan(late(dry, 0.1) * 10 + 1e-12); // the default SIZE (0.6)
+    expect(late(hit({ air: 1 }), 0.1)).toBeGreaterThan(late(dry, 0.1) * 10 + 1e-12); // the default SIZE (0.48, ~0.27 s)
     expect(late(hit({ air: 1, hairsize: 1 }), 0.3)).toBeGreaterThan(late(hit({ air: 1 }), 0.3) * 10 + 1e-12);
   });
 

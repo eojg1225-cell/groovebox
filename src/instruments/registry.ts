@@ -35,13 +35,13 @@ function synthPage(amp: readonly [string, string], three: readonly [string, stri
 
 /**
  * Drums: 1 TIMBRE / INT, 2 element 1 ATTACK / DECAY, 3 element 2 ATTACK / DECAY, 4 the
- * elements' pitch (`pitch`), 5 their character (`five`), 6 AIR LVL / AIR TAIL (`six`; PERC its
- * room to come), 7 the rest of the drum's design (`seven`: KICK SWEEP / SWP TIME, SNARE its
+ * elements' pitch (`pitch`), 5 their character (`five`), 6 AIR LVL / AIR TAIL (`six`; HAT AIR
+ * SIZE), 7 the rest of the drum's design (`seven`: KICK SWEEP / SWP TIME, SNARE its
  * STICK, HAT its click, PERC CLK PITCH / CLK NOISE), 8 ROLL RATE / BALANCE (element 1 <-> 2).
  * Elements: KICK body + click, SNARE body + metal (wires), HAT click + metal, PERC body + click
  * (+ metal halfway between them). No filter per drum (FX 1's FILTER is the kit's).
  */
-function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string | null, string | null], seven: readonly [string, string]): (string | null)[] {
+function drumPage(elements: readonly string[], pitch: readonly [string, string], five: readonly [string, string], six: readonly [string, string], seven: readonly [string, string]): (string | null)[] {
   const [a1, d1, a2, d2] = elements;
   return [
     'timbre', a1, a2, pitch[0], five[0], six[0], seven[0], 'rolldiv',
@@ -179,6 +179,7 @@ export const LIVE_MACROS: Record<SoundKind, readonly LiveMacro[]> = {
     macro('DECAY', [['t_decay', 1], ['c_len', 0.5]]),
     drumAttack('t_attack', 'c_attack'),
     GRIT,
+    AIR,
   ],
   // ENV opens the filter envelope further and lengthens its decay.
   bass: [macro('ENV', [['fenv', 1], ['fdecay', 0.5]]), GRIT],
@@ -291,9 +292,9 @@ export const INSTRUMENTS: Record<SoundKind, InstrumentEntry> = {
     funcLayout: HAT_FUNC,
     presets: HAT_PRESETS, drum: true, baseNote: DRUM_ROOT },
   perc: {
-    name: 'PERC', gain: 0.537, live: ['fx1:flt', 'intensity'], liveFunc: ['mix:volume', 'macro:grit'], params: PERC_PARAMS,
-    // 6 waits for its AIR.
-    layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], [_, _], ['c_tone', 'c_noise']),
+    name: 'PERC', gain: 0.537, live: ['fx1:flt', 'intensity'], liveFunc: ['mix:volume', 'air'], params: PERC_PARAMS,
+    // AIR (v95) on 6, as the other drums.
+    layout: drumPage(PERC_ELEMENTS, ['detune', 'm_interval'], ['t_sweep', 't_stime'], ['air', 'airsize'], ['c_tone', 'c_noise']),
     funcLayout: DRUM_FUNC,
     presets: PERC_PRESETS, drum: true, pitched: true, baseNote: DRUM_ROOT },
   bass: {

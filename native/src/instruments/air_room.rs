@@ -6,7 +6,8 @@ use crate::dsp::Svf;
 use crate::js;
 
 const NATURAL_RT_MIN: f64 = 0.03;
-const NATURAL_RT_MAX: f64 = 1.2;
+/// v95: 3 s (was 1.2 s; saves' AIR SIZE rescaled to keep their time).
+const NATURAL_RT_MAX: f64 = 3.0;
 const TAIL_RT: f64 = 4.0;
 const AIR_LENGTH: f64 = 0.5;
 const ENV_POINTS: usize = 256;

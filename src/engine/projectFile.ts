@@ -739,6 +739,20 @@ function chainV85(p: Project): void {
  * step locks, SONG lanes, USER patches).
  */
 /**
+ * v95: the HAT's AIR SIZE reaches a 3 s RT60 (was 1.2 s; the knob is exponential from 30 ms): a
+ * saved AIR SIZE (values, trims, step locks, SONG lanes) moves to the place giving the same time.
+ */
+const HAIR_V95 = Math.log(1.2 / 0.03) / Math.log(3 / 0.03);
+function hairSizeV95(values: Record<string, number>): void {
+  if (typeof values.hairsize === 'number') values.hairsize *= HAIR_V95;
+}
+
+/** v95: PERC's ALT live knobs went from VOL / GRIT to VOL / AIR LVL (its new room); a PERC still on the old pair takes the new one. */
+function percLiveV95(ch: ChannelState): void {
+  if (ch.instrument === 'perc' && ch.liveFunc[0] === 'mix:volume' && ch.liveFunc[1] === 'macro:grit') ch.liveFunc = [...INSTRUMENTS.perc.liveFunc];
+}
+
+/**
  * v94: CRUSH became two knobs, SAMPLES (`crush`, the sample-rate hold, as stored) and BITS
  * (`bits`): a save's BITS takes its CRUSH (values, trims, step locks, SONG lanes; USER patches
  * too), so it plays as saved. In place.
@@ -793,6 +807,7 @@ function locksV70(kind: InstrumentKind, locks: Record<string, number>, version: 
   if (version < 81) busKeysV81(locks);
   if (version < 85 && locks.crush !== undefined) locks.crush = crushV85(locks.crush);
   if (version < 94) bitsV94(locks);
+  if (version < 95 && kind === 'hat') hairSizeV95(locks);
   if (version < 76 && CZ_KINDS_V76.includes(kind)) delete locks.intensity;
   if (version < 78 && kind === 'pluck') delete locks.intensity;
   if (version < 79 && kind === 'pad') for (const id of FM_IDS_V79) if (locks[id] !== undefined) locks[id] = fmLevelV79(locks[id]);
@@ -823,6 +838,7 @@ function readSound(kind: SoundKind, x: unknown, version: number, base: Record<st
   if (version < 85 && typeof values.crush === 'number') sound.crush = crushV85(sound.crush);
   // v94: BITS takes CRUSH (stored as if it had been saved, so TIMBRE's value below leaves it).
   if (version < 94 && typeof values.crush === 'number' && typeof values.bits !== 'number') values.bits = sound.bits = sound.crush;
+  if (version < 95 && kind === 'hat' && typeof values.hairsize === 'number') values.hairsize = sound.hairsize = values.hairsize * HAIR_V95;
   const hidden = hiddenSound(kind, sound, specs);
   for (const id in hidden) if (typeof values[id] !== 'number') sound[id] = hidden[id];
   if (version < 77) fmCompV77(kind, sound);
@@ -1107,6 +1123,7 @@ function readTrims(kind: SoundKind, sound: Record<string, number>, x: unknown, v
   if ((version < 78 && CARRIER_KINDS_V78.includes(kind)) || (version < 79 && kind === 'pad')) trims = deriveTrims(kind, sound, specs);
   if (version < 85) crushTrimV85(kind, sound, trims);
   if (version < 94) bitsV94(trims);
+  if (version < 95 && kind === 'hat' && isObj(x)) hairSizeV95(trims);
   pruneTrims(sound, trims, hiddenSound(kind, sound, specs), pageParams(kind));
   return trims;
 }
@@ -1162,6 +1179,7 @@ function readChannel(src: Obj, ch: ChannelState, version: number): void {
   if (version < 65) drumLiveV65(ch);
   if (version < 88) liveV88(ch);
   if (version < 89) pluckLiveV89(ch);
+  if (version < 95) percLiveV95(ch);
   ch.chord = Math.round(num(src.chord, ch.chord, 0, CHORD_NAMES.length - 1));
   ch.notes = Math.round(num(src.notes, MAX_CHORD_NOTES, 1, MAX_CHORD_NOTES));
   ch.lfoOn = src.lfoOn === true;
@@ -1395,6 +1413,12 @@ export function fromStored(data: unknown): Project | null {
     for (const key in p.song.auto) {
       const t = parseAutoKey(key);
       if (t?.kind === 's' && t.id === 'crush') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, crushV85(v)]);
+    }
+  }
+  if (version < 95 && p.song.auto) {
+    for (const key of Object.keys(p.song.auto)) {
+      const t = parseAutoKey(key);
+      if (t?.kind === 's' && t.id === 'hairsize' && p.channels[t.index]?.instrument === 'hat') p.song.auto[key] = p.song.auto[key].map(([at, v]) => [at, v * HAIR_V95]);
     }
   }
   if (version < 94 && p.song.auto) {
